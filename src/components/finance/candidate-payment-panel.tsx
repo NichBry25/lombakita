@@ -4,6 +4,7 @@ import { ChangeEvent, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Card, Feedback, Icon } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
+import { LocalDate } from "@/components/ui/local-date";
 import { AssentNotice } from "@/components/legal/assent-notice";
 import { errorMessageFor } from "@/lib/errors/error-copy";
 import { sessionFetch } from "@/lib/session/session-fetch";
@@ -18,7 +19,6 @@ import {
   PAYMENT_STATUS_TONES,
   asSentence,
   derivePaymentDisplayStatus,
-  formatFinanceDateTime,
   formatRupiah,
 } from "@/lib/finance/payment-display";
 import type { ManualPaymentProofStatus } from "@/lib/finance/payment-model";
@@ -443,9 +443,9 @@ function PaymentDeadline({ deadline }: { deadline: PaymentDeadlineState }) {
       <div>
         <dt>Batas waktu</dt>
         <dd>
-          <time dateTime={deadline.dueAt} className="data-text">
-            {formatFinanceDateTime(deadline.dueAt)}
-          </time>
+          <span className="data-text">
+            <LocalDate value={deadline.dueAt} format="financeDateTime" />
+          </span>
         </dd>
       </div>
       {note ? (

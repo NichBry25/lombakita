@@ -4,6 +4,7 @@ import { ChangeEvent, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Feedback, Icon, IconButton } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
+import { LocalDate } from "@/components/ui/local-date";
 import { errorMessageFor } from "@/lib/errors/error-copy";
 import { sessionFetch } from "@/lib/session/session-fetch";
 import {
@@ -80,15 +81,6 @@ const refusalMessage = async (
   } | null;
   return errorMessageFor(payload?.error?.code, surfaceCopy, fallback);
 };
-
-const formatDeadline = (isoDate: string): string =>
-  new Date(isoDate).toLocaleString("id-ID", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 
 // Uploading and removing are both possible only while the request is open. Once a verdict lands
 // the document is frozen — it is the evidence that verdict rests on.
@@ -308,9 +300,9 @@ function DocumentRequestCard({
 
       <span className="record-meta">
         Batas waktu{" "}
-        <time dateTime={request.dueAt} className="data-text">
-          {formatDeadline(request.dueAt)}
-        </time>
+        <span className="data-text">
+          <LocalDate value={request.dueAt} format="longDateTime" />
+        </span>
         {request.isLate ? " · Dikirim setelah batas waktu" : ""}
       </span>
 

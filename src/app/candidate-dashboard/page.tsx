@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { SecondRoleBanner } from "@/components/auth/second-role-banner";
 import { ButtonLink, EmptyState, Icon, PageHeader } from "@/components/ui";
+import { LocalDate } from "@/components/ui/local-date";
 import { formatDisplayToken } from "@/lib/text/capitalize";
 import { requireRolePage } from "@/server/auth/page-guard";
 import { getUnverifiedRoles } from "@/server/auth/role-verification";
@@ -98,7 +99,7 @@ export default async function CandidateDashboardPage() {
             {upcomingDeadlines.map((deadline, index) => (
               <li key={index} className="record-row candidate-deadline-row">
                 <span className="candidate-deadline-date data-text">
-                  {deadline.date.toLocaleDateString("id-ID", { day: "2-digit", month: "short" })}
+                  <LocalDate value={deadline.date} format="dayMonthShort" />
                 </span>
                 <div className="record-row-main">
                   <span className="record-row-title">{deadline.competitionTitle}</span>
@@ -107,11 +108,7 @@ export default async function CandidateDashboardPage() {
                       ? "Pendaftaran tutup"
                       : "Acara dimulai"}
                     {" · "}
-                    {deadline.date.toLocaleDateString("id-ID", {
-                      day: "numeric",
-                      month: "long",
-                      year: "numeric",
-                    })}
+                    <LocalDate value={deadline.date} format="longDate" />
                   </span>
                 </div>
               </li>
@@ -151,9 +148,11 @@ export default async function CandidateDashboardPage() {
                       {reg.competitionTitle}
                     </Link>
                     <span className="record-meta">
-                      {deadline
-                        ? deadline.toLocaleDateString("id-ID", { day: "numeric", month: "long" })
-                        : "Tanpa tenggat aktif"}
+                      {deadline ? (
+                        <LocalDate value={deadline} format="dayMonth" />
+                      ) : (
+                        "Tanpa tenggat aktif"
+                      )}
                     </span>
                   </div>
                   <div className="record-actions">
@@ -223,9 +222,14 @@ export default async function CandidateDashboardPage() {
                     </Link>
                     <span className="record-meta">
                       {reg.teamName} · {reg.isCaptain ? "Kapten" : "Anggota"}
-                      {deadline
-                        ? ` · ${deadline.toLocaleDateString("id-ID", { day: "numeric", month: "long" })}`
-                        : ""}
+                      {deadline ? (
+                        <>
+                          {" "}
+                          · <LocalDate value={deadline} format="dayMonth" />
+                        </>
+                      ) : (
+                        ""
+                      )}
                     </span>
                   </div>
                   <div className="record-actions">

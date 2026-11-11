@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useModal, useToast } from "@/components/ui/primitives";
 import { Button, EmptyState, PageHeader, Skeleton } from "@/components/ui";
+import { LocalDate } from "@/components/ui/local-date";
 import { DOCUMENT_TYPE_LABELS } from "@/server/institution-verification/verification-requirements";
 import { INSTITUTION_TYPE_LABELS } from "@/lib/institutions/type-labels";
 import type { InstitutionType } from "@/server/db/schema";
@@ -299,7 +300,7 @@ export default function AdminVerificationPage() {
                   </td>
                   <td className="data-text">{item.documentCount}</td>
                   <td className="data-text">
-                    {new Date(item.submittedAt).toLocaleDateString("id-ID")}
+                    <LocalDate value={item.submittedAt} format="numericDate" />
                   </td>
                   <td>
                     <Button

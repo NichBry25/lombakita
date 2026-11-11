@@ -6,6 +6,7 @@ import { Resend } from "resend";
 import { asSentence } from "@/lib/finance/payment-display";
 import { publicEnv } from "@/config/env";
 import { serverEnv } from "@/config/env.server";
+import { formatWib } from "@/lib/dates/date-format";
 import { logger } from "@/lib/logger";
 import { resolveEmailDelivery, type EmailDelivery } from "@/server/email/delivery";
 import { throwEmailSendFailure } from "@/server/email/send-failure";
@@ -13,14 +14,7 @@ import { throwEmailSendFailure } from "@/server/email/send-failure";
 // A deadline carried on a job payload travels as an ISO string. Rendered in Indonesian long form
 // to match the registration-confirmation email, and with the time included because a document
 // deadline is acted on the same day it falls.
-const formatEmailDate = (isoDate: string): string =>
-  new Date(isoDate).toLocaleString("id-ID", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+const formatEmailDate = (isoDate: string): string => formatWib(isoDate, "longDateTime");
 
 const resolveBaseUrl = (): string => {
   return serverEnv.authUrl ?? serverEnv.appBaseUrl ?? publicEnv.appUrl ?? "http://localhost:3000";
@@ -45,11 +39,7 @@ export const sendRegistrationConfirmedEmail = async (options: {
 
   const { apiKey, from } = delivery;
   const typeLabel = options.registrationType === "team" ? "Tim" : "Individu";
-  const dateFormatted = options.registeredAt.toLocaleDateString("id-ID", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
+  const dateFormatted = formatWib(options.registeredAt, "longDate");
 
   const resend = new Resend(apiKey);
   const { error } = await resend.emails.send({
@@ -126,14 +116,7 @@ export const sendSubmissionFinalizedEmail = async (options: {
   }
 
   const { apiKey, from } = delivery;
-  const dateFormatted = options.finalizedAt.toLocaleString("id-ID", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZoneName: "short",
-  });
+  const dateFormatted = formatWib(options.finalizedAt, "longDateTime");
 
   const resend = new Resend(apiKey);
   const { error } = await resend.emails.send({

@@ -1,6 +1,7 @@
 import { Resend } from "resend";
 import { publicEnv } from "@/config/env";
 import { serverEnv } from "@/config/env.server";
+import { formatWib } from "@/lib/dates/date-format";
 import { logger } from "@/lib/logger";
 import { resolveEmailDelivery } from "@/server/email/delivery";
 import { throwEmailSendFailure } from "@/server/email/send-failure";
@@ -24,11 +25,7 @@ const buildClaimSignupUrl = (rawToken: string): string => {
 };
 
 const formatExpiryDate = (expiresAt: Date): string => {
-  return expiresAt.toLocaleDateString("id-ID", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
+  return formatWib(expiresAt, "longDate");
 };
 
 export type TeamInvitationEmailMode = "targeted" | "claim";

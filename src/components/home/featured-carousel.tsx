@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ButtonLink, Icon } from "@/components/ui";
+import { LocalDate } from "@/components/ui/local-date";
 import { getCompetitionCategoryLabel } from "@/lib/competitions/categories";
 import { getCompetitionModeLabel } from "@/lib/competitions/modes";
 
@@ -21,12 +22,6 @@ type FeaturedItem = {
 function toDate(value: Date | string | null) {
   if (!value) return null;
   return value instanceof Date ? value : new Date(value);
-}
-
-function formatDeadline(value: Date | string | null) {
-  const date = toDate(value);
-  if (!date) return "Tanpa batas waktu";
-  return date.toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" });
 }
 
 function resolveRegistrationStatus(value: Date | string | null) {
@@ -155,7 +150,12 @@ export function FeaturedCarousel({ items }: { items: FeaturedItem[] }) {
 
                   <div className="competition-card-footer">
                     <span className="status-badge" data-status={registrationStatus.value}>
-                      {registrationStatus.label} · {formatDeadline(competition.registrationEndAt)}
+                      {registrationStatus.label} ·{" "}
+                      {competition.registrationEndAt ? (
+                        <LocalDate value={competition.registrationEndAt} format="shortDate" />
+                      ) : (
+                        "Tanpa batas waktu"
+                      )}
                     </span>
                     <span className="competition-card-arrow" aria-hidden="true">
                       <Icon name="arrow-right" size="md" />

@@ -6,7 +6,8 @@ import { getDb } from "@/server/db/client";
 import { Card, EmptyState, Feedback, PageHeader } from "@/components/ui";
 import { loadInstitutionFeeStatement } from "@/server/finance/fee-statement";
 import { formatBasisPoints } from "@/lib/finance/fee-display";
-import { formatFinanceDateTime, formatRupiah } from "@/lib/finance/payment-display";
+import { LocalDate } from "@/components/ui/local-date";
+import { formatRupiah } from "@/lib/finance/payment-display";
 
 type Props = { params: Promise<{ institutionSlug: string }> };
 
@@ -113,9 +114,7 @@ export default async function InstitutionFeeStatementPage({ params }: Props) {
                 {statement.lines.map((line) => (
                   <tr key={line.accrualId}>
                     <td>
-                      <time dateTime={line.recordedAt.toISOString()}>
-                        {formatFinanceDateTime(line.recordedAt.toISOString())}
-                      </time>
+                      <LocalDate value={line.recordedAt} format="financeDateTime" />
                     </td>
                     <td>
                       {line.competitionTitle ?? "—"}
@@ -176,9 +175,7 @@ export default async function InstitutionFeeStatementPage({ params }: Props) {
                     <div>
                       <dt>Disetujui</dt>
                       <dd>
-                        <time dateTime={ack.acknowledgedAt.toISOString()}>
-                          {formatFinanceDateTime(ack.acknowledgedAt.toISOString())}
-                        </time>
+                        <LocalDate value={ack.acknowledgedAt} format="financeDateTime" />
                       </dd>
                     </div>
                   </dl>

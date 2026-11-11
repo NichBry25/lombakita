@@ -13,7 +13,8 @@ import {
   FormTextarea,
 } from "@/components/ui";
 import { useModal, useToast } from "@/components/ui/primitives";
-import { asSentence, formatFinanceDateTime, formatRupiah } from "@/lib/finance/payment-display";
+import { LocalDate } from "@/components/ui/local-date";
+import { asSentence, formatRupiah } from "@/lib/finance/payment-display";
 import { PROOF_STATUS_LABELS, PROOF_STATUS_TONES } from "@/lib/finance/proof-display";
 import { formatFileSize } from "@/lib/text/format-file-size";
 import type { ManualPaymentProofStatus } from "@/lib/finance/payment-model";
@@ -218,16 +219,14 @@ export function OrganiserPaymentQueue({ institutionSlug, competitionId, proofs }
                 <div>
                   <dt>Dikirim</dt>
                   <dd>
-                    <time dateTime={proof.submittedAt}>
-                      {formatFinanceDateTime(proof.submittedAt)}
-                    </time>
+                    <LocalDate value={proof.submittedAt} format="financeDateTime" />
                   </dd>
                 </div>
                 {proof.dueAt ? (
                   <div>
                     <dt>Batas waktu</dt>
                     <dd>
-                      <time dateTime={proof.dueAt}>{formatFinanceDateTime(proof.dueAt)}</time>
+                      <LocalDate value={proof.dueAt} format="financeDateTime" />
                     </dd>
                   </div>
                 ) : null}

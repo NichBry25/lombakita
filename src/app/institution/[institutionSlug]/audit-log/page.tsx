@@ -6,6 +6,7 @@ import { requireAdminInstitutionBySlug } from "@/server/institution-members/memb
 import { desc, eq, sql } from "drizzle-orm";
 import { institutionAuditLogs, users } from "@/server/db/schema";
 import { EmptyState, PageHeader, Pagination } from "@/components/ui";
+import { LocalDate } from "@/components/ui/local-date";
 import { formatDisplayToken } from "@/lib/text/capitalize";
 
 type Props = {
@@ -104,7 +105,9 @@ export default async function AuditLogPage({ params, searchParams }: Props) {
                       <td className="data-text">{formatDisplayToken(e.eventType)}</td>
                       <td>{e.actorName ?? "—"}</td>
                       <td className="data-text audit-summary">{summary}</td>
-                      <td className="data-text">{new Date(e.createdAt).toLocaleString("id-ID")}</td>
+                      <td className="data-text">
+                        <LocalDate value={e.createdAt} format="numericDateTime" />
+                      </td>
                     </tr>
                   );
                 })}

@@ -13,7 +13,8 @@ import {
 } from "@/components/ui";
 import { useModal, useToast } from "@/components/ui/primitives";
 import { getCompetitionStatusLabel } from "@/lib/competitions/status-labels";
-import { asSentence, formatFinanceDateTime, formatRupiah } from "@/lib/finance/payment-display";
+import { LocalDate } from "@/components/ui/local-date";
+import { asSentence, formatRupiah } from "@/lib/finance/payment-display";
 import { PROOF_STATUS_LABELS, PROOF_STATUS_TONES } from "@/lib/finance/proof-display";
 import type { ManualPaymentProofStatus } from "@/lib/finance/payment-model";
 import { errorMessageFor } from "@/lib/errors/error-copy";
@@ -273,18 +274,14 @@ export function OpsPaymentActions({
                             <div>
                               <dt>Dikirim</dt>
                               <dd>
-                                <time dateTime={proof.submittedAt}>
-                                  {formatFinanceDateTime(proof.submittedAt)}
-                                </time>
+                                <LocalDate value={proof.submittedAt} format="financeDateTime" />
                               </dd>
                             </div>
                             {proof.dueAt ? (
                               <div>
                                 <dt>Batas waktu</dt>
                                 <dd>
-                                  <time dateTime={proof.dueAt}>
-                                    {formatFinanceDateTime(proof.dueAt)}
-                                  </time>
+                                  <LocalDate value={proof.dueAt} format="financeDateTime" />
                                 </dd>
                               </div>
                             ) : null}
@@ -370,16 +367,14 @@ export function OpsPaymentActions({
                     <div>
                       <dt>Dikirim</dt>
                       <dd>
-                        <time dateTime={proof.submittedAt}>
-                          {formatFinanceDateTime(proof.submittedAt)}
-                        </time>
+                        <LocalDate value={proof.submittedAt} format="financeDateTime" />
                       </dd>
                     </div>
                     {proof.dueAt ? (
                       <div>
                         <dt>Batas waktu</dt>
                         <dd>
-                          <time dateTime={proof.dueAt}>{formatFinanceDateTime(proof.dueAt)}</time>
+                          <LocalDate value={proof.dueAt} format="financeDateTime" />
                         </dd>
                       </div>
                     ) : null}

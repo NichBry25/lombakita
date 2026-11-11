@@ -2,15 +2,7 @@ import Link from "next/link";
 import { requireRolePage } from "@/server/auth/page-guard";
 import { listSavedCompetitions } from "@/server/saved-competitions/saved-competition-service";
 import { ButtonLink, EmptyState, Icon, PageHeader, Pagination } from "@/components/ui";
-
-const formatDate = (d: Date | null) =>
-  d
-    ? new Date(d).toLocaleDateString("id-ID", {
-        day: "numeric",
-        month: "long",
-        year: "numeric",
-      })
-    : "—";
+import { LocalDate } from "@/components/ui/local-date";
 
 export default async function SavedCompetitionsPage({
   searchParams,
@@ -60,7 +52,8 @@ export default async function SavedCompetitionsPage({
                 <p className="record-meta">{item.institutionName}</p>
                 {item.registrationEndAt ? (
                   <p className="record-meta">
-                    Batas pendaftaran: {formatDate(item.registrationEndAt)}
+                    Batas pendaftaran:{" "}
+                    <LocalDate value={item.registrationEndAt} format="longDate" />
                   </p>
                 ) : null}
                 {item.savedStatus === "unavailable" ? (

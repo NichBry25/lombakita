@@ -12,6 +12,7 @@ import {
   usePageTransition,
 } from "@/components/ui";
 import { useModal, useToast } from "@/components/ui/primitives";
+import { LocalDate } from "@/components/ui/local-date";
 import { getCompetitionCategoryLabel } from "@/lib/competitions/categories";
 import { getCompetitionFieldLabel } from "@/lib/competitions/fields";
 import { getCompetitionModeLabel } from "@/lib/competitions/modes";
@@ -145,12 +146,6 @@ const extractError = async (
   } catch {
     return {};
   }
-};
-
-const formatDate = (iso: string | null): string => {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? "—" : d.toISOString().slice(0, 16).replace("T", " ");
 };
 
 type ActionKind = "publish" | "unpublish";
@@ -437,30 +432,64 @@ export const InstitutionCompetitionDetailShell = ({
           </div>
           <div>
             <dt>Pendaftaran mulai</dt>
-            <dd className="data-text">{formatDate(competition.registrationStartAt)}</dd>
+            <dd className="data-text">
+              {competition.registrationStartAt ? (
+                <LocalDate value={competition.registrationStartAt} format="longDateTime" />
+              ) : (
+                "—"
+              )}
+            </dd>
           </div>
           <div>
             <dt>Pendaftaran berakhir</dt>
-            <dd className="data-text">{formatDate(competition.registrationEndAt)}</dd>
+            <dd className="data-text">
+              {competition.registrationEndAt ? (
+                <LocalDate value={competition.registrationEndAt} format="longDateTime" />
+              ) : (
+                "—"
+              )}
+            </dd>
           </div>
           <div>
             <dt>Acara mulai</dt>
-            <dd className="data-text">{formatDate(competition.eventStartAt)}</dd>
+            <dd className="data-text">
+              {competition.eventStartAt ? (
+                <LocalDate value={competition.eventStartAt} format="longDateTime" />
+              ) : (
+                "—"
+              )}
+            </dd>
           </div>
           <div>
             <dt>Acara berakhir</dt>
-            <dd className="data-text">{formatDate(competition.eventEndAt)}</dd>
+            <dd className="data-text">
+              {competition.eventEndAt ? (
+                <LocalDate value={competition.eventEndAt} format="longDateTime" />
+              ) : (
+                "—"
+              )}
+            </dd>
           </div>
           <div>
             <dt>Pengumuman hasil</dt>
             <dd className="data-text">
-              {formatDate(resolvedAnnouncement.at?.toISOString() ?? null)}
+              {resolvedAnnouncement.at ? (
+                <LocalDate value={resolvedAnnouncement.at} format="longDateTime" />
+              ) : (
+                "—"
+              )}
               {announcementIsDerived ? " (perkiraan)" : ""}
             </dd>
           </div>
           <div>
             <dt>Diterbitkan</dt>
-            <dd className="data-text">{formatDate(competition.publishedAt)}</dd>
+            <dd className="data-text">
+              {competition.publishedAt ? (
+                <LocalDate value={competition.publishedAt} format="longDateTime" />
+              ) : (
+                "—"
+              )}
+            </dd>
           </div>
           <div>
             <dt>Minimum peserta</dt>
@@ -470,7 +499,13 @@ export const InstitutionCompetitionDetailShell = ({
           </div>
           <div>
             <dt>Konfirmasi peserta</dt>
-            <dd className="data-text">{formatDate(competition.participantConfirmationAt)}</dd>
+            <dd className="data-text">
+              {competition.participantConfirmationAt ? (
+                <LocalDate value={competition.participantConfirmationAt} format="longDateTime" />
+              ) : (
+                "—"
+              )}
+            </dd>
           </div>
         </dl>
       </section>

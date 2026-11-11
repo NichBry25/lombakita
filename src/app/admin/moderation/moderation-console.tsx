@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button, IconButton } from "@/components/ui";
 import { useModal, useToast } from "@/components/ui/primitives";
+import { LocalDate } from "@/components/ui/local-date";
 import { getAppRoleLabel } from "@/lib/access/role-labels";
 import { errorMessageFor } from "@/lib/errors/error-copy";
 import { INSTITUTION_VERIFICATION_STATUS_LABELS } from "@/lib/institutions/verification-status-labels";
@@ -163,7 +164,8 @@ function NoteRow({ note, onSaved }: { note: NoteItem; onSaved: () => void }) {
         <div className="moderation-note-content">
           <span>{note.note}</span>
           <span className="record-meta data-text">
-            — {note.createdByName ?? note.createdById} · {new Date(note.createdAt).toLocaleString()}
+            — {note.createdByName ?? note.createdById} ·{" "}
+            <LocalDate value={note.createdAt} format="numericDateTime" />
           </span>
           <IconButton
             icon="edit"

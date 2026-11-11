@@ -29,6 +29,7 @@ import {
 import { BatchDocumentRequestForm, type BatchTarget } from "./batch-document-request-form";
 import { REVIEW_STATUS_LABELS } from "./review-status-labels";
 import { ButtonLink, EmptyState, Icon, PageHeader, Pagination } from "@/components/ui";
+import { LocalDate } from "@/components/ui/local-date";
 import { formatDisplayToken } from "@/lib/text/capitalize";
 
 type Props = {
@@ -331,7 +332,7 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
                     })()}
                   </td>
                   <td className="data-text">
-                    {new Date(p.registeredAt).toLocaleDateString("id-ID")}
+                    <LocalDate value={p.registeredAt} format="numericDate" />
                   </td>
                   <td>
                     <ButtonLink href={`${path}/${p.registrationId}`} variant="outline" size="sm">

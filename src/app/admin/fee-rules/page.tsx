@@ -1,7 +1,8 @@
 import { EmptyState, PageHeader } from "@/components/ui";
+import { LocalDate } from "@/components/ui/local-date";
 import { listFeeRules } from "@/server/finance/fee-rule-service";
 import { FeeRuleForm } from "./fee-rule-form";
-import { formatBasisPoints, formatEffectiveDate, formatMinorUnits } from "./fee-rule-display";
+import { formatBasisPoints, formatMinorUnits } from "./fee-rule-display";
 import { requireRolePage } from "@/server/auth/page-guard";
 
 export default async function AdminFeeRulesPage() {
@@ -77,9 +78,15 @@ export default async function AdminFeeRulesPage() {
                         ? "—"
                         : formatMinorUnits(rule.maximumFeeAmount, rule.currency)}
                     </td>
-                    <td className="data-text">{formatEffectiveDate(rule.effectiveFrom)}</td>
                     <td className="data-text">
-                      {rule.effectiveTo === null ? "—" : formatEffectiveDate(rule.effectiveTo)}
+                      <LocalDate value={rule.effectiveFrom} format="shortDate" />
+                    </td>
+                    <td className="data-text">
+                      {rule.effectiveTo === null ? (
+                        "—"
+                      ) : (
+                        <LocalDate value={rule.effectiveTo} format="shortDate" />
+                      )}
                     </td>
                   </tr>
                 ))}

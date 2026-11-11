@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { EmptyState, Feedback, PageHeader } from "@/components/ui";
 import { loadDisputePayments } from "@/server/finance/dispute-view";
-import { formatFinanceDateTime, formatRupiah } from "@/lib/finance/payment-display";
+import { LocalDate } from "@/components/ui/local-date";
+import { formatRupiah } from "@/lib/finance/payment-display";
 import { PROOF_STATUS_LABELS, PROOF_STATUS_TONES } from "@/lib/finance/proof-display";
 import { requireRolePage } from "@/server/auth/page-guard";
 
@@ -89,9 +90,7 @@ export default async function FinanceDisputePaymentsPage() {
                   </td>
                   <td>
                     {payment.submittedAt ? (
-                      <time dateTime={payment.submittedAt.toISOString()}>
-                        {formatFinanceDateTime(payment.submittedAt.toISOString())}
-                      </time>
+                      <LocalDate value={payment.submittedAt} format="financeDateTime" />
                     ) : (
                       "—"
                     )}

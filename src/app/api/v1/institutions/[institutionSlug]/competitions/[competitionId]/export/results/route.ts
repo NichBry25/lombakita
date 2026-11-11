@@ -1,6 +1,7 @@
 import { requireAuthenticatedSession } from "@/server/auth/session";
 import { requireAdminInstitutionBySlug } from "@/server/institution-members/member-service";
 import { getDb } from "@/server/db/client";
+import { formatWibDateStamp } from "@/lib/dates/date-format";
 import { toAccessDeniedResponse } from "@/server/auth/access-core";
 import { ExportOwnershipError, exportResultsAsCsv } from "@/server/participants/export-service";
 
@@ -20,7 +21,7 @@ export async function GET(_request: Request, context: RouteContext): Promise<Res
     );
 
     const csv = await exportResultsAsCsv(institutionId, competitionId, db);
-    const date = new Date().toISOString().slice(0, 10);
+    const date = formatWibDateStamp(new Date());
 
     return new Response(csv, {
       headers: {

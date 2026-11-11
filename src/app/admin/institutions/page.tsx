@@ -11,6 +11,7 @@ import {
   Skeleton,
 } from "@/components/ui";
 import { useModal, useToast } from "@/components/ui/primitives";
+import { LocalDate } from "@/components/ui/local-date";
 import { emailDeliveryWarning } from "@/lib/email/delivery-notice";
 import { NETWORK_ERROR_MESSAGE } from "@/lib/errors/error-copy";
 import { resolveVerificationRefusalMessage } from "@/lib/institutions/verification-refusal-copy";
@@ -398,7 +399,7 @@ export default function AdminInstitutionsPage() {
                         )}
                       </td>
                       <td className="data-text">
-                        {new Date(row.createdAt).toLocaleDateString("id-ID")}
+                        <LocalDate value={row.createdAt} format="numericDate" />
                       </td>
                       <td>
                         {transitions.length === 0 ? (
@@ -471,7 +472,7 @@ export default function AdminInstitutionsPage() {
                                     <td>{entry.reason ?? "–"}</td>
                                     <td className="data-text">{entry.actorUserId ?? "–"}</td>
                                     <td className="data-text">
-                                      {new Date(entry.createdAt).toLocaleString("id-ID")}
+                                      <LocalDate value={entry.createdAt} format="numericDateTime" />
                                     </td>
                                   </tr>
                                 ))}

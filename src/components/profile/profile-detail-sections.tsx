@@ -21,7 +21,12 @@ const PLATFORM_LABELS: Record<SocialPlatform, string> = {
   website: "Website",
 };
 
-const MONTH_YEAR = new Intl.DateTimeFormat("id-ID", { month: "short", year: "numeric" });
+// Education and experience dates are stored as calendar days at UTC midnight, so they are read in UTC.
+const MONTH_YEAR = new Intl.DateTimeFormat("id-ID", {
+  month: "short",
+  year: "numeric",
+  timeZone: "UTC",
+});
 
 // Formats a stored "YYYY-MM-DD" string as "Mmm YYYY" (month granularity in the UI).
 function formatMonthYear(value: string | null): string | null {

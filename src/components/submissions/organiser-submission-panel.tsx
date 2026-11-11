@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Button, Icon } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
+import { LocalDate } from "@/components/ui/local-date";
 import { formatFileSize } from "@/lib/text/format-file-size";
 
 export type OrganiserSubmissionView = {
@@ -20,15 +21,6 @@ type PanelProps = {
   registrationId: string;
   submission: OrganiserSubmissionView | null;
 };
-
-const formatTimestamp = (isoDate: string): string =>
-  new Date(isoDate).toLocaleString("id-ID", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 
 /**
  * The submitted work, on one participant's review page.
@@ -97,9 +89,9 @@ export function OrganiserSubmissionPanel({
                   ? `${formatFileSize(submission.fileSizeBytes)} · `
                   : ""}
                 Versi {submission.version} · Diunggah{" "}
-                <time dateTime={submission.submittedAt} className="data-text">
-                  {formatTimestamp(submission.submittedAt)}
-                </time>
+                <span className="data-text">
+                  <LocalDate value={submission.submittedAt} format="longDateTime" />
+                </span>
               </span>
 
               {submission.finalized ? null : (

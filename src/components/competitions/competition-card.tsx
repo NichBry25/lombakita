@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Icon, LinkPendingSlot } from "@/components/ui";
+import { LocalDate } from "@/components/ui/local-date";
 import { getCompetitionCategoryLabel } from "@/lib/competitions/categories";
 import { getCompetitionModeLabel } from "@/lib/competitions/modes";
 import {
@@ -36,15 +37,6 @@ export type CompetitionCardItem = {
 };
 
 const DESCRIPTION_MAX_LENGTH = 160;
-
-export function formatDeadline(value: string | Date | null): string {
-  if (!value) return "Tanpa batas waktu";
-  return new Date(value).toLocaleDateString("id-ID", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-}
 
 // The date worth showing next to the phase. Before the event that is the registration deadline;
 // once the event is over it is the promised announcement date, which is the only date a waiting
@@ -132,7 +124,14 @@ export function CompetitionCard({
         <div className="competition-card-footer">
           <span className="status-badge" data-status={getCompetitionPhaseBadgeStatus(phase)}>
             {getCompetitionPhaseLabel(phase)}
-            {phaseDate ? ` · ${formatDeadline(phaseDate)}` : ""}
+            {phaseDate ? (
+              <>
+                {" "}
+                · <LocalDate value={phaseDate} format="shortDate" />
+              </>
+            ) : (
+              ""
+            )}
           </span>
           <span className="competition-card-arrow" aria-hidden="true">
             <Icon name="arrow-right" size="md" />

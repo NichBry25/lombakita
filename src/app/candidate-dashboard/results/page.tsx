@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { EmptyState, PageHeader } from "@/components/ui";
+import { LocalDate } from "@/components/ui/local-date";
 import { requireRolePage } from "@/server/auth/page-guard";
 import { listCandidatePublishedResults } from "@/server/participants/result-service";
 
@@ -36,11 +37,7 @@ export default async function CandidateResultsPage() {
                   {result.competitionTitle}
                 </Link>
                 <span className="record-meta data-text">
-                  {result.publishedAt.toLocaleDateString("id-ID", {
-                    day: "numeric",
-                    month: "long",
-                    year: "numeric",
-                  })}
+                  <LocalDate value={result.publishedAt} format="longDate" />
                 </span>
               </div>
               <span className="result-label">{result.resultLabel}</span>

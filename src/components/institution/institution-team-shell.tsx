@@ -11,6 +11,7 @@ import {
   Skeleton,
 } from "@/components/ui";
 import { useModal, useToast } from "@/components/ui/primitives";
+import { LocalDate } from "@/components/ui/local-date";
 import { getInstitutionRoleLabel } from "@/lib/access/role-labels";
 import { errorMessageFor } from "@/lib/errors/error-copy";
 import { readErrorCode } from "@/lib/session/session-fetch";
@@ -73,14 +74,6 @@ const TEAM_FALLBACK: Record<RefusalAction, string> = {
   remove: "Anggota gagal dihapus. Coba lagi.",
   invite: "Undangan gagal dikirim. Coba lagi.",
   cancel: "Undangan gagal dibatalkan. Coba lagi.",
-};
-
-const formatDate = (iso: string): string => {
-  return new Date(iso).toLocaleDateString("id-ID", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
 };
 
 const membersUrl = (institutionSlug: string) =>
@@ -334,7 +327,9 @@ export const InstitutionTeamShell = ({
                       <td>
                         <span className="status-badge">{getInstitutionRoleLabel(member.role)}</span>
                       </td>
-                      <td className="data-text">{formatDate(member.joinedAt)}</td>
+                      <td className="data-text">
+                        <LocalDate value={member.joinedAt} format="shortDate" />
+                      </td>
                       <td>
                         {isSelf ? null : (
                           <div className="table-actions">
@@ -451,7 +446,9 @@ export const InstitutionTeamShell = ({
                   <tr key={invitation.id}>
                     <td>{invitation.invitedEmail}</td>
                     <td>{getInstitutionRoleLabel(invitation.invitedRole)}</td>
-                    <td className="data-text">{formatDate(invitation.expiresAt)}</td>
+                    <td className="data-text">
+                      <LocalDate value={invitation.expiresAt} format="shortDate" />
+                    </td>
                     <td>
                       <Button
                         variant="danger"

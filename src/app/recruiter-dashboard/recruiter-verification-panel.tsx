@@ -4,6 +4,7 @@ import { ChangeEvent, FormEvent, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Feedback, Icon, IconButton } from "@/components/ui";
 import { useModal, useToast } from "@/components/ui/primitives";
+import { LocalDate } from "@/components/ui/local-date";
 import { errorMessageFor } from "@/lib/errors/error-copy";
 import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
 import {
@@ -107,14 +108,6 @@ const REFUSAL_FALLBACK: Record<RefusalAction, string> = {
 function formatFileSize(bytes: number): string {
   const mb = bytes / (1024 * 1024);
   return mb >= 1 ? `${mb.toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
-}
-
-function formatUploadedAt(isoDate: string): string {
-  return new Date(isoDate).toLocaleDateString("id-ID", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
 }
 
 // Recruiter trust status panel. Renders one of six states: Trusted (publishing unlocked), awaiting
@@ -419,7 +412,7 @@ export function RecruiterVerificationPanel({
                 <p className="record-row-title">{document.originalFileName}</p>
                 <span className="record-meta">
                   {formatFileSize(document.fileSizeBytes)} · Diunggah{" "}
-                  {formatUploadedAt(document.createdAt)}
+                  <LocalDate value={document.createdAt} format="longDate" />
                 </span>
               </div>
               {editable ? (

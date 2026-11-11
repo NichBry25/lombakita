@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Icon, LinkPendingSlot } from "@/components/ui";
+import { LocalDate } from "@/components/ui/local-date";
 import { INDEXABLE_ROBOTS } from "@/config/indexable-routes";
 import { sessionHasRole } from "@/lib/access/roles";
 import { getCompetitionCategoryLabel, tagsOtherThanCategory } from "@/lib/competitions/categories";
@@ -36,26 +37,6 @@ import { DetailActions } from "./detail-actions";
 import { CompetitionReviewForm } from "./competition-review-form";
 import { formatTeamSizeText } from "./team-size-utils";
 import { isPaidCompetition } from "@/lib/competitions/paid-competition";
-
-const formatDate = (date: Date | string | null) =>
-  date
-    ? new Date(date).toLocaleDateString("id-ID", {
-        day: "numeric",
-        month: "long",
-        year: "numeric",
-      })
-    : "—";
-
-const formatDateTime = (date: Date | string | null) =>
-  date
-    ? new Date(date).toLocaleString("id-ID", {
-        day: "numeric",
-        month: "long",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      })
-    : "—";
 
 // The fee and its currency are read TOGETHER. `fee_amount` is an integer count of the currency's
 // smallest unit (@/lib/finance/money), so the number alone does not say what it means. The same
@@ -130,7 +111,13 @@ function CompetitionPhaseSummary({
     <div className="detail-phase-summary" data-status={getCompetitionPhaseBadgeStatus(phase)}>
       <p className="detail-phase-title">
         {getCompetitionPhaseLabel(phase)}
-        {phaseDate ? `: ${formatDate(phaseDate)}` : ""}
+        {phaseDate ? (
+          <>
+            : <LocalDate value={phaseDate} format="longDate" />
+          </>
+        ) : (
+          ""
+        )}
       </p>
     </div>
   );
@@ -170,7 +157,11 @@ function ResultAnnouncementSummary({
     <div className="stack-xs">
       <p>{heading}</p>
       <p className="detail-deadline data-text">
-        {announcement.at ? formatDateTime(announcement.at) : "Belum dijadwalkan"}
+        {announcement.at ? (
+          <LocalDate value={announcement.at} format="longDateTime" />
+        ) : (
+          "Belum dijadwalkan"
+        )}
       </p>
       {phase === "results_overdue" ? (
         <p className="form-help">
@@ -218,7 +209,14 @@ function CompetitionRail({ heading, items }: { heading: string; items: PublicCom
                   <p className="competition-organizer">{item.institutionName}</p>
                 </div>
                 <div className="competition-card-footer">
-                  <span className="status-badge">Batas · {formatDate(item.registrationEndAt)}</span>
+                  <span className="status-badge">
+                    Batas ·{" "}
+                    {item.registrationEndAt ? (
+                      <LocalDate value={item.registrationEndAt} format="longDate" />
+                    ) : (
+                      "—"
+                    )}
+                  </span>
                   <span className="competition-card-arrow" aria-hidden="true">
                     <Icon name="arrow-right" size="md" />
                   </span>
@@ -430,7 +428,14 @@ export default async function CompetitionDetailPage({
                 {getCompetitionCancellationReasonLabel(competition.cancellationReason) ??
                   "Kompetisi ini tidak akan dilaksanakan."}
               </p>
-              <p className="data-text">Dibatalkan pada {formatDateTime(competition.cancelledAt)}</p>
+              <p className="data-text">
+                Dibatalkan pada{" "}
+                {competition.cancelledAt ? (
+                  <LocalDate value={competition.cancelledAt} format="longDateTime" />
+                ) : (
+                  "—"
+                )}
+              </p>
             </section>
           ) : null}
 
@@ -461,8 +466,19 @@ export default async function CompetitionDetailPage({
                       </div>
                       {round.startsAt || round.endsAt ? (
                         <span className="data-text">
-                          {formatDateTime(round.startsAt)}
-                          {round.endsAt ? ` – ${formatDateTime(round.endsAt)}` : ""}
+                          {round.startsAt ? (
+                            <LocalDate value={round.startsAt} format="longDateTime" />
+                          ) : (
+                            "—"
+                          )}
+                          {round.endsAt ? (
+                            <>
+                              {" "}
+                              – <LocalDate value={round.endsAt} format="longDateTime" />
+                            </>
+                          ) : (
+                            ""
+                          )}
                         </span>
                       ) : null}
                       {round.description ? <p className="muted-copy">{round.description}</p> : null}
@@ -483,28 +499,52 @@ export default async function CompetitionDetailPage({
                   <span className="detail-timeline-node" aria-hidden="true" />
                   <div>
                     <span>Pendaftaran dibuka</span>
-                    <strong>{formatDateTime(competition.registrationStartAt)}</strong>
+                    <strong>
+                      {competition.registrationStartAt ? (
+                        <LocalDate value={competition.registrationStartAt} format="longDateTime" />
+                      ) : (
+                        "—"
+                      )}
+                    </strong>
                   </div>
                 </div>
                 <div className="detail-timeline-item" data-key-date="true">
                   <span className="detail-timeline-node" aria-hidden="true" />
                   <div>
                     <span>Batas pendaftaran</span>
-                    <strong>{formatDateTime(competition.registrationEndAt)}</strong>
+                    <strong>
+                      {competition.registrationEndAt ? (
+                        <LocalDate value={competition.registrationEndAt} format="longDateTime" />
+                      ) : (
+                        "—"
+                      )}
+                    </strong>
                   </div>
                 </div>
                 <div className="detail-timeline-item">
                   <span className="detail-timeline-node" aria-hidden="true" />
                   <div>
                     <span>Mulai kompetisi</span>
-                    <strong>{formatDate(competition.eventStartAt)}</strong>
+                    <strong>
+                      {competition.eventStartAt ? (
+                        <LocalDate value={competition.eventStartAt} format="longDate" />
+                      ) : (
+                        "—"
+                      )}
+                    </strong>
                   </div>
                 </div>
                 <div className="detail-timeline-item">
                   <span className="detail-timeline-node" aria-hidden="true" />
                   <div>
                     <span>Akhir kompetisi</span>
-                    <strong>{formatDate(competition.eventEndAt)}</strong>
+                    <strong>
+                      {competition.eventEndAt ? (
+                        <LocalDate value={competition.eventEndAt} format="longDate" />
+                      ) : (
+                        "—"
+                      )}
+                    </strong>
                   </div>
                 </div>
               </div>
@@ -641,7 +681,11 @@ export default async function CompetitionDetailPage({
             <div className="stack-xs">
               <p>Batas pendaftaran</p>
               <p className="detail-deadline data-text">
-                {formatDateTime(competition.registrationEndAt)}
+                {competition.registrationEndAt ? (
+                  <LocalDate value={competition.registrationEndAt} format="longDateTime" />
+                ) : (
+                  "—"
+                )}
               </p>
             </div>
             <ResultAnnouncementSummary

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useModal, useToast } from "@/components/ui/primitives";
+import { LocalDate } from "@/components/ui/local-date";
 import {
   Button,
   EmptyState,
@@ -84,13 +85,6 @@ const SUBMIT_ERROR_COPY: Partial<Record<string, string>> = {
 const SUBMIT_FALLBACK = "Pengajuan gagal dikirim. Coba lagi.";
 
 const UNLABELLED_DOCUMENT_LABEL = "Dokumen lainnya";
-
-const formatLongDate = (isoDate: string): string =>
-  new Date(isoDate).toLocaleDateString("id-ID", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
 
 export const InstitutionVerificationShell = ({
   institutionSlug,
@@ -279,7 +273,15 @@ export const InstitutionVerificationShell = ({
           <Feedback tone="success">
             <p>
               <strong>Dokumen institusi Anda telah disetujui</strong>
-              {verifiedAt ? ` pada ${formatLongDate(verifiedAt)}` : ""}.
+              {verifiedAt ? (
+                <>
+                  {" "}
+                  pada <LocalDate value={verifiedAt} format="longDate" />
+                </>
+              ) : (
+                ""
+              )}
+              .
             </p>
           </Feedback>
           {approvedSubmission?.reviewerNotes ? (
@@ -330,8 +332,9 @@ export const InstitutionVerificationShell = ({
             </div>
           </div>
           <p className="muted-copy">
-            Dokumen yang Anda kirim pada {formatLongDate(pendingSubmission.submittedAt)} sedang
-            ditinjau tim kami. Kami mengabari begitu ada keputusan.
+            Dokumen yang Anda kirim pada{" "}
+            <LocalDate value={pendingSubmission.submittedAt} format="longDate" /> sedang ditinjau
+            tim kami. Kami mengabari begitu ada keputusan.
           </p>
           <p className="muted-copy">
             Selama peninjauan berlangsung, Anda belum dapat mengirim pengajuan baru, karena peninjau
@@ -448,7 +451,7 @@ export const InstitutionVerificationShell = ({
                     </td>
                     <td className="data-text">{s.documentCount}</td>
                     <td className="data-text">
-                      {new Date(s.submittedAt).toLocaleDateString("id-ID")}
+                      <LocalDate value={s.submittedAt} format="numericDate" />
                     </td>
                     <td>{s.reviewerNotes ?? "–"}</td>
                   </tr>

@@ -4,6 +4,7 @@ import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, CheckboxField, Feedback, Icon, IconButton } from "@/components/ui";
 import { useModal, useToast } from "@/components/ui/primitives";
+import { LocalDate } from "@/components/ui/local-date";
 import {
   DOCUMENT_REQUEST_STATUS_LABELS,
   DOCUMENT_REQUEST_STATUS_TONES,
@@ -37,15 +38,6 @@ type PanelProps = {
   registrationId: string;
   requests: OrganiserDocumentRequest[];
 };
-
-const formatDeadline = (isoDate: string): string =>
-  new Date(isoDate).toLocaleString("id-ID", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 
 // Default deadline offered on the create form and on a reopening rejection: seven days out, as a
 // datetime-local value.
@@ -283,9 +275,9 @@ export function OrganiserDocumentRequestPanel({
 
                 <span className="record-meta">
                   Tenggat{" "}
-                  <time dateTime={request.dueAt} className="data-text">
-                    {formatDeadline(request.dueAt)}
-                  </time>
+                  <span className="data-text">
+                    <LocalDate value={request.dueAt} format="longDateTime" />
+                  </span>
                   {request.isLate ? " · Diunggah terlambat" : ""}
                   {request.revisionCount > 0 ? ` · Penolakan ke-${request.revisionCount}` : ""}
                 </span>

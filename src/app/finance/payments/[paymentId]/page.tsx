@@ -1,11 +1,8 @@
 import { notFound } from "next/navigation";
 import { Card, Feedback, PageHeader } from "@/components/ui";
+import { LocalDate } from "@/components/ui/local-date";
 import { loadDisputeLedgerState, loadDisputePaymentDetail } from "@/server/finance/dispute-view";
-import {
-  PAYMENT_LEDGER_STATUS_LABELS,
-  formatFinanceDateTime,
-  formatRupiah,
-} from "@/lib/finance/payment-display";
+import { PAYMENT_LEDGER_STATUS_LABELS, formatRupiah } from "@/lib/finance/payment-display";
 import { PROOF_STATUS_LABELS, PROOF_STATUS_TONES } from "@/lib/finance/proof-display";
 import { formatFileSize } from "@/lib/text/format-file-size";
 import { DisputeProofFileButton } from "./dispute-proof-file-button";
@@ -80,9 +77,7 @@ export default async function FinanceDisputePaymentDetailPage({ params }: Props)
             <div>
               <dt>Batas waktu</dt>
               <dd>
-                <time dateTime={detail.dueAt.toISOString()}>
-                  {formatFinanceDateTime(detail.dueAt.toISOString())}
-                </time>
+                <LocalDate value={detail.dueAt} format="financeDateTime" />
               </dd>
             </div>
           ) : null}
@@ -147,17 +142,13 @@ export default async function FinanceDisputePaymentDetailPage({ params }: Props)
                     <div>
                       <dt>Dikirim</dt>
                       <dd>
-                        <time dateTime={attempt.submittedAt.toISOString()}>
-                          {formatFinanceDateTime(attempt.submittedAt.toISOString())}
-                        </time>
+                        <LocalDate value={attempt.submittedAt} format="financeDateTime" />
                       </dd>
                     </div>
                     <div>
                       <dt>Diputus</dt>
                       <dd>
-                        <time dateTime={attempt.reviewedAt.toISOString()}>
-                          {formatFinanceDateTime(attempt.reviewedAt.toISOString())}
-                        </time>
+                        <LocalDate value={attempt.reviewedAt} format="financeDateTime" />
                       </dd>
                     </div>
                   </dl>
