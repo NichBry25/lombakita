@@ -4,9 +4,25 @@ import { ButtonLink, Icon } from "@/components/ui";
 import { INDEXABLE_ROBOTS } from "@/config/indexable-routes";
 import { MemphisHeroArt } from "@/components/home/memphis-hero-art";
 import { FeaturedCarousel } from "@/components/home/featured-carousel";
-import { listFeaturedCompetitions } from "@/server/competitions/competition-public-service";
+import { Shelf } from "@/components/home/shelf";
+import { PersonalShelves } from "@/components/home/personal-shelves";
+import { InterestPicker } from "@/components/home/interest-picker";
+import { CategoryShelves, type CategoryShelfGroup } from "@/components/home/category-shelves";
+import type { ShelfItem } from "@/components/home/competition-poster-card";
+import {
+  listFeaturedCompetitions,
+  listPublicCompetitions,
+} from "@/server/competitions/competition-public-service";
+import {
+  COMPETITION_CATEGORY_VALUES,
+  getCompetitionCategoryLabel,
+} from "@/lib/competitions/categories";
+import { describeRegistrationCountdown } from "@/lib/competitions/deadline-countdown";
 import { logger } from "@/lib/logger";
-import type { PublicCompetitionItem } from "@/server/competitions/competition-public-service";
+import type {
+  PublicCompetitionItem,
+  PublicListingFilters,
+} from "@/server/competitions/competition-public-service";
 
 // Featured placement is ops-managed and changes rarely, so a short staleness
 // window is acceptable — ISR avoids a DB round trip on every request to the highest-traffic
@@ -74,8 +90,72 @@ const loadFeaturedCompetitionsOrEmpty = async (): Promise<PublicCompetitionItem[
   }
 };
 
+const SHELF_LIMIT = 12;
+
+// The newest live competitions, read once and cut three ways: the "Baru tayang" row, one row per
+// arena, and the visitor's own "Untuk kamu" row, which is picked from it in the browser. The
+// listing's default status keeps every competition whose registration has not closed.
+const POOL_LIMIT = 50;
+
+// Each row is decorative in the same way the featured rail is: a failure empties that row and is
+// logged, and the rest of the homepage still renders.
+const loadShelfOrEmpty = async (
+  shelf: string,
+  filters: PublicListingFilters,
+): Promise<PublicCompetitionItem[]> => {
+  try {
+    return (await listPublicCompetitions(filters)).data;
+  } catch (error) {
+    logger.error("home.shelf.load-failed", {
+      shelf,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return [];
+  }
+};
+
+// Counted down here, at render, so every visitor of this cached page sees the same phrase and the
+// client rows hydrate without recomputing it.
+const toShelfItem = (competition: PublicCompetitionItem, now: Date): ShelfItem => ({
+  id: competition.id,
+  slug: competition.slug,
+  institutionSlug: competition.institutionSlug,
+  title: competition.title,
+  institutionName: competition.institutionName,
+  category: competition.category,
+  countdown: describeRegistrationCountdown(
+    competition.registrationStartAt,
+    competition.registrationEndAt,
+    now,
+  ),
+});
+
+// Fullest arena first; ties keep the category order the filters use.
+const groupByCategory = (items: ShelfItem[]): CategoryShelfGroup[] =>
+  COMPETITION_CATEGORY_VALUES.map((category) => ({
+    category,
+    label: getCompetitionCategoryLabel(category),
+    items: items.filter((item) => item.category === category).slice(0, SHELF_LIMIT),
+  }))
+    .filter((group) => group.items.length > 0)
+    .sort((a, b) => b.items.length - a.items.length);
+
 export default async function HomePage() {
-  const featuredCompetitions = await loadFeaturedCompetitionsOrEmpty();
+  const [featuredCompetitions, closingSoonCompetitions, poolCompetitions] = await Promise.all([
+    loadFeaturedCompetitionsOrEmpty(),
+    loadShelfOrEmpty("closing-soon", {
+      status: "closing",
+      sort: "deadline_asc",
+      limit: SHELF_LIMIT,
+    }),
+    loadShelfOrEmpty("pool", { sort: "created_desc", limit: POOL_LIMIT }),
+  ]);
+
+  const now = new Date();
+  const closingSoon = closingSoonCompetitions.map((competition) => toShelfItem(competition, now));
+  const pool = poolCompetitions.map((competition) => toShelfItem(competition, now));
+  const categoryGroups = groupByCategory(pool);
+  const catalogEmpty = pool.length === 0;
 
   return (
     <main>
@@ -128,6 +208,40 @@ export default async function HomePage() {
         </div>
       </div>
 
+      <PersonalShelves pool={pool} />
+
+      {featuredCompetitions.length > 0 ? (
+        <section className="page-section">
+          <div className="content-shell stack-lg">
+            <FeaturedCarousel items={featuredCompetitions} />
+          </div>
+        </section>
+      ) : null}
+
+      {closingSoon.length > 0 || pool.length > 0 ? (
+        <div className="page-section">
+          <div className="content-shell shelf-stack">
+            <Shelf
+              eyebrow="Jangan sampai terlewat"
+              title="Segera ditutup"
+              items={closingSoon}
+              action={{
+                href: "/competitions?status=closing&sort=deadline_asc",
+                label: "Lihat semua",
+              }}
+            />
+            <Shelf
+              eyebrow="Baru tayang"
+              title="Kompetisi terbaru"
+              items={pool.slice(0, SHELF_LIMIT)}
+              action={{ href: "/competitions?sort=created_desc", label: "Lihat semua" }}
+            />
+          </div>
+        </div>
+      ) : null}
+
+      <CategoryShelves groups={categoryGroups} />
+
       <section className="page-section">
         <div className="content-shell stack-lg">
           <header className="home-section-header">
@@ -137,12 +251,19 @@ export default async function HomePage() {
             </div>
           </header>
 
+          {catalogEmpty ? (
+            <p className="home-catalog-note">
+              Kompetisi pertama sedang dikurasi bersama penyelenggara. Tandai minatmu sekarang, dan
+              berandamu akan tersusun sendiri begitu kompetisinya tayang.
+            </p>
+          ) : null}
+
           <div className="home-category-grid">
             {DISCOVERY_CATEGORIES.map((category) => (
               <Link
                 className="home-category-card"
                 data-category={category.value}
-                href="/competitions"
+                href={`/competitions?category=${category.value}`}
                 key={category.label}
               >
                 <span className="home-category-icon" aria-hidden="true">
@@ -156,16 +277,10 @@ export default async function HomePage() {
               </Link>
             ))}
           </div>
+
+          <InterestPicker catalogEmpty={catalogEmpty} />
         </div>
       </section>
-
-      {featuredCompetitions.length > 0 ? (
-        <section className="page-section">
-          <div className="content-shell stack-lg">
-            <FeaturedCarousel items={featuredCompetitions} />
-          </div>
-        </section>
-      ) : null}
 
       <section className="page-section">
         <div className="content-shell">
