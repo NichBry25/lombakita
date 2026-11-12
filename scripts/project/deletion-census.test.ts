@@ -237,7 +237,7 @@ describe("the rulings cover the derived population", () => {
       "competition_prizes: description, rank_label, title",
       "competition_rounds: description, platform_label, title",
       "competition_tags: tag",
-      "competitions: description, eligibility_note, slug, title",
+      "competitions: description, eligibility_note, organizer_contact_value, slug, title",
       "finance_fee_accruals: reason",
       "finance_manual_payment_proof_attempts: original_file_name, r2_key, verdict_reason",
       "finance_manual_payment_proofs: original_file_name, r2_key, rejection_reason",
