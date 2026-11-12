@@ -819,6 +819,13 @@ export const platformOpsAuditLogs = pgTable(
   ],
 );
 
+// How a competition's organiser is reached: a WhatsApp number, a phone number or an email.
+export const organizerContactKindEnum = pgEnum("organizer_contact_kind", [
+  "whatsapp",
+  "phone",
+  "email",
+]);
+
 // Competition domain model.
 // Slug uniqueness is institution-scoped — UNIQUE (institution_id, slug). Two institutions may
 // reuse the same human-readable slug (e.g. "hackathon-2026") without collision.
@@ -878,6 +885,8 @@ export const competitions = pgTable(
     // reachable. cancellation_reason stores the machine-readable reason token.
     cancelledAt: timestamp("cancelled_at", { mode: "date", withTimezone: true }),
     cancellationReason: text("cancellation_reason"),
+    organizerContactKind: organizerContactKindEnum("organizer_contact_kind"),
+    organizerContactValue: text("organizer_contact_value"),
     // Candidate-cancellation policy. allow_cancellation is the institution
     // opt-in toggle; cancellation_cutoff_days is the number of days before event_start_at after
     // which self-cancellation is closed. cutoff is only meaningful when allow_cancellation is true
@@ -961,6 +970,10 @@ export const competitions = pgTable(
     check(
       "competitions_participation_terminal_state_chk",
       sql`${table.cancelledAt} IS NULL OR ${table.participationConfirmedAt} IS NULL`,
+    ),
+    check(
+      "competitions_organizer_contact_pair_chk",
+      sql`(${table.organizerContactKind} IS NULL) = (${table.organizerContactValue} IS NULL)`,
     ),
   ],
 );
@@ -1384,6 +1397,8 @@ export const teams = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     status: teamStatusEnum("status").notNull().default("forming"),
+    // The registration close the captain's reminder was sent for: a moved close no longer matches.
+    joinReminderCloseAt: timestamp("join_reminder_close_at", { mode: "date", withTimezone: true }),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
   },
