@@ -209,6 +209,7 @@ export const PERSONAL_COLUMNS: readonly string[] = Object.freeze([
   "competitions.title",
   "competitions.description",
   "competitions.eligibility_note",
+  "competitions.organizer_contact_value",
   // finance_fee_accruals
   "finance_fee_accruals.reason",
   // finance_manual_payment_proof_attempts
