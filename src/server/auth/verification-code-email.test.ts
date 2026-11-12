@@ -66,6 +66,21 @@ describe("the verification code email", () => {
     });
   });
 
+  it("never logs the code when the email is sent", async () => {
+    mocks.resolveEmailDelivery.mockReturnValue(DELIVERY);
+    mocks.sendMail.mockResolvedValue(undefined);
+    mocks.serverEnv.emailDeliveryEnabled = true;
+
+    await sendRegistrationVerificationEmail({ email: EMAIL, code: CODE });
+
+    expect(mocks.sendMail).toHaveBeenCalledOnce();
+    expect(logger.info).toHaveBeenCalledWith("Registration verification email sent", {
+      email: EMAIL,
+    });
+    const loggedCode = everyLoggerCall().some((call) => JSON.stringify(call).includes(CODE));
+    expect(loggedCode).toBe(false);
+  });
+
   it("never logs the code where delivery is on", async () => {
     mocks.resolveEmailDelivery.mockReturnValue(null);
     mocks.serverEnv.emailDeliveryEnabled = true;

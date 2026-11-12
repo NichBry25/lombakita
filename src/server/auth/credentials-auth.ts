@@ -113,9 +113,11 @@ type AuthFlowErrorCode =
   | "invalid_password"
   | "invalid_signup_role"
   | "email_exists"
+  | "email_not_verified"
   | "verification_required"
   | "verification_code_invalid"
   | "verification_code_attempts_exceeded"
+  | "verification_code_daily_limit"
   | "verification_unavailable"
   | "verification_email_failed"
   | "password_reset_token_invalid"
@@ -298,7 +300,7 @@ export const parseEmailPayload = (payload: unknown): { email: string } => {
   };
 };
 
-const createVerificationCodeForUser = async (
+const replaceVerificationCodeForUser = async (
   userId: string,
   db: Database,
 ): Promise<{ code: string }> => {
@@ -320,6 +322,28 @@ const createVerificationCodeForUser = async (
   });
 
   return { code };
+};
+
+// The sign-up and the code verification write the password the same way, and the verification's write replaces a password set before it.
+const writePasswordHash = async (
+  tx: Database,
+  userId: string,
+  passwordHash: string,
+  now: Date,
+): Promise<void> => {
+  await tx
+    .insert(userPasswordCredentials)
+    .values({
+      userId,
+      passwordHash,
+    })
+    .onConflictDoUpdate({
+      target: userPasswordCredentials.userId,
+      set: {
+        passwordHash,
+        updatedAt: now,
+      },
+    });
 };
 
 export const registerUserWithCredentials = async (
@@ -344,89 +368,61 @@ export const registerUserWithCredentials = async (
         .where(eq(users.email, input.email))
         .limit(1);
 
-      // Duplicate-account guard. This fires for ANY verified account, whether
-      // it authenticates by password OR by a linked OAuth identity. Google-only accounts have
-      // `emailVerified` set but NO `user_password_credentials` row; the prior guard only
-      // threw when a password row existed, so a Google-only account fell through and this PUBLIC
-      // endpoint would write an attacker-supplied password (and re-apply an attacker-declared role)
-      // onto it — a silent, unauthenticated account takeover. A verified account is already a real
-      // identity; re-registration over it via this public endpoint is never legitimate (adding a
-      // password to an OAuth account belongs in a separate authenticated flow, not here). The throw
-      // occurs BEFORE any mutation below (username INSERT, role-flip UPDATE, password upsert), so no
-      // write lands. The unverified re-registration path is unaffected — this guard keys on
-      // `emailVerified`, and a verified row always pre-exists, so there is no create-race window:
-      // a concurrent same-email creation collapses to the 23505 → `email_exists` branch below, and
-      // the role-flip UPDATE / password upsert only ever target an unverified-existing or brand-new
-      // row (never a verified one, which threw here).
-      if (existingUser?.emailVerified) {
-        throw new CredentialsAuthError(
-          "email_exists",
-          409,
-          "An account with this email already exists",
-        );
+      // Any existing account for this email refuses, verified or not, before any write: a second sign-up must never set the password, role or profile of an account its owner may still verify.
+      if (existingUser) {
+        throw existingUser.emailVerified
+          ? new CredentialsAuthError(
+              "email_exists",
+              409,
+              "An account with this email already exists",
+            )
+          : new CredentialsAuthError(
+              "email_not_verified",
+              409,
+              "An unverified account with this email already exists",
+            );
       }
 
       // Write the declared user-level role and the matching
       // *_verified_at timestamp at account-creation time. The CHECK constraint
       // `users_one_verified_role_chk` enforces the invariant at the DB layer; the application
       // also sets exactly one timestamp here so the constraint passes on the first INSERT.
-      // For pre-existing unverified rows (re-registration into the same email without prior
-      // email verification) we re-apply the declared role + verifiedAt to reflect the latest
-      // declaration.
       //
       // Recruiter signup auto-grants the `minimal` tier in the
-      // same INSERT/UPDATE statement so tier and recruiterVerifiedAt land atomically. Candidate
+      // same INSERT statement so tier and recruiterVerifiedAt land atomically. Candidate
       // signups leave the tier at the column default ('unverified'); the tier is only meaningful
       // once the account verifies the recruiter mode.
       const now = new Date();
       const roleColumns = deriveSignupRoleColumns(input.signupRole, now);
 
-      let userId = existingUser?.id;
+      // Generate a valid, unique, reserved-word-safe
+      // username before the user INSERT. Generation runs inside this
+      // transaction: the uniqueness probe sees only committed rows, and a
+      // generation failure aborts the transaction so no user row is ever
+      // persisted without a username.
+      const username = await generateUniqueUsernameForName(input.name, async (candidate) => {
+        const [taken] = await tx
+          .select({ id: users.id })
+          .from(users)
+          .where(eq(users.username, candidate))
+          .limit(1);
+        return !taken;
+      });
 
-      if (!userId) {
-        // Generate a valid, unique, reserved-word-safe
-        // username before the user INSERT. Generation runs inside this
-        // transaction: the uniqueness probe sees only committed rows, and a
-        // generation failure aborts the transaction so no user row is ever
-        // persisted without a username.
-        const username = await generateUniqueUsernameForName(input.name, async (candidate) => {
-          const [taken] = await tx
-            .select({ id: users.id })
-            .from(users)
-            .where(eq(users.username, candidate))
-            .limit(1);
-          return !taken;
-        });
+      const [inserted] = await tx
+        .insert(users)
+        .values({
+          email: input.email,
+          name: input.name,
+          username,
+          ...roleColumns,
+        })
+        .returning({ id: users.id });
 
-        const [inserted] = await tx
-          .insert(users)
-          .values({
-            email: input.email,
-            name: input.name,
-            username,
-            ...roleColumns,
-          })
-          .returning({ id: users.id });
-
-        userId = inserted?.id;
-      }
+      const userId = inserted?.id;
 
       if (!userId) {
         throw new Error("Failed to create user account");
-      }
-
-      if (existingUser?.id) {
-        // Re-declaration on an unverified pre-existing account: re-apply the role declaration
-        // and verification timestamp so the row reflects the latest signup intent. The CHECK
-        // invariant always holds (at least one of the two timestamps is non-null on every
-        // path).
-        await tx
-          .update(users)
-          .set({
-            ...roleColumns,
-            updatedAt: now,
-          })
-          .where(eq(users.id, userId));
       }
 
       await tx
@@ -455,38 +451,17 @@ export const registerUserWithCredentials = async (
         );
       }
 
-      await tx
-        .insert(userPasswordCredentials)
-        .values({
-          userId,
-          passwordHash,
-        })
-        .onConflictDoUpdate({
-          target: userPasswordCredentials.userId,
-          set: {
-            passwordHash,
-            updatedAt: new Date(),
-          },
-        });
+      await writePasswordHash(tx, userId, passwordHash, now);
 
-      if (existingUser?.emailVerified) {
-        return {
-          userId,
-          alreadyVerified: true,
-          verificationCode: null as string | null,
-        };
-      }
-
-      const verificationChallenge = await createVerificationCodeForUser(userId, tx);
+      const issuedCode = await replaceVerificationCodeForUser(userId, tx);
 
       return {
         userId,
-        alreadyVerified: false,
-        verificationCode: verificationChallenge.code,
+        verificationCode: issuedCode.code,
       };
     });
 
-    if (!registrationState.alreadyVerified && registrationState.verificationCode) {
+    if (registrationState.verificationCode) {
       try {
         await sendRegistrationVerificationEmail({
           email: input.email,
@@ -512,8 +487,8 @@ export const registerUserWithCredentials = async (
 
     return {
       email: input.email,
-      verificationRequired: !registrationState.alreadyVerified,
-      alreadyVerified: registrationState.alreadyVerified,
+      verificationRequired: true,
+      alreadyVerified: false,
     };
   } catch (error) {
     if (error instanceof CredentialsAuthError) {
@@ -608,12 +583,12 @@ export const resendRegistrationVerification = async (
     throw new CredentialsAuthError("verification_required", 404, "Registration record not found");
   }
 
-  const challenge = await createVerificationCodeForUser(userRecord.id, db);
+  const issuedCode = await replaceVerificationCodeForUser(userRecord.id, db);
 
   try {
     await sendRegistrationVerificationEmail({
       email,
-      code: challenge.code,
+      code: issuedCode.code,
     });
   } catch (error) {
     logger.error("auth.verification_email.dispatch_failed", {
@@ -642,6 +617,27 @@ const invalidVerificationCodeError = (): CredentialsAuthError =>
     "Kode verifikasi salah atau sudah tidak berlaku.",
   );
 
+const codeAttemptsExceededError = (): CredentialsAuthError =>
+  new CredentialsAuthError(
+    "verification_code_attempts_exceeded",
+    429,
+    "Terlalu banyak percobaan kode yang salah.",
+  );
+
+const dailyCodeLimitError = (): CredentialsAuthError =>
+  new CredentialsAuthError(
+    "verification_code_daily_limit",
+    429,
+    "Terlalu banyak percobaan kode yang salah untuk email ini hari ini.",
+  );
+
+const emailAlreadyVerifiedError = (): CredentialsAuthError =>
+  new CredentialsAuthError(
+    "email_exists",
+    409,
+    "Email already verified. Please login with your password",
+  );
+
 const parseVerificationCodePayload = (
   payload: unknown,
 ): { email: string; code: string; password: string } => {
@@ -663,6 +659,7 @@ const parseVerificationCodePayload = (
 const countCodeAttemptOrRefuse = async (
   key: string,
   policy: { limit: number; windowSeconds: number },
+  throttledError: () => CredentialsAuthError,
 ): Promise<void> => {
   const outcome = await checkFixedWindowLimitFailClosed({
     key,
@@ -671,11 +668,7 @@ const countCodeAttemptOrRefuse = async (
   });
 
   if (outcome.decision === "throttled") {
-    throw new CredentialsAuthError(
-      "verification_code_attempts_exceeded",
-      429,
-      "Terlalu banyak percobaan kode yang salah.",
-    );
+    throw throttledError();
   }
 
   if (outcome.decision === "unavailable") {
@@ -687,9 +680,83 @@ const countCodeAttemptOrRefuse = async (
   }
 };
 
+const findLiveVerificationCode = async (
+  userId: string,
+  db: Database,
+): Promise<{ id: string; tokenHash: string } | undefined> => {
+  const [codeRow] = await db
+    .select({
+      id: userEmailVerificationTokens.id,
+      tokenHash: userEmailVerificationTokens.tokenHash,
+    })
+    .from(userEmailVerificationTokens)
+    .where(
+      and(
+        eq(userEmailVerificationTokens.userId, userId),
+        isNull(userEmailVerificationTokens.consumedAt),
+        gt(userEmailVerificationTokens.expiresAt, new Date()),
+      ),
+    )
+    .orderBy(desc(userEmailVerificationTokens.createdAt))
+    .limit(1);
+
+  return codeRow;
+};
+
+const completeCodeVerification = async (
+  tx: Database,
+  user: { id: string; email: string },
+  codeRowId: string,
+  passwordHash: string,
+): Promise<void> => {
+  const now = new Date();
+
+  const [consumed] = await tx
+    .update(userEmailVerificationTokens)
+    .set({ consumedAt: now })
+    .where(
+      and(
+        eq(userEmailVerificationTokens.id, codeRowId),
+        isNull(userEmailVerificationTokens.consumedAt),
+      ),
+    )
+    .returning({ id: userEmailVerificationTokens.id });
+
+  if (!consumed) {
+    throw invalidVerificationCodeError();
+  }
+
+  const [verified] = await tx
+    .update(users)
+    .set({ emailVerified: now, sessionsInvalidBefore: now, updatedAt: now })
+    .where(and(eq(users.id, user.id), isNull(users.emailVerified)))
+    .returning({ id: users.id });
+
+  if (!verified) {
+    throw emailAlreadyVerifiedError();
+  }
+
+  await writePasswordHash(tx, user.id, passwordHash, now);
+
+  await tx
+    .delete(userEmailVerificationTokens)
+    .where(
+      and(
+        eq(userEmailVerificationTokens.userId, user.id),
+        ne(userEmailVerificationTokens.id, codeRowId),
+      ),
+    );
+
+  // Claim-at-signup. Attach every `pending_claim` invitation addressed to this email
+  // (target_user_id IS NULL) across both invitation systems and flip them to `pending`. Runs in
+  // the SAME transaction as the verification flip so a half-claimed state cannot occur. Claim
+  // fires only after the code proved the inbox and the password became the code-typer's.
+  await claimPendingInvitationsForUser(user.id, user.email, tx, now);
+};
+
 // The code proves the person holds the inbox, and the password sent with it becomes the account's
 // password, so a password a stranger set before verification never survives verification.
-export const verifyRegistrationEmailCode = async (
+export const verifyEmailCodeAndSetPassword = async (
   payload: unknown,
   db: Database = getDb(),
 ): Promise<{ email: string }> => {
@@ -706,33 +773,16 @@ export const verifyRegistrationEmailCode = async (
   }
 
   if (user.emailVerified) {
-    throw new CredentialsAuthError(
-      "email_exists",
-      409,
-      "Email already verified. Please login with your password",
-    );
+    throw emailAlreadyVerifiedError();
   }
 
   await countCodeAttemptOrRefuse(
     `${REGISTRATION_CODE_DAILY_LIMIT.keyPrefix}${user.id}`,
     REGISTRATION_CODE_DAILY_LIMIT,
+    dailyCodeLimitError,
   );
 
-  const [codeRow] = await db
-    .select({
-      id: userEmailVerificationTokens.id,
-      tokenHash: userEmailVerificationTokens.tokenHash,
-    })
-    .from(userEmailVerificationTokens)
-    .where(
-      and(
-        eq(userEmailVerificationTokens.userId, user.id),
-        isNull(userEmailVerificationTokens.consumedAt),
-        gt(userEmailVerificationTokens.expiresAt, new Date()),
-      ),
-    )
-    .orderBy(desc(userEmailVerificationTokens.createdAt))
-    .limit(1);
+  const codeRow = await findLiveVerificationCode(user.id, db);
 
   if (!codeRow) {
     throw invalidVerificationCodeError();
@@ -741,6 +791,7 @@ export const verifyRegistrationEmailCode = async (
   await countCodeAttemptOrRefuse(
     `${REGISTRATION_CODE_ATTEMPT_LIMIT.keyPrefix}${codeRow.id}`,
     REGISTRATION_CODE_ATTEMPT_LIMIT,
+    codeAttemptsExceededError,
   );
 
   if (!registrationCodeMatches(codeRow.tokenHash, user.id, input.code)) {
@@ -749,67 +800,7 @@ export const verifyRegistrationEmailCode = async (
 
   const passwordHash = await hashPassword(input.password);
 
-  await db.transaction(async (tx) => {
-    const now = new Date();
-
-    const [consumed] = await tx
-      .update(userEmailVerificationTokens)
-      .set({ consumedAt: now })
-      .where(
-        and(
-          eq(userEmailVerificationTokens.id, codeRow.id),
-          isNull(userEmailVerificationTokens.consumedAt),
-        ),
-      )
-      .returning({ id: userEmailVerificationTokens.id });
-
-    if (!consumed) {
-      throw invalidVerificationCodeError();
-    }
-
-    const [verified] = await tx
-      .update(users)
-      .set({ emailVerified: now, sessionsInvalidBefore: now, updatedAt: now })
-      .where(and(eq(users.id, user.id), isNull(users.emailVerified)))
-      .returning({ id: users.id });
-
-    if (!verified) {
-      throw new CredentialsAuthError(
-        "email_exists",
-        409,
-        "Email already verified. Please login with your password",
-      );
-    }
-
-    await tx
-      .insert(userPasswordCredentials)
-      .values({
-        userId: user.id,
-        passwordHash,
-      })
-      .onConflictDoUpdate({
-        target: userPasswordCredentials.userId,
-        set: {
-          passwordHash,
-          updatedAt: now,
-        },
-      });
-
-    await tx
-      .delete(userEmailVerificationTokens)
-      .where(
-        and(
-          eq(userEmailVerificationTokens.userId, user.id),
-          ne(userEmailVerificationTokens.id, codeRow.id),
-        ),
-      );
-
-    // Claim-at-signup. Attach every `pending_claim` invitation addressed to this email
-    // (target_user_id IS NULL) across both invitation systems and flip them to `pending`. Runs in
-    // the SAME transaction as the verification flip so a half-claimed state cannot occur. Claim
-    // fires only after the code proved the inbox and the password became the code-typer's.
-    await claimPendingInvitationsForUser(user.id, user.email, tx, now);
-  });
+  await db.transaction((tx) => completeCodeVerification(tx, user, codeRow.id, passwordHash));
 
   return { email: user.email };
 };
@@ -820,7 +811,7 @@ export const verifyRegistrationEmailCode = async (
 // email-first (unlike OAuth, where the provider resolves identity), so we classify by email:
 //   - `none`       — no account; the page offers the role picker (signup).
 //   - `unverified` — an account exists but email is not yet verified; the page shows the
-//                    verify notice + resend, and must NOT offer signup (insert would hit 23505).
+//                    verify notice + resend, and must NOT offer signup (register refuses it).
 //   - `verified`   — an account exists and is verified (incl. a Google-only account, which has
 //                    emailVerified set but no password); the page attempts the password sign-in,
 //                    where a wrong/absent password collapses to the generic invalid-credentials

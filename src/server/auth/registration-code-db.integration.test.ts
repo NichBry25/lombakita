@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   sentCodes: [] as Array<{ email: string; code: string }>,
   windowCounts: new Map<string, number>(),
   limiterMode: { current: "counting" as "counting" | "unavailable" },
+  unavailableKeyPrefix: { current: null as string | null },
 }));
 
 vi.mock("@/config/env.server", async (importOriginal) => {
@@ -47,6 +48,10 @@ vi.mock("@/server/redis/rate-limit", async (importOriginal) => {
       if (mocks.limiterMode.current === "unavailable") {
         return { decision: "unavailable" as const };
       }
+      const prefix = mocks.unavailableKeyPrefix.current;
+      if (prefix !== null && params.key.startsWith(prefix)) {
+        return { decision: "unavailable" as const };
+      }
       const count = (mocks.windowCounts.get(params.key) ?? 0) + 1;
       mocks.windowCounts.set(params.key, count);
       if (count > params.limit) {
@@ -61,7 +66,7 @@ import {
   authenticateWithEmailPassword,
   registerUserWithCredentials,
   resendRegistrationVerification,
-  verifyRegistrationEmailCode,
+  verifyEmailCodeAndSetPassword,
 } from "@/server/auth/credentials-auth";
 
 const ADDRESS = "rina.code@example.test";
@@ -93,6 +98,7 @@ beforeEach(() => {
   mocks.sentCodes.length = 0;
   mocks.windowCounts.clear();
   mocks.limiterMode.current = "counting";
+  mocks.unavailableKeyPrefix.current = null;
 });
 
 const signUp = (tx: Database, password: string) =>
@@ -119,7 +125,7 @@ const latestCode = (): string => {
 const wrongCodeFor = (code: string): string => (code === "000000" ? "000001" : "000000");
 
 const verify = (tx: Database, code: string, password: string) =>
-  verifyRegistrationEmailCode({ email: ADDRESS, code, password }, tx);
+  verifyEmailCodeAndSetPassword({ email: ADDRESS, code, password }, tx);
 
 const userOf = async (tx: Database) => {
   const [row] = await tx
@@ -130,6 +136,20 @@ const userOf = async (tx: Database) => {
     })
     .from(schema.users)
     .where(eq(schema.users.email, ADDRESS));
+  if (!row) throw new Error("No user row");
+  return row;
+};
+
+const roleColumnsOf = async (tx: Database, userId: string) => {
+  const [row] = await tx
+    .select({
+      role: schema.users.role,
+      candidateVerifiedAt: schema.users.candidateVerifiedAt,
+      recruiterVerifiedAt: schema.users.recruiterVerifiedAt,
+      recruiterVerificationTier: schema.users.recruiterVerificationTier,
+    })
+    .from(schema.users)
+    .where(eq(schema.users.id, userId));
   if (!row) throw new Error("No user row");
   return row;
 };
@@ -304,8 +324,72 @@ describe.skipIf(skipWithoutDatabase)("verifying an email address by code (real d
       }
 
       await expect(verify(tx, latestCode(), PASSWORD)).rejects.toMatchObject({
-        code: "verification_code_attempts_exceeded",
+        code: "verification_code_daily_limit",
       });
+      await expectUnverifiedAndUnchanged(tx, userId, passwordHashBefore);
+    });
+  });
+
+  it("refuses a second sign-up for an address that already has an account, writing nothing", async () => {
+    await inRollback(async (tx) => {
+      await signUp(tx, STRANGER_PASSWORD);
+      const { id: userId } = await userOf(tx);
+      const passwordHashBefore = await storedPasswordHashOf(tx, userId);
+      const roleColumnsBefore = await roleColumnsOf(tx, userId);
+      const codeRowBefore = await newestCodeRowOf(tx, userId);
+      const codesSentBefore = mocks.sentCodes.length;
+
+      await expect(signUp(tx, OWNER_PASSWORD)).rejects.toMatchObject({
+        code: "email_not_verified",
+        status: 409,
+      });
+
+      expect(await storedPasswordHashOf(tx, userId)).toBe(passwordHashBefore);
+      expect(await roleColumnsOf(tx, userId)).toEqual(roleColumnsBefore);
+      expect((await newestCodeRowOf(tx, userId)).id).toBe(codeRowBefore.id);
+      expect(mocks.sentCodes.length).toBe(codesSentBefore);
+    });
+  });
+
+  it("refuses a second sign-up for a verified address", async () => {
+    await inRollback(async (tx) => {
+      await signUp(tx, PASSWORD);
+      await verify(tx, latestCode(), PASSWORD);
+
+      await expect(signUp(tx, OWNER_PASSWORD)).rejects.toMatchObject({
+        code: "email_exists",
+      });
+
+      expect(await signsIn(tx, PASSWORD)).toBe(true);
+    });
+  });
+
+  it("refuses when only the per-code limit cannot count", async () => {
+    await inRollback(async (tx) => {
+      await signUp(tx, PASSWORD);
+      const { id: userId } = await userOf(tx);
+      const passwordHashBefore = await storedPasswordHashOf(tx, userId);
+      mocks.unavailableKeyPrefix.current = "rl:register-code:";
+
+      await expect(verify(tx, latestCode(), PASSWORD)).rejects.toMatchObject({
+        code: "verification_unavailable",
+      });
+
+      await expectUnverifiedAndUnchanged(tx, userId, passwordHashBefore);
+    });
+  });
+
+  it("refuses when only the daily limit cannot count", async () => {
+    await inRollback(async (tx) => {
+      await signUp(tx, PASSWORD);
+      const { id: userId } = await userOf(tx);
+      const passwordHashBefore = await storedPasswordHashOf(tx, userId);
+      mocks.unavailableKeyPrefix.current = "rl:register-code-day:";
+
+      await expect(verify(tx, latestCode(), PASSWORD)).rejects.toMatchObject({
+        code: "verification_unavailable",
+      });
+
       await expectUnverifiedAndUnchanged(tx, userId, passwordHashBefore);
     });
   });

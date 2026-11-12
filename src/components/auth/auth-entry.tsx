@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { signIn } from "next-auth/react";
 import { Button, ButtonLink, SelectField, usePageTransition } from "@/components/ui";
 import { AssentNotice } from "@/components/legal/assent-notice";
@@ -17,7 +17,7 @@ import { PENDING_PROMPT_KEY } from "@/components/auth/second-role-prompt-modal";
 //       • verified  → attempt the password sign-in (path a). Wrong/absent password → generic
 //                     "email atau password salah" (a Google-only account lands here too).
 //       • unverified→ show the verify notice, which sends a verification code; never offer signup
-//                     (would 23505).
+//                     (a sign-up for an address that already has an account is refused).
 //       • none      → role picker + name; create the account via the existing register endpoint,
 //                     which sends a verification code (path b). Account usable once the code is
 //                     typed.
@@ -75,8 +75,14 @@ const verificationFailureMessage = (status: number, errorCode: string | undefine
   if (errorCode === "verification_code_invalid") {
     return "Kode salah atau sudah tidak berlaku. Periksa kode di email Anda, atau kirim ulang kode.";
   }
-  if (status === 429) {
+  if (errorCode === "verification_code_daily_limit") {
+    return "Terlalu banyak percobaan kode yang salah untuk email ini hari ini. Coba lagi besok.";
+  }
+  if (errorCode === "verification_code_attempts_exceeded") {
     return "Terlalu banyak percobaan kode yang salah. Kirim ulang kode, atau coba lagi nanti.";
+  }
+  if (status === 429) {
+    return "Terlalu banyak permintaan dari jaringan ini. Tunggu beberapa menit lalu coba lagi.";
   }
   if (errorCode === "email_exists") {
     return "Email ini sudah terverifikasi. Silakan masuk dengan password Anda.";
@@ -126,6 +132,7 @@ export const AuthEntry = ({
   const [isResending, setIsResending] = useState(false);
   const [verificationCode, setVerificationCode] = useState("");
   const [isVerifying, setIsVerifying] = useState(false);
+  const verificationCodeInputRef = useRef<HTMLInputElement>(null);
   const { begin: beginPageTransition } = usePageTransition();
   const { addToast } = useToast();
 
@@ -156,6 +163,12 @@ export const AuthEntry = ({
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage]);
+
+  useEffect(() => {
+    if (stage === "verifyCode") {
+      verificationCodeInputRef.current?.focus();
+    }
   }, [stage]);
 
   const startGoogle = () => {
@@ -354,6 +367,13 @@ export const AuthEntry = ({
             type: "error",
             message: "Akun untuk email ini sudah ada. Silakan masuk, bukan mendaftar.",
           });
+        } else if (payload?.error?.code === "email_not_verified") {
+          addToast({
+            type: "error",
+            message:
+              "Akun untuk email ini sudah ada tetapi belum diverifikasi. Kirim kode verifikasi untuk melanjutkan.",
+          });
+          setStage("verifyNotice");
         } else {
           addToast({
             type: "error",
@@ -411,7 +431,17 @@ export const AuthEntry = ({
         return;
       }
 
-      await attemptCredentialSignIn();
+      // The address is verified at this point, so a failed sign-in must not read as a failed
+      // verification.
+      try {
+        await attemptCredentialSignIn();
+      } catch {
+        addToast({
+          type: "success",
+          message: "Email berhasil diverifikasi. Silakan masuk dengan password Anda.",
+        });
+        setStage("entry");
+      }
     } catch {
       addToast({
         type: "error",
@@ -630,6 +660,15 @@ export const AuthEntry = ({
               loading={isResending}
               disabled={!verificationEnabled}
               onClick={() => {
+                // The code verification sets this password, so a password the server would refuse must not spend a code.
+                if (password.trim().length < 8 || password.trim().length > 72) {
+                  addToast({
+                    type: "error",
+                    message:
+                      "Password harus 8 sampai 72 karakter. Kembali, lalu masukkan password yang memenuhi syarat.",
+                  });
+                  return;
+                }
                 void onResend();
               }}
               variant="primary"
@@ -643,7 +682,7 @@ export const AuthEntry = ({
 
       {method === "credentials" && stage === "verifyCode" ? (
         <form onSubmit={onSubmitVerificationCode} className="auth-form">
-          <p>
+          <p role="status">
             Kami sudah mengirim kode 6 digit ke <span className="font-medium">{email}</span>.
             Masukkan kode tersebut untuk mengaktifkan akun Anda. Kode berlaku 10 menit.
           </p>
@@ -653,6 +692,7 @@ export const AuthEntry = ({
               Kode verifikasi
             </label>
             <input
+              ref={verificationCodeInputRef}
               id="auth-verification-code"
               name="code"
               type="text"
@@ -674,6 +714,7 @@ export const AuthEntry = ({
             <Button
               type="button"
               loading={isResending}
+              disabled={isVerifying}
               onClick={() => {
                 void onResend();
               }}
@@ -682,7 +723,13 @@ export const AuthEntry = ({
             >
               Kirim ulang kode
             </Button>
-            <Button type="submit" loading={isVerifying} variant="primary" size="md">
+            <Button
+              type="submit"
+              loading={isVerifying}
+              disabled={isResending}
+              variant="primary"
+              size="md"
+            >
               Verifikasi
             </Button>
           </div>

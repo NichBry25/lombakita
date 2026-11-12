@@ -11,7 +11,7 @@ const authService = vi.hoisted(() => {
 
   return {
     verifyRegistrationEmailToken: refuse(),
-    verifyRegistrationEmailCode: refuse(),
+    verifyEmailCodeAndSetPassword: refuse(),
     registerUserWithCredentials: refuse(),
     resendRegistrationVerification: refuse(),
     authenticateWithEmailPassword: refuse(),

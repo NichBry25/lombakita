@@ -63,11 +63,10 @@ export async function POST(request: Request): Promise<Response> {
       }
     }
 
-    // The per-address budget, shared with /register/resend. Registering an address that already
-    // exists but is unverified re-sends the verification email rather than being refused, so this
-    // endpoint mails a caller-named address exactly as the resend endpoint does and has to draw
-    // from the same allowance. Counted before the address is looked up, so the 429 arrives at the
-    // same point whether or not an account exists.
+    // The per-address budget, shared with /register/resend: this endpoint mails a caller-named
+    // address, as the resend endpoint does, so it draws from the same allowance. Counted before
+    // the address is looked up, so the 429 arrives at the same point whether or not an account
+    // exists.
     const target = verificationEmailTargetOf(payload);
     const addressRate = await checkOptionalBound(target, VERIFICATION_EMAIL_ADDRESS_LIMIT);
 

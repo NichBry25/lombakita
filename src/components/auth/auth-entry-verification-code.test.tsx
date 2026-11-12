@@ -56,11 +56,30 @@ const typeInto = (label: string, value: string) => {
   fireEvent.change(screen.getByLabelText(label), { target: { value } });
 };
 
-const submitEmailAndPassword = () => {
+const submitEmailAndPassword = (password: string = PASSWORD) => {
   fireEvent.click(screen.getByRole("button", { name: /Lanjut dengan email/ }));
   typeInto("Email", ADDRESS);
-  typeInto("Password", PASSWORD);
+  typeInto("Password", password);
   fireEvent.click(screen.getByRole("button", { name: "Lanjut" }));
+};
+
+const signUpAsRecruiter = async () => {
+  answer("/api/v1/auth/identify", 200, { state: "none" });
+  renderEntry();
+  submitEmailAndPassword();
+
+  await screen.findByLabelText("Konfirmasi password");
+  typeInto("Nama lengkap", "Rina Pratama");
+  typeInto("Konfirmasi password", PASSWORD);
+  fireEvent.click(screen.getByRole("button", { name: /Daftar sebagai rekruter/ }));
+  await screen.findByLabelText("Nomor ponsel");
+  typeInto("Nomor ponsel", "0812345678");
+  fireEvent.click(screen.getByRole("button", { name: "Selesai" }));
+};
+
+const submitCode = (code: string) => {
+  typeInto("Kode verifikasi", code);
+  fireEvent.click(screen.getByRole("button", { name: "Verifikasi" }));
 };
 
 const reachCodeStageFromVerifyNotice = async () => {
@@ -85,20 +104,72 @@ afterEach(() => {
 
 describe("verifying an email address with a code on the sign-in page", () => {
   it("asks for the code right after a sign-up", async () => {
-    answer("/api/v1/auth/identify", 200, { state: "none" });
     answer("/api/v1/auth/register", 200, { email: ADDRESS });
-    renderEntry();
-    submitEmailAndPassword();
-
-    await screen.findByLabelText("Konfirmasi password");
-    typeInto("Nama lengkap", "Rina Pratama");
-    typeInto("Konfirmasi password", PASSWORD);
-    fireEvent.click(screen.getByRole("button", { name: /Daftar sebagai rekruter/ }));
-    await screen.findByLabelText("Nomor ponsel");
-    typeInto("Nomor ponsel", "0812345678");
-    fireEvent.click(screen.getByRole("button", { name: "Selesai" }));
+    await signUpAsRecruiter();
 
     expect(await screen.findByLabelText("Kode verifikasi")).toBeTruthy();
+  });
+
+  it("moves focus to the code box when the code stage opens", async () => {
+    answer("/api/v1/auth/register", 200, { email: ADDRESS });
+    await signUpAsRecruiter();
+
+    const codeBox = await screen.findByLabelText("Kode verifikasi");
+    await waitFor(() => {
+      expect(document.activeElement).toBe(codeBox);
+    });
+  });
+
+  it("offers the code for an address that already has an account", async () => {
+    answer("/api/v1/auth/register", 409, {
+      error: { code: "email_not_verified", message: "An unverified account already exists" },
+    });
+    await signUpAsRecruiter();
+
+    expect(await screen.findByRole("button", { name: "Kirim kode verifikasi" })).toBeTruthy();
+  });
+
+  it("names the network limit when the network is limited", async () => {
+    answer("/api/v1/auth/register/verify", 429, {
+      error: { code: "rate_limited", message: "Too many requests" },
+    });
+    await reachCodeStageFromVerifyNotice();
+
+    submitCode("123456");
+
+    expect(
+      await screen.findByText(
+        "Terlalu banyak permintaan dari jaringan ini. Tunggu beberapa menit lalu coba lagi.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("says the address is verified when the sign-in after it fails", async () => {
+    answer("/api/v1/auth/register/verify", 200, { verify: { email: ADDRESS } });
+    signIn.mockRejectedValue(new Error("network down"));
+    await reachCodeStageFromVerifyNotice();
+
+    submitCode("123456");
+
+    expect(
+      await screen.findByText("Email berhasil diverifikasi. Silakan masuk dengan password Anda."),
+    ).toBeTruthy();
+  });
+
+  it("does not send a code for a password the server would refuse", async () => {
+    answer("/api/v1/auth/identify", 200, { state: "unverified" });
+    answer("/api/v1/auth/register/resend", 200, { resend: { email: ADDRESS } });
+    renderEntry();
+    submitEmailAndPassword("short6");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Kirim kode verifikasi" }));
+
+    expect(
+      await screen.findByText(
+        "Password harus 8 sampai 72 karakter. Kembali, lalu masukkan password yang memenuhi syarat.",
+      ),
+    ).toBeTruthy();
+    expect(postedBodyTo("/api/v1/auth/register/resend")).toBeUndefined();
   });
 
   it("sends a code from the verify notice and asks for it", async () => {

@@ -3,9 +3,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CredentialsAuthError } from "@/server/auth/credentials-auth";
 
-const { checkFixedWindowLimit, verifyRegistrationEmailCode } = vi.hoisted(() => ({
+const { checkFixedWindowLimit, verifyEmailCodeAndSetPassword } = vi.hoisted(() => ({
   checkFixedWindowLimit: vi.fn(),
-  verifyRegistrationEmailCode: vi.fn(),
+  verifyEmailCodeAndSetPassword: vi.fn(),
 }));
 
 vi.mock("@/server/redis/rate-limit", async (importOriginal) => {
@@ -18,7 +18,7 @@ vi.mock("@/server/auth/credentials-auth", async (importOriginal) => {
 
   return {
     ...actual,
-    verifyRegistrationEmailCode,
+    verifyEmailCodeAndSetPassword,
   };
 });
 
@@ -53,11 +53,11 @@ describe("POST /api/v1/auth/register/verify", () => {
     const response = await POST(verifyRequest(validBody));
 
     expect(response.status).toBe(429);
-    expect(verifyRegistrationEmailCode).not.toHaveBeenCalled();
+    expect(verifyEmailCodeAndSetPassword).not.toHaveBeenCalled();
   });
 
   it("returns the verified email for a valid body", async () => {
-    verifyRegistrationEmailCode.mockResolvedValue({ email: ADDRESS });
+    verifyEmailCodeAndSetPassword.mockResolvedValue({ email: ADDRESS });
 
     const response = await POST(verifyRequest(validBody));
     const body = await response.json();
@@ -67,7 +67,7 @@ describe("POST /api/v1/auth/register/verify", () => {
   });
 
   it("answers a service refusal with its status and code", async () => {
-    verifyRegistrationEmailCode.mockRejectedValue(
+    verifyEmailCodeAndSetPassword.mockRejectedValue(
       new CredentialsAuthError(
         "verification_code_invalid",
         400,
@@ -88,6 +88,6 @@ describe("POST /api/v1/auth/register/verify", () => {
 
     expect(response.status).toBe(400);
     expect(body.error.code).toBe("invalid_payload");
-    expect(verifyRegistrationEmailCode).not.toHaveBeenCalled();
+    expect(verifyEmailCodeAndSetPassword).not.toHaveBeenCalled();
   });
 });

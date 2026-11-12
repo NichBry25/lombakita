@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { CredentialsAuthError, verifyRegistrationEmailCode } from "@/server/auth/credentials-auth";
+import {
+  CredentialsAuthError,
+  verifyEmailCodeAndSetPassword,
+} from "@/server/auth/credentials-auth";
 import { toCredentialsAuthErrorResponse } from "@/server/auth/credentials-auth-api";
 import { extractClientIp } from "@/server/auth/client-ip";
 import { REGISTRATION_CODE_IP_LIMIT } from "@/server/auth/rate-limit-constants";
@@ -13,7 +16,7 @@ import { checkClientIpBound, rateLimitedResponse } from "@/server/auth/rate-limi
  * The IP bound is the broad-sweep bound and FAILS OPEN, the house direction for the self-service
  * auth routes (DEC-0098): a Redis outage must not lock out the people who cannot get in yet. It does
  * not bound guessing. The per-code and per-account guessing limits inside the service FAIL CLOSED,
- * by the developer's stop rule.
+ * because a guess that cannot be counted is a guess with no limit.
  */
 export async function POST(request: Request): Promise<Response> {
   // An unresolvable client IP is skipped rather than shared, the same trade the resend route makes.
@@ -27,7 +30,7 @@ export async function POST(request: Request): Promise<Response> {
 
   try {
     const payload = await request.json();
-    const result = await verifyRegistrationEmailCode(payload);
+    const result = await verifyEmailCodeAndSetPassword(payload);
 
     return NextResponse.json({ verify: result });
   } catch (error) {
