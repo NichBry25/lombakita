@@ -21,6 +21,7 @@ import { processCompetitionCancelledJob } from "@/server/async/jobs/competition-
 import { processInstitutionInvitationDispatchJob } from "@/server/async/jobs/institution-invitation-dispatch";
 import { processTeamInvitationDispatchJob } from "@/server/async/jobs/team-invitation-dispatch";
 import { processRecruiterVerificationRejectedJob } from "@/server/async/jobs/recruiter-verification-rejected";
+import { processRecruiterVerificationApprovedJob } from "@/server/async/jobs/recruiter-verification-approved";
 import { processRegistrationDocumentRequestedJob } from "@/server/async/jobs/registration-document-requested";
 import { processRegistrationDocumentReviewedJob } from "@/server/async/jobs/registration-document-reviewed";
 import { processPaymentProofSubmittedJob } from "@/server/async/jobs/payment-proof-submitted";
@@ -67,6 +68,10 @@ export const ASYNC_JOB_REGISTRATIONS = [
   defineAsyncJob(
     ASYNC_JOB_NAMES.recruiterVerificationRejected,
     processRecruiterVerificationRejectedJob,
+  ),
+  defineAsyncJob(
+    ASYNC_JOB_NAMES.recruiterVerificationApproved,
+    processRecruiterVerificationApprovedJob,
   ),
   defineAsyncJob(
     ASYNC_JOB_NAMES.registrationDocumentRequested,

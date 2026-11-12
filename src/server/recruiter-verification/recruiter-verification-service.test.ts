@@ -33,11 +33,13 @@ vi.mock("@/server/storage/r2.client", () => ({
 }));
 vi.mock("@/lib/logger", () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
-const { mockEnqueueRejected } = vi.hoisted(() => ({
+const { mockEnqueueRejected, mockEnqueueApproved } = vi.hoisted(() => ({
   mockEnqueueRejected: vi.fn().mockResolvedValue(undefined),
+  mockEnqueueApproved: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("@/server/async/enqueue", () => ({
   enqueueRecruiterVerificationRejected: mockEnqueueRejected,
+  enqueueRecruiterVerificationApproved: mockEnqueueApproved,
 }));
 
 const { mockGetDb } = vi.hoisted(() => ({ mockGetDb: vi.fn() }));
@@ -162,6 +164,35 @@ describe("reviewRecruiterVerification", () => {
     expect(mockListObjects).toHaveBeenCalledWith("recruiter-verification/u_1/sub_1/");
   });
 
+  it("approve: notifies the host that they can now publish", async () => {
+    const { db } = buildReviewDb({
+      submissionReturn: [{ userId: "u_1" }],
+      existingSubmission: [],
+    });
+    mockGetDb.mockReturnValue(db);
+
+    await reviewRecruiterVerification("ops_1", "sub_1", "approve", null, { db: db as never });
+
+    expect(mockEnqueueApproved).toHaveBeenCalledOnce();
+    expect(mockEnqueueApproved).toHaveBeenCalledWith({ userId: "u_1", epoch: expect.any(Number) });
+    expect(mockEnqueueRejected).not.toHaveBeenCalled();
+  });
+
+  it("approve: a notification enqueue failure never fails the committed review", async () => {
+    const { db } = buildReviewDb({
+      submissionReturn: [{ userId: "u_1" }],
+      existingSubmission: [],
+    });
+    mockGetDb.mockReturnValue(db);
+    mockEnqueueApproved.mockRejectedValueOnce(new Error("redis down"));
+
+    const result = await reviewRecruiterVerification("ops_1", "sub_1", "approve", null, {
+      db: db as never,
+    });
+
+    expect(result.status).toBe("approved");
+  });
+
   it("reject: requires a reason before any DB work", async () => {
     const { db } = buildReviewDb({ submissionReturn: [], existingSubmission: [] });
     mockGetDb.mockReturnValue(db);
@@ -214,6 +245,7 @@ describe("reviewRecruiterVerification", () => {
         resubmissionAllowed: true,
       }),
     );
+    expect(mockEnqueueApproved).not.toHaveBeenCalled();
   });
 
   it("reject: records the reviewer's bar on the row, in the audit row, and in the notice", async () => {

@@ -23,6 +23,7 @@ export const ASYNC_JOB_NAMES = {
   institutionInvitationDispatch: "institution.invitation.dispatch",
   teamInvitationDispatch: "team.invitation.dispatch",
   recruiterVerificationRejected: "recruiter.verification.rejected",
+  recruiterVerificationApproved: "recruiter.verification.approved",
   registrationDocumentRequested: "registration.document.requested",
   registrationDocumentReviewed: "registration.document.reviewed",
   retentionPurge: "retention.purge",
@@ -119,6 +120,10 @@ export type RecruiterVerificationRejectedPayload = {
   resubmissionAllowed: boolean;
   epoch: number;
 };
+
+// Account-level approval to publish, from a review or the manual tier setting. epoch keeps two
+// distinct approvals of one account apart while a double enqueue of the same one dedups.
+export type RecruiterVerificationApprovedPayload = { userId: string; epoch: number };
 
 // Participant document verification. Both payloads carry their content rather than a pointer, for
 // the same reason the recruiter rejection does: by the time the worker runs the request may have
@@ -237,6 +242,7 @@ export type AsyncJobPayloadByName = {
   [ASYNC_JOB_NAMES.institutionInvitationDispatch]: InstitutionInvitationDispatchPayload;
   [ASYNC_JOB_NAMES.teamInvitationDispatch]: TeamInvitationDispatchPayload;
   [ASYNC_JOB_NAMES.recruiterVerificationRejected]: RecruiterVerificationRejectedPayload;
+  [ASYNC_JOB_NAMES.recruiterVerificationApproved]: RecruiterVerificationApprovedPayload;
   [ASYNC_JOB_NAMES.registrationDocumentRequested]: RegistrationDocumentRequestedPayload;
   [ASYNC_JOB_NAMES.registrationDocumentReviewed]: RegistrationDocumentReviewedPayload;
   [ASYNC_JOB_NAMES.retentionPurge]: RetentionPurgePayload;
@@ -258,6 +264,7 @@ export const ASYNC_JOB_QUEUE_BY_NAME = {
   [ASYNC_JOB_NAMES.institutionInvitationDispatch]: ASYNC_QUEUE_NAMES.notifications,
   [ASYNC_JOB_NAMES.teamInvitationDispatch]: ASYNC_QUEUE_NAMES.notifications,
   [ASYNC_JOB_NAMES.recruiterVerificationRejected]: ASYNC_QUEUE_NAMES.notifications,
+  [ASYNC_JOB_NAMES.recruiterVerificationApproved]: ASYNC_QUEUE_NAMES.notifications,
   [ASYNC_JOB_NAMES.registrationDocumentRequested]: ASYNC_QUEUE_NAMES.notifications,
   [ASYNC_JOB_NAMES.registrationDocumentReviewed]: ASYNC_QUEUE_NAMES.notifications,
   // Platform maintenance, not a participant-facing event — so it sits on `infrastructure`, away

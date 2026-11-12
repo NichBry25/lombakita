@@ -302,16 +302,16 @@ export const sendRecruiterVerificationRejectedEmail = async (options: {
   const { apiKey, from } = delivery;
 
   const nextStep = options.resubmissionAllowed
-    ? "Perbarui data dan dokumen Anda di dasbor rekruter, lalu ajukan ulang."
+    ? "Perbarui data dan dokumen Anda di dasbor penyelenggara, lalu ajukan ulang."
     : "Akun Anda tidak dapat mengirim permohonan baru. Hubungi tim dukungan jika Anda merasa keputusan ini keliru.";
 
   const resend = new Resend(apiKey);
   const { error } = await resend.emails.send({
     from,
     to: options.toEmail,
-    subject: "Permohonan Rekruter Terpercaya ditolak",
+    subject: "Permohonan penyelenggara terverifikasi ditolak",
     text: [
-      "Permohonan verifikasi Rekruter Terpercaya Anda ditolak.",
+      "Permohonan Anda untuk menjadi penyelenggara terverifikasi ditolak.",
       "",
       `Alasan: ${options.rejectionReason}`,
       "",
@@ -327,6 +327,45 @@ export const sendRecruiterVerificationRejectedEmail = async (options: {
 
   logger.info("notification.sent", {
     event: "recruiter.verification.rejected",
+    recipientId: options.recipientId,
+  });
+};
+
+export const sendRecruiterVerificationApprovedEmail = async (options: {
+  toEmail: string;
+  recipientId: string;
+  draft: { title: string; path: string } | null;
+}): Promise<void> => {
+  const delivery = resolveNotificationDelivery("recruiter_verification_approved", options.toEmail);
+
+  if (!delivery) {
+    return;
+  }
+
+  const { apiKey, from } = delivery;
+
+  const nextStep = options.draft
+    ? `Buka draf "${options.draft.title}" di ${resolveBaseUrl()}${options.draft.path}, lalu tekan Terbitkan.`
+    : `Buka dasbor penyelenggara di ${resolveBaseUrl()}/recruiter-dashboard.`;
+
+  const resend = new Resend(apiKey);
+  const { error } = await resend.emails.send({
+    from,
+    to: options.toEmail,
+    subject: "Anda kini penyelenggara terverifikasi",
+    text: [
+      "Akun Anda sudah disetujui sebagai penyelenggara terverifikasi. Sekarang Anda dapat menerbitkan kompetisi.",
+      "",
+      nextStep,
+    ].join("\n"),
+  });
+
+  if (error) {
+    throwEmailSendFailure("recruiter_verification_approved", error);
+  }
+
+  logger.info("notification.sent", {
+    event: "recruiter.verification.approved",
     recipientId: options.recipientId,
   });
 };

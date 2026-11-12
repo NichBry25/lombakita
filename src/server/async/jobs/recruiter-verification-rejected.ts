@@ -60,7 +60,7 @@ export const processRecruiterVerificationRejectedJob = async (
     {
       userId,
       type: NOTIFICATION_TYPES.recruiterVerificationRejected,
-      title: "Permohonan Rekruter Terpercaya ditolak",
+      title: "Permohonan penyelenggara terverifikasi ditolak",
       body: `Alasan: ${rejectionReason} ${nextStep}`,
     },
     { event: "recruiter.verification.rejected", jobId: job.id ?? undefined },

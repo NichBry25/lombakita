@@ -4,7 +4,10 @@ assertServerOnly("server/recruiter-verification/recruiter-verification-service")
 
 import { and, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { logger } from "@/lib/logger";
-import { enqueueRecruiterVerificationRejected } from "@/server/async/enqueue";
+import {
+  enqueueRecruiterVerificationApproved,
+  enqueueRecruiterVerificationRejected,
+} from "@/server/async/enqueue";
 import { getDb, type Database } from "@/server/db/client";
 import {
   recruiterVerificationDocuments,
@@ -914,9 +917,19 @@ export const reviewRecruiterVerification = async (
     decision,
   });
 
-  // Dual-channel rejection notice (email + inbox), fire-and-forget: an enqueue failure must not
-  // fail a review that already committed. Approval needs no notification — the recruiter's next
-  // page load shows them Trusted.
+  // Dual-channel notices (email + inbox), fire-and-forget: an enqueue failure must not fail a review
+  // that already committed. Approval tells the host they can now publish; rejection carries the reason.
+  if (decision === "approve") {
+    try {
+      await enqueueRecruiterVerificationApproved({ userId: result.userId, epoch: Date.now() });
+    } catch (error) {
+      logger.warn("recruiter_verification.approval_notice_enqueue_failed", {
+        submissionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   if (decision === "reject" && cleanReason) {
     try {
       await enqueueRecruiterVerificationRejected({

@@ -16,6 +16,7 @@ import {
   enqueueResultPublished,
   enqueuePaymentProofSubmitted,
   enqueuePaymentOutcome,
+  enqueueRecruiterVerificationApproved,
 } from "@/server/async/enqueue";
 
 const makeQueue = () => ({
@@ -178,6 +179,27 @@ describe("enqueueSubmissionFinalized", () => {
       { jobId: "submission.finalized__reg_1" },
     );
     expect(result.queueName).toBe(ASYNC_QUEUE_NAMES.notifications);
+  });
+});
+
+describe("enqueueRecruiterVerificationApproved", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("enqueues the approval notice on the notifications queue with an epoch-scoped job id", async () => {
+    const queue = makeQueue();
+    getAsyncQueue.mockReturnValue(queue);
+
+    await enqueueRecruiterVerificationApproved({ userId: "u_1", epoch: 1700000000000 });
+
+    expect(getAsyncQueue).toHaveBeenCalledWith(ASYNC_QUEUE_NAMES.notifications);
+    expect(queue.getJob).toHaveBeenCalledWith(
+      "recruiter.verification.approved__u_1__1700000000000",
+    );
+    expect(queue.add).toHaveBeenCalledWith(
+      ASYNC_JOB_NAMES.recruiterVerificationApproved,
+      { userId: "u_1", epoch: 1700000000000 },
+      { jobId: "recruiter.verification.approved__u_1__1700000000000" },
+    );
   });
 });
 

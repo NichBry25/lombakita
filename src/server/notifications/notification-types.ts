@@ -17,6 +17,7 @@ export const NOTIFICATION_TYPES = {
   competitionEdited: "competition_edited",
   competitionCancelled: "competition_cancelled",
   recruiterVerificationRejected: "recruiter_verification_rejected",
+  recruiterVerificationApproved: "recruiter_verification_approved",
   registrationDocumentRequested: "registration_document_requested",
   registrationDocumentReviewed: "registration_document_reviewed",
   paymentProofSubmitted: "payment_proof_submitted",

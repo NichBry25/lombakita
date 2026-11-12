@@ -2,11 +2,13 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { mockGetDb, getRecruiterTierForAccount, mockSweepForAccount } = vi.hoisted(() => ({
-  mockGetDb: vi.fn(),
-  getRecruiterTierForAccount: vi.fn(),
-  mockSweepForAccount: vi.fn().mockResolvedValue(undefined),
-}));
+const { mockGetDb, getRecruiterTierForAccount, mockSweepForAccount, mockEnqueueApproved } =
+  vi.hoisted(() => ({
+    mockGetDb: vi.fn(),
+    getRecruiterTierForAccount: vi.fn(),
+    mockSweepForAccount: vi.fn().mockResolvedValue(undefined),
+    mockEnqueueApproved: vi.fn().mockResolvedValue(undefined),
+  }));
 
 vi.mock("@/server/db/client", () => ({ getDb: mockGetDb }));
 vi.mock("@/server/runtime/assert-server-only", () => ({ assertServerOnly: vi.fn() }));
@@ -19,6 +21,9 @@ vi.mock("@/server/auth/recruiter-tier", async () => {
 // Isolate the tier service from the verification module; assert the orphan sweep wiring directly.
 vi.mock("@/server/recruiter-verification/recruiter-verification-service", () => ({
   sweepOrphanedObjectsForAccount: mockSweepForAccount,
+}));
+vi.mock("@/server/async/enqueue", () => ({
+  enqueueRecruiterVerificationApproved: mockEnqueueApproved,
 }));
 
 import {
@@ -228,6 +233,31 @@ describe("elevateRecruiterTier", () => {
     expect(updateChain.set).not.toHaveBeenCalled();
     // No elevation happened, so no sweep runs on the idempotent fast-path.
     expect(mockSweepForAccount).not.toHaveBeenCalled();
+  });
+
+  it("notifies the host when the tier really changes", async () => {
+    getRecruiterTierForAccount.mockResolvedValue({
+      recruiterVerified: true,
+      recruiterVerificationTier: "minimal",
+    });
+    const { db } = buildUpdateDb();
+
+    await elevateRecruiterTier("ops_1", "u1", db as never);
+
+    expect(mockEnqueueApproved).toHaveBeenCalledOnce();
+    expect(mockEnqueueApproved).toHaveBeenCalledWith({ userId: "u1", epoch: expect.any(Number) });
+  });
+
+  it("sends nothing when the tier was already elevated", async () => {
+    getRecruiterTierForAccount.mockResolvedValue({
+      recruiterVerified: true,
+      recruiterVerificationTier: "elevated",
+    });
+    const { db } = buildUpdateDb();
+
+    await elevateRecruiterTier("ops_1", "u1", db as never);
+
+    expect(mockEnqueueApproved).not.toHaveBeenCalled();
   });
 
   // Step 4.0c (4.0c-T1) — Concurrent platform-ops elevation requests on the same account.

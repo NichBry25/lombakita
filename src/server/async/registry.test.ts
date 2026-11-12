@@ -17,7 +17,7 @@ describe("async queue registration baseline", () => {
     // added registration.document.requested + registration.document.reviewed — all on the
     // notifications queue. The scheduled jobs are on infrastructure: retention.purge,
     // payment.expiry.sweep and email.egress.probe.
-    expect(ASYNC_JOB_REGISTRATIONS).toHaveLength(18);
+    expect(ASYNC_JOB_REGISTRATIONS).toHaveLength(19);
 
     const probe = getRegistrationByJobName(ASYNC_JOB_NAMES.probePing);
     expect(probe).toBeDefined();
@@ -65,6 +65,12 @@ describe("async queue registration baseline", () => {
     );
     expect(recruiterRejectedJob).toBeDefined();
     expect(recruiterRejectedJob?.queueName).toBe(ASYNC_QUEUE_NAMES.notifications);
+
+    const recruiterApprovedJob = getRegistrationByJobName(
+      ASYNC_JOB_NAMES.recruiterVerificationApproved,
+    );
+    expect(recruiterApprovedJob).toBeDefined();
+    expect(recruiterApprovedJob?.queueName).toBe(ASYNC_QUEUE_NAMES.notifications);
 
     const documentRequestedJob = getRegistrationByJobName(
       ASYNC_JOB_NAMES.registrationDocumentRequested,
@@ -114,6 +120,6 @@ describe("async queue registration baseline", () => {
     expect(getQueueRegistrations(ASYNC_QUEUE_NAMES.infrastructure)).toHaveLength(4);
     expect(getQueueRegistrations(ASYNC_QUEUE_NAMES.competition)).toHaveLength(1);
     expect(getQueueRegistrations(ASYNC_QUEUE_NAMES.results)).toHaveLength(1);
-    expect(getQueueRegistrations(ASYNC_QUEUE_NAMES.notifications)).toHaveLength(12);
+    expect(getQueueRegistrations(ASYNC_QUEUE_NAMES.notifications)).toHaveLength(13);
   });
 });
