@@ -234,6 +234,26 @@ describe("the return address in the verification email", () => {
     );
   });
 
+  it("drops a return address longer than 512 characters", async () => {
+    await registerCandidateWithReturnAddress("/" + "a".repeat(512));
+
+    expect(sendRegistrationVerificationEmail).toHaveBeenCalledTimes(1);
+    expect(sendRegistrationVerificationEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ returnPath: null }),
+    );
+  });
+
+  it("keeps a return address of exactly 512 characters", async () => {
+    const returnPath = "/" + "a".repeat(511);
+
+    await registerCandidateWithReturnAddress(returnPath);
+
+    expect(sendRegistrationVerificationEmail).toHaveBeenCalledTimes(1);
+    expect(sendRegistrationVerificationEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ returnPath }),
+    );
+  });
+
   it("puts a path on this site into the resent verification email", async () => {
     await resendWithReturnAddress("/competitions/acme/lomba-1");
 

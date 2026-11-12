@@ -52,4 +52,19 @@ describe("the sign-in page return address", () => {
 
     expect(callbackUrl).toBe("/inbox");
   });
+
+  it("keeps a path on this site over the inbox for an invite", async () => {
+    const callbackUrl = await callbackUrlPassedFor({
+      invite: "tok",
+      callbackUrl: "/competitions/acme/lomba-1",
+    });
+
+    expect(callbackUrl).toBe("/competitions/acme/lomba-1");
+  });
+
+  it("sends an invite to the inbox when its return address is another site", async () => {
+    const callbackUrl = await callbackUrlPassedFor({ invite: "tok", callbackUrl: "//example.com" });
+
+    expect(callbackUrl).toBe("/inbox");
+  });
 });

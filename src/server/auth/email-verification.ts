@@ -2,6 +2,7 @@ import { publicEnv } from "@/config/env";
 import { serverEnv } from "@/config/env.server";
 import { logger } from "@/lib/logger";
 import { resolveEmailDelivery } from "@/server/email/delivery";
+import { escapeHtml } from "@/server/email/escape-html";
 import { rethrowSmtpSendFailure } from "@/server/email/send-failure";
 import { buildResendSmtpTransport } from "@/server/email/smtp-transport";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
@@ -62,7 +63,7 @@ export const sendRegistrationVerificationEmail = async (options: {
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto; color: #14453d;">
           <h2 style="margin-bottom: 12px;">Verifikasi akun Lombakita</h2>
-          <p style="margin: 0 0 12px;">Halo ${options.name},</p>
+          <p style="margin: 0 0 12px;">Halo ${escapeHtml(options.name)},</p>
           <p style="margin: 0 0 16px;">
             Terima kasih sudah mendaftar di Lombakita. Klik tombol di bawah untuk memverifikasi email Anda.
           </p>

@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { signIn } from "next-auth/react";
 import { Button, ButtonLink, SelectField, StepIndicator, usePageTransition } from "@/components/ui";
 import { AssentNotice } from "@/components/legal/assent-notice";
@@ -124,6 +124,7 @@ export const AuthEntry = ({
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isResending, setIsResending] = useState(false);
+  const stagePanelRef = useRef<HTMLDivElement>(null);
   const { begin: beginPageTransition } = usePageTransition();
   const { addToast } = useToast();
 
@@ -154,6 +155,13 @@ export const AuthEntry = ({
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage]);
+
+  // The form that held focus unmounts at these two stages, so focus moves to the message that replaced it.
+  useEffect(() => {
+    if (stage === "checkEmail" || stage === "verifyNotice") {
+      stagePanelRef.current?.focus();
+    }
   }, [stage]);
 
   const startGoogle = () => {
@@ -555,7 +563,7 @@ export const AuthEntry = ({
       ) : null}
 
       {method === "credentials" && (stage === "verifyNotice" || stage === "checkEmail") ? (
-        <div className="auth-stage-panel">
+        <div className="auth-stage-panel" ref={stagePanelRef} tabIndex={-1} role="status">
           <p>
             {stage === "checkEmail" ? (
               <>

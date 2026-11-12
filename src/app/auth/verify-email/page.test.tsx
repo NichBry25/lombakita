@@ -126,4 +126,14 @@ describe("VerifyEmailPage return address", () => {
 
     expect(html).toContain('href="/auth/login?callbackUrl=%2Fcompetitions%2Facme%2Flomba-1"');
   });
+
+  it("keeps the way back to sign-in plain for a return address to another site", async () => {
+    const page = await VerifyEmailPage({
+      searchParams: Promise.resolve({ callbackUrl: "//example.com" }),
+    });
+    const html = renderToStaticMarkup(page);
+
+    expect(html).toContain('href="/auth/login"');
+    expect(html).not.toContain("callbackUrl");
+  });
 });

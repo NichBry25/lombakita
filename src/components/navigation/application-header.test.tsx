@@ -66,8 +66,17 @@ describe("ApplicationHeader sign-in links", () => {
     ]);
   });
 
-  it("keeps sign-in plain on the sign-in pages", () => {
+  it("offers no second sign-in link on the sign-in page", () => {
     navigation.pathname = "/auth/login";
+
+    render(<ApplicationHeader />);
+
+    expect(screen.queryAllByRole("link", { name: "Masuk" })).toHaveLength(0);
+    expect(screen.queryAllByRole("link", { name: /^Daftar/ })).toHaveLength(0);
+  });
+
+  it("keeps sign-in plain on other auth pages", () => {
+    navigation.pathname = "/auth/verify-email";
 
     render(<ApplicationHeader />);
 
@@ -79,6 +88,15 @@ describe("ApplicationHeader sign-in links", () => {
       "/auth/register",
       "/auth/register",
     ]);
+  });
+
+  it("offers no second sign-in link on the sign-up page", () => {
+    navigation.pathname = "/auth/register";
+
+    render(<ApplicationHeader />);
+
+    expect(screen.queryAllByRole("link", { name: "Masuk" })).toHaveLength(0);
+    expect(screen.queryAllByRole("link", { name: /^Daftar/ })).toHaveLength(0);
   });
 
   it("keeps sign-in plain for a path to another site", () => {

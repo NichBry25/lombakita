@@ -45,6 +45,29 @@ describe("POST /api/v1/auth/register/resend", () => {
     expect(body.resend.email).toBe("student@example.com");
   });
 
+  it("hands the return address in the body to the service", async () => {
+    resendRegistrationVerification.mockResolvedValue({
+      email: "student@example.com",
+    });
+
+    const request = new Request("http://localhost/api/v1/auth/register/resend", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        email: "student@example.com",
+        callbackUrl: "/competitions/acme/lomba-1",
+      }),
+    });
+
+    await POST(request);
+
+    expect(resendRegistrationVerification).toHaveBeenCalledWith(
+      expect.objectContaining({ callbackUrl: "/competitions/acme/lomba-1" }),
+    );
+  });
+
   it("returns proper error envelope for known auth errors", async () => {
     resendRegistrationVerification.mockRejectedValue(
       new CredentialsAuthError("verification_required", 404, "Registration record not found"),

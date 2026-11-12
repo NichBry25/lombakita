@@ -285,7 +285,8 @@ export const parseRegistrationInput = (payload: unknown): RegistrationInput => {
   };
 };
 
-// A return address rides in the verification link only when it is a path on this site.
+const MAX_RETURN_PATH_LENGTH = 512;
+
 const readReturnPath = (payload: unknown): string | null => {
   if (!isRecord(payload)) {
     return null;
@@ -293,6 +294,11 @@ const readReturnPath = (payload: unknown): string | null => {
 
   const candidate = payload.callbackUrl;
   if (typeof candidate !== "string") {
+    return null;
+  }
+
+  // A long enough return address makes the emailed link too long for the server to open.
+  if (candidate.length > MAX_RETURN_PATH_LENGTH) {
     return null;
   }
 

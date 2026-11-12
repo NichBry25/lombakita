@@ -3,19 +3,12 @@ import { serverEnv } from "@/config/env.server";
 import { logger } from "@/lib/logger";
 import { resolveBaseUrl } from "@/server/auth/email-verification";
 import { resolveEmailDelivery } from "@/server/email/delivery";
+import { escapeHtml } from "@/server/email/escape-html";
 import { rethrowSmtpSendFailure } from "@/server/email/send-failure";
 import { buildResendSmtpTransport } from "@/server/email/smtp-transport";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/auth/password-reset-email");
-
-const escapeHtml = (value: string): string =>
-  value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
 
 const buildActionUrl = (path: string): URL => new URL(path, resolveBaseUrl());
 

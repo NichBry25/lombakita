@@ -31,6 +31,8 @@ export function ApplicationHeader() {
   const pathname = usePathname();
   const returnPath = sameSitePathOr(pathname, "");
   const keepsReturnPath = returnPath !== "" && !returnPath.startsWith("/auth/");
+  // The page under the header is the sign-in form itself, so a second, plain way in would drop its return address.
+  const onSignInForm = returnPath === "/auth/login" || returnPath === "/auth/register";
   const signInHref = keepsReturnPath
     ? `/auth/login?callbackUrl=${encodeURIComponent(returnPath)}`
     : "/auth/login";
@@ -149,7 +151,7 @@ export function ApplicationHeader() {
                 onClick={() => void signOut({ callbackUrl: "/" })}
               />
             </>
-          ) : (
+          ) : onSignInForm ? null : (
             <>
               <ButtonLink
                 href={signInHref}
@@ -249,7 +251,7 @@ export function ApplicationHeader() {
               Keluar
             </button>
           </>
-        ) : (
+        ) : onSignInForm ? null : (
           <>
             <Link href={signInHref} className="header-nav-link" onClick={() => setMenuOpen(false)}>
               Masuk

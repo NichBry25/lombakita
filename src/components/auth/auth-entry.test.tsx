@@ -2,6 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { signIn } from "next-auth/react";
 import { UIPrimitivesProvider } from "@/components/ui/primitives";
 import { PageTransitionProvider } from "@/components/ui/page-transition";
 import { AuthEntry } from "./auth-entry";
@@ -197,6 +198,7 @@ describe("the email sign-up profile step", () => {
     submitProfile();
 
     expect(await screen.findByText(/belum diverifikasi/)).toBeTruthy();
+    await waitFor(() => expect(document.activeElement?.getAttribute("role")).toBe("status"));
   });
 });
 
@@ -245,6 +247,32 @@ describe("the email sign-up return address and end stage", () => {
 
     expect(await screen.findByText("Periksa email Anda.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Kirim ulang verifikasi" })).toBeTruthy();
+    await waitFor(() => expect(document.activeElement?.getAttribute("role")).toBe("status"));
+    expect(document.activeElement?.textContent).toContain("Periksa email Anda.");
+    expect(document.activeElement?.textContent).toContain(EMAIL);
+    expect(document.activeElement?.textContent).toContain("Tautan berlaku 24 jam");
+    expect(screen.queryByText(/Pendaftaran berhasil/)).toBeNull();
+  });
+
+  it("returns the credential sign-in to the page it started from", async () => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url === IDENTIFY_URL) {
+        return jsonResponse(200, { state: "verified" });
+      }
+      return answerByUrl(url);
+    });
+    renderEntry(RETURN_PATH);
+    fireEvent.click(screen.getByRole("button", { name: /Lanjut dengan email/ }));
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: EMAIL } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: PASSWORD } });
+    fireEvent.click(screen.getByRole("button", { name: "Lanjut" }));
+
+    await waitFor(() =>
+      expect(signIn).toHaveBeenCalledWith(
+        "credentials",
+        expect.objectContaining({ callbackUrl: "/competitions/acme/lomba-1" }),
+      ),
+    );
   });
 
   it("shows the password rule before typing", () => {
