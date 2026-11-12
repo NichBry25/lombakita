@@ -12,28 +12,24 @@ export const resolveBaseUrl = (): string => {
   return serverEnv.authUrl ?? serverEnv.appBaseUrl ?? publicEnv.appUrl ?? "http://localhost:3000";
 };
 
-const buildVerificationUrl = (rawToken: string): string => {
-  const baseUrl = resolveBaseUrl();
-  const url = new URL("/auth/verify-email", baseUrl);
-  url.searchParams.set("token", rawToken);
-
-  return url.toString();
-};
-
 export const sendRegistrationVerificationEmail = async (options: {
   email: string;
-  name: string;
-  rawToken: string;
+  code: string;
 }): Promise<void> => {
-  const verificationUrl = buildVerificationUrl(options.rawToken);
-
   const delivery = resolveEmailDelivery({
     kind: "registration_verification",
     to: options.email,
-    actionUrl: verificationUrl,
   });
 
   if (!delivery) {
+    if (!serverEnv.emailDeliveryEnabled) {
+      // Only where delivery is switched off (local and test), so a local sign-up can be finished
+      // without an inbox.
+      logger.info("auth.registration_code.delivery_suppressed", {
+        email: options.email,
+        code: options.code,
+      });
+    }
     return;
   }
 
@@ -45,33 +41,25 @@ export const sendRegistrationVerificationEmail = async (options: {
     await transporter.sendMail({
       from: delivery.from,
       to: options.email,
-      subject: "Verifikasi akun Lombakita",
+      subject: "Kode verifikasi akun Lombakita",
       text: [
-        `Halo ${options.name},`,
+        "Halo,",
         "",
-        "Terima kasih sudah mendaftar di Lombakita.",
-        "Klik tautan berikut untuk memverifikasi email Anda:",
-        verificationUrl,
+        "Kode verifikasi akun Lombakita Anda:",
+        options.code,
         "",
-        "Tautan ini berlaku selama 24 jam.",
+        "Kode ini berlaku 10 menit. Masukkan kode ini di halaman tempat Anda mendaftar atau masuk.",
+        "",
+        "Jika Anda tidak meminta kode ini, abaikan email ini.",
       ].join("\n"),
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto; color: #14453d;">
           <h2 style="margin-bottom: 12px;">Verifikasi akun Lombakita</h2>
-          <p style="margin: 0 0 12px;">Halo ${options.name},</p>
-          <p style="margin: 0 0 16px;">
-            Terima kasih sudah mendaftar di Lombakita. Klik tombol di bawah untuk memverifikasi email Anda.
-          </p>
-          <p style="margin: 0 0 16px;">
-            <a href="${verificationUrl}" style="background: #c6491b; color: #ffffff; text-decoration: none; padding: 10px 16px; border-radius: 8px; display: inline-block;">
-              Verifikasi Email
-            </a>
-          </p>
-          <p style="margin: 0 0 10px;">Atau gunakan tautan ini:</p>
-          <p style="word-break: break-all; margin: 0 0 12px;">
-            <a href="${verificationUrl}">${verificationUrl}</a>
-          </p>
-          <p style="margin: 0; color: #3d5c56;">Tautan ini berlaku selama 24 jam.</p>
+          <p style="margin: 0 0 12px;">Halo,</p>
+          <p style="margin: 0 0 12px;">Kode verifikasi akun Lombakita Anda:</p>
+          <p style="font-size: 28px; font-weight: 700; letter-spacing: 6px; margin: 0 0 16px;">${options.code}</p>
+          <p style="margin: 0 0 12px;">Kode ini berlaku 10 menit. Masukkan kode ini di halaman tempat Anda mendaftar atau masuk.</p>
+          <p style="margin: 0; color: #3d5c56;">Jika Anda tidak meminta kode ini, abaikan email ini.</p>
         </div>
       `,
     });

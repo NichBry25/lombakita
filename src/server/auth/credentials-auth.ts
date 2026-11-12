@@ -1,4 +1,4 @@
-import { and, eq, isNull, ne } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, ne } from "drizzle-orm";
 import { logger } from "@/lib/logger";
 import {
   generateUsername,
@@ -12,13 +12,19 @@ import {
   userProfiles,
   users,
 } from "@/server/db/schema";
-import {
-  hashPassword,
-  hashVerificationToken,
-  issueVerificationToken,
-  verifyPassword,
-} from "@/server/auth/password";
+import { hashPassword, verifyPassword } from "@/server/auth/password";
 import { sendRegistrationVerificationEmail } from "@/server/auth/email-verification";
+import {
+  REGISTRATION_CODE_TTL_MS,
+  hashRegistrationCode,
+  issueRegistrationCode,
+  registrationCodeMatches,
+} from "@/server/auth/registration-code";
+import {
+  REGISTRATION_CODE_ATTEMPT_LIMIT,
+  REGISTRATION_CODE_DAILY_LIMIT,
+} from "@/server/auth/rate-limit-constants";
+import { checkFixedWindowLimitFailClosed } from "@/server/redis/rate-limit";
 import { claimPendingInvitationsForUser } from "@/server/invitations/claim-service";
 import {
   CandidateProfileError,
@@ -35,7 +41,6 @@ import { createRecruiterVerificationSubmissionInTransaction } from "@/server/rec
 
 const NAME_MIN_LENGTH = 2;
 const NAME_MAX_LENGTH = 120;
-const REGISTRATION_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 
 // Splits the single `name` field into first/last name tokens
 // for username generation. The first whitespace-delimited token is the first name;
@@ -109,8 +114,9 @@ type AuthFlowErrorCode =
   | "invalid_signup_role"
   | "email_exists"
   | "verification_required"
-  | "verification_token_invalid"
-  | "verification_token_expired"
+  | "verification_code_invalid"
+  | "verification_code_attempts_exceeded"
+  | "verification_unavailable"
   | "verification_email_failed"
   | "password_reset_token_invalid"
   | "password_reset_token_expired"
@@ -292,34 +298,11 @@ export const parseEmailPayload = (payload: unknown): { email: string } => {
   };
 };
 
-const parseVerificationToken = (token: unknown): string => {
-  if (typeof token !== "string") {
-    throw new CredentialsAuthError(
-      "verification_token_invalid",
-      400,
-      "Verification token is invalid",
-    );
-  }
-
-  const normalized = token.trim();
-
-  if (!/^[a-f0-9]{64}$/i.test(normalized)) {
-    throw new CredentialsAuthError(
-      "verification_token_invalid",
-      400,
-      "Verification token is invalid",
-    );
-  }
-
-  return normalized;
-};
-
-const createVerificationChallengeForUser = async (
+const createVerificationCodeForUser = async (
   userId: string,
   db: Database,
-): Promise<{ rawToken: string; expiresAt: Date }> => {
-  const issued = issueVerificationToken();
-  const expiresAt = new Date(Date.now() + REGISTRATION_TOKEN_TTL_MS);
+): Promise<{ code: string }> => {
+  const code = issueRegistrationCode();
 
   await db
     .delete(userEmailVerificationTokens)
@@ -332,14 +315,11 @@ const createVerificationChallengeForUser = async (
 
   await db.insert(userEmailVerificationTokens).values({
     userId,
-    tokenHash: issued.tokenHash,
-    expiresAt,
+    tokenHash: hashRegistrationCode(userId, code),
+    expiresAt: new Date(Date.now() + REGISTRATION_CODE_TTL_MS),
   });
 
-  return {
-    rawToken: issued.rawToken,
-    expiresAt,
-  };
+  return { code };
 };
 
 export const registerUserWithCredentials = async (
@@ -493,25 +473,24 @@ export const registerUserWithCredentials = async (
         return {
           userId,
           alreadyVerified: true,
-          verificationRawToken: null as string | null,
+          verificationCode: null as string | null,
         };
       }
 
-      const verificationChallenge = await createVerificationChallengeForUser(userId, tx);
+      const verificationChallenge = await createVerificationCodeForUser(userId, tx);
 
       return {
         userId,
         alreadyVerified: false,
-        verificationRawToken: verificationChallenge.rawToken,
+        verificationCode: verificationChallenge.code,
       };
     });
 
-    if (!registrationState.alreadyVerified && registrationState.verificationRawToken) {
+    if (!registrationState.alreadyVerified && registrationState.verificationCode) {
       try {
         await sendRegistrationVerificationEmail({
           email: input.email,
-          name: input.name,
-          rawToken: registrationState.verificationRawToken,
+          code: registrationState.verificationCode,
         });
       } catch (error) {
         // The cause never reaches the caller — the response is a generic 503 so it cannot leak
@@ -629,13 +608,12 @@ export const resendRegistrationVerification = async (
     throw new CredentialsAuthError("verification_required", 404, "Registration record not found");
   }
 
-  const challenge = await createVerificationChallengeForUser(userRecord.id, db);
+  const challenge = await createVerificationCodeForUser(userRecord.id, db);
 
   try {
     await sendRegistrationVerificationEmail({
       email,
-      name: userRecord.name ?? "Pengguna Lombakita",
-      rawToken: challenge.rawToken,
+      code: challenge.code,
     });
   } catch (error) {
     logger.error("auth.verification_email.dispatch_failed", {
@@ -655,103 +633,185 @@ export const resendRegistrationVerification = async (
   };
 };
 
-export const verifyRegistrationEmailToken = async (
-  token: unknown,
-  db: Database = getDb(),
-): Promise<{ email: string; status: "verified" | "already_verified" }> => {
-  const rawToken = parseVerificationToken(token);
-  const tokenHash = hashVerificationToken(rawToken);
+const VERIFICATION_CODE_PATTERN = /^[0-9]{6}$/;
 
-  const [tokenRecord] = await db
-    .select({
-      id: userEmailVerificationTokens.id,
-      userId: userEmailVerificationTokens.userId,
-      expiresAt: userEmailVerificationTokens.expiresAt,
-      consumedAt: userEmailVerificationTokens.consumedAt,
-      email: users.email,
-      emailVerified: users.emailVerified,
-    })
-    .from(userEmailVerificationTokens)
-    .innerJoin(users, eq(users.id, userEmailVerificationTokens.userId))
-    .where(eq(userEmailVerificationTokens.tokenHash, tokenHash))
+const invalidVerificationCodeError = (): CredentialsAuthError =>
+  new CredentialsAuthError(
+    "verification_code_invalid",
+    400,
+    "Kode verifikasi salah atau sudah tidak berlaku.",
+  );
+
+const parseVerificationCodePayload = (
+  payload: unknown,
+): { email: string; code: string; password: string } => {
+  if (!isRecord(payload)) {
+    throw new CredentialsAuthError("invalid_payload", 400, "Payload must be a JSON object");
+  }
+
+  const email = parseEmail(payload.email);
+  const code = typeof payload.code === "string" ? payload.code.trim() : "";
+
+  if (!VERIFICATION_CODE_PATTERN.test(code)) {
+    throw invalidVerificationCodeError();
+  }
+
+  return { email, code, password: parsePassword(payload.password) };
+};
+
+// Fail-closed: a limiter that cannot count refuses, because an uncounted guess is an unlimited one.
+const countCodeAttemptOrRefuse = async (
+  key: string,
+  policy: { limit: number; windowSeconds: number },
+): Promise<void> => {
+  const outcome = await checkFixedWindowLimitFailClosed({
+    key,
+    limit: policy.limit,
+    windowSeconds: policy.windowSeconds,
+  });
+
+  if (outcome.decision === "throttled") {
+    throw new CredentialsAuthError(
+      "verification_code_attempts_exceeded",
+      429,
+      "Terlalu banyak percobaan kode yang salah.",
+    );
+  }
+
+  if (outcome.decision === "unavailable") {
+    throw new CredentialsAuthError(
+      "verification_unavailable",
+      503,
+      "Verifikasi sedang tidak tersedia.",
+    );
+  }
+};
+
+// The code proves the person holds the inbox, and the password sent with it becomes the account's
+// password, so a password a stranger set before verification never survives verification.
+export const verifyRegistrationEmailCode = async (
+  payload: unknown,
+  db: Database = getDb(),
+): Promise<{ email: string }> => {
+  const input = parseVerificationCodePayload(payload);
+
+  const [user] = await db
+    .select({ id: users.id, email: users.email, emailVerified: users.emailVerified })
+    .from(users)
+    .where(eq(users.email, input.email))
     .limit(1);
 
-  if (!tokenRecord) {
+  if (!user) {
+    throw invalidVerificationCodeError();
+  }
+
+  if (user.emailVerified) {
     throw new CredentialsAuthError(
-      "verification_token_invalid",
-      400,
-      "Verification token is invalid",
+      "email_exists",
+      409,
+      "Email already verified. Please login with your password",
     );
   }
 
-  if (tokenRecord.consumedAt) {
-    return {
-      email: tokenRecord.email,
-      status: tokenRecord.emailVerified ? "already_verified" : "verified",
-    };
+  await countCodeAttemptOrRefuse(
+    `${REGISTRATION_CODE_DAILY_LIMIT.keyPrefix}${user.id}`,
+    REGISTRATION_CODE_DAILY_LIMIT,
+  );
+
+  const [codeRow] = await db
+    .select({
+      id: userEmailVerificationTokens.id,
+      tokenHash: userEmailVerificationTokens.tokenHash,
+    })
+    .from(userEmailVerificationTokens)
+    .where(
+      and(
+        eq(userEmailVerificationTokens.userId, user.id),
+        isNull(userEmailVerificationTokens.consumedAt),
+        gt(userEmailVerificationTokens.expiresAt, new Date()),
+      ),
+    )
+    .orderBy(desc(userEmailVerificationTokens.createdAt))
+    .limit(1);
+
+  if (!codeRow) {
+    throw invalidVerificationCodeError();
   }
 
-  if (tokenRecord.expiresAt.getTime() < Date.now()) {
-    throw new CredentialsAuthError(
-      "verification_token_expired",
-      400,
-      "Verification token is expired",
-    );
+  await countCodeAttemptOrRefuse(
+    `${REGISTRATION_CODE_ATTEMPT_LIMIT.keyPrefix}${codeRow.id}`,
+    REGISTRATION_CODE_ATTEMPT_LIMIT,
+  );
+
+  if (!registrationCodeMatches(codeRow.tokenHash, user.id, input.code)) {
+    throw invalidVerificationCodeError();
   }
 
-  if (tokenRecord.emailVerified) {
-    await db
-      .update(userEmailVerificationTokens)
-      .set({
-        consumedAt: new Date(),
-      })
-      .where(eq(userEmailVerificationTokens.id, tokenRecord.id));
-
-    return {
-      email: tokenRecord.email,
-      status: "already_verified",
-    };
-  }
+  const passwordHash = await hashPassword(input.password);
 
   await db.transaction(async (tx) => {
     const now = new Date();
 
-    await tx
+    const [consumed] = await tx
+      .update(userEmailVerificationTokens)
+      .set({ consumedAt: now })
+      .where(
+        and(
+          eq(userEmailVerificationTokens.id, codeRow.id),
+          isNull(userEmailVerificationTokens.consumedAt),
+        ),
+      )
+      .returning({ id: userEmailVerificationTokens.id });
+
+    if (!consumed) {
+      throw invalidVerificationCodeError();
+    }
+
+    const [verified] = await tx
       .update(users)
-      .set({
-        emailVerified: now,
-        updatedAt: now,
-      })
-      .where(eq(users.id, tokenRecord.userId));
+      .set({ emailVerified: now, sessionsInvalidBefore: now, updatedAt: now })
+      .where(and(eq(users.id, user.id), isNull(users.emailVerified)))
+      .returning({ id: users.id });
+
+    if (!verified) {
+      throw new CredentialsAuthError(
+        "email_exists",
+        409,
+        "Email already verified. Please login with your password",
+      );
+    }
 
     await tx
-      .update(userEmailVerificationTokens)
-      .set({
-        consumedAt: now,
+      .insert(userPasswordCredentials)
+      .values({
+        userId: user.id,
+        passwordHash,
       })
-      .where(eq(userEmailVerificationTokens.id, tokenRecord.id));
+      .onConflictDoUpdate({
+        target: userPasswordCredentials.userId,
+        set: {
+          passwordHash,
+          updatedAt: now,
+        },
+      });
 
     await tx
       .delete(userEmailVerificationTokens)
       .where(
         and(
-          eq(userEmailVerificationTokens.userId, tokenRecord.userId),
-          ne(userEmailVerificationTokens.id, tokenRecord.id),
+          eq(userEmailVerificationTokens.userId, user.id),
+          ne(userEmailVerificationTokens.id, codeRow.id),
         ),
       );
 
-    // Claim-at-signup. Now that this account's email is verified, attach every
-    // `pending_claim` invitation addressed to it (target_user_id IS NULL) across both invitation
-    // systems and flip them to `pending`. Runs in the SAME transaction as the verification flip so a
-    // half-claimed state cannot occur. Claim fires ONLY on verified-email match — an unverified
-    // signup never reaches here.
-    await claimPendingInvitationsForUser(tokenRecord.userId, tokenRecord.email, tx, now);
+    // Claim-at-signup. Attach every `pending_claim` invitation addressed to this email
+    // (target_user_id IS NULL) across both invitation systems and flip them to `pending`. Runs in
+    // the SAME transaction as the verification flip so a half-claimed state cannot occur. Claim
+    // fires only after the code proved the inbox and the password became the code-typer's.
+    await claimPendingInvitationsForUser(user.id, user.email, tx, now);
   });
 
-  return {
-    email: tokenRecord.email,
-    status: "verified",
-  };
+  return { email: user.email };
 };
 
 // Method-first credentials entry. The single `/auth/login` page asks for email +

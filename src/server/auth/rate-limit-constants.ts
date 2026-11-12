@@ -63,6 +63,39 @@ export const REGISTRATION_RESEND_IP_LIMIT = {
 } as const;
 
 /**
+ * Fixed-window limiter on POST /api/v1/auth/register/verify, keyed by client IP.
+ *
+ * The broad-sweep bound, fail OPEN through checkClientIpBound like the resend route's. It does not
+ * bound guessing; the two limits below do, and they fail closed.
+ */
+export const REGISTRATION_CODE_IP_LIMIT = {
+  limit: 20,
+  windowSeconds: 10 * 60,
+  keyPrefix: "rl:register-verify-ip:",
+} as const;
+
+/**
+ * Attempts against one verification code, keyed by the code's row id. FAIL CLOSED: a limiter that
+ * cannot count refuses the attempt. Counted before the code is compared, so concurrent guesses
+ * cannot pass together. The window equals the code's life.
+ */
+export const REGISTRATION_CODE_ATTEMPT_LIMIT = {
+  limit: 3,
+  windowSeconds: 10 * 60,
+  keyPrefix: "rl:register-code:",
+} as const;
+
+/**
+ * Code attempts against one account in a day, keyed by user id, whatever network address they come
+ * from. FAIL CLOSED and counted before the code is compared, like the per-code limit above.
+ */
+export const REGISTRATION_CODE_DAILY_LIMIT = {
+  limit: 10,
+  windowSeconds: 24 * 60 * 60,
+  keyPrefix: "rl:register-code-day:",
+} as const;
+
+/**
  * Fixed-window limiter keyed by the ADDRESS a verification email is being requested for.
  *
  * This is the anti-amplification bound proper: without it, an attacker rotating IPs can have the

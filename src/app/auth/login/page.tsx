@@ -34,7 +34,7 @@ const mapSignInPageError = (error: string): string => {
     return "Terlalu banyak percobaan login gagal. Tunggu beberapa menit sebelum mencoba lagi.";
   }
   if (error.includes("EMAIL_NOT_VERIFIED")) {
-    return "Login ditolak karena email belum diverifikasi. Cek inbox/spam lalu klik tautan verifikasi.";
+    return "Login ditolak karena email belum diverifikasi. Masuk dengan email dan password Anda, lalu minta kode verifikasi.";
   }
   if (error.includes("INVALID_CREDENTIALS") || error === "CredentialsSignin") {
     return "Login gagal karena email atau password tidak cocok. Periksa kembali data login Anda.";
