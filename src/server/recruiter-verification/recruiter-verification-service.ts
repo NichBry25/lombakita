@@ -886,8 +886,8 @@ export const reviewRecruiterVerification = async (
     }
 
     if (decision === "approve") {
-      // Idempotent elevation: no row comes back when a parallel path already elevated the account,
-      // and then the account did not just become penyelenggara terverifikasi.
+      // Idempotent elevation: no row comes back when the account was already elevated, by the tier
+      // setting or another review, and then it did not just become penyelenggara terverifikasi.
       const elevatedRows = await tx
         .update(users)
         .set({ recruiterVerificationTier: "elevated", updatedAt: sql`now()` })
@@ -922,7 +922,8 @@ export const reviewRecruiterVerification = async (
   });
 
   // Dual-channel notices (email + inbox), fire-and-forget: an enqueue failure must not fail a review
-  // that already committed. Approval tells the host they can now publish; rejection carries the reason.
+  // that already committed. An approval that elevated the account tells the host they can now
+  // publish; rejection carries the reason.
   if (accountElevated) {
     try {
       await enqueueRecruiterVerificationApproved({ userId: result.userId, epoch: Date.now() });

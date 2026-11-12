@@ -1,11 +1,12 @@
 // @vitest-environment node
 
-import { afterAll, describe, expect, it, vi } from "vitest";
-import { TransactionRollbackError } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
+import { TransactionRollbackError, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "@/server/db/schema";
-import { competitions, institutions, users } from "@/server/db/schema";
+import { competitions, institutions, notifications, users } from "@/server/db/schema";
 import { TEST_DATABASE_URL, skipWithoutDatabase } from "@/server/testing/database-url";
 import type { Database } from "@/server/db/client";
 
@@ -85,15 +86,21 @@ const seedHost = async (tx: Tx, email: string, username: string): Promise<string
 describe.skipIf(skipWithoutDatabase)(
   "the newest draft an approval notice links to (real database)",
   () => {
+    afterEach(() => {
+      mockSendApproved.mockClear();
+    });
+
     it("links the host's own newest live draft and nothing else", async () => {
+      const suffix = randomUUID().slice(0, 8);
+      const institutionSlug = `seed-approval-inst-${suffix}`;
       await inRollback(async (tx) => {
-        const hostU = await seedHost(tx, "host.u@example.com", "host_u");
-        const hostV = await seedHost(tx, "host.v@example.com", "host_v");
+        const hostU = await seedHost(tx, `host.u.${suffix}@example.com`, `host_u_${suffix}`);
+        const hostV = await seedHost(tx, `host.v.${suffix}@example.com`, `host_v_${suffix}`);
 
         const [institution] = await tx
           .insert(institutions)
           .values({
-            slug: "seed-approval-inst",
+            slug: institutionSlug,
             displayName: "Seed Approval Inst",
             institutionType: "company",
           })
@@ -105,7 +112,7 @@ describe.skipIf(skipWithoutDatabase)(
             institutionId,
             createdByUserId: hostU,
             status: "draft",
-            createdAt: new Date("2026-01-01T00:00:00Z"),
+            createdAt: new Date("2099-01-01T00:00:00Z"),
             title: "Draf Lama",
             slug: "draf-lama",
           },
@@ -113,7 +120,7 @@ describe.skipIf(skipWithoutDatabase)(
             institutionId,
             createdByUserId: hostU,
             status: "draft",
-            createdAt: new Date("2026-01-02T00:00:00Z"),
+            createdAt: new Date("2099-01-02T00:00:00Z"),
             title: "Draf Baru",
             slug: "draf-baru",
           },
@@ -121,8 +128,8 @@ describe.skipIf(skipWithoutDatabase)(
             institutionId,
             createdByUserId: hostU,
             status: "draft",
-            createdAt: new Date("2026-01-03T00:00:00Z"),
-            deletedAt: new Date("2026-01-04T00:00:00Z"),
+            createdAt: new Date("2099-01-03T00:00:00Z"),
+            deletedAt: new Date("2099-01-04T00:00:00Z"),
             title: "Draf Terhapus",
             slug: "draf-terhapus",
           },
@@ -130,7 +137,7 @@ describe.skipIf(skipWithoutDatabase)(
             institutionId,
             createdByUserId: hostU,
             status: "published",
-            createdAt: new Date("2026-01-05T00:00:00Z"),
+            createdAt: new Date("2099-01-05T00:00:00Z"),
             title: "Lomba Terbit",
             slug: "lomba-terbit",
           },
@@ -138,7 +145,7 @@ describe.skipIf(skipWithoutDatabase)(
             institutionId,
             createdByUserId: hostV,
             status: "draft",
-            createdAt: new Date("2026-01-06T00:00:00Z"),
+            createdAt: new Date("2099-01-06T00:00:00Z"),
             title: "Draf Orang Lain",
             slug: "draf-orang-lain",
           },
@@ -154,10 +161,17 @@ describe.skipIf(skipWithoutDatabase)(
           expect.objectContaining({
             draft: {
               title: "Draf Baru",
-              path: "/institution/seed-approval-inst/competitions/draf-baru",
+              path: `/institution/${institutionSlug}/competitions/draf-baru`,
             },
           }),
         );
+
+        const inbox = await tx
+          .select({ body: notifications.body })
+          .from(notifications)
+          .where(eq(notifications.userId, hostU));
+        expect(inbox).toHaveLength(1);
+        expect(inbox[0]!.body).toContain("Draf Baru");
       });
     });
   },

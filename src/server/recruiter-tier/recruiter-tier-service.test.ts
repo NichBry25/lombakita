@@ -185,6 +185,18 @@ describe("elevateRecruiterTier", () => {
     expect(db.transaction).toHaveBeenCalledTimes(1);
   });
 
+  it("sends nothing when the audit write fails after the tier changed", async () => {
+    getRecruiterTierForAccount.mockResolvedValue({
+      recruiterVerified: true,
+      recruiterVerificationTier: "minimal",
+    });
+    const { db, insertChain } = buildUpdateDb();
+    insertChain.values.mockRejectedValueOnce(new Error("audit down"));
+
+    await expect(elevateRecruiterTier("ops_1", "u1", db as never)).rejects.toThrow("audit down");
+    expect(mockEnqueueApproved).not.toHaveBeenCalled();
+  });
+
   // LAUNCH-D72. The audit row must name the account the DATABASE answered with, not the string the
   // caller passed. The two differ here on purpose: a row that echoed the claim would be the exact
   // defect this change exists to close, and it would be indistinguishable from a correct row in

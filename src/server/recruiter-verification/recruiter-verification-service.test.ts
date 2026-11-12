@@ -72,15 +72,17 @@ type SelectRow = Record<string, unknown>;
 const OPS_ACTOR_ROW = { id: "ops_1", role: "platform_ops", suspendedAt: null };
 
 // Builds a tx whose update() dispatches by table: the submission update returns `submissionReturn`
-// from .returning(); the users update resolves from .returning(), with no row when tierFlipped is false; audit insert is a no-op. select()
-// serves the acting account, then the submission owner (`ownerId`, null for no such submission),
-// then `existingSubmission` (used only on the not-flipped branch).
+// from .returning(); the users update resolves from .returning(), with no row when tierFlipped is
+// false; audit insert is a no-op unless auditFails makes it reject. select() serves the acting
+// account, then the submission owner (`ownerId`, null for no such submission), then
+// `existingSubmission` (used only on the not-flipped branch).
 const buildReviewDb = (opts: {
   submissionReturn: Array<{ userId: string }>;
   existingSubmission: Array<{ id: string }>;
   actorRow?: SelectRow | null;
   ownerId?: string | null;
   tierFlipped?: boolean;
+  auditFails?: boolean;
 }) => {
   const captured = {
     userTierUpdated: false,
@@ -123,7 +125,9 @@ const buildReviewDb = (opts: {
       values: vi.fn((v: Record<string, unknown>) => {
         captured.auditInserted = v;
         captured.auditInsertCount += 1;
-        return Promise.resolve(undefined);
+        return opts.auditFails
+          ? Promise.reject(new Error("audit down"))
+          : Promise.resolve(undefined);
       }),
     })),
   };
@@ -194,6 +198,20 @@ describe("reviewRecruiterVerification", () => {
     });
 
     expect(result.status).toBe("approved");
+    expect(mockEnqueueApproved).not.toHaveBeenCalled();
+  });
+
+  it("approve: sends nothing when the audit write fails after the flip", async () => {
+    const { db } = buildReviewDb({
+      submissionReturn: [{ userId: "u_1" }],
+      existingSubmission: [],
+      auditFails: true,
+    });
+    mockGetDb.mockReturnValue(db);
+
+    await expect(
+      reviewRecruiterVerification("ops_1", "sub_1", "approve", null, { db: db as never }),
+    ).rejects.toThrow("audit down");
     expect(mockEnqueueApproved).not.toHaveBeenCalled();
   });
 
