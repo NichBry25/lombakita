@@ -5454,11 +5454,17 @@ describe.skipIf(skipWithoutDatabase)("what the deadline means to the payer (real
       // "nobody paid", and a human-written sentence cannot be filtered on.
       expect(row!.reason).toBe(PAYMENT_EXPIRY_CANCELLATION_REASON);
       expect(row!.reason).not.toBe("withdrew");
+    });
+  });
 
-      // R6 has no capacity dimension: nothing is freed, and the copy must not suggest a seat was.
-      // What actually holds is the opposite: the cancelled row still blocks re-registration.
-      // Registration is opened first so the refusal below is the DUPLICATE guard rather than the
-      // window guard, which fires earlier and would make this assertion pass for the wrong reason.
+  it("lets an expired registrant who sent no proof register again, and keeps the cancelled row", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      await seedManualPayment(tx, fixture, { dueAt: DUE });
+
+      const { sweepExpiredPayments } = await import("@/server/finance/payment-expiry-service");
+      await sweepExpiredPayments(new Date(DUE.getTime() + 86_400_000), tx as never);
+
       await tx
         .update(competitions)
         .set({
@@ -5466,6 +5472,59 @@ describe.skipIf(skipWithoutDatabase)("what the deadline means to the payer (real
           mode: "individual",
           registrationStartAt: new Date(Date.now() - 86_400_000),
           registrationEndAt: new Date(Date.now() + 30 * 86_400_000),
+          feeAmount: null,
+          feeCurrency: null,
+        })
+        .where(eq(competitions.id, fixture.competitionId));
+
+      const { createIndividualRegistration } =
+        await import("@/server/registrations/registration-service");
+      const reRegistered = await createIndividualRegistration(
+        fixture.userId,
+        fixture.competitionId,
+        tx as never,
+      );
+      expect(reRegistered.status).toBe("confirmed");
+
+      const rows = await tx
+        .select({ id: competitionRegistrations.id, status: competitionRegistrations.status })
+        .from(competitionRegistrations)
+        .where(
+          and(
+            eq(competitionRegistrations.studentId, fixture.userId),
+            eq(competitionRegistrations.competitionId, fixture.competitionId),
+          ),
+        );
+      expect(rows).toHaveLength(2);
+      expect(rows).toEqual(
+        expect.arrayContaining([
+          { id: fixture.registrationId, status: "cancelled" },
+          { id: reRegistered.id, status: "confirmed" },
+        ]),
+      );
+    });
+  });
+
+  it("REFUSES a cancelled registrant who sent a payment proof, whatever the competition's fee", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const paymentId = await seedManualPayment(tx, fixture, { dueAt: DUE });
+      await seedProof(tx, fixture, paymentId);
+
+      await tx
+        .update(competitionRegistrations)
+        .set({ status: "cancelled", cancelledAt: new Date(), cancellationReason: "withdrew" })
+        .where(eq(competitionRegistrations.id, fixture.registrationId));
+
+      await tx
+        .update(competitions)
+        .set({
+          status: "published",
+          mode: "individual",
+          registrationStartAt: new Date(Date.now() - 86_400_000),
+          registrationEndAt: new Date(Date.now() + 30 * 86_400_000),
+          feeAmount: null,
+          feeCurrency: null,
         })
         .where(eq(competitions.id, fixture.competitionId));
 
@@ -5473,7 +5532,21 @@ describe.skipIf(skipWithoutDatabase)("what the deadline means to the payer (real
         await import("@/server/registrations/registration-service");
       await expect(
         createIndividualRegistration(fixture.userId, fixture.competitionId, tx as never),
-      ).rejects.toMatchObject({ code: "registration_already_exists" });
+      ).rejects.toMatchObject({
+        code: "registration_already_exists",
+        details: { existingStatus: "cancelled" },
+      });
+
+      const rows = await tx
+        .select({ id: competitionRegistrations.id, status: competitionRegistrations.status })
+        .from(competitionRegistrations)
+        .where(
+          and(
+            eq(competitionRegistrations.studentId, fixture.userId),
+            eq(competitionRegistrations.competitionId, fixture.competitionId),
+          ),
+        );
+      expect(rows).toEqual([{ id: fixture.registrationId, status: "cancelled" }]);
     });
   });
 

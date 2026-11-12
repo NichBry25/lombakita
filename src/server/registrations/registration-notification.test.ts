@@ -62,7 +62,7 @@ const makeDb = (
     const rows = queue.shift() ?? [];
     const limit = vi.fn().mockResolvedValue(rows);
     const orderBy = vi.fn().mockReturnValue({ limit });
-    const where = vi.fn().mockReturnValue({ limit, orderBy });
+    const where = vi.fn().mockReturnValue(Object.assign(Promise.resolve(rows), { limit, orderBy }));
     return { from: vi.fn().mockReturnValue({ where }) };
   });
   const insert = vi.fn().mockReturnValue({

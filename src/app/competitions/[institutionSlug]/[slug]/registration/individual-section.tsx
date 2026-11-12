@@ -34,6 +34,7 @@ type Props = {
   // place. A disabled "Daftar" invites a candidate to look for the permission that would enable it,
   // and no permission of theirs would.
   registrationWithheld: boolean;
+  canRegisterAgain: boolean;
 };
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -63,6 +64,23 @@ const ERROR_MESSAGES: Record<string, string> = {
 
 const messageFor = (code: string | undefined): string =>
   (code && ERROR_MESSAGES[code]) ?? "Terjadi kesalahan. Coba lagi.";
+
+const describeRegisterAgain = (
+  canRegisterAgain: boolean,
+  ctaState: CTAState,
+  registrationWithheld: boolean,
+): string => {
+  if (!canRegisterAgain) {
+    return "Pendaftaran ulang tidak tersedia karena bukti pembayaran sudah dikirim untuk pendaftaran ini.";
+  }
+  if (ctaState !== "open") {
+    return "Pendaftaran ulang hanya bisa dilakukan selama pendaftaran dibuka.";
+  }
+  if (registrationWithheld) {
+    return "Pendaftaran ulang belum dapat dibuka selama penyelenggara belum bisa menerima pembayaran.";
+  }
+  return "Anda dapat mendaftar lagi selama pendaftaran masih dibuka.";
+};
 
 // Self-contained modal body: collects the required cancellation reason and renders its own
 // confirm/cancel buttons (the modal is opened with no footer actions).
@@ -113,6 +131,7 @@ export function IndividualRegistrationSection({
   modeLabel,
   cancellationClosedByPaymentProof,
   registrationWithheld,
+  canRegisterAgain,
 }: Props) {
   const router = useRouter();
   const { openModal, closeModal } = useModal();
@@ -184,6 +203,21 @@ export function IndividualRegistrationSection({
     });
   };
 
+  const registerButton = (
+    <Button
+      onClick={handleRegister}
+      loading={loading}
+      disabled={ctaState !== "open"}
+      className="registration-primary-action"
+      variant="primary"
+      size="lg"
+    >
+      {modeLabel}
+    </Button>
+  );
+
+  const offersRegisterAgain = canRegisterAgain && ctaState === "open" && !registrationWithheld;
+
   return (
     <section className="content-section registration-path-card">
       <div className="section-heading">
@@ -228,7 +262,10 @@ export function IndividualRegistrationSection({
           <span className="status-badge" data-status="closed">
             Pendaftaran dibatalkan
           </span>
-          <p className="form-help">Pendaftaran ulang belum tersedia.</p>
+          <p className="form-help">
+            {describeRegisterAgain(canRegisterAgain, ctaState, registrationWithheld)}
+          </p>
+          {offersRegisterAgain ? registerButton : null}
         </div>
       ) : registrationWithheld ? (
         /* Stands where the register control would have been. An empty card is the same failure the
@@ -239,16 +276,7 @@ export function IndividualRegistrationSection({
           pembayaran.
         </Feedback>
       ) : (
-        <Button
-          onClick={handleRegister}
-          loading={loading}
-          disabled={ctaState !== "open"}
-          className="registration-primary-action"
-          variant="primary"
-          size="lg"
-        >
-          {modeLabel}
-        </Button>
+        registerButton
       )}
     </section>
   );

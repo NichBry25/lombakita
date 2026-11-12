@@ -6,6 +6,7 @@ import { getStudentRegistration } from "@/server/registrations/registration-serv
 import { getTeamForCompetitionAndCandidate } from "@/server/teams/team-service";
 import { resolveCancelAffordanceState } from "@/server/finance/cancel-affordance";
 import { resolveChargingReadinessBySlug } from "@/server/finance/charging-readiness";
+import { hasSubmittedPaymentProof } from "@/server/finance/paid-registration";
 import { isPaidCompetition } from "@/lib/competitions/paid-competition";
 import { IndividualRegistrationSection } from "./individual-section";
 import { CompetitionTeamSection } from "./team-section";
@@ -54,6 +55,9 @@ export default async function CompetitionRegistrationPage({
   const initialRegistration = supportsIndividual
     ? await getStudentRegistration(session.user.id, competition.id)
     : null;
+  const canRegisterAgain =
+    initialRegistration?.status === "cancelled" &&
+    !(await hasSubmittedPaymentProof(initialRegistration.id));
 
   // Team side: load team snapshot so the section renders fully server-side. After every client
   // mutation the section calls router.refresh() which re-runs this page and re-fetches all of this.
@@ -141,6 +145,7 @@ export default async function CompetitionRegistrationPage({
           modeLabel={competition.mode === "both" ? "Daftar sebagai individu" : "Daftar"}
           cancellationClosedByPaymentProof={individualCancellationClosed}
           registrationWithheld={paidRegistrationUnavailable}
+          canRegisterAgain={canRegisterAgain}
         />
       )}
 
