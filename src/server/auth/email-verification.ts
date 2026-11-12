@@ -12,10 +12,13 @@ export const resolveBaseUrl = (): string => {
   return serverEnv.authUrl ?? serverEnv.appBaseUrl ?? publicEnv.appUrl ?? "http://localhost:3000";
 };
 
-const buildVerificationUrl = (rawToken: string): string => {
+export const buildVerificationUrl = (rawToken: string, returnPath: string | null): string => {
   const baseUrl = resolveBaseUrl();
   const url = new URL("/auth/verify-email", baseUrl);
   url.searchParams.set("token", rawToken);
+  if (returnPath !== null) {
+    url.searchParams.set("callbackUrl", returnPath);
+  }
 
   return url.toString();
 };
@@ -24,8 +27,9 @@ export const sendRegistrationVerificationEmail = async (options: {
   email: string;
   name: string;
   rawToken: string;
+  returnPath: string | null;
 }): Promise<void> => {
-  const verificationUrl = buildVerificationUrl(options.rawToken);
+  const verificationUrl = buildVerificationUrl(options.rawToken, options.returnPath);
 
   const delivery = resolveEmailDelivery({
     kind: "registration_verification",

@@ -105,7 +105,6 @@ export const PAGES = [
     path: "/auth/verify-request",
     label: "Verification email sent notice",
   },
-  { id: "21-auth-activated", as: null, path: "/auth/activated", label: "Account activated notice" },
   {
     id: "22-auth-verify-email-bad",
     as: null,

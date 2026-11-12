@@ -6,6 +6,7 @@ import { isEmailAuthConfigured, isGoogleAuthConfigured } from "@/server/auth/aut
 import { verifyGoogleIdentityCarrier } from "@/server/auth/oauth-identity-carrier";
 import { resolveClaimInviteEmailByToken } from "@/server/invitations/invite-resolution";
 import { getDb } from "@/server/db/client";
+import { sameSitePathOr } from "@/lib/session/return-path";
 
 // Single method-first auth entry. `/auth/login` is the one canonical entry point;
 // `/auth/register`, `/auth/signup`, and `/auth/sign-in` all redirect here. Auth.js `pages.signIn`
@@ -95,7 +96,7 @@ export default async function LoginPage(props: {
   const error = searchParams?.error;
   const verified = searchParams?.verified === "1";
   const passwordChanged = searchParams?.passwordChanged === "1";
-  const callbackUrl = searchParams?.callbackUrl;
+  const checkedReturn = sameSitePathOr(searchParams?.callbackUrl, "");
 
   // Claim-signup link (?invite=<rawToken> from a pending_claim invite email). Resolve
   // the token to the invited email server-side and prefill it, so the new account is created with
@@ -108,6 +109,8 @@ export default async function LoginPage(props: {
       email = invitedEmail;
     }
   }
+
+  const callbackUrl = checkedReturn || (searchParams?.invite ? "/inbox" : undefined);
 
   return (
     <AuthPageFrame

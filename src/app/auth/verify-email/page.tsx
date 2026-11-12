@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { AuthPageFrame } from "@/components/auth/auth-page-frame";
 import { CredentialsAuthError, verifyRegistrationEmailToken } from "@/server/auth/credentials-auth";
 import { reportUnexpectedError } from "@/server/observability/report-unexpected-error";
+import { sameSitePathOr } from "@/lib/session/return-path";
 
 type VerifyEmailPageState =
   | { status: "success"; title: string; description: string; email: string }
@@ -65,14 +66,21 @@ const resolveState = async (token: string | undefined): Promise<VerifyEmailPageS
 };
 
 export default async function VerifyEmailPage(props: {
-  searchParams?: Promise<{ token?: string }>;
+  searchParams?: Promise<{ token?: string; callbackUrl?: string }>;
 }) {
   const searchParams = await props.searchParams;
   const state = await resolveState(searchParams?.token);
-  const signInHref = "/auth/login";
+  const returnPath = sameSitePathOr(searchParams?.callbackUrl, "");
+  const signInHref = returnPath
+    ? `/auth/login?callbackUrl=${encodeURIComponent(returnPath)}`
+    : "/auth/login";
 
   if (state.status === "success" && state.email) {
-    redirect(`/auth/activated?email=${encodeURIComponent(state.email)}`);
+    const signInParams = new URLSearchParams({ verified: "1", email: state.email });
+    if (returnPath) {
+      signInParams.set("callbackUrl", returnPath);
+    }
+    redirect(`/auth/login?${signInParams.toString()}`);
   }
 
   return (

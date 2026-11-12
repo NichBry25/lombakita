@@ -3,6 +3,7 @@
 import { inspect } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import { getRedirectError } from "next/dist/client/components/redirect";
 
 const { verifyRegistrationEmailToken, loggerErrorMock } = vi.hoisted(() => ({
   verifyRegistrationEmailToken: vi.fn(),
@@ -69,5 +70,60 @@ describe("VerifyEmailPage", () => {
     expect(html).toContain("Tautan verifikasi tidak valid atau sudah dipakai.");
     expect(html).not.toContain("English server secret");
     expect(loggerErrorMock).not.toHaveBeenCalled();
+  });
+});
+
+const redirectDigest = (path: string): string => getRedirectError(path, "replace").digest;
+
+const redirectDigestOf = async (searchParams: { token?: string; callbackUrl?: string }) => {
+  try {
+    await VerifyEmailPage({ searchParams: Promise.resolve(searchParams) });
+  } catch (error) {
+    return (error as { digest?: string }).digest;
+  }
+  return undefined;
+};
+
+describe("VerifyEmailPage return address", () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("sends a verified account to sign-in with its email and return address", async () => {
+    verifyRegistrationEmailToken.mockResolvedValue({
+      email: "budi@example.com",
+      status: "verified",
+    });
+
+    const digest = await redirectDigestOf({
+      token: "token-1",
+      callbackUrl: "/competitions/acme/lomba-1",
+    });
+
+    expect(digest).toBe(
+      redirectDigest(
+        "/auth/login?verified=1&email=budi%40example.com&callbackUrl=%2Fcompetitions%2Facme%2Flomba-1",
+      ),
+    );
+  });
+
+  it("drops a return address to another site", async () => {
+    verifyRegistrationEmailToken.mockResolvedValue({
+      email: "budi@example.com",
+      status: "verified",
+    });
+
+    const digest = await redirectDigestOf({ token: "token-1", callbackUrl: "//example.com" });
+
+    expect(digest).toBe(redirectDigest("/auth/login?verified=1&email=budi%40example.com"));
+  });
+
+  it("keeps the return address on the way back to sign-in", async () => {
+    const page = await VerifyEmailPage({
+      searchParams: Promise.resolve({ callbackUrl: "/competitions/acme/lomba-1" }),
+    });
+    const html = renderToStaticMarkup(page);
+
+    expect(html).toContain('href="/auth/login?callbackUrl=%2Fcompetitions%2Facme%2Flomba-1"');
   });
 });

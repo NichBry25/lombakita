@@ -47,6 +47,7 @@ type Method = "choose" | "credentials";
 type CredentialStage =
   | "entry"
   | "verifyNotice"
+  | "checkEmail"
   | "signup"
   | "candidateOnboarding"
   | "recruiterOnboarding";
@@ -287,7 +288,10 @@ export const AuthEntry = ({
       const response = await fetch("/api/v1/auth/register/resend", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email: email.trim().toLowerCase() }),
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          ...(callbackUrl ? { callbackUrl } : {}),
+        }),
       });
 
       if (!response.ok) {
@@ -328,6 +332,7 @@ export const AuthEntry = ({
           email: email.trim().toLowerCase(),
           password,
           ...(onboardingBody ?? {}),
+          ...(callbackUrl ? { callbackUrl } : {}),
         }),
       });
 
@@ -354,12 +359,7 @@ export const AuthEntry = ({
         return;
       }
 
-      setStage("entry");
-      addToast({
-        type: "success",
-        message:
-          "Pendaftaran berhasil. Kami sudah mengirim email verifikasi. Buka inbox Anda untuk mengaktifkan akun, lalu masuk.",
-      });
+      setStage("checkEmail");
     } catch {
       addToast({
         type: "error",
@@ -526,7 +526,11 @@ export const AuthEntry = ({
               onChange={(event) => setPassword(event.target.value)}
               className="form-input"
               placeholder="Masukkan password"
+              aria-describedby="auth-password-help"
             />
+            <p id="auth-password-help" className="form-help">
+              Password minimal 8 karakter.
+            </p>
             <ButtonLink
               variant="ghost"
               size="sm"
@@ -550,11 +554,21 @@ export const AuthEntry = ({
         </form>
       ) : null}
 
-      {method === "credentials" && stage === "verifyNotice" ? (
+      {method === "credentials" && (stage === "verifyNotice" || stage === "checkEmail") ? (
         <div className="auth-stage-panel">
           <p>
-            Email <span className="font-medium">{email}</span> belum diverifikasi. Buka tautan
-            verifikasi di inbox/spam Anda, atau kirim ulang di bawah ini.
+            {stage === "checkEmail" ? (
+              <>
+                <strong>Periksa email Anda.</strong> Kami mengirim tautan verifikasi ke{" "}
+                <span className="font-medium">{email}</span>. Tautan berlaku 24 jam. Buka inbox atau
+                folder spam Anda, atau kirim ulang di bawah ini.
+              </>
+            ) : (
+              <>
+                Email <span className="font-medium">{email}</span> belum diverifikasi. Buka tautan
+                verifikasi di inbox/spam Anda, atau kirim ulang di bawah ini.
+              </>
+            )}
           </p>
           <div className="auth-form-actions">
             <Button type="button" onClick={backToEntry} variant="ghost" size="sm">

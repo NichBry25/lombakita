@@ -20,6 +20,7 @@ import {
   verifyPassword,
 } from "@/server/auth/password";
 import { sendRegistrationVerificationEmail } from "@/server/auth/email-verification";
+import { sameSitePathOr } from "@/lib/session/return-path";
 import { claimPendingInvitationsForUser } from "@/server/invitations/claim-service";
 import {
   CandidateProfileError,
@@ -284,6 +285,20 @@ export const parseRegistrationInput = (payload: unknown): RegistrationInput => {
   };
 };
 
+// A return address rides in the verification link only when it is a path on this site.
+const readReturnPath = (payload: unknown): string | null => {
+  if (!isRecord(payload)) {
+    return null;
+  }
+
+  const candidate = payload.callbackUrl;
+  if (typeof candidate !== "string") {
+    return null;
+  }
+
+  return sameSitePathOr(candidate, "") || null;
+};
+
 export const parseEmailPayload = (payload: unknown): { email: string } => {
   if (!isRecord(payload)) {
     throw new CredentialsAuthError("invalid_payload", 400, "Payload must be a JSON object");
@@ -353,6 +368,7 @@ export const registerUserWithCredentials = async (
   alreadyVerified: boolean;
 }> => {
   const input = parseRegistrationInput(payload);
+  const returnPath = readReturnPath(payload);
   const passwordHash = await hashPassword(input.password);
 
   try {
@@ -477,6 +493,7 @@ export const registerUserWithCredentials = async (
           email: input.email,
           name: input.name,
           rawToken: registrationState.verificationRawToken,
+          returnPath,
         });
       } catch (error) {
         // The cause never reaches the caller — the response is a generic 503 so it cannot leak
@@ -554,6 +571,7 @@ export const resendRegistrationVerification = async (
   db: Database = getDb(),
 ): Promise<{ email: string }> => {
   const { email } = parseEmailPayload(payload);
+  const returnPath = readReturnPath(payload);
 
   const [userRecord] = await db
     .select({
@@ -596,6 +614,7 @@ export const resendRegistrationVerification = async (
       email,
       name: userRecord.name ?? "Pengguna Lombakita",
       rawToken: challenge.rawToken,
+      returnPath,
     });
   } catch (error) {
     logger.error("auth.verification_email.dispatch_failed", {

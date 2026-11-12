@@ -38,11 +38,11 @@ const answerByUrl = async (url: string) => {
   throw new Error(`unexpected fetch to ${url}`);
 };
 
-const renderEntry = () =>
+const renderEntry = (callbackUrl?: string) =>
   render(
     <UIPrimitivesProvider>
       <PageTransitionProvider>
-        <AuthEntry googleEnabled={false} verificationEnabled />
+        <AuthEntry googleEnabled={false} verificationEnabled callbackUrl={callbackUrl} />
       </PageTransitionProvider>
     </UIPrimitivesProvider>,
   );
@@ -51,8 +51,8 @@ const chooseRole = (label: string) => {
   fireEvent.click(screen.getByRole("button", { name: new RegExp(label) }));
 };
 
-const reachRoleChoice = async () => {
-  renderEntry();
+const reachRoleChoice = async (callbackUrl?: string) => {
+  renderEntry(callbackUrl);
   fireEvent.click(screen.getByRole("button", { name: /Lanjut dengan email/ }));
   fireEvent.change(screen.getByLabelText("Email"), { target: { value: EMAIL } });
   fireEvent.change(screen.getByLabelText("Password"), { target: { value: PASSWORD } });
@@ -61,8 +61,8 @@ const reachRoleChoice = async () => {
   fireEvent.change(confirmPassword, { target: { value: PASSWORD } });
 };
 
-const reachCandidateStage = async () => {
-  await reachRoleChoice();
+const reachCandidateStage = async (callbackUrl?: string) => {
+  await reachRoleChoice(callbackUrl);
   chooseRole("Daftar sebagai kandidat");
 };
 
@@ -197,5 +197,63 @@ describe("the email sign-up profile step", () => {
     submitProfile();
 
     expect(await screen.findByText(/belum diverifikasi/)).toBeTruthy();
+  });
+});
+
+const RESEND_URL = "/api/v1/auth/register/resend";
+const RETURN_PATH = "/competitions/acme/lomba-1";
+
+const resendCalls = () => fetchMock.mock.calls.filter(([url]) => url === RESEND_URL);
+
+describe("the email sign-up return address and end stage", () => {
+  it("sends the return address with the email sign-up", async () => {
+    await reachCandidateStage(RETURN_PATH);
+    fillCandidateProfile("Andi Saputra");
+
+    submitProfile();
+
+    const body = await sentRegisterBody();
+    expect(body.callbackUrl).toBe(RETURN_PATH);
+  });
+
+  it("sends the return address with a resent verification", async () => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url === IDENTIFY_URL) {
+        return jsonResponse(200, { state: "unverified" });
+      }
+      return answerByUrl(url);
+    });
+    renderEntry(RETURN_PATH);
+    fireEvent.click(screen.getByRole("button", { name: /Lanjut dengan email/ }));
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: EMAIL } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: PASSWORD } });
+    fireEvent.click(screen.getByRole("button", { name: "Lanjut" }));
+
+    const resendButton = await screen.findByRole("button", { name: "Kirim ulang verifikasi" });
+    fireEvent.click(resendButton);
+
+    await waitFor(() => expect(resendCalls()).toHaveLength(1));
+    const body = JSON.parse(resendCalls()[0]?.[1].body);
+    expect(body).toEqual({ email: "andi.saputra@example.test", callbackUrl: RETURN_PATH });
+  });
+
+  it("ends email sign-up on the check-email stage", async () => {
+    await reachCandidateStage();
+    fillCandidateProfile("Andi Saputra");
+
+    submitProfile();
+
+    expect(await screen.findByText("Periksa email Anda.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Kirim ulang verifikasi" })).toBeTruthy();
+  });
+
+  it("shows the password rule before typing", () => {
+    renderEntry();
+    fireEvent.click(screen.getByRole("button", { name: /Lanjut dengan email/ }));
+
+    expect(screen.getByText("Password minimal 8 karakter.")).toBeTruthy();
+    expect(screen.getByLabelText("Password").getAttribute("aria-describedby")).toBe(
+      "auth-password-help",
+    );
   });
 });

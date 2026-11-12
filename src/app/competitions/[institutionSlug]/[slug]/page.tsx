@@ -632,7 +632,7 @@ export default async function CompetitionDetailPage({
               <p className="muted-copy">Daftar dan ikuti kompetisi ini untuk memberi ulasan.</p>
             ) : !session?.user ? (
               <p className="detail-rail-note">
-                <Link href="/auth/login">Masuk</Link> sebagai peserta untuk memberi ulasan.
+                <Link href={signInPath}>Masuk</Link> sebagai peserta untuk memberi ulasan.
               </p>
             ) : null}
 
@@ -743,7 +743,7 @@ export default async function CompetitionDetailPage({
             ) : null}
             {!session?.user ? (
               <p className="detail-rail-note">
-                <Link href="/auth/login">Masuk</Link> sebagai kandidat untuk mendaftar.
+                <Link href={signInPath}>Masuk</Link> sebagai kandidat untuk mendaftar.
               </p>
             ) : null}
             {session?.user && !isCandidate ? (
@@ -752,7 +752,7 @@ export default async function CompetitionDetailPage({
 
             {!session?.user ? (
               <p className="detail-rail-note">
-                <Link href="/auth/login">Masuk</Link> untuk menyimpan kompetisi ini.
+                <Link href={signInPath}>Masuk</Link> untuk menyimpan kompetisi ini.
               </p>
             ) : null}
 

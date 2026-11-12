@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { signOut, useSession } from "next-auth/react";
 import { isSelfServiceRole } from "@/lib/access/roles";
+import { sameSitePathOr } from "@/lib/session/return-path";
 import { NotificationBell } from "@/app/notification-bell";
 import { ButtonLink, IconButton, IconButtonLink, LinkPendingSlot } from "@/components/ui";
 import { HeaderDashboardMenu } from "@/components/navigation/header-dashboard-menu";
@@ -28,6 +29,14 @@ function resolveInitialTheme(): ThemeName {
 
 export function ApplicationHeader() {
   const pathname = usePathname();
+  const returnPath = sameSitePathOr(pathname, "");
+  const keepsReturnPath = returnPath !== "" && !returnPath.startsWith("/auth/");
+  const signInHref = keepsReturnPath
+    ? `/auth/login?callbackUrl=${encodeURIComponent(returnPath)}`
+    : "/auth/login";
+  const signUpHref = keepsReturnPath
+    ? `/auth/register?callbackUrl=${encodeURIComponent(returnPath)}`
+    : "/auth/register";
   const { data: session, status } = useSession();
   const [theme, setTheme] = useState<ThemeName>("light");
   const [menuOpen, setMenuOpen] = useState(false);
@@ -143,7 +152,7 @@ export function ApplicationHeader() {
           ) : (
             <>
               <ButtonLink
-                href="/auth/login"
+                href={signInHref}
                 variant="ghost"
                 size="sm"
                 className="header-auth-action"
@@ -151,7 +160,7 @@ export function ApplicationHeader() {
                 Masuk
               </ButtonLink>
               <ButtonLink
-                href="/auth/register"
+                href={signUpHref}
                 variant="primary"
                 size="sm"
                 className="header-auth-action"
@@ -242,14 +251,10 @@ export function ApplicationHeader() {
           </>
         ) : (
           <>
-            <Link href="/auth/login" className="header-nav-link" onClick={() => setMenuOpen(false)}>
+            <Link href={signInHref} className="header-nav-link" onClick={() => setMenuOpen(false)}>
               Masuk
             </Link>
-            <Link
-              href="/auth/register"
-              className="header-nav-link"
-              onClick={() => setMenuOpen(false)}
-            >
+            <Link href={signUpHref} className="header-nav-link" onClick={() => setMenuOpen(false)}>
               Daftar akun
             </Link>
           </>
