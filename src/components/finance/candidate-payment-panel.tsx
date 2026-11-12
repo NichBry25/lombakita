@@ -475,15 +475,13 @@ function PaymentStateNotice({ payment }: { payment: CandidatePaymentPanelProps["
 
   // "secara otomatis" is load-bearing: nobody decided this. The organiser did not reject the
   // candidate and the candidate did not withdraw, and a cancellation with no visible author reads
-  // as one of those two. The re-registration line states what `createIndividualRegistration`
-  // actually does (it refuses on ANY existing row, cancelled included), because the previous copy
-  // promised a way back that the service does not provide.
+  // as one of those two. Whether the person may register again is the registration card's answer,
+  // not this message's: the panel cannot tell an individual payment from a team captain's.
   if (payment.status === "expired") {
     return (
       <Feedback tone="error">
         Batas waktu pembayaran telah lewat, sehingga pendaftaran ini dibatalkan secara otomatis.
-        Pendaftaran ulang untuk kompetisi ini belum tersedia. Hubungi penyelenggara jika Anda sudah
-        melakukan transfer.
+        Jika Anda sudah melakukan transfer, hubungi penyelenggara.
       </Feedback>
     );
   }

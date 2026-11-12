@@ -1105,9 +1105,9 @@ export const competitionRegistrationTypeEnum = pgEnum("competition_registration_
 ]);
 
 // `competition_registration_status` is the state machine for a registration row.
-// `confirmed` is the only initial state in MVP — competitions are free, so registrations skip
-// payment. `cancelled` is terminal: cancelled rows cannot transition back to confirmed and
-// cannot be re-registered (product simplification).
+// `confirmed` is the only initial state, for a paid registration too (DEC-0175). `cancelled` is
+// terminal for the row: nothing moves a cancelled row back to confirmed. Registering again inserts
+// a new row and keeps the cancelled one as history.
 // Phase 7: pending_payment state — not reachable in MVP. Schema-present so the state machine
 // can grow into paid registration without a destructive enum migration.
 export const competitionRegistrationStatusEnum = pgEnum("competition_registration_status", [
@@ -1135,9 +1135,9 @@ export type CompetitionRegistrationReviewStatus =
 // Individual competition registration.
 // One non-cancelled row per (student_id, competition_id) — enforced by a partial unique index
 // in the migration: UNIQUE (student_id, competition_id) WHERE status != 'cancelled'. Cancelled
-// rows are retained as historical artefacts and do not block the partial unique; re-registration
-// is blocked at the application layer (a confirmed-or-cancelled row makes the student
-// "already known" to this competition for the lifetime of MVP).
+// rows are kept as history and sit outside the index, so registering again inserts a new row.
+// A cancelled individual row that a payment proof was sent for still blocks registering again
+// as an individual, in the service (DEC-0174).
 //
 // `team_id` joins a registration row to a `teams` row when registration_type='team'.
 // The DB CHECK `competition_registrations_type_team_id_chk` enforces co-presence: a 'team' row

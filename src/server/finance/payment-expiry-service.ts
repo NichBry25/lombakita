@@ -273,7 +273,11 @@ export const sweepExpiredPayments = async (
         // notification is only ever sent for a cancellation that survived. The helper swallows its
         // own failures: a lapsed registration that went unannounced is recoverable, a sweep that
         // aborts halfway because the queue is down is not.
-        await notifyPaymentOutcome(outcome.paymentId, "expired", {}, db);
+        // An expiry whose registration was already cancelled cancels nothing, and announcing it
+        // would tell a person who registered again that their live registration was cancelled.
+        if (outcome.registrationsCancelled > 0) {
+          await notifyPaymentOutcome(outcome.paymentId, "expired", {}, db);
+        }
       } else {
         skipped += 1;
       }

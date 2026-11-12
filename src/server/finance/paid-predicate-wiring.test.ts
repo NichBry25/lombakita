@@ -202,6 +202,8 @@ describe("DEC-0131's non-refundable rule is the proof-submitted question", () =>
     const source = readCode(REGISTRATION_SERVICE);
 
     expect(source).toContain("hasSubmittedPaymentProof(registration.id, db)");
+    expect(source).toContain("hasSubmittedPaymentProof(id, db)");
+    expect(source).not.toContain("isRegistrationPaymentInFlight");
     expect(source).toContain("cancellation_not_supported_for_paid");
     // THE REGRESSION GUARD, at the source level: the competition's price must not gate the check.
     expect(source).not.toContain("isPaidCompetition(competition.feeAmount)");

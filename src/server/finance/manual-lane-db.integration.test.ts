@@ -4315,6 +4315,29 @@ describe.skipIf(skipWithoutDatabase)("what a candidate is told about money they 
       expect(result!.canSubmitProof).toBe(false);
     });
   });
+
+  it("counts a proof only on the person's own individual registrations", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      await seedTeamOf(tx, fixture);
+      const paymentId = await seedManualPayment(tx, fixture, { dueAt: DUE });
+      await seedProof(tx, fixture, paymentId);
+      await tx
+        .update(competitionRegistrations)
+        .set({ status: "cancelled", cancelledAt: NOW, cancellationReason: "withdrew" })
+        .where(eq(competitionRegistrations.id, fixture.registrationId));
+
+      const { hasPaymentProofOnCancelledIndividualRegistrations } =
+        await import("@/server/registrations/registration-service");
+      expect(
+        await hasPaymentProofOnCancelledIndividualRegistrations(
+          fixture.userId,
+          fixture.competitionId,
+          tx as never,
+        ),
+      ).toBe(false);
+    });
+  });
 });
 
 // THE ORGANISER REVIEW SURFACE, from both sides of the tenant boundary.
@@ -5477,6 +5500,15 @@ describe.skipIf(skipWithoutDatabase)("what the deadline means to the payer (real
         })
         .where(eq(competitions.id, fixture.competitionId));
 
+      const [keptBefore] = await tx
+        .select({
+          cancelledAt: competitionRegistrations.cancelledAt,
+          cancellationReason: competitionRegistrations.cancellationReason,
+        })
+        .from(competitionRegistrations)
+        .where(eq(competitionRegistrations.id, fixture.registrationId))
+        .limit(1);
+
       const { createIndividualRegistration } =
         await import("@/server/registrations/registration-service");
       const reRegistered = await createIndividualRegistration(
@@ -5485,6 +5517,16 @@ describe.skipIf(skipWithoutDatabase)("what the deadline means to the payer (real
         tx as never,
       );
       expect(reRegistered.status).toBe("confirmed");
+
+      const [keptAfter] = await tx
+        .select({
+          cancelledAt: competitionRegistrations.cancelledAt,
+          cancellationReason: competitionRegistrations.cancellationReason,
+        })
+        .from(competitionRegistrations)
+        .where(eq(competitionRegistrations.id, fixture.registrationId))
+        .limit(1);
+      expect(keptAfter).toEqual(keptBefore);
 
       const rows = await tx
         .select({ id: competitionRegistrations.id, status: competitionRegistrations.status })
@@ -5547,6 +5589,140 @@ describe.skipIf(skipWithoutDatabase)("what the deadline means to the payer (real
           ),
         );
       expect(rows).toEqual([{ id: fixture.registrationId, status: "cancelled" }]);
+    });
+  });
+
+  it("REFUSES a registrant whose proof was rejected and whose payment then expired", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const paymentId = await seedManualPayment(tx, fixture, { dueAt: DUE });
+      await tx
+        .update(competitionRegistrations)
+        .set({ status: "confirmed" })
+        .where(eq(competitionRegistrations.id, fixture.registrationId));
+      await submitProofFor(tx, fixture, paymentId);
+
+      const { rejectManualPaymentProof } =
+        await import("@/server/finance/manual-payment-proof-service");
+      const [proofRow] = await tx
+        .select({ id: financeManualPaymentProofs.id })
+        .from(financeManualPaymentProofs)
+        .where(eq(financeManualPaymentProofs.paymentId, paymentId))
+        .limit(1);
+      await rejectManualPaymentProof(
+        fixture.institutionId,
+        fixture.userId,
+        proofRow!.id,
+        "nominal tidak sesuai",
+        true,
+        tx as never,
+        NOW,
+      );
+
+      const { sweepExpiredPayments } = await import("@/server/finance/payment-expiry-service");
+      await sweepExpiredPayments(new Date(DUE.getTime() + 86_400_000), tx as never);
+
+      const [swept] = await tx
+        .select({ status: competitionRegistrations.status })
+        .from(competitionRegistrations)
+        .where(eq(competitionRegistrations.id, fixture.registrationId))
+        .limit(1);
+      expect(swept!.status).toBe("cancelled");
+
+      await tx
+        .update(competitions)
+        .set({
+          status: "published",
+          mode: "individual",
+          registrationStartAt: new Date(Date.now() - 86_400_000),
+          registrationEndAt: new Date(Date.now() + 30 * 86_400_000),
+          feeAmount: null,
+          feeCurrency: null,
+        })
+        .where(eq(competitions.id, fixture.competitionId));
+
+      const { createIndividualRegistration, hasPaymentProofOnCancelledIndividualRegistrations } =
+        await import("@/server/registrations/registration-service");
+      await expect(
+        createIndividualRegistration(fixture.userId, fixture.competitionId, tx as never),
+      ).rejects.toMatchObject({
+        code: "registration_already_exists",
+        details: { existingStatus: "cancelled" },
+      });
+      expect(
+        await hasPaymentProofOnCancelledIndividualRegistrations(
+          fixture.userId,
+          fixture.competitionId,
+          tx as never,
+        ),
+      ).toBe(true);
+    });
+  });
+
+  it("lets an expired priced registrant register again with a payment of its own", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      await seedManualPayment(tx, fixture, { dueAt: DUE });
+      await tx
+        .update(competitionRegistrations)
+        .set({ status: "confirmed" })
+        .where(eq(competitionRegistrations.id, fixture.registrationId));
+
+      const { sweepExpiredPayments } = await import("@/server/finance/payment-expiry-service");
+      await sweepExpiredPayments(new Date(DUE.getTime() + 86_400_000), tx as never);
+
+      const { createIndividualRegistration, hasPaymentProofOnCancelledIndividualRegistrations } =
+        await import("@/server/registrations/registration-service");
+      expect(
+        await hasPaymentProofOnCancelledIndividualRegistrations(
+          fixture.userId,
+          fixture.competitionId,
+          tx as never,
+        ),
+      ).toBe(false);
+
+      await tx
+        .update(competitions)
+        .set({
+          status: "published",
+          mode: "individual",
+          registrationStartAt: new Date(Date.now() - 86_400_000),
+          registrationEndAt: new Date(Date.now() + 30 * 86_400_000),
+          feeAmount: 1_000_000,
+          feeCurrency: "IDR",
+        })
+        .where(eq(competitions.id, fixture.competitionId));
+
+      const reRegistered = await createIndividualRegistration(
+        fixture.userId,
+        fixture.competitionId,
+        tx as never,
+      );
+      expect(reRegistered.status).toBe("confirmed");
+
+      const payments = await tx
+        .select({ id: financePayments.id, dueAt: financePayments.dueAt })
+        .from(financePayments)
+        .where(eq(financePayments.competitionRegistrationId, reRegistered.id));
+      expect(payments).toHaveLength(1);
+      expect(payments[0]!.dueAt?.getTime()).not.toBe(DUE.getTime());
+    });
+  });
+
+  it("tells a person nothing when the expired payment's registration was already cancelled", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      await seedManualPayment(tx, fixture, { dueAt: DUE });
+      await tx
+        .update(competitionRegistrations)
+        .set({ status: "cancelled", cancelledAt: NOW, cancellationReason: "withdrew" })
+        .where(eq(competitionRegistrations.id, fixture.registrationId));
+      mockEnqueuePaymentOutcome.mockClear();
+
+      const { sweepExpiredPayments } = await import("@/server/finance/payment-expiry-service");
+      await sweepExpiredPayments(new Date(DUE.getTime() + 86_400_000), tx as never);
+
+      expect(mockEnqueuePaymentOutcome).not.toHaveBeenCalled();
     });
   });
 

@@ -34,7 +34,7 @@ type Props = {
   // place. A disabled "Daftar" invites a candidate to look for the permission that would enable it,
   // and no permission of theirs would.
   registrationWithheld: boolean;
-  canRegisterAgain: boolean;
+  registerAgainClosedByPaymentProof: boolean;
 };
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -66,12 +66,12 @@ const messageFor = (code: string | undefined): string =>
   (code && ERROR_MESSAGES[code]) ?? "Terjadi kesalahan. Coba lagi.";
 
 const describeRegisterAgain = (
-  canRegisterAgain: boolean,
+  registerAgainClosedByPaymentProof: boolean,
   ctaState: CTAState,
   registrationWithheld: boolean,
 ): string => {
-  if (!canRegisterAgain) {
-    return "Pendaftaran ulang tidak tersedia karena bukti pembayaran sudah dikirim untuk pendaftaran ini.";
+  if (registerAgainClosedByPaymentProof) {
+    return "Pendaftaran ulang tidak tersedia karena bukti transfer sudah dikirim untuk pendaftaran ini.";
   }
   if (ctaState !== "open") {
     return "Pendaftaran ulang hanya bisa dilakukan selama pendaftaran dibuka.";
@@ -131,7 +131,7 @@ export function IndividualRegistrationSection({
   modeLabel,
   cancellationClosedByPaymentProof,
   registrationWithheld,
-  canRegisterAgain,
+  registerAgainClosedByPaymentProof,
 }: Props) {
   const router = useRouter();
   const { openModal, closeModal } = useModal();
@@ -216,7 +216,8 @@ export function IndividualRegistrationSection({
     </Button>
   );
 
-  const offersRegisterAgain = canRegisterAgain && ctaState === "open" && !registrationWithheld;
+  const offersRegisterAgain =
+    !registerAgainClosedByPaymentProof && ctaState === "open" && !registrationWithheld;
 
   return (
     <section className="content-section registration-path-card">
@@ -263,7 +264,11 @@ export function IndividualRegistrationSection({
             Pendaftaran dibatalkan
           </span>
           <p className="form-help">
-            {describeRegisterAgain(canRegisterAgain, ctaState, registrationWithheld)}
+            {describeRegisterAgain(
+              registerAgainClosedByPaymentProof,
+              ctaState,
+              registrationWithheld,
+            )}
           </p>
           {offersRegisterAgain ? registerButton : null}
         </div>

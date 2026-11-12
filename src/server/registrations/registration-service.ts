@@ -117,15 +117,15 @@ const findActiveRegistration = async (
   return row ?? null;
 };
 
-// (f) duplicate guard, second half, run under the participation lock: a cancelled registration
-// that a payment proof was sent for keeps blocking (DEC-0131 keys this on the registration's own
-// money).
-const assertNoPaymentProofOnCancelledRegistrations = async (
+// A cancelled individual registration that a payment proof was sent for keeps blocking a new one
+// (DEC-0174: the proof, not the competition's price). The page asks the same question with this
+// reader, so the card never offers what the server refuses.
+export const hasPaymentProofOnCancelledIndividualRegistrations = async (
   studentId: string,
   competitionId: string,
-  tx: DbOrTx,
-): Promise<void> => {
-  const cancelledRows = await tx
+  db: DbOrTx = getDb(),
+): Promise<boolean> => {
+  const cancelledRows = await db
     .select({ id: competitionRegistrations.id })
     .from(competitionRegistrations)
     .where(
@@ -133,17 +133,29 @@ const assertNoPaymentProofOnCancelledRegistrations = async (
         eq(competitionRegistrations.studentId, studentId),
         eq(competitionRegistrations.competitionId, competitionId),
         eq(competitionRegistrations.status, "cancelled"),
+        eq(competitionRegistrations.registrationType, "individual"),
       ),
     );
 
   for (const { id } of cancelledRows) {
-    if (await hasSubmittedPaymentProof(id, tx)) {
-      throw new RegistrationError(
-        "registration_already_exists",
-        "A payment proof was sent for the cancelled registration, so it cannot register again",
-        { existingStatus: "cancelled" },
-      );
+    if (await hasSubmittedPaymentProof(id, db)) {
+      return true;
     }
+  }
+  return false;
+};
+
+const assertNoPaymentProofOnCancelledIndividualRegistrations = async (
+  studentId: string,
+  competitionId: string,
+  tx: DbOrTx,
+): Promise<void> => {
+  if (await hasPaymentProofOnCancelledIndividualRegistrations(studentId, competitionId, tx)) {
+    throw new RegistrationError(
+      "registration_already_exists",
+      "A payment proof was sent for the cancelled registration, so it cannot register again",
+      { existingStatus: "cancelled" },
+    );
   }
 };
 
@@ -196,8 +208,8 @@ const assertParticipantCancellationWindowOpen = (
 //   (c) competition.mode === 'individual' or 'both'
 //   (d) registration_deadline (registrationEndAt) not yet passed
 //   (e) eligibility helper returns eligible
-//   (f) no registration that is not cancelled, and no cancelled one that a payment proof was
-//       sent for
+//   (f) no registration that is not cancelled, and no cancelled individual one that a payment
+//       proof was sent for
 // The route layer already enforces (auth + role=candidate). This helper does not re-check role
 // because it requires `studentId` as input — callers must pass session.user.id.
 export const createIndividualRegistration = async (
@@ -225,7 +237,7 @@ export const createIndividualRegistration = async (
   // pass.
   assertCompetitionAcceptsIndividualRegistration(competition, requestAt);
 
-  // (f) duplicate guard, first half: a registration that is not cancelled always blocks. The
+  // (f) duplicate guard: a registration that is not cancelled always blocks. The
   // partial unique index still refuses a second active row that races past this read.
   const active = await findActiveRegistration(studentId, competitionId, db);
 
@@ -258,7 +270,7 @@ export const createIndividualRegistration = async (
         throw new RegistrationError("competition_not_found", "Competition not found");
       }
       assertCompetitionAcceptsIndividualRegistration(lockedCompetition, mutationAt);
-      await assertNoPaymentProofOnCancelledRegistrations(studentId, competitionId, tx);
+      await assertNoPaymentProofOnCancelledIndividualRegistrations(studentId, competitionId, tx);
 
       const [row] = await tx
         .insert(competitionRegistrations)

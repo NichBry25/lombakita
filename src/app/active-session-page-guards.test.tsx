@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   unverified: vi.fn(),
   competition: vi.fn(),
   registration: vi.fn(),
+  registerAgainProof: vi.fn(),
   team: vi.fn(),
   cancel: vi.fn(),
   charging: vi.fn(),
@@ -60,6 +61,7 @@ vi.mock("@/server/competitions/competition-public-service", () => ({
 }));
 vi.mock("@/server/registrations/registration-service", () => ({
   getStudentRegistration: mocks.registration,
+  hasPaymentProofOnCancelledIndividualRegistrations: mocks.registerAgainProof,
 }));
 vi.mock("@/server/teams/team-service", () => ({ getTeamForCompetitionAndCandidate: mocks.team }));
 vi.mock("@/server/finance/cancel-affordance", () => ({
@@ -131,6 +133,7 @@ const READERS = [
   mocks.unverified,
   mocks.competition,
   mocks.registration,
+  mocks.registerAgainProof,
   mocks.team,
   mocks.cancel,
   mocks.charging,
@@ -148,6 +151,7 @@ beforeEach(() => {
     ctaState: "open",
   });
   mocks.registration.mockResolvedValue(null);
+  mocks.registerAgainProof.mockResolvedValue(false);
   mocks.team.mockResolvedValue(null);
   mocks.cancel.mockResolvedValue({
     individualCancellationClosed: false,

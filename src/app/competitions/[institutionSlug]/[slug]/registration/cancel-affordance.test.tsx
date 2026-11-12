@@ -34,7 +34,7 @@ const renderIndividual = (cancellationClosedByPaymentProof: boolean) =>
         expectedUserId="user-1"
         modeLabel="Daftar"
         registrationWithheld={false}
-        canRegisterAgain={false}
+        registerAgainClosedByPaymentProof={false}
         cancellationClosedByPaymentProof={cancellationClosedByPaymentProof}
       />
     </UIPrimitivesProvider>,
@@ -174,7 +174,7 @@ const renderIndividualEntry = (registrationWithheld: boolean) =>
         expectedUserId="user-1"
         modeLabel="Daftar"
         registrationWithheld={registrationWithheld}
-        canRegisterAgain={false}
+        registerAgainClosedByPaymentProof={false}
         cancellationClosedByPaymentProof={false}
       />
     </UIPrimitivesProvider>,
