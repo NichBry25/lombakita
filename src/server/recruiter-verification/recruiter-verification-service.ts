@@ -834,6 +834,7 @@ export const reviewRecruiterVerification = async (
 
   const targetStatus = decision === "approve" ? ("approved" as const) : ("rejected" as const);
 
+  let accountElevated = false;
   const result = await db.transaction(async (tx) => {
     const actor = await resolvePlatformOpsActor(tx, reviewerUserId);
     const submissionOwnerId = await requireSubmissionOwnerId(tx, submissionId);
@@ -885,11 +886,14 @@ export const reviewRecruiterVerification = async (
     }
 
     if (decision === "approve") {
-      // Idempotent elevation: no-op when a parallel path already elevated the account.
-      await tx
+      // Idempotent elevation: no row comes back when a parallel path already elevated the account,
+      // and then the account did not just become penyelenggara terverifikasi.
+      const elevatedRows = await tx
         .update(users)
         .set({ recruiterVerificationTier: "elevated", updatedAt: sql`now()` })
-        .where(and(eq(users.id, flipped.userId), ne(users.recruiterVerificationTier, "elevated")));
+        .where(and(eq(users.id, flipped.userId), ne(users.recruiterVerificationTier, "elevated")))
+        .returning({ id: users.id });
+      accountElevated = elevatedRows.length > 0;
     }
 
     await recordOperatorAuditEntry(tx, actor, {
@@ -919,7 +923,7 @@ export const reviewRecruiterVerification = async (
 
   // Dual-channel notices (email + inbox), fire-and-forget: an enqueue failure must not fail a review
   // that already committed. Approval tells the host they can now publish; rejection carries the reason.
-  if (decision === "approve") {
+  if (accountElevated) {
     try {
       await enqueueRecruiterVerificationApproved({ userId: result.userId, epoch: Date.now() });
     } catch (error) {

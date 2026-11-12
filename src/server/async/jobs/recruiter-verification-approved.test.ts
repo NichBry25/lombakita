@@ -19,31 +19,13 @@ vi.mock("@/server/notifications/notification-email", () => ({
   sendRecruiterVerificationApprovedEmail: mockSendRecruiterVerificationApprovedEmail,
 }));
 
+import { makeSequencedSelect } from "@/server/testing/operator-writer-stubs";
 import {
   processRecruiterVerificationApprovedJob,
   type RecruiterVerificationApprovedJob,
 } from "./recruiter-verification-approved";
 
-function makeDb(queue: unknown[][]) {
-  return {
-    select: () => {
-      const rows = queue.shift() ?? [];
-      const chain: Record<string, unknown> = {
-        from: () => chain,
-        innerJoin: () => chain,
-        leftJoin: () => chain,
-        where: () => chain,
-        orderBy: () => chain,
-        limit: () => Promise.resolve(rows),
-        then: (resolve: (v: unknown) => void, reject: (e: unknown) => void) =>
-          Promise.resolve(rows).then(resolve, reject),
-      };
-      return chain;
-    },
-  };
-}
-
-const USER_ROW = { email: "host@test.com" };
+const USER_ROW = { email: "host@seed.lombakita.local" };
 const DRAFT_ROW = { title: "Lomba Esai", slug: "lomba-esai", institutionSlug: "budi" };
 
 const approvedJob = (): RecruiterVerificationApprovedJob =>
@@ -56,7 +38,7 @@ describe("processRecruiterVerificationApprovedJob", () => {
   afterEach(() => vi.clearAllMocks());
 
   it("writes the inbox notice and emails a link to the newest draft", async () => {
-    mockGetDb.mockReturnValue(makeDb([[USER_ROW], [DRAFT_ROW]]));
+    mockGetDb.mockReturnValue({ select: makeSequencedSelect([[USER_ROW], [DRAFT_ROW]]) });
     mockSendRecruiterVerificationApprovedEmail.mockResolvedValue(undefined);
     mockWriteNotification.mockResolvedValue(undefined);
 
@@ -70,14 +52,14 @@ describe("processRecruiterVerificationApprovedJob", () => {
       expect.stringContaining("Lomba Esai"),
     );
     expect(mockSendRecruiterVerificationApprovedEmail).toHaveBeenCalledWith({
-      toEmail: "host@test.com",
+      toEmail: "host@seed.lombakita.local",
       recipientId: "u_1",
       draft: { title: "Lomba Esai", path: "/institution/budi/competitions/lomba-esai" },
     });
   });
 
   it("points to the dashboard when the host has no draft", async () => {
-    mockGetDb.mockReturnValue(makeDb([[USER_ROW], []]));
+    mockGetDb.mockReturnValue({ select: makeSequencedSelect([[USER_ROW], []]) });
     mockSendRecruiterVerificationApprovedEmail.mockResolvedValue(undefined);
     mockWriteNotification.mockResolvedValue(undefined);
 
@@ -91,18 +73,41 @@ describe("processRecruiterVerificationApprovedJob", () => {
       "Anda sekarang dapat menerbitkan kompetisi dari dasbor penyelenggara.",
     );
     expect(mockSendRecruiterVerificationApprovedEmail).toHaveBeenCalledWith({
-      toEmail: "host@test.com",
+      toEmail: "host@seed.lombakita.local",
       recipientId: "u_1",
       draft: null,
     });
   });
 
   it("warns and stops when the account is gone", async () => {
-    mockGetDb.mockReturnValue(makeDb([[]]));
+    mockGetDb.mockReturnValue({ select: makeSequencedSelect([[]]) });
 
     await processRecruiterVerificationApprovedJob(approvedJob());
 
     expect(mockWriteNotification).not.toHaveBeenCalled();
     expect(mockSendRecruiterVerificationApprovedEmail).not.toHaveBeenCalled();
+  });
+
+  it("rethrows when the email fails, after the inbox row was written", async () => {
+    mockGetDb.mockReturnValue({ select: makeSequencedSelect([[USER_ROW], [DRAFT_ROW]]) });
+    mockWriteNotification.mockResolvedValue(undefined);
+    mockSendRecruiterVerificationApprovedEmail.mockRejectedValueOnce(new Error("smtp down"));
+
+    await expect(processRecruiterVerificationApprovedJob(approvedJob())).rejects.toThrow(
+      "smtp down",
+    );
+
+    expect(mockWriteNotification).toHaveBeenCalledOnce();
+  });
+
+  it("does not rethrow when the inbox write fails, and still sends the email", async () => {
+    mockGetDb.mockReturnValue({ select: makeSequencedSelect([[USER_ROW], [DRAFT_ROW]]) });
+    mockWriteNotification.mockRejectedValueOnce(new Error("notifications table gone"));
+    mockSendRecruiterVerificationApprovedEmail.mockResolvedValue(undefined);
+
+    await expect(processRecruiterVerificationApprovedJob(approvedJob())).resolves.toBeUndefined();
+
+    expect(mockWriteNotification).toHaveBeenCalledOnce();
+    expect(mockSendRecruiterVerificationApprovedEmail).toHaveBeenCalledOnce();
   });
 });

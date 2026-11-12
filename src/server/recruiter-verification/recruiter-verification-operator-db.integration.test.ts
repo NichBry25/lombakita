@@ -36,6 +36,7 @@ vi.mock("@/server/storage/r2.client", () => ({
 }));
 vi.mock("@/server/async/enqueue", () => ({
   enqueueRecruiterVerificationRejected: vi.fn().mockResolvedValue(undefined),
+  enqueueRecruiterVerificationApproved: vi.fn(),
 }));
 
 const DATABASE_URL = TEST_DATABASE_URL;

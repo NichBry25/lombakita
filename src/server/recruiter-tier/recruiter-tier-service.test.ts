@@ -218,6 +218,7 @@ describe("elevateRecruiterTier", () => {
     expect(result).toEqual({ accountId: "u1", tier: "elevated", changed: false });
     expect(insertChain.values).not.toHaveBeenCalled();
     expect(mockSweepForAccount).not.toHaveBeenCalled();
+    expect(mockEnqueueApproved).not.toHaveBeenCalled();
   });
 
   it("returns changed=false and skips UPDATE when already elevated (idempotent)", async () => {
@@ -286,5 +287,6 @@ describe("elevateRecruiterTier", () => {
     expect(second).toEqual({ accountId: "u1", tier: "elevated", changed: false });
     // Only one UPDATE statement reached the DB layer across the two requests.
     expect(updateChain.set).toHaveBeenCalledTimes(1);
+    expect(mockEnqueueApproved).toHaveBeenCalledTimes(1);
   });
 });

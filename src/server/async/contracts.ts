@@ -121,8 +121,8 @@ export type RecruiterVerificationRejectedPayload = {
   epoch: number;
 };
 
-// Account-level approval to publish, from a review or the manual tier setting. epoch keeps two
-// distinct approvals of one account apart while a double enqueue of the same one dedups.
+// Account-level approval to publish, from a review or the manual tier setting. epoch makes each
+// enqueue unique; the callers send one only when the account's tier really changed.
 export type RecruiterVerificationApprovedPayload = { userId: string; epoch: number };
 
 // Participant document verification. Both payloads carry their content rather than a pointer, for

@@ -72,7 +72,7 @@ type SelectRow = Record<string, unknown>;
 const OPS_ACTOR_ROW = { id: "ops_1", role: "platform_ops", suspendedAt: null };
 
 // Builds a tx whose update() dispatches by table: the submission update returns `submissionReturn`
-// from .returning(); the users update is awaited after .where(); audit insert is a no-op. select()
+// from .returning(); the users update resolves from .returning(), with no row when tierFlipped is false; audit insert is a no-op. select()
 // serves the acting account, then the submission owner (`ownerId`, null for no such submission),
 // then `existingSubmission` (used only on the not-flipped branch).
 const buildReviewDb = (opts: {
@@ -80,6 +80,7 @@ const buildReviewDb = (opts: {
   existingSubmission: Array<{ id: string }>;
   actorRow?: SelectRow | null;
   ownerId?: string | null;
+  tierFlipped?: boolean;
 }) => {
   const captured = {
     userTierUpdated: false,
@@ -97,7 +98,9 @@ const buildReviewDb = (opts: {
   };
   const usersUpdateChain = {
     set: vi.fn(() => usersUpdateChain),
-    where: vi.fn().mockResolvedValue(undefined),
+    where: vi.fn(() => ({
+      returning: vi.fn().mockResolvedValue(opts.tierFlipped === false ? [] : [{ id: "u_1" }]),
+    })),
   };
 
   const actorRow = opts.actorRow === undefined ? OPS_ACTOR_ROW : opts.actorRow;
@@ -176,6 +179,22 @@ describe("reviewRecruiterVerification", () => {
     expect(mockEnqueueApproved).toHaveBeenCalledOnce();
     expect(mockEnqueueApproved).toHaveBeenCalledWith({ userId: "u_1", epoch: expect.any(Number) });
     expect(mockEnqueueRejected).not.toHaveBeenCalled();
+  });
+
+  it("approve: sends nothing when the account was already elevated", async () => {
+    const { db } = buildReviewDb({
+      submissionReturn: [{ userId: "u_1" }],
+      existingSubmission: [],
+      tierFlipped: false,
+    });
+    mockGetDb.mockReturnValue(db);
+
+    const result = await reviewRecruiterVerification("ops_1", "sub_1", "approve", null, {
+      db: db as never,
+    });
+
+    expect(result.status).toBe("approved");
+    expect(mockEnqueueApproved).not.toHaveBeenCalled();
   });
 
   it("approve: a notification enqueue failure never fails the committed review", async () => {
@@ -326,6 +345,7 @@ describe("reviewRecruiterVerification", () => {
     await expect(
       reviewRecruiterVerification("ops_1", "sub_1", "approve", null, { db: db as never }),
     ).rejects.toMatchObject({ code: "recruiter_verification_already_reviewed", status: 409 });
+    expect(mockEnqueueApproved).not.toHaveBeenCalled();
   });
 
   it("throws not_found (404) when the submission does not exist at all", async () => {
@@ -380,6 +400,7 @@ describe("reviewRecruiterVerification", () => {
     expect(refusal).toMatchObject({ code, status: 403 });
     expect(tx.update).not.toHaveBeenCalled();
     expect(captured.auditInserted).toBeNull();
+    expect(mockEnqueueApproved).not.toHaveBeenCalled();
   });
 
   it("refuses an actor who owns the submission, before any write", async () => {
@@ -402,6 +423,7 @@ describe("reviewRecruiterVerification", () => {
     });
     expect(tx.update).not.toHaveBeenCalled();
     expect(captured.auditInserted).toBeNull();
+    expect(mockEnqueueApproved).not.toHaveBeenCalled();
   });
 
   it("records the database actor, not the claimed id, as the submission's reviewer", async () => {
