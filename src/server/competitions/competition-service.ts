@@ -42,6 +42,7 @@ import { INSTITUTION_CANCELLATION_REASON } from "@/server/competitions/competiti
 import { hasCompetitionStarted } from "@/lib/competitions/competition-withdrawal";
 import { isParticipantCancellationClosedByConfirmation } from "@/lib/competitions/competition-participation";
 import { acquireCompetitionParticipationLock } from "@/server/competitions/competition-participation-lock";
+import { moveRegisteredTeamInvitationsToClose } from "@/server/teams/registered-team";
 import {
   assertActorIsTrustedRecruiter,
   assertCompetitionAccess,
@@ -63,6 +64,8 @@ import {
 } from "@/server/finance/paid-registration";
 
 assertServerOnly("server/competitions/competition-service");
+
+type DbOrTx = Database | Parameters<Parameters<Database["transaction"]>[0]>[0];
 
 const PAGE_SIZE = 20;
 const MAX_SLUG_ATTEMPTS = 20;
@@ -538,6 +541,32 @@ const validateChangedRegistrationEnd = (
   validateRegistrationEndInFuture(registrationEndAt);
 };
 
+// The new close of a free competition whose close this edit moves, or null. The open invites of
+// its registered teams expire at the close, so they move with it.
+const movedCloseOfFreeCompetition = (
+  patch: CompetitionPatchInput,
+  competition: CompetitionRow,
+  pricing: CompetitionPricing,
+): Date | null => {
+  if (!(patch.registrationEndAt instanceof Date)) return null;
+  if (immutableCompetitionValuesEqual(patch.registrationEndAt, competition.registrationEndAt)) {
+    return null;
+  }
+  if (isPaidCompetition(pricing.feeAmount)) return null;
+  return patch.registrationEndAt;
+};
+
+const writePublishedCompetitionUpdates = (
+  writer: DbOrTx,
+  competitionId: string,
+  updates: Record<string, unknown>,
+) =>
+  writer
+    .update(competitions)
+    .set(updates)
+    .where(eq(competitions.id, competitionId))
+    .returning(PUBLIC_COMPETITION_COLUMNS);
+
 // Post-publish edit path. Two layers:
 //   outer (locked): IMMUTABLE_AFTER_PUBLISH fields can never change → 422.
 //   inner (data-aware): classify the remaining changes against existing registrations.
@@ -564,6 +593,7 @@ const updatePublishedCompetition = async (
 
   validateChangedRegistrationEnd(patch.registrationEndAt, competition.registrationEndAt);
   const pricing = await loadCompetitionPricing(competition.id, db);
+  const movedFreeClose = movedCloseOfFreeCompetition(patch, competition, pricing);
   const merged = mergeForClassification(competition, patch, pricing);
   validateCancellationPolicy(merged.allowCancellation, merged.cancellationCutoffDays);
   validateMinimumParticipation({
@@ -649,11 +679,17 @@ const updatePublishedCompetition = async (
 
   let updated: CompetitionRow;
   try {
-    const [persisted] = await db
-      .update(competitions)
-      .set(updates)
-      .where(eq(competitions.id, competition.id))
-      .returning(PUBLIC_COMPETITION_COLUMNS);
+    // The lock orders the move with a team registering or a teammate joining, which read the close
+    // under the same lock (registered-team.ts).
+    const [persisted] =
+      movedFreeClose === null
+        ? await writePublishedCompetitionUpdates(db, competition.id, updates)
+        : await db.transaction(async (tx) => {
+            await acquireCompetitionParticipationLock(tx, competition.id);
+            const rows = await writePublishedCompetitionUpdates(tx, competition.id, updates);
+            await moveRegisteredTeamInvitationsToClose(tx, competition.id, movedFreeClose);
+            return rows;
+          });
     if (!persisted) {
       throw new CompetitionError("competition_not_found", 404, "Competition not found");
     }

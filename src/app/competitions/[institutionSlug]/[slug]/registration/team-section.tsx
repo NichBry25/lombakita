@@ -8,6 +8,7 @@ import { getTeamRoleLabel } from "@/lib/access/role-labels";
 import { formatDisplayToken } from "@/lib/text/capitalize";
 import { useModal, useToast } from "@/components/ui/primitives";
 import { Button, Feedback, Icon, IconButton } from "@/components/ui";
+import { LocalDate } from "@/components/ui/local-date";
 
 type Member = {
   membershipId: string;
@@ -54,6 +55,12 @@ type Props = {
   // path withheld its one control while the team path withheld its last one. Individual and team
   // are siblings on every condition in this lane, entry paths included.
   registrationWithheld: boolean;
+  // A free competition counts open invites when a team registers, and a registered free team keeps
+  // taking invites until registration closes. A paid competition still needs every member joined.
+  isFreeCompetition: boolean;
+  // Invites still pending and not expired, counted by the page on the server.
+  openInvitationCount: number;
+  registrationClosesAt: string | null;
 };
 
 type SurfaceCopy = Partial<Record<string, string>>;
@@ -105,13 +112,21 @@ const CANCEL_TEAM_REGISTRATION_FALLBACK = "Gagal membatalkan pendaftaran tim. Co
 
 // A size limit the competition does not set has no number to name, so that refusal shows the
 // action's fallback.
-const teamSizeErrorCopy = (minTeamSize: number | null, maxTeamSize: number | null): SurfaceCopy => {
+const teamSizeErrorCopy = (
+  minTeamSize: number | null,
+  maxTeamSize: number | null,
+  isFreeCompetition: boolean,
+): SurfaceCopy => {
   const copy: SurfaceCopy = {};
   if (minTeamSize !== null) {
-    copy.team_size_insufficient = `Tim membutuhkan minimal ${minTeamSize} anggota aktif.`;
+    copy.team_size_insufficient = isFreeCompetition
+      ? `Tim membutuhkan minimal ${minTeamSize} orang, dihitung dari anggota dan undangan yang masih berlaku.`
+      : `Tim membutuhkan minimal ${minTeamSize} anggota aktif.`;
   }
   if (maxTeamSize !== null) {
-    copy.team_size_exceeded = `Tim melebihi maksimum ${maxTeamSize} anggota aktif.`;
+    copy.team_size_exceeded = isFreeCompetition
+      ? `Tim melebihi maksimum ${maxTeamSize} orang, dihitung dari anggota dan undangan yang masih berlaku.`
+      : `Tim melebihi maksimum ${maxTeamSize} anggota aktif.`;
   }
   return copy;
 };
@@ -304,15 +319,31 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
 
   // Submission gate hints (UI-side mirror of server checks; server is authoritative).
   const memberCount = props.initialMembers.length;
-  const sizeBelowMin = props.minTeamSize !== null && memberCount < props.minTeamSize;
-  const sizeAboveMax = props.maxTeamSize !== null && memberCount > props.maxTeamSize;
+  // A free team registers on joined members plus open invites, a paid team on joined members only.
+  const registrationSeatCount = props.isFreeCompetition
+    ? memberCount + props.openInvitationCount
+    : memberCount;
+  const sizeBelowMin = props.minTeamSize !== null && registrationSeatCount < props.minTeamSize;
+  const sizeAboveMax = props.maxTeamSize !== null && registrationSeatCount > props.maxTeamSize;
   const submitDisabledReason = (() => {
     if (status !== "forming") return `Tim sudah berstatus '${getTeamStatusLabel(status)}'`;
     if (!props.registrationOpen) return "Pendaftaran kompetisi belum dibuka atau sudah ditutup";
-    if (sizeBelowMin) return `Tim membutuhkan minimal ${props.minTeamSize} anggota aktif`;
-    if (sizeAboveMax) return `Tim melebihi maksimum ${props.maxTeamSize} anggota aktif`;
+    if (sizeBelowMin) {
+      return props.isFreeCompetition
+        ? `Tim membutuhkan minimal ${props.minTeamSize} orang, dihitung dari anggota dan undangan yang masih berlaku`
+        : `Tim membutuhkan minimal ${props.minTeamSize} anggota aktif`;
+    }
+    if (sizeAboveMax) {
+      return props.isFreeCompetition
+        ? `Tim melebihi maksimum ${props.maxTeamSize} orang, dihitung dari anggota dan undangan yang masih berlaku`
+        : `Tim melebihi maksimum ${props.maxTeamSize} anggota aktif`;
+    }
     return null;
   })();
+
+  const isRegisteredFreeTeamOpen =
+    status === "submitted" && props.isFreeCompetition && props.registrationOpen;
+  const takesInviteChanges = status === "forming" || isRegisteredFreeTeamOpen;
 
   useEffect(() => {
     if (atCapacity) {
@@ -445,7 +476,10 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
       "mendaftarkan tim",
       `/api/v1/competitions/${props.competitionId}/teams/${team.id}/registrations`,
       { method: "POST" },
-      { ...TEAM_ERROR_COPY, ...teamSizeErrorCopy(props.minTeamSize, props.maxTeamSize) },
+      {
+        ...TEAM_ERROR_COPY,
+        ...teamSizeErrorCopy(props.minTeamSize, props.maxTeamSize, props.isFreeCompetition),
+      },
     );
 
   const submitTeamCancel = async (reason: string) => {
@@ -561,6 +595,17 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
         </div>
       </div>
 
+      {isRegisteredFreeTeamOpen && props.registrationClosesAt !== null ? (
+        <Feedback tone="info">
+          Tim sudah terdaftar. Undangan yang belum dijawab berlaku sampai pendaftaran ditutup pada{" "}
+          <LocalDate value={props.registrationClosesAt} format="longDateTime" />. Siapa pun yang
+          menerima sebelum itu langsung terdaftar bersama tim.
+          {isCaptain
+            ? " Sampai saat itu, Anda masih dapat membatalkan undangan dan mengundang orang lain."
+            : null}
+        </Feedback>
+      ) : null}
+
       <h3 className="team-subheading">Anggota</h3>
       <ul className="team-member-list">
         {props.initialMembers.map((m) => (
@@ -604,7 +649,7 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
             {props.initialPendingInvitations.map((p) => (
               <li key={p.id} className="team-member-row">
                 <span className="team-member-name">{p.invitedEmail}</span>
-                {isCaptain && status === "forming" && (
+                {isCaptain && takesInviteChanges && (
                   <Button
                     onClick={() => onCancelInvite(p.tokenHash)}
                     loading={pendingAction === `cancel-invite:${p.tokenHash}`}
@@ -621,7 +666,7 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
         </>
       )}
 
-      {isCaptain && status === "forming" && (
+      {isCaptain && takesInviteChanges && (
         <>
           <h3 className="team-subheading">Undang anggota</h3>
           <form onSubmit={onInvite} className="team-inline-form">

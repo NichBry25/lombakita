@@ -32,6 +32,14 @@ const INVITE_ERROR_COPY: Partial<Record<string, string>> = {
   account_deactivated: "Data akun ini sudah dihapus. Tindakan ini tidak tersedia.",
   team_not_found: "Tim ini sudah tidak ada. Muat ulang halaman.",
   team_not_forming: "Tim ini sudah tidak menerima anggota baru.",
+  team_competition_registration_closed:
+    "Pendaftaran kompetisi ini sudah ditutup, jadi undangan tim ini tidak dapat diterima lagi.",
+  team_competition_not_published:
+    "Kompetisi ini sudah tidak membuka pendaftaran, jadi undangan tim ini tidak dapat diterima.",
+  team_at_capacity: "Tim ini sudah penuh, jadi undangan ini tidak dapat diterima.",
+  team_member_already_registered:
+    "Anda sudah terdaftar di kompetisi ini, jadi tidak dapat bergabung dengan tim ini.",
+  team_state_conflict: "Status tim baru saja berubah. Muat ulang halaman lalu coba lagi.",
   team_invite_candidate_required:
     "Undangan tim hanya bisa diterima oleh akun kandidat. Verifikasi akun kandidat Anda terlebih dahulu.",
   team_candidate_already_member: "Anda sudah tergabung dalam tim untuk kompetisi ini.",

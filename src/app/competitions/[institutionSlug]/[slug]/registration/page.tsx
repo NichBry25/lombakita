@@ -104,6 +104,12 @@ export default async function CompetitionRegistrationPage({
 
   const registrationOpen = competition.ctaState === "open";
 
+  // The invites a free team's registration counts: pending and not expired.
+  const now = new Date();
+  const openInvitationCount = teamSnapshot
+    ? teamSnapshot.pendingInvitations.filter((invitation) => invitation.expiresAt > now).length
+    : 0;
+
   return (
     <main className="page-shell app-page registration-page">
       <PageHeader
@@ -161,6 +167,11 @@ export default async function CompetitionRegistrationPage({
           expectedUserId={session.user.id}
           cancellationClosedByPaymentProof={teamCancellationClosed}
           registrationWithheld={paidRegistrationUnavailable}
+          isFreeCompetition={!isPaidCompetition(competition.feeAmount)}
+          openInvitationCount={openInvitationCount}
+          registrationClosesAt={
+            competition.registrationEndAt ? competition.registrationEndAt.toISOString() : null
+          }
           initialTeam={
             teamSnapshot
               ? {

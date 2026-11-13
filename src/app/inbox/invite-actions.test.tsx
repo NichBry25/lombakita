@@ -1,0 +1,43 @@
+// @vitest-environment jsdom
+
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { UIPrimitivesProvider } from "@/components/ui/primitives";
+import { InboxInviteActions } from "./invite-actions";
+
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }) }));
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+describe("the inbox actions of a team invitation", () => {
+  it("says registration has closed when a team invite is accepted after the close", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ error: { code: "team_competition_registration_closed" } }), {
+          status: 422,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <UIPrimitivesProvider>
+        <InboxInviteActions kind="team" invitationId="inv-1" expectedUserId="user-1" />
+      </UIPrimitivesProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Terima" }));
+    await screen.findByText("Terima undangan?");
+    const confirmButtons = screen.getAllByRole("button", { name: "Terima" });
+    fireEvent.click(confirmButtons[confirmButtons.length - 1]!);
+
+    expect(
+      await screen.findByText(
+        "Pendaftaran kompetisi ini sudah ditutup, jadi undangan tim ini tidak dapat diterima lagi.",
+      ),
+    ).toBeTruthy();
+    const [requestedUrl] = fetchMock.mock.calls[0] as unknown[];
+    expect(requestedUrl).toBe("/api/v1/me/invitations/team/inv-1/accept");
+  });
+});

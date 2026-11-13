@@ -7,6 +7,7 @@ import type { Job } from "bullmq";
 import { getDb } from "@/server/db/client";
 import { competitions, teamInvitations, teams, userProfiles } from "@/server/db/schema";
 import { logger } from "@/lib/logger";
+import { isPaidCompetition } from "@/lib/competitions/paid-competition";
 import { ASYNC_JOB_NAMES, type TeamInvitationDispatchPayload } from "@/server/async/contracts";
 import { sendTeamInvitationEmail } from "@/server/teams/team-email";
 
@@ -32,7 +33,9 @@ export const processTeamInvitationDispatchJob = async (
       status: teamInvitations.status,
       expiresAt: teamInvitations.expiresAt,
       teamName: teams.name,
+      teamStatus: teams.status,
       competitionTitle: competitions.title,
+      competitionFeeAmount: competitions.feeAmount,
     })
     .from(teamInvitations)
     .innerJoin(teams, eq(teams.id, teamInvitations.teamId))
@@ -71,12 +74,17 @@ export const processTeamInvitationDispatchJob = async (
 
   const mode = invitation.status === "pending_claim" ? "claim" : "targeted";
 
+  // A submitted free team takes invites only while it is registered and registration is open.
+  const joinsRegisteredTeam =
+    invitation.teamStatus === "submitted" && !isPaidCompetition(invitation.competitionFeeAmount);
+
   await sendTeamInvitationEmail({
     toEmail: invitation.invitedEmail,
     teamName: invitation.teamName,
     competitionTitle: invitation.competitionTitle,
     inviterDisplayName,
     expiresAt: invitation.expiresAt,
+    joinsRegisteredTeam,
     mode,
     rawToken: mode === "claim" ? rawToken : undefined,
   });

@@ -1,0 +1,703 @@
+// @vitest-environment node
+//
+// THE RACES A ROLLED-BACK TEST CANNOT RUN, FOR A REGISTERED FREE TEAM.
+//
+// `early-team-registration-db.integration.test.ts` runs everything in one transaction it always
+// rolls back. That cannot show two requests contending: a second connection cannot see uncommitted
+// rows, and one connection cannot wait on itself. So this file COMMITS, and deletes what it wrote.
+//
+// BARRIERED, NOT SLEEP-TIMED. A third connection takes the competition participation lock first.
+// Each racer is then launched and confirmed PARKED behind it by reading `pg_blocking_pids`, with a
+// deadline. Only when every racer is provably queued is the barrier released, so each ordering is
+// run deliberately rather than sampled. The queue order is the launch order.
+//
+// A lock that is deleted does not make these tests flaky, it makes them fail: the operation never
+// reaches the barrier and the poll runs out. A lock moved below the check it protects lets both
+// operations commit, and the assertion on the surviving state goes red.
+
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { randomUUID } from "node:crypto";
+import { TEST_DATABASE_URL, skipWithoutDatabase } from "@/server/testing/database-url";
+import { and, eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
+import * as schema from "@/server/db/schema";
+import {
+  competitionRegistrations,
+  competitions,
+  institutions,
+  teamInvitations,
+  teamMemberships,
+  teams,
+  users,
+} from "@/server/db/schema";
+import { hashToken } from "@/server/teams/team-core";
+import {
+  acceptTeamInvitationForUser,
+  cancelTeamInvitationByToken,
+  inviteTeamMember,
+} from "@/server/teams/team-service";
+import { submitTeamRegistration } from "@/server/teams/team-registration-service";
+
+const enqueueSpies = vi.hoisted(() => ({
+  enqueueTeamInvitationDispatch: vi.fn(),
+  enqueueRegistrationConfirmed: vi.fn(),
+}));
+
+vi.mock("@/server/async/enqueue", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/server/async/enqueue")>();
+  return { ...actual, ...enqueueSpies };
+});
+
+// Every row this file creates carries this marker in a slug, a username or an email. The sweep at
+// `beforeAll` removes what a run that was killed left behind, and the same sweep runs at the end.
+const MARKER = "teamrace";
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+const BARRIER_TIMEOUT_MS = 5_000;
+const BARRIER_POLL_MS = 5;
+
+type Connection = {
+  label: string;
+  sql: postgres.Sql;
+  db: ReturnType<typeof drizzle<typeof schema>>;
+};
+
+const openConnection = (label: string): Connection => {
+  const sql = postgres(TEST_DATABASE_URL!, {
+    // One connection per racer, and never recycled: a racer's queries must land on the backend whose
+    // pid was captured, because that pid is what the wait graph is read against.
+    max: 1,
+    idle_timeout: 0,
+  });
+
+  return { label, sql, db: drizzle(sql, { schema }) };
+};
+
+let control: Connection;
+let barrier: Connection;
+let racerOne: Connection;
+let racerTwo: Connection;
+
+const backendPidOf = async (connection: Connection): Promise<number> => {
+  const rows = await connection.sql<{ pid: number }[]>`select pg_backend_pid() as pid`;
+  return Number(rows[0]!.pid);
+};
+
+/**
+ * Everything `waiterPid` is waiting on, transitively. Postgres queues the second waiter behind the
+ * first, so a direct-membership check would read a correctly formed queue as no queue at all.
+ */
+const transitiveBlockersOf = async (waiterPid: number): Promise<number[]> => {
+  const rows = await control.sql<{ pid: number }[]>`
+    with recursive chain(pid) as (
+      select unnest(pg_blocking_pids(${waiterPid}))
+      union
+      select unnest(pg_blocking_pids(chain.pid)) from chain
+    )
+    select pid from chain`;
+
+  return rows.map((row) => Number(row.pid));
+};
+
+/** Waits until `waiter` is queued behind `holder`, reading Postgres's own wait graph. */
+const awaitBlockedBy = async (
+  waiterPid: number,
+  holderPid: number,
+  what: string,
+): Promise<void> => {
+  const deadline = Date.now() + BARRIER_TIMEOUT_MS;
+  let lastSeen: number[] = [];
+
+  while (Date.now() < deadline) {
+    lastSeen = await transitiveBlockersOf(waiterPid);
+
+    if (lastSeen.includes(holderPid)) return;
+
+    await new Promise((resolve) => setTimeout(resolve, BARRIER_POLL_MS));
+  }
+
+  throw new Error(
+    `${what} never queued behind the lock this test holds. The transitive blockers of ` +
+      `${waiterPid} were last [${lastSeen.join(", ")}] and never included the holder ${holderPid}.\n` +
+      `THIS IS THE GUARD-REMOVAL SIGNAL, NOT A FLAKE. The operation is expected to take that lock ` +
+      `and queue behind whoever holds it. If this started failing after a change to a lock, the ` +
+      `lock is what broke. Do NOT raise BARRIER_TIMEOUT_MS to make it pass.`,
+  );
+};
+
+type Settled<T> = { ok: true; value: T } | { ok: false; error: unknown };
+
+/** Starts a racer immediately and captures its outcome, so a rejection is data rather than noise. */
+const settle = <T>(work: Promise<T>): Promise<Settled<T>> =>
+  work.then(
+    (value) => ({ ok: true as const, value }),
+    (error) => ({ ok: false as const, error }),
+  );
+
+/** Launches a racer and keeps it accounted for, so the harness can wait it out before tearing down. */
+type TrackRacer = <T>(work: Promise<T>) => Promise<Settled<T>>;
+
+/**
+ * Holds an exclusive lock on one invitation row for the duration of `body`, and ALWAYS gives it
+ * back. When the barrier is released it marks that invitation accepted before it commits.
+ *
+ * The `finally` is the only reason this suite can report a failure at all: a barrier left holding
+ * the row would make the teardown wait forever. Racers launched through `track` are awaited in the
+ * same `finally`, so none wakes up during teardown and commits into the middle of the purge.
+ */
+const withInvitationAcceptedOnRelease = async <T>(
+  invitationId: string,
+  body: (track: TrackRacer) => Promise<T>,
+): Promise<T> => {
+  let markAcquired!: () => void;
+  const acquired = new Promise<void>((resolve) => (markAcquired = resolve));
+  let allowRelease!: () => void;
+  const released = new Promise<void>((resolve) => (allowRelease = resolve));
+
+  const holding = barrier.sql.begin(async (tx) => {
+    await tx.unsafe("select id from team_invitations where id = $1 for update", [invitationId]);
+    markAcquired();
+    await released;
+    // Stands in for an accept that commits while the cancel waits on the row.
+    await tx.unsafe(
+      "update team_invitations set status = 'accepted', accepted_at = now() where id = $1",
+      [invitationId],
+    );
+  });
+
+  await Promise.race([
+    acquired,
+    holding.then(() => {
+      throw new Error("the barrier transaction ended before it took the invitation row lock");
+    }),
+  ]);
+
+  const inFlight: Promise<unknown>[] = [];
+  const track: TrackRacer = (work) => {
+    const settled = settle(work);
+    inFlight.push(settled);
+    return settled;
+  };
+
+  try {
+    return await body(track);
+  } finally {
+    allowRelease();
+    await holding.catch(() => undefined);
+    await Promise.all(inFlight);
+  }
+};
+
+/**
+ * Holds the competition participation advisory lock on the barrier connection.
+ *
+ * The key is rebuilt here rather than imported so the test states the string it expects the service
+ * to take. A namespace change on one side and not the other has to show up as a test that stops
+ * blocking, not as two constants silently agreeing to differ.
+ */
+const withParticipationLockHeld = async <T>(
+  competitionId: string,
+  body: (track: TrackRacer) => Promise<T>,
+): Promise<T> => {
+  const lockKey = `competition_participation:${competitionId}`;
+
+  let markAcquired!: () => void;
+  const acquired = new Promise<void>((resolve) => (markAcquired = resolve));
+  let allowRelease!: () => void;
+  const released = new Promise<void>((resolve) => (allowRelease = resolve));
+
+  const holding = barrier.sql.begin(async (tx) => {
+    await tx.unsafe("select pg_advisory_xact_lock(hashtext($1))", [lockKey]);
+    markAcquired();
+    await released;
+  });
+
+  await Promise.race([
+    acquired,
+    holding.then(() => {
+      throw new Error("the barrier transaction ended before it took the participation lock");
+    }),
+  ]);
+
+  const inFlight: Promise<unknown>[] = [];
+  const track: TrackRacer = (work) => {
+    const settled = settle(work);
+    inFlight.push(settled);
+    return settled;
+  };
+
+  try {
+    return await body(track);
+  } finally {
+    allowRelease();
+    await holding.catch(() => undefined);
+    await Promise.all(inFlight);
+  }
+};
+
+const errorCodeOf = (error: unknown): string | undefined =>
+  (error as { code?: string } | undefined)?.code;
+
+type SeededUser = { id: string; email: string; username: string };
+
+let seedCounter = 0;
+const nextSeedId = (): string => `${Date.now().toString(36)}${seedCounter++}`;
+
+const seedUser = async (label: string): Promise<SeededUser> => {
+  const username = `${MARKER}_${label}_${nextSeedId()}`;
+  const email = `${username}@example.test`;
+  const [row] = await control.db
+    .insert(users)
+    .values({
+      email,
+      username,
+      emailVerified: new Date(),
+      candidateVerifiedAt: new Date(),
+    })
+    .returning({ id: users.id });
+  return { id: row!.id, email, username };
+};
+
+const seedFreeCompetition = async (): Promise<string> => {
+  const id = nextSeedId();
+
+  const [institution] = await control.db
+    .insert(institutions)
+    .values({
+      slug: `${MARKER}-inst-${id}`,
+      institutionType: "company",
+      displayName: `Team Race ${id}`,
+      verificationStatus: "verified",
+    })
+    .returning({ id: institutions.id });
+
+  const [competition] = await control.db
+    .insert(competitions)
+    .values({
+      institutionId: institution!.id,
+      slug: `${MARKER}-comp-${id}`,
+      title: `Team Race ${id}`,
+      description: "Deskripsi kompetisi untuk pengujian.",
+      category: "hackathon",
+      mode: "team",
+      minTeamSize: 3,
+      maxTeamSize: 3,
+      status: "published",
+      publishedAt: new Date(),
+      registrationStartAt: new Date(Date.now() - 7 * DAY_MS),
+      registrationEndAt: new Date(Date.now() + 14 * DAY_MS),
+      participantConfirmationAt: new Date(Date.now() + 20 * DAY_MS),
+      eventStartAt: new Date(Date.now() + 30 * DAY_MS),
+      eventEndAt: new Date(Date.now() + 31 * DAY_MS),
+      resultAnnouncementAt: new Date(Date.now() + 40 * DAY_MS),
+    })
+    .returning({ id: competitions.id });
+
+  return competition!.id;
+};
+
+/**
+ * Seeds a team of the captain and Budi, COMMITTED. Committed on purpose: a second connection cannot
+ * contend over a row it cannot see, so rollback isolation would make these tests vacuous.
+ */
+const seedTeam = async (
+  status: "forming" | "submitted",
+): Promise<{
+  competitionId: string;
+  teamId: string;
+  captain: SeededUser;
+  budi: SeededUser;
+}> => {
+  const competitionId = await seedFreeCompetition();
+  const captain = await seedUser("captain");
+  const budi = await seedUser("budi");
+
+  const [team] = await control.db
+    .insert(teams)
+    .values({
+      competitionId,
+      captainId: captain.id,
+      name: `Tim ${nextSeedId()}`,
+      status,
+    })
+    .returning({ id: teams.id });
+
+  await control.db.insert(teamMemberships).values([
+    { teamId: team!.id, userId: captain.id, role: "captain", status: "active" },
+    { teamId: team!.id, userId: budi.id, role: "member", status: "active" },
+  ]);
+
+  if (status === "submitted") {
+    await control.db.insert(competitionRegistrations).values(
+      [captain, budi].map((user) => ({
+        competitionId,
+        studentId: user.id,
+        teamId: team!.id,
+        registrationType: "team" as const,
+        status: "confirmed" as const,
+      })),
+    );
+  }
+
+  return { competitionId, teamId: team!.id, captain, budi };
+};
+
+const seedOpenInvitation = async (
+  teamId: string,
+  captainId: string,
+  invitee: SeededUser,
+): Promise<{ id: string; tokenHash: string }> => {
+  const tokenHash = hashToken(randomUUID());
+  const [row] = await control.db
+    .insert(teamInvitations)
+    .values({
+      teamId,
+      invitedByUserId: captainId,
+      invitedEmail: invitee.email,
+      targetUserId: invitee.id,
+      tokenHash,
+      status: "pending",
+      expiresAt: new Date(Date.now() + 7 * DAY_MS),
+    })
+    .returning({ id: teamInvitations.id });
+  return { id: row!.id, tokenHash };
+};
+
+const pendingInvitationCount = async (teamId: string): Promise<number> => {
+  const rows = await control.db
+    .select({ id: teamInvitations.id })
+    .from(teamInvitations)
+    .where(and(eq(teamInvitations.teamId, teamId), eq(teamInvitations.status, "pending")));
+  return rows.length;
+};
+
+const invitationStatus = async (invitationId: string) => {
+  const [row] = await control.db
+    .select({ status: teamInvitations.status })
+    .from(teamInvitations)
+    .where(eq(teamInvitations.id, invitationId));
+  return row!.status;
+};
+
+const teamStatus = async (teamId: string) => {
+  const [row] = await control.db
+    .select({ status: teams.status })
+    .from(teams)
+    .where(eq(teams.id, teamId));
+  return row!.status;
+};
+
+const activeMemberIds = async (teamId: string): Promise<string[]> => {
+  const rows = await control.db
+    .select({ userId: teamMemberships.userId })
+    .from(teamMemberships)
+    .where(and(eq(teamMemberships.teamId, teamId), eq(teamMemberships.status, "active")));
+  return rows.map((row) => row.userId).sort();
+};
+
+const confirmedRegistrationStudentIds = async (teamId: string): Promise<string[]> => {
+  const rows = await control.db
+    .select({ studentId: competitionRegistrations.studentId })
+    .from(competitionRegistrations)
+    .where(
+      and(
+        eq(competitionRegistrations.teamId, teamId),
+        eq(competitionRegistrations.status, "confirmed"),
+      ),
+    );
+  return rows.map((row) => row.studentId).sort();
+};
+
+/**
+ * Deletes every row any run of this file has ever created, matched by marker rather than by id, so
+ * it also removes what a CRASHED run left behind. Ordered by foreign key so each delete is legal.
+ */
+const purgeMarkedRows = async (): Promise<void> => {
+  const slug = `${MARKER}-%`;
+  const username = `${MARKER}_%`;
+
+  await control.sql`
+    delete from team_invitations where team_id in
+      (select t.id from teams t join competitions c on c.id = t.competition_id
+       where c.slug like ${slug})`;
+  await control.sql`
+    delete from competition_registrations where competition_id in
+      (select id from competitions where slug like ${slug})`;
+  await control.sql`
+    delete from team_memberships where team_id in
+      (select t.id from teams t join competitions c on c.id = t.competition_id
+       where c.slug like ${slug})`;
+  await control.sql`
+    delete from teams where competition_id in
+      (select id from competitions where slug like ${slug})`;
+  await control.sql`delete from competitions where slug like ${slug}`;
+  await control.sql`delete from institutions where slug like ${slug}`;
+  await control.sql`delete from users where username like ${username}`;
+};
+
+/** What survived the purge. Counted per table so a failure names which one leaked. */
+const countMarkedSurvivors = async (): Promise<Record<string, number>> => {
+  const slug = `${MARKER}-%`;
+  const username = `${MARKER}_%`;
+
+  const rows = await control.sql<{ table_name: string; count: string }[]>`
+    select 'team_invitations' as table_name, count(*) as count from team_invitations i
+      join teams t on t.id = i.team_id
+      join competitions c on c.id = t.competition_id where c.slug like ${slug}
+    union all
+    select 'competition_registrations', count(*) from competition_registrations r
+      join competitions c on c.id = r.competition_id where c.slug like ${slug}
+    union all
+    select 'team_memberships', count(*) from team_memberships m
+      join teams t on t.id = m.team_id
+      join competitions c on c.id = t.competition_id where c.slug like ${slug}
+    union all
+    select 'teams', count(*) from teams t
+      join competitions c on c.id = t.competition_id where c.slug like ${slug}
+    union all
+    select 'competitions', count(*) from competitions where slug like ${slug}
+    union all
+    select 'institutions', count(*) from institutions where slug like ${slug}
+    union all
+    select 'users', count(*) from users where username like ${username}`;
+
+  return Object.fromEntries(rows.map((row) => [row.table_name, Number(row.count)]));
+};
+
+const purgeOnSignal = () => {
+  void purgeMarkedRows().catch(() => undefined);
+};
+
+beforeAll(async () => {
+  if (skipWithoutDatabase) return;
+
+  control = openConnection("control");
+  barrier = openConnection("barrier");
+  racerOne = openConnection("racer-one");
+  racerTwo = openConnection("racer-two");
+
+  // A teardown that WAITS on a stray lock is worse than one that fails: the run hangs with no
+  // message. A bounded wait turns that into a named error. The racers deliberately have no such
+  // timeout, because waiting on the barrier is their whole job.
+  await control.sql.unsafe("set lock_timeout = '10s'");
+
+  await purgeMarkedRows();
+
+  process.on("SIGINT", purgeOnSignal);
+  process.on("SIGTERM", purgeOnSignal);
+});
+
+afterEach(async () => {
+  if (skipWithoutDatabase) return;
+  // In `afterEach` so an assertion failing mid-test cannot skip the cleanup of rows already committed.
+  await purgeMarkedRows();
+  enqueueSpies.enqueueTeamInvitationDispatch.mockReset();
+  enqueueSpies.enqueueRegistrationConfirmed.mockReset();
+});
+
+afterAll(async () => {
+  if (skipWithoutDatabase) return;
+
+  process.off("SIGINT", purgeOnSignal);
+  process.off("SIGTERM", purgeOnSignal);
+
+  try {
+    await purgeMarkedRows();
+
+    const survivors = await countMarkedSurvivors();
+    const leaked = Object.entries(survivors).filter(([, count]) => count > 0);
+
+    expect(
+      leaked,
+      `this harness commits real rows and left some behind: ${JSON.stringify(survivors)}`,
+    ).toEqual([]);
+  } finally {
+    // Connections close whether or not the survivor assertion passed.
+    await Promise.all([
+      control?.sql.end(),
+      barrier?.sql.end(),
+      racerOne?.sql.end(),
+      racerTwo?.sql.end(),
+    ]);
+  }
+});
+
+const readyEnqueueSpies = () => {
+  enqueueSpies.enqueueTeamInvitationDispatch.mockResolvedValue({});
+  enqueueSpies.enqueueRegistrationConfirmed.mockResolvedValue({});
+};
+
+describe.skipIf(skipWithoutDatabase)("a registered free team under real contention", () => {
+  it("two invites for the last seat of a registered team: one is sent, the other is refused as full", async () => {
+    readyEnqueueSpies();
+    const { competitionId, teamId, captain } = await seedTeam("submitted");
+    const dewi = await seedUser("dewi");
+    const eko = await seedUser("eko");
+    const [barrierPid, onePid, twoPid] = await Promise.all([
+      backendPidOf(barrier),
+      backendPidOf(racerOne),
+      backendPidOf(racerTwo),
+    ]);
+
+    const [first, second] = await withParticipationLockHeld(competitionId, async (track) => {
+      const firstRun = track(
+        inviteTeamMember(
+          captain.id,
+          teamId,
+          { invitedIdentifier: dewi.username },
+          racerOne.db as never,
+        ),
+      );
+      await awaitBlockedBy(onePid, barrierPid, "the first invite");
+
+      const secondRun = track(
+        inviteTeamMember(
+          captain.id,
+          teamId,
+          { invitedIdentifier: eko.username },
+          racerTwo.db as never,
+        ),
+      );
+      await awaitBlockedBy(twoPid, barrierPid, "the second invite");
+
+      return [firstRun, secondRun] as const;
+    }).then(async ([firstRun, secondRun]) => [await firstRun, await secondRun] as const);
+
+    const sent = [first, second].filter((outcome) => outcome.ok);
+    const refused = [first, second].filter((outcome) => !outcome.ok);
+    expect(sent, "both invites were sent into the last seat").toHaveLength(1);
+    expect(refused).toHaveLength(1);
+    const refusal = refused[0] as { ok: false; error: unknown };
+    expect(errorCodeOf(refusal.error)).toBe("team_at_capacity");
+    expect(await pendingInvitationCount(teamId)).toBe(1);
+  });
+
+  it("CAPTAIN FIRST: a teammate accepting while the team registers joins with a confirmed registration", async () => {
+    readyEnqueueSpies();
+    const { competitionId, teamId, captain, budi } = await seedTeam("forming");
+    const sari = await seedUser("sari");
+    const sariInvite = await seedOpenInvitation(teamId, captain.id, sari);
+    const [barrierPid, submitPid, acceptPid] = await Promise.all([
+      backendPidOf(barrier),
+      backendPidOf(racerOne),
+      backendPidOf(racerTwo),
+    ]);
+
+    const [submitted, accepted] = await withParticipationLockHeld(competitionId, async (track) => {
+      const submitRun = track(
+        submitTeamRegistration(captain.id, competitionId, teamId, racerOne.db as never),
+      );
+      await awaitBlockedBy(submitPid, barrierPid, "the team registration");
+
+      const acceptRun = track(
+        acceptTeamInvitationForUser(sariInvite.id, sari.id, racerTwo.db as never),
+      );
+      await awaitBlockedBy(acceptPid, barrierPid, "the accept");
+
+      return [submitRun, acceptRun] as const;
+    }).then(async ([submitRun, acceptRun]) => [await submitRun, await acceptRun] as const);
+
+    expect(submitted.ok, "the registration threw").toBe(true);
+    expect(accepted.ok, "the accept threw").toBe(true);
+    expect(await teamStatus(teamId)).toBe("submitted");
+    const everyone = [captain.id, budi.id, sari.id].sort();
+    expect(await activeMemberIds(teamId)).toEqual(everyone);
+    expect(await confirmedRegistrationStudentIds(teamId)).toEqual(everyone);
+  });
+
+  it("TEAMMATE FIRST: a team registering while a teammate accepts registers that teammate too", async () => {
+    readyEnqueueSpies();
+    const { competitionId, teamId, captain, budi } = await seedTeam("forming");
+    const sari = await seedUser("sari");
+    const sariInvite = await seedOpenInvitation(teamId, captain.id, sari);
+    const [barrierPid, acceptPid, submitPid] = await Promise.all([
+      backendPidOf(barrier),
+      backendPidOf(racerOne),
+      backendPidOf(racerTwo),
+    ]);
+
+    const [accepted, submitted] = await withParticipationLockHeld(competitionId, async (track) => {
+      const acceptRun = track(
+        acceptTeamInvitationForUser(sariInvite.id, sari.id, racerOne.db as never),
+      );
+      await awaitBlockedBy(acceptPid, barrierPid, "the accept");
+
+      const submitRun = track(
+        submitTeamRegistration(captain.id, competitionId, teamId, racerTwo.db as never),
+      );
+      await awaitBlockedBy(submitPid, barrierPid, "the team registration");
+
+      return [acceptRun, submitRun] as const;
+    }).then(async ([acceptRun, submitRun]) => [await acceptRun, await submitRun] as const);
+
+    expect(accepted.ok, "the accept threw").toBe(true);
+    expect(submitted.ok, "the registration threw").toBe(true);
+    expect(await teamStatus(teamId)).toBe("submitted");
+    const everyone = [captain.id, budi.id, sari.id].sort();
+    expect(await activeMemberIds(teamId)).toEqual(everyone);
+    expect(await confirmedRegistrationStudentIds(teamId)).toEqual(everyone);
+  });
+
+  it("a forming accept waiting on the lock is refused when the captain cancels that invite meanwhile", async () => {
+    readyEnqueueSpies();
+    const { competitionId, teamId, captain, budi } = await seedTeam("forming");
+    const sari = await seedUser("sari");
+    const sariInvite = await seedOpenInvitation(teamId, captain.id, sari);
+    const [barrierPid, acceptPid] = await Promise.all([
+      backendPidOf(barrier),
+      backendPidOf(racerOne),
+    ]);
+
+    const [accepted] = await withParticipationLockHeld(competitionId, async (track) => {
+      // The accept has read the invite as pending by the time it queues on the lock.
+      const acceptRun = track(
+        acceptTeamInvitationForUser(sariInvite.id, sari.id, racerOne.db as never),
+      );
+      await awaitBlockedBy(acceptPid, barrierPid, "the accept");
+
+      // The forming cancel takes no lock, so it resolves while the accept is still parked.
+      await cancelTeamInvitationByToken(
+        captain.id,
+        teamId,
+        sariInvite.tokenHash,
+        racerTwo.db as never,
+      );
+
+      return [acceptRun] as const;
+    }).then(async ([acceptRun]) => [await acceptRun] as const);
+
+    expect(accepted.ok, "the accept went through a cancelled invite").toBe(false);
+    if (accepted.ok) return;
+    expect(errorCodeOf(accepted.error)).toBe("team_invite_not_actionable");
+    expect(await invitationStatus(sariInvite.id)).toBe("cancelled");
+    expect(await activeMemberIds(teamId)).toEqual([captain.id, budi.id].sort());
+  });
+
+  it("a forming cancel that waits behind an accept leaves the accepted invite in place", async () => {
+    readyEnqueueSpies();
+    const { teamId, captain } = await seedTeam("forming");
+    const sari = await seedUser("sari");
+    const sariInvite = await seedOpenInvitation(teamId, captain.id, sari);
+    const [barrierPid, cancelPid] = await Promise.all([
+      backendPidOf(barrier),
+      backendPidOf(racerOne),
+    ]);
+
+    const [cancelled] = await withInvitationAcceptedOnRelease(sariInvite.id, async (track) => {
+      // The cancel has read the invite as pending, and its update waits on the row.
+      const cancelRun = track(
+        cancelTeamInvitationByToken(captain.id, teamId, sariInvite.tokenHash, racerOne.db as never),
+      );
+      await awaitBlockedBy(cancelPid, barrierPid, "the cancel");
+
+      return [cancelRun] as const;
+    }).then(async ([cancelRun]) => [await cancelRun] as const);
+
+    expect(cancelled.ok, "the cancel overwrote an accepted invite").toBe(false);
+    if (cancelled.ok) return;
+    expect(errorCodeOf(cancelled.error)).toBe("team_invite_not_actionable");
+    expect(await invitationStatus(sariInvite.id)).toBe("accepted");
+  });
+});

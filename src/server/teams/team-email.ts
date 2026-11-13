@@ -30,12 +30,18 @@ const formatExpiryDate = (expiresAt: Date): string => {
 
 export type TeamInvitationEmailMode = "targeted" | "claim";
 
+const REGISTERED_TEAM_LINE =
+  "Tim ini sudah terdaftar. Jika Anda menerima undangan ini sebelum pendaftaran ditutup, Anda langsung terdaftar bersama tim.";
+
 export const sendTeamInvitationEmail = async (options: {
   toEmail: string;
   teamName: string;
   competitionTitle: string;
   inviterDisplayName: string | null;
   expiresAt: Date;
+  // An invite of a registered free team lasts until registration closes, and joining registers the
+  // teammate at once.
+  joinsRegisteredTeam: boolean;
   mode: TeamInvitationEmailMode;
   // Required for `claim` mode (the signup link); ignored for `targeted`.
   rawToken?: string;
@@ -45,6 +51,9 @@ export const sendTeamInvitationEmail = async (options: {
   }
 
   const expiryFormatted = formatExpiryDate(options.expiresAt);
+  const expiryLine = options.joinsRegisteredTeam
+    ? `Undangan ini berlaku hingga pendaftaran ditutup pada ${formatWib(options.expiresAt, "longDateTime")} WIB.`
+    : `Undangan ini berlaku hingga ${expiryFormatted}.`;
   const inviterLabel = options.inviterDisplayName ?? "Kapten tim";
 
   const isClaim = options.mode === "claim";
@@ -73,11 +82,12 @@ export const sendTeamInvitationEmail = async (options: {
     text: [
       `${inviterLabel} mengundang Anda untuk bergabung dengan tim ${options.teamName}`,
       `pada kompetisi ${options.competitionTitle} di Lombakita.`,
+      ...(options.joinsRegisteredTeam ? ["", REGISTERED_TEAM_LINE] : []),
       "",
       leadLine,
       actionUrl,
       "",
-      `Undangan ini berlaku hingga ${expiryFormatted}.`,
+      expiryLine,
       "",
       "Jika Anda tidak merasa diundang, abaikan email ini.",
     ].join("\n"),
@@ -89,6 +99,7 @@ export const sendTeamInvitationEmail = async (options: {
           <strong>${options.teamName}</strong> pada kompetisi
           <strong>${options.competitionTitle}</strong>.
         </p>
+        ${options.joinsRegisteredTeam ? `<p style="margin: 0 0 12px;">${REGISTERED_TEAM_LINE}</p>` : ""}
         <p style="margin: 0 0 16px;">${leadLine}</p>
         <p style="margin: 0 0 16px;">
           <a href="${actionUrl}" style="background: #c6491b; color: #ffffff; text-decoration: none; padding: 10px 16px; border-radius: 8px; display: inline-block;">
@@ -99,7 +110,7 @@ export const sendTeamInvitationEmail = async (options: {
         <p style="word-break: break-all; margin: 0 0 12px;">
           <a href="${actionUrl}">${actionUrl}</a>
         </p>
-        <p style="margin: 0; color: #3d5c56;">Undangan ini berlaku hingga ${expiryFormatted}.</p>
+        <p style="margin: 0; color: #3d5c56;">${expiryLine}</p>
       </div>
     `,
   });

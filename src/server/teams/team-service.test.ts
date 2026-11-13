@@ -11,7 +11,13 @@ vi.mock("@/lib/logger", () => ({
 const { enqueueTeamInvitationDispatch } = vi.hoisted(() => ({
   enqueueTeamInvitationDispatch: vi.fn(),
 }));
-vi.mock("@/server/async/enqueue", () => ({ enqueueTeamInvitationDispatch }));
+vi.mock("@/server/async/enqueue", () => ({
+  enqueueTeamInvitationDispatch,
+  enqueueRegistrationConfirmed: vi.fn(),
+}));
+vi.mock("@/server/competitions/competition-participation-lock", () => ({
+  acquireCompetitionParticipationLock: vi.fn(),
+}));
 
 import {
   acceptTeamInvitationForUser,
@@ -99,8 +105,9 @@ const makeDb = (
   const insert = vi.fn(insertWithError);
 
   const updateReturning = vi.fn().mockResolvedValue(options.updateReturning ?? []);
-  const updateWhere = vi.fn().mockResolvedValue(options.updateReturning ?? []);
-  Object.assign(updateWhere, { returning: updateReturning });
+  const updateWhere = vi.fn(() =>
+    Object.assign(Promise.resolve(options.updateReturning ?? []), { returning: updateReturning }),
+  );
   const updateSet = vi.fn().mockReturnValue({ where: updateWhere, returning: updateReturning });
   const update = vi.fn().mockReturnValue({ set: updateSet });
 
@@ -109,25 +116,33 @@ const makeDb = (
   const txInsertReturning = options.transactionInsertReturning ?? [];
   const txInsertError = options.transactionInsertError;
 
+  const txInsertIsOwn = options.transactionInsertReturning !== undefined || txInsertError;
+
   const tx = {
     select: buildChain(txSelectQueue),
-    insert: vi.fn(() => {
-      if (txInsertError) {
-        return {
-          values: vi.fn().mockImplementation(() => {
-            return Promise.reject(txInsertError);
-          }),
-        };
-      }
-      return {
-        values: vi.fn().mockReturnValue({
-          returning: vi.fn().mockResolvedValue(txInsertReturning),
-        }),
-      };
-    }),
+    insert: txInsertIsOwn
+      ? vi.fn(() => {
+          if (txInsertError) {
+            return {
+              values: vi.fn().mockImplementation(() => {
+                return Promise.reject(txInsertError);
+              }),
+            };
+          }
+          return {
+            values: vi.fn().mockReturnValue({
+              returning: vi.fn().mockResolvedValue(txInsertReturning),
+            }),
+          };
+        })
+      : insert,
     update: vi.fn().mockReturnValue({
       set: vi.fn().mockReturnValue({
-        where: vi.fn().mockResolvedValue([]),
+        where: vi.fn(() =>
+          Object.assign(Promise.resolve([]), {
+            returning: vi.fn().mockResolvedValue([{ id: "inv_1" }]),
+          }),
+        ),
       }),
     }),
   };
@@ -284,14 +299,21 @@ describe("inviteTeamMember invariants", () => {
   });
 
   it("rejects with team_at_capacity when seats used >= maxTeamSize (captain counts)", async () => {
-    // selectQueue order: team, competition, resolution, activeCount, pendingCount
-    const { db } = makeDb([
-      [baseTeam()],
-      [baseCompetition({ maxTeamSize: 2 })],
-      [{ id: "user_target" }], // resolution — existing verified account
-      [{ count: 1 }], // active members (captain)
-      [{ count: 1 }], // pending invites (one outstanding; incl. pending_claim)
-    ]);
+    // selectQueue order: team, competition, resolution. transactionSelectQueue: status under the lock, activeCount, pendingCount
+    const { db } = makeDb(
+      [
+        [baseTeam()],
+        [baseCompetition({ maxTeamSize: 2 })],
+        [{ id: "user_target" }], // resolution — existing verified account
+      ],
+      {
+        transactionSelectQueue: [
+          [{ status: "forming" }], // status read under the lock
+          [{ count: 1 }], // active members (captain)
+          [{ count: 1 }], // pending invites (one outstanding; incl. pending_claim)
+        ],
+      },
+    );
     await expect(
       inviteTeamMember(
         "cand_captain",
@@ -304,15 +326,15 @@ describe("inviteTeamMember invariants", () => {
   });
 
   it("rejects with team_invite_already_pending when a live invite for that email exists", async () => {
-    const { db } = makeDb([
-      [baseTeam()],
-      [baseCompetition()],
-      [{ id: "user_target" }], // resolution
-      [{ count: 1 }],
-      [{ count: 0 }],
-      [], // existingActiveMember check
-      [baseInvitation()], // existingPending (pending OR pending_claim) — found
-    ]);
+    const { db } = makeDb([[baseTeam()], [baseCompetition()], [{ id: "user_target" }]], {
+      transactionSelectQueue: [
+        [{ status: "forming" }], // status read under the lock
+        [{ count: 1 }],
+        [{ count: 0 }],
+        [], // existingActiveMember check
+        [baseInvitation()], // existingPending (pending OR pending_claim) — found
+      ],
+    });
     await expect(
       inviteTeamMember(
         "cand_captain",
@@ -344,12 +366,17 @@ describe("inviteTeamMember invariants", () => {
         [baseTeam()],
         [baseCompetition()],
         [{ id: "user_target" }], // resolution — verified account
-        [{ count: 1 }],
-        [{ count: 0 }],
-        [], // existingActiveMember — none
-        [], // existingPending — none
       ],
-      { insertReturning: [baseInvitation()] },
+      {
+        insertReturning: [baseInvitation()],
+        transactionSelectQueue: [
+          [{ status: "forming" }], // status read under the lock
+          [{ count: 1 }],
+          [{ count: 0 }],
+          [], // existingActiveMember — none
+          [], // existingPending — none
+        ],
+      },
     );
 
     await inviteTeamMember(
@@ -372,12 +399,17 @@ describe("inviteTeamMember invariants", () => {
         [baseTeam()],
         [baseCompetition()],
         [], // resolution — no verified account
-        [{ count: 1 }],
-        [{ count: 0 }],
-        [],
-        [],
       ],
-      { insertReturning: [baseInvitation({ status: "pending_claim", targetUserId: null })] },
+      {
+        insertReturning: [baseInvitation({ status: "pending_claim", targetUserId: null })],
+        transactionSelectQueue: [
+          [{ status: "forming" }], // status read under the lock
+          [{ count: 1 }],
+          [{ count: 0 }],
+          [],
+          [],
+        ],
+      },
     );
 
     await inviteTeamMember(
@@ -396,18 +428,16 @@ describe("inviteTeamMember invariants", () => {
   // Step 6.5e — dual-channel enqueue failure must NOT block invite creation.
   it("still returns the invitation when the dispatch enqueue throws", async () => {
     enqueueTeamInvitationDispatch.mockRejectedValueOnce(new Error("redis down"));
-    const { db } = makeDb(
-      [
-        [baseTeam()],
-        [baseCompetition()],
-        [{ id: "user_target" }],
+    const { db } = makeDb([[baseTeam()], [baseCompetition()], [{ id: "user_target" }]], {
+      insertReturning: [baseInvitation()],
+      transactionSelectQueue: [
+        [{ status: "forming" }], // status read under the lock
         [{ count: 1 }],
         [{ count: 0 }],
         [],
         [],
       ],
-      { insertReturning: [baseInvitation()] },
-    );
+    });
 
     const result = await inviteTeamMember(
       "cand_captain",
@@ -638,7 +668,9 @@ describe("disbandTeam invariants", () => {
 // G6 — cancelTeamInvitationByToken (token-keyed cancel, Step 6.5b)
 describe("cancelTeamInvitationByToken", () => {
   it("cancels a pending invitation looked up by tokenHash", async () => {
-    const { db } = makeDb([[baseTeam()], [baseInvitation()]], { updateReturning: [] });
+    const { db } = makeDb([[baseTeam()], [baseInvitation()]], {
+      updateReturning: [{ id: "inv_1" }],
+    });
     await expect(
       cancelTeamInvitationByToken("cand_captain", "team_1", TOKEN_HASH, db as never),
     ).resolves.toBeUndefined();

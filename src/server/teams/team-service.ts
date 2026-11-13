@@ -6,12 +6,15 @@ import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { logger } from "@/lib/logger";
 import { getDb, type Database } from "@/server/db/client";
 import {
+  competitionRegistrations,
   competitions,
   teamInvitations,
   teamMemberships,
   teams,
   userProfiles,
   users,
+  type TeamInvitationStatus,
+  type TeamStatus,
 } from "@/server/db/schema";
 import {
   buildInvitationExpiresAt,
@@ -29,7 +32,13 @@ import {
   classifyInviteIdentifier,
   resolveInviteRecipient,
 } from "@/server/invitations/invite-resolution";
-import { enqueueTeamInvitationDispatch } from "@/server/async/enqueue";
+import {
+  enqueueRegistrationConfirmed,
+  enqueueTeamInvitationDispatch,
+} from "@/server/async/enqueue";
+import { acquireCompetitionParticipationLock } from "@/server/competitions/competition-participation-lock";
+import { isPaidCompetition } from "@/lib/competitions/paid-competition";
+import { assertRegisteredFreeTeamOpen } from "@/server/teams/registered-team";
 
 // Postgres error code extraction. drizzle-orm wraps the underlying postgres error in a
 // DrizzleQueryError whose `.cause` carries the pg error fields, so reading `.code` directly off
@@ -43,6 +52,8 @@ const pgErrorCode = (error: unknown): string | undefined => {
   if (cause && typeof cause === "object" && typeof cause.code === "string") return cause.code;
   return undefined;
 };
+
+type DbOrTx = Database | Parameters<Parameters<Database["transaction"]>[0]>[0];
 
 const TEAM_COLUMNS = {
   id: teams.id,
@@ -399,31 +410,16 @@ export const getTeamForCompetitionAndCandidate = async (
   return getTeamForViewer(userId, membership.teamId, db);
 };
 
-// Captain invites a candidate by email. Enforces:
-//   - team is forming
-//   - competition is still playable for teams (window open)
-//   - capacity: (active roster + pending invitations) < maxTeamSize
-//   - no existing pending invitation to this email for this team
-//   - no existing active membership for an account holding this email on this team
-export const inviteTeamMember = async (
-  userId: string,
-  teamId: string,
-  payload: unknown,
-  db: Database = getDb(),
-  now: Date = new Date(),
-): Promise<{ id: string; invitedEmail: string; expiresAt: Date }> => {
-  const { invitedIdentifier } = parseTeamInviteCreateInput(payload);
+type TeamInviteRecipient = {
+  invitedEmail: string;
+  targetUserId: string | null;
+  status: "pending" | "pending_claim";
+};
 
-  const team = await loadTeamById(teamId, db);
-  if (!team) throw new TeamError("team_not_found", "Team not found");
-  assertCaptain(team, userId);
-  assertTeamForming(team);
-
-  const competition = assertCompetitionTeamPlayable(
-    await loadCompetitionForTeams(team.competitionId, db),
-    now,
-  );
-
+const resolveTeamInviteRecipient = async (
+  invitedIdentifier: string,
+  db: Database,
+): Promise<TeamInviteRecipient> => {
   // Classify (username/email) and resolve via the shared resolver.
   const classified = classifyInviteIdentifier(invitedIdentifier);
   if (!classified) {
@@ -442,13 +438,21 @@ export const inviteTeamMember = async (
   const targetUserId = resolution.mode === "targeted" ? resolution.targetUserId : null;
   const status = resolution.mode === "targeted" ? "pending" : "pending_claim";
 
+  return { invitedEmail, targetUserId, status };
+};
+
+const assertTeamHasRoomForInvite = async (
+  tx: DbOrTx,
+  teamId: string,
+  maxTeamSize: number | null,
+): Promise<void> => {
   // Capacity counts an in-flight invite seat in EITHER live state (pending or pending_claim).
-  if (competition.maxTeamSize !== null) {
-    const [activeCountRow] = await db
+  if (maxTeamSize !== null) {
+    const [activeCountRow] = await tx
       .select({ count: sql<number>`count(*)::int` })
       .from(teamMemberships)
       .where(and(eq(teamMemberships.teamId, teamId), eq(teamMemberships.status, "active")));
-    const [pendingCountRow] = await db
+    const [pendingCountRow] = await tx
       .select({ count: sql<number>`count(*)::int` })
       .from(teamInvitations)
       .where(
@@ -459,15 +463,21 @@ export const inviteTeamMember = async (
       );
 
     const used = (activeCountRow?.count ?? 0) + (pendingCountRow?.count ?? 0);
-    if (used >= competition.maxTeamSize) {
+    if (used >= maxTeamSize) {
       throw new TeamError(
         "team_at_capacity",
-        `Team has reached the maximum size of ${competition.maxTeamSize}`,
+        `Team has reached the maximum size of ${maxTeamSize}`,
       );
     }
   }
+};
 
-  const [existingActiveMember] = await db
+const assertInviteeNotOnTeamOrInvited = async (
+  tx: DbOrTx,
+  teamId: string,
+  invitedEmail: string,
+): Promise<void> => {
+  const [existingActiveMember] = await tx
     .select({ id: teamMemberships.id })
     .from(teamMemberships)
     .innerJoin(users, eq(users.id, teamMemberships.userId))
@@ -487,7 +497,7 @@ export const inviteTeamMember = async (
     );
   }
 
-  const [existingPending] = await db
+  const [existingPending] = await tx
     .select({ id: teamInvitations.id })
     .from(teamInvitations)
     .where(
@@ -505,21 +515,33 @@ export const inviteTeamMember = async (
       "An active invitation for this email already exists for this team",
     );
   }
+};
 
+const insertTeamInvitation = async (
+  tx: DbOrTx,
+  input: {
+    teamId: string;
+    invitedByUserId: string;
+    recipient: TeamInviteRecipient;
+    expiresAt: Date;
+  },
+): Promise<{
+  invitation: { id: string; invitedEmail: string; expiresAt: Date };
+  rawToken: string;
+}> => {
   const rawToken = generateRawToken();
   const tokenHash = hashToken(rawToken);
-  const expiresAt = buildInvitationExpiresAt(now);
 
-  const [invitation] = await db
+  const [invitation] = await tx
     .insert(teamInvitations)
     .values({
-      teamId,
-      invitedEmail,
-      invitedByUserId: userId,
+      teamId: input.teamId,
+      invitedEmail: input.recipient.invitedEmail,
+      invitedByUserId: input.invitedByUserId,
       tokenHash,
-      status,
-      targetUserId,
-      expiresAt,
+      status: input.recipient.status,
+      targetUserId: input.recipient.targetUserId,
+      expiresAt: input.expiresAt,
     })
     .returning({
       id: teamInvitations.id,
@@ -531,18 +553,124 @@ export const inviteTeamMember = async (
     throw new TeamError("team_invalid_payload", "Failed to create team invitation");
   }
 
-  // Dual-channel send: in-app inbox entry is already live (target_user_id) for targeted invites;
-  // the email is the second channel via a queued BullMQ job. Fire-and-forget — an enqueue failure
-  // never blocks invite creation.
+  return { invitation, rawToken };
+};
+
+// Dual-channel send: in-app inbox entry is already live (target_user_id) for targeted invites;
+// the email is the second channel via a queued BullMQ job. Fire-and-forget — an enqueue failure
+// never blocks invite creation.
+const dispatchTeamInvitation = async (
+  teamId: string,
+  invitationId: string,
+  rawToken: string,
+): Promise<void> => {
   try {
-    await enqueueTeamInvitationDispatch({ invitationId: invitation.id, rawToken });
+    await enqueueTeamInvitationDispatch({ invitationId, rawToken });
   } catch (enqueueError) {
     logger.warn("team_invitation.dispatch.enqueue_failed", {
       teamId,
-      invitationId: invitation.id,
+      invitationId,
       error: enqueueError instanceof Error ? enqueueError.message : String(enqueueError),
     });
   }
+};
+
+const assertTeamStillForming = async (tx: DbOrTx, teamId: string): Promise<void> => {
+  const [row] = await tx
+    .select({ status: teams.status })
+    .from(teams)
+    .where(eq(teams.id, teamId))
+    .limit(1);
+
+  if (!row) {
+    throw new TeamError("team_not_found", "Team not found");
+  }
+  if (row.status !== "forming") {
+    throw new TeamError(
+      "team_state_conflict",
+      "Team state changed while the invitation was being sent. Reload and retry.",
+    );
+  }
+};
+
+// A registered free team keeps taking invites until registration closes, and each one expires
+// at the close.
+const inviteToRegisteredTeam = async (
+  userId: string,
+  team: TeamRecord,
+  invitedIdentifier: string,
+  db: Database,
+  now: Date,
+): Promise<{ id: string; invitedEmail: string; expiresAt: Date }> => {
+  await assertRegisteredFreeTeamOpen(db, team.id, now);
+
+  const recipient = await resolveTeamInviteRecipient(invitedIdentifier, db);
+
+  const { invitation, rawToken } = await db.transaction(async (tx) => {
+    await acquireCompetitionParticipationLock(tx, team.competitionId);
+    const limits = await assertRegisteredFreeTeamOpen(tx, team.id, now);
+    await assertTeamHasRoomForInvite(tx, team.id, limits.maxTeamSize);
+    await assertInviteeNotOnTeamOrInvited(tx, team.id, recipient.invitedEmail);
+    return insertTeamInvitation(tx, {
+      teamId: team.id,
+      invitedByUserId: userId,
+      recipient,
+      expiresAt: limits.closesAt,
+    });
+  });
+
+  await dispatchTeamInvitation(team.id, invitation.id, rawToken);
+
+  return invitation;
+};
+
+// Captain invites a candidate by email. Enforces:
+//   - team is forming
+//   - or the team is a registered free team and registration is still open
+//   - competition is still playable for teams (window open)
+//   - capacity: (active roster + pending invitations) < maxTeamSize
+//   - no existing pending invitation to this email for this team
+//   - no existing active membership for an account holding this email on this team
+export const inviteTeamMember = async (
+  userId: string,
+  teamId: string,
+  payload: unknown,
+  db: Database = getDb(),
+  now: Date = new Date(),
+): Promise<{ id: string; invitedEmail: string; expiresAt: Date }> => {
+  const { invitedIdentifier } = parseTeamInviteCreateInput(payload);
+
+  const team = await loadTeamById(teamId, db);
+  if (!team) throw new TeamError("team_not_found", "Team not found");
+  assertCaptain(team, userId);
+  if (team.status === "submitted") {
+    return inviteToRegisteredTeam(userId, team, invitedIdentifier, db, now);
+  }
+  assertTeamForming(team);
+
+  const competition = assertCompetitionTeamPlayable(
+    await loadCompetitionForTeams(team.competitionId, db),
+    now,
+  );
+
+  const recipient = await resolveTeamInviteRecipient(invitedIdentifier, db);
+
+  // Rule 25: the seat count and the insert run under the participation lock that registering the
+  // team also takes, so an invite cannot land on a team that registered a moment before.
+  const { invitation, rawToken } = await db.transaction(async (tx) => {
+    await acquireCompetitionParticipationLock(tx, team.competitionId);
+    await assertTeamStillForming(tx, team.id);
+    await assertTeamHasRoomForInvite(tx, team.id, competition.maxTeamSize);
+    await assertInviteeNotOnTeamOrInvited(tx, team.id, recipient.invitedEmail);
+    return insertTeamInvitation(tx, {
+      teamId: team.id,
+      invitedByUserId: userId,
+      recipient,
+      expiresAt: buildInvitationExpiresAt(now),
+    });
+  });
+
+  await dispatchTeamInvitation(team.id, invitation.id, rawToken);
 
   return invitation;
 };
@@ -583,6 +711,27 @@ export const cancelTeamInvitation = async (
     .where(eq(teamInvitations.id, invitationId));
 };
 
+// An accept of the same invite may land first, so the cancel lands only on an invite still open.
+const cancelInvitationIfStillOpen = async (db: DbOrTx, invitationId: string): Promise<void> => {
+  const cancelled = await db
+    .update(teamInvitations)
+    .set({ status: "cancelled" })
+    .where(
+      and(
+        eq(teamInvitations.id, invitationId),
+        inArray(teamInvitations.status, ["pending", "pending_claim"]),
+      ),
+    )
+    .returning({ id: teamInvitations.id });
+
+  if (cancelled.length === 0) {
+    throw new TeamError(
+      "team_invite_not_actionable",
+      "Invitation is no longer open and cannot be cancelled",
+    );
+  }
+};
+
 // Captain cancels a pending invitation by tokenHash (the value stored in the DB). This is the
 // token-keyed variant. Recipient accept/decline moved in-app (session-id matched);
 // this captain-side cancel is unchanged.
@@ -591,11 +740,17 @@ export const cancelTeamInvitationByToken = async (
   teamId: string,
   tokenHash: string,
   db: Database = getDb(),
+  now: Date = new Date(),
 ): Promise<void> => {
   const team = await loadTeamById(teamId, db);
   if (!team) throw new TeamError("team_not_found", "Team not found");
   assertCaptain(team, userId);
-  assertTeamForming(team);
+  const cancelsOnRegisteredTeam = team.status === "submitted";
+  if (cancelsOnRegisteredTeam) {
+    await assertRegisteredFreeTeamOpen(db, team.id, now);
+  } else {
+    assertTeamForming(team);
+  }
 
   const [invitation] = await db
     .select({ id: teamInvitations.id, status: teamInvitations.status })
@@ -615,10 +770,246 @@ export const cancelTeamInvitationByToken = async (
     );
   }
 
-  await db
+  await cancelInvitationIfStillOpen(db, invitation.id);
+};
+
+type InvitationForAccept = {
+  id: string;
+  teamId: string;
+  status: TeamInvitationStatus;
+  targetUserId: string | null;
+  expiresAt: Date;
+  competitionId: string;
+  teamStatus: TeamStatus;
+  feeAmount: number | null;
+  registrationEndAt: Date | null;
+};
+
+const loadInvitationForAccept = async (
+  tx: DbOrTx,
+  invitationId: string,
+): Promise<InvitationForAccept | null> => {
+  const [row] = await tx
+    .select({
+      id: teamInvitations.id,
+      teamId: teamInvitations.teamId,
+      status: teamInvitations.status,
+      targetUserId: teamInvitations.targetUserId,
+      expiresAt: teamInvitations.expiresAt,
+      competitionId: teams.competitionId,
+      teamStatus: teams.status,
+      feeAmount: competitions.feeAmount,
+      registrationEndAt: competitions.registrationEndAt,
+    })
+    .from(teamInvitations)
+    .innerJoin(teams, eq(teams.id, teamInvitations.teamId))
+    .innerJoin(competitions, eq(competitions.id, teams.competitionId))
+    .where(eq(teamInvitations.id, invitationId))
+    .limit(1);
+
+  return row ?? null;
+};
+
+// An invite of a registered free team expires when registration closes, so its refusal says so.
+const expiredInvitationError = (invitation: InvitationForAccept, now: Date): TeamError => {
+  const expiredWithTheRegistrationClose =
+    invitation.teamStatus === "submitted" &&
+    !isPaidCompetition(invitation.feeAmount) &&
+    invitation.registrationEndAt !== null &&
+    invitation.registrationEndAt.getTime() <= now.getTime();
+
+  if (expiredWithTheRegistrationClose) {
+    return new TeamError(
+      "team_competition_registration_closed",
+      "Registration window for this competition has closed",
+    );
+  }
+  return new TeamError("team_invite_not_actionable", "Invitation has expired");
+};
+
+const assertAccountCanJoinTeam = async (
+  tx: DbOrTx,
+  userId: string,
+  competitionId: string,
+): Promise<void> => {
+  // Candidate-verification gate (team membership is candidate-scoped). The accepting account IS
+  // the resolved target; it must hold candidate verification. Non-leaking 403.
+  const [sessionUser] = await tx
+    .select({ id: users.id, candidateVerifiedAt: users.candidateVerifiedAt })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+
+  if (!sessionUser || sessionUser.candidateVerifiedAt === null) {
+    throw new TeamError(
+      "team_invite_candidate_required",
+      "Accepting this invitation requires a candidate-verified account",
+    );
+  }
+
+  const [existingForCompetition] = await tx
+    .select({ teamId: teamMemberships.teamId })
+    .from(teamMemberships)
+    .innerJoin(teams, eq(teams.id, teamMemberships.teamId))
+    .where(
+      and(
+        eq(teamMemberships.userId, userId),
+        eq(teams.competitionId, competitionId),
+        eq(teamMemberships.status, "active"),
+      ),
+    )
+    .limit(1);
+
+  if (existingForCompetition) {
+    throw new TeamError(
+      "team_candidate_already_member",
+      "You are already on a team for this competition",
+    );
+  }
+};
+
+const insertActiveMembership = async (
+  tx: DbOrTx,
+  teamId: string,
+  userId: string,
+  now: Date,
+): Promise<void> => {
+  try {
+    await tx.insert(teamMemberships).values({
+      teamId,
+      userId,
+      role: "member",
+      status: "active",
+      joinedAt: now,
+    });
+  } catch (error) {
+    if (pgErrorCode(error) === "23505") {
+      throw new TeamError("team_candidate_already_member", "You are already on this team");
+    }
+    throw error;
+  }
+};
+
+type AcceptedInvitation = { teamId: string; competitionId: string; registrationId: string | null };
+
+// The invite's status was read before the lock, so an invite cancelled since then refuses the accept.
+const markInvitationAcceptedIfPending = async (
+  tx: DbOrTx,
+  invitationId: string,
+  now: Date,
+): Promise<void> => {
+  const accepted = await tx
     .update(teamInvitations)
-    .set({ status: "cancelled" })
-    .where(eq(teamInvitations.id, invitation.id));
+    .set({ status: "accepted", acceptedAt: now })
+    .where(and(eq(teamInvitations.id, invitationId), eq(teamInvitations.status, "pending")))
+    .returning({ id: teamInvitations.id });
+
+  if (accepted.length === 0) {
+    throw new TeamError(
+      "team_invite_not_actionable",
+      "Invitation is no longer pending and cannot be accepted",
+    );
+  }
+};
+
+const joinFormingTeam = async (
+  tx: DbOrTx,
+  invitationId: string,
+  team: { id: string; competitionId: string },
+  userId: string,
+  now: Date,
+): Promise<AcceptedInvitation> => {
+  await assertAccountCanJoinTeam(tx, userId, team.competitionId);
+  await insertActiveMembership(tx, team.id, userId, now);
+  await markInvitationAcceptedIfPending(tx, invitationId, now);
+
+  logger.info("team_invitation.accepted", { teamId: team.id });
+
+  return { teamId: team.id, competitionId: team.competitionId, registrationId: null };
+};
+
+// Counted under the participation lock, so two accepts at once cannot both take the last seat.
+const assertRegisteredTeamHasSeat = async (
+  tx: DbOrTx,
+  teamId: string,
+  maxTeamSize: number | null,
+): Promise<void> => {
+  if (maxTeamSize === null) return;
+
+  const [activeCountRow] = await tx
+    .select({ count: sql<number>`count(*)::int` })
+    .from(teamMemberships)
+    .where(and(eq(teamMemberships.teamId, teamId), eq(teamMemberships.status, "active")));
+
+  if ((activeCountRow?.count ?? 0) >= maxTeamSize) {
+    throw new TeamError("team_at_capacity", `Team has reached the maximum size of ${maxTeamSize}`);
+  }
+};
+
+const insertTeamMemberRegistration = async (
+  tx: DbOrTx,
+  team: { id: string; competitionId: string },
+  userId: string,
+  now: Date,
+): Promise<string> => {
+  try {
+    const [registration] = await tx
+      .insert(competitionRegistrations)
+      .values({
+        competitionId: team.competitionId,
+        studentId: userId,
+        teamId: team.id,
+        registrationType: "team",
+        status: "confirmed",
+        registeredAt: now,
+      })
+      .returning({ id: competitionRegistrations.id });
+    return registration!.id;
+  } catch (error) {
+    if (pgErrorCode(error) === "23505") {
+      throw new TeamError(
+        "team_member_already_registered",
+        "You are already registered for this competition",
+      );
+    }
+    throw error;
+  }
+};
+
+// Compare-and-set on the team's status: a team that left submitted refuses the join.
+const touchSubmittedTeam = async (tx: DbOrTx, teamId: string, now: Date): Promise<void> => {
+  const touched = await tx
+    .update(teams)
+    .set({ updatedAt: now })
+    .where(and(eq(teams.id, teamId), eq(teams.status, "submitted")))
+    .returning({ id: teams.id });
+
+  if (touched.length === 0) {
+    throw new TeamError(
+      "team_state_conflict",
+      "Team state changed during acceptance. Reload and retry.",
+    );
+  }
+};
+
+const joinRegisteredTeam = async (
+  tx: DbOrTx,
+  invitationId: string,
+  team: { id: string; competitionId: string },
+  userId: string,
+  now: Date,
+): Promise<AcceptedInvitation> => {
+  const limits = await assertRegisteredFreeTeamOpen(tx, team.id, now);
+  await assertAccountCanJoinTeam(tx, userId, team.competitionId);
+  await assertRegisteredTeamHasSeat(tx, team.id, limits.maxTeamSize);
+  await insertActiveMembership(tx, team.id, userId, now);
+  const registrationId = await insertTeamMemberRegistration(tx, team, userId, now);
+  await markInvitationAcceptedIfPending(tx, invitationId, now);
+  await touchSubmittedTeam(tx, team.id, now);
+
+  logger.info("team_invitation.accepted_into_registered_team", { teamId: team.id });
+
+  return { teamId: team.id, competitionId: team.competitionId, registrationId };
 };
 
 // In-app, session-id-matched acceptance. The invitation is addressed by id (from the
@@ -626,18 +1017,16 @@ export const cancelTeamInvitationByToken = async (
 // invite has a null target and is therefore unacceptable until claim-at-signup attaches it. A
 // non-leaking 404 collapses "does not exist" and "addressed to a different user". Team membership is
 // candidate-scoped, so the candidate-verification gate fires here at the accept mutation.
+// A registered free team takes the teammate with their own confirmed registration until
+// registration closes.
 export const acceptTeamInvitationForUser = async (
   invitationId: string,
   sessionUserId: string,
   db: Database = getDb(),
   now: Date = new Date(),
 ): Promise<{ teamId: string }> => {
-  return await db.transaction(async (tx) => {
-    const [invitation] = await tx
-      .select()
-      .from(teamInvitations)
-      .where(eq(teamInvitations.id, invitationId))
-      .limit(1);
+  const accepted = await db.transaction(async (tx) => {
+    const invitation = await loadInvitationForAccept(tx, invitationId);
 
     if (!invitation || invitation.targetUserId !== sessionUserId) {
       throw new TeamError("team_invite_not_found", "Team invitation not found");
@@ -655,8 +1044,12 @@ export const acceptTeamInvitationForUser = async (
         .update(teamInvitations)
         .set({ status: "cancelled" })
         .where(eq(teamInvitations.id, invitation.id));
-      throw new TeamError("team_invite_not_actionable", "Invitation has expired");
+      throw expiredInvitationError(invitation, now);
     }
+
+    // Rule 25: taken before the team is read, so a team registering at this moment is seen either
+    // before or after, never half way.
+    await acquireCompetitionParticipationLock(tx, invitation.competitionId);
 
     const [team] = await tx
       .select({
@@ -672,69 +1065,33 @@ export const acceptTeamInvitationForUser = async (
       throw new TeamError("team_not_found", "Team no longer exists");
     }
 
+    if (team.status === "submitted") {
+      return joinRegisteredTeam(tx, invitation.id, team, sessionUserId, now);
+    }
+
     if (team.status !== "forming") {
       throw new TeamError("team_not_forming", "Team is no longer accepting members");
     }
 
-    // Candidate-verification gate (team membership is candidate-scoped). The accepting account IS
-    // the resolved target; it must hold candidate verification. Non-leaking 403.
-    const [sessionUser] = await tx
-      .select({ id: users.id, candidateVerifiedAt: users.candidateVerifiedAt })
-      .from(users)
-      .where(eq(users.id, sessionUserId))
-      .limit(1);
-
-    if (!sessionUser || sessionUser.candidateVerifiedAt === null) {
-      throw new TeamError(
-        "team_invite_candidate_required",
-        "Accepting this invitation requires a candidate-verified account",
-      );
-    }
-
-    const [existingForCompetition] = await tx
-      .select({ teamId: teamMemberships.teamId })
-      .from(teamMemberships)
-      .innerJoin(teams, eq(teams.id, teamMemberships.teamId))
-      .where(
-        and(
-          eq(teamMemberships.userId, sessionUserId),
-          eq(teams.competitionId, team.competitionId),
-          eq(teamMemberships.status, "active"),
-        ),
-      )
-      .limit(1);
-
-    if (existingForCompetition) {
-      throw new TeamError(
-        "team_candidate_already_member",
-        "You are already on a team for this competition",
-      );
-    }
-
-    try {
-      await tx.insert(teamMemberships).values({
-        teamId: team.id,
-        userId: sessionUserId,
-        role: "member",
-        status: "active",
-        joinedAt: now,
-      });
-    } catch (error) {
-      if (pgErrorCode(error) === "23505") {
-        throw new TeamError("team_candidate_already_member", "You are already on this team");
-      }
-      throw error;
-    }
-
-    await tx
-      .update(teamInvitations)
-      .set({ status: "accepted", acceptedAt: now })
-      .where(eq(teamInvitations.id, invitation.id));
-
-    logger.info("team_invitation.accepted", { teamId: team.id });
-
-    return { teamId: team.id };
+    return joinFormingTeam(tx, invitation.id, team, sessionUserId, now);
   });
+
+  const { registrationId } = accepted;
+  if (registrationId !== null) {
+    enqueueRegistrationConfirmed({
+      registrationId,
+      studentId: sessionUserId,
+      competitionId: accepted.competitionId,
+      registrationType: "team",
+    }).catch((err: unknown) => {
+      logger.warn("registration.confirmed.enqueue_failed", {
+        registrationId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+  }
+
+  return { teamId: accepted.teamId };
 };
 
 // In-app decline, session-id matched. Same ownership/non-leak model as accept. Only a

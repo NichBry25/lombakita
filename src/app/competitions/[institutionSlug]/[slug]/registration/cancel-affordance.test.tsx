@@ -75,6 +75,9 @@ const renderTeam = (
         initialPendingInvitations={[]}
         registrationWithheld={false}
         cancellationClosedByPaymentProof={cancellationClosedByPaymentProof}
+        isFreeCompetition={false}
+        openInvitationCount={0}
+        registrationClosesAt={null}
       />
     </UIPrimitivesProvider>,
   );
@@ -160,6 +163,9 @@ const renderTeamEntry = (registrationWithheld: boolean) =>
         initialPendingInvitations={[]}
         registrationWithheld={registrationWithheld}
         cancellationClosedByPaymentProof={false}
+        isFreeCompetition={false}
+        openInvitationCount={0}
+        registrationClosesAt={null}
       />
     </UIPrimitivesProvider>,
   );

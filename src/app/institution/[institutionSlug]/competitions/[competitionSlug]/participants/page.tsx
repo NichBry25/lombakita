@@ -28,6 +28,7 @@ import {
 } from "@/lib/registration-documents/request-status";
 import { BatchDocumentRequestForm, type BatchTarget } from "./batch-document-request-form";
 import { REVIEW_STATUS_LABELS } from "./review-status-labels";
+import { ParticipantTeamMembers } from "./participant-team-members";
 import { ButtonLink, EmptyState, Icon, PageHeader, Pagination } from "@/components/ui";
 import { LocalDate } from "@/components/ui/local-date";
 import { formatDisplayToken } from "@/lib/text/capitalize";
@@ -271,19 +272,7 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
                     {p.registrationType === "individual" && p.candidate ? (
                       (p.candidate.displayName ?? p.candidate.username)
                     ) : p.team ? (
-                      <details className="participant-team-details">
-                        <summary>
-                          {p.team.teamName} ({p.team.activeMemberCount} anggota)
-                        </summary>
-                        <ul>
-                          {p.team.members.map((m) => (
-                            <li key={m.userId}>
-                              {m.displayName ?? m.username}
-                              {m.isCaptain ? " (Kapten)" : ""}
-                            </li>
-                          ))}
-                        </ul>
-                      </details>
+                      <ParticipantTeamMembers team={p.team} />
                     ) : (
                       "—"
                     )}

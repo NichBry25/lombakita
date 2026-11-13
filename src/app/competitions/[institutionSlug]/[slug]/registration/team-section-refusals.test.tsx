@@ -39,6 +39,9 @@ const renderTeam = (viewerId: string) =>
         initialPendingInvitations={[]}
         registrationWithheld={false}
         cancellationClosedByPaymentProof={false}
+        isFreeCompetition={false}
+        openInvitationCount={0}
+        registrationClosesAt={null}
       />
     </UIPrimitivesProvider>,
   );

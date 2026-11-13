@@ -60,13 +60,18 @@ type DbOptions = {
   txInsertError?: unknown;
   txUpdateReturning?: unknown[];
   txCompetitionReturning?: unknown[];
+  txMemberRows?: SelectResult;
 };
 
 const makeDb = (selectQueue: SelectResult[], options: DbOptions = {}) => {
   const select = buildSelect(selectQueue);
 
   const tx = {
-    select: buildSelect([options.txCompetitionReturning ?? [competition()]]),
+    select: buildSelect([
+      options.txCompetitionReturning ?? selectQueue[1] ?? [competition()],
+      options.txMemberRows ?? selectQueue[2] ?? [],
+      [{ count: 0 }],
+    ]),
     insert: vi.fn(() => {
       if (options.txInsertError) {
         return {
