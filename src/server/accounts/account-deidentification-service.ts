@@ -14,6 +14,7 @@ import {
   competitionSubmissions,
   competitions,
   financePaymentInstructionSnapshots,
+  institutionAuditLogs,
   institutionInvitations,
   institutionMemberships,
   institutionPaymentInstructions,
@@ -818,8 +819,8 @@ const runDeidentificationWrites = async (
   // still names them.
   const retainedKeys = await findReferencedPaymentInstructionKeys(tx);
 
-  // Read BEFORE the host sign-up rows are deleted and the memberships revoked below. A sign-up
-  // number is never checked, so it is matched only on institutions the account helped run.
+  // Read BEFORE the host sign-up rows are deleted below. A sign-up number is never checked, so it
+  // is matched only on institutions the account holds or once held as owner or staff.
   const ownSignupNumbers = await tx
     .select({ mobileNumber: recruiterVerificationSubmissions.mobileNumber })
     .from(recruiterVerificationSubmissions)
@@ -828,6 +829,23 @@ const runDeidentificationWrites = async (
     const digits = toDialDigits(row.mobileNumber);
     return digits === null ? [] : [digits];
   });
+  // A demotion or a re-invitation overwrites membership_role, so the institution audit log is
+  // what still shows that a membership was once an owner's or a staff member's.
+  const onceStaffMembershipIds = tx
+    .select({ membershipId: institutionAuditLogs.targetMembershipId })
+    .from(institutionAuditLogs)
+    .where(
+      or(
+        and(
+          eq(institutionAuditLogs.action, "member.role_changed"),
+          sql`${institutionAuditLogs.metadata} ->> 'from' in ('institution_owner', 'institution_staff')`,
+        ),
+        and(
+          eq(institutionAuditLogs.action, "member.removed"),
+          sql`${institutionAuditLogs.metadata} ->> 'removedRole' in ('institution_owner', 'institution_staff')`,
+        ),
+      ),
+    );
   const ownStaffInstitutionIds = (
     await tx
       .select({ institutionId: institutionMemberships.institutionId })
@@ -835,10 +853,13 @@ const runDeidentificationWrites = async (
       .where(
         and(
           eq(institutionMemberships.userId, accountId),
-          inArray(institutionMemberships.membershipRole, [
-            "institution_owner",
-            "institution_staff",
-          ]),
+          or(
+            inArray(institutionMemberships.membershipRole, [
+              "institution_owner",
+              "institution_staff",
+            ]),
+            inArray(institutionMemberships.id, onceStaffMembershipIds),
+          ),
         ),
       )
   ).map((row) => row.institutionId);

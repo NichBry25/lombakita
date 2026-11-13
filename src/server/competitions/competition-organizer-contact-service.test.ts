@@ -91,6 +91,13 @@ describe("parseOrganizerContactInput", () => {
     });
   });
 
+  it("refuses a number of fewer than 8 digits", () => {
+    const refusal = refusalOf({ kind: "phone", value: "0012 3456" });
+    expect(refusal.code).toBe("competition_organizer_contact_invalid");
+    expect(refusal.httpStatus).toBe(400);
+    expect(refusal.message).toBe("value must have 8 to 15 digits");
+  });
+
   it("refuses a number of more than 15 digits", () => {
     const refusal = refusalOf({ kind: "phone", value: "0812345678901234567" });
     expect(refusal.code).toBe("competition_organizer_contact_invalid");

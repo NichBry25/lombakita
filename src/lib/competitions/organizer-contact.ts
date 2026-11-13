@@ -26,19 +26,20 @@ export const toOrganizerContact = (
   return { kind, value };
 };
 
-// Indonesian numbers arrive as 0812..., 62812..., +62 812..., +62 0812..., 0062 812... and the bare
-// 812... that host sign-up accepts; every form becomes 62 followed by the national number, so the
-// same number is stored, linked and matched at account deletion the same way. A number written
-// with + or 00 and another country code keeps its digits.
+// Indonesian numbers arrive as 0812..., 62812..., +62 812..., +62 0812..., +0812..., 0062 812...,
+// 000812... and the bare 812... that host sign-up accepts. Every form becomes 62 followed by the
+// national number, so the same number is stored, linked and matched at account deletion the
+// same way. No country code starts with 0, so a 0 written after + or 00 is still the trunk
+// prefix. A number written with + or 00 and another country code keeps its digits.
 export const toDialDigits = (phone: string): string | null => {
   const trimmed = phone.trim();
   const rawDigits = trimmed.replace(/\D/g, "");
   const writtenInternationally = trimmed.startsWith("+") || rawDigits.startsWith("00");
   const digits = rawDigits.startsWith("00") ? rawDigits.slice(2) : rawDigits;
   if (digits === "") return null;
+  if (digits.startsWith("0")) return `62${digits.slice(1)}`;
   if (digits.startsWith("620")) return `62${digits.slice(3)}`;
   if (writtenInternationally || digits.startsWith("62")) return digits;
-  if (digits.startsWith("0")) return `62${digits.slice(1)}`;
   if (digits.startsWith("8")) return `62${digits}`;
   return null;
 };

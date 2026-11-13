@@ -44,6 +44,7 @@ import {
   financeFeeRules,
   financePaymentInstructionSnapshots,
   financePayments,
+  institutionAuditLogs,
   institutionInvitations,
   institutionMemberships,
   institutionPaymentInstructions,
@@ -109,6 +110,9 @@ vi.mock("@/server/storage/r2.client", () => ({
 }));
 
 import { deidentifyAccount, DeidentificationError } from "./account-deidentification-service";
+import type { Database } from "@/server/db/client";
+import { setCompetitionOrganizerContactForEditor } from "@/server/competitions/competition-organizer-contact-service";
+import { changeMemberRole } from "@/server/institution-members/member-service";
 import { OperatorActorError } from "@/server/platform-ops/operator-actor";
 
 const client = TEST_DATABASE_URL ? postgres(TEST_DATABASE_URL, { max: 1 }) : null;
@@ -2052,6 +2056,128 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
           kind: "whatsapp",
           value: "628123456789",
         });
+      });
+    });
+
+    it("clears the account's own sign-up number on an institution it ran before a demotion", async () => {
+      await inRollback(async (tx) => {
+        const f = await buildFixture(tx);
+        const ran = await insertInstitutionWithCompetition(
+          tx,
+          f,
+          "demoted",
+          "whatsapp",
+          "628123456789",
+        );
+        const targetMembershipId = randomUUID();
+        await tx.insert(institutionMemberships).values([
+          {
+            id: randomUUID(),
+            institutionId: ran.institutionId,
+            userId: f.bystander,
+            membershipRole: "institution_owner",
+            status: "active",
+          },
+          {
+            id: targetMembershipId,
+            institutionId: ran.institutionId,
+            userId: f.target,
+            membershipRole: "institution_staff",
+            status: "active",
+          },
+        ]);
+        await changeMemberRole(
+          f.bystander,
+          `deident-demoted-${f.suffix}`,
+          targetMembershipId,
+          "institution_member",
+          tx as unknown as Database,
+        );
+
+        await runDeletion(tx, f);
+
+        expect(await readContact(tx, ran.competitionId)).toEqual({ kind: null, value: null });
+      });
+    });
+
+    it("clears the account's own sign-up number on an institution it left as owner", async () => {
+      await inRollback(async (tx) => {
+        const f = await buildFixture(tx);
+        const left = await insertInstitutionWithCompetition(
+          tx,
+          f,
+          "left",
+          "whatsapp",
+          "628123456789",
+        );
+        const membershipId = randomUUID();
+        await tx.insert(institutionMemberships).values({
+          id: membershipId,
+          institutionId: left.institutionId,
+          userId: f.target,
+          membershipRole: "institution_member",
+          status: "revoked",
+        });
+        await tx.insert(institutionAuditLogs).values({
+          institutionId: left.institutionId,
+          action: "member.removed",
+          targetMembershipId: membershipId,
+          metadata: { removedRole: "institution_owner" },
+        });
+
+        await runDeletion(tx, f);
+
+        expect(await readContact(tx, left.competitionId)).toEqual({ kind: null, value: null });
+      });
+    });
+
+    it("clears the account's own sign-up number on an institution where its owner membership was revoked", async () => {
+      await inRollback(async (tx) => {
+        const f = await buildFixture(tx);
+        const revoked = await insertInstitutionWithCompetition(
+          tx,
+          f,
+          "revoked-owner",
+          "whatsapp",
+          "628123456789",
+        );
+        await tx.insert(institutionMemberships).values({
+          id: randomUUID(),
+          institutionId: revoked.institutionId,
+          userId: f.target,
+          membershipRole: "institution_owner",
+          status: "revoked",
+        });
+
+        await runDeletion(tx, f);
+
+        expect(await readContact(tx, revoked.competitionId)).toEqual({ kind: null, value: null });
+      });
+    });
+
+    it("clears a contact saved through the editor from a sign-up number written with +0", async () => {
+      await inRollback(async (tx) => {
+        const f = await buildFixture(tx);
+        await tx.insert(recruiterVerificationSubmissions).values({
+          userId: f.target,
+          fullName: f.targetName,
+          mobileNumber: "+0812 3456 7890",
+          status: "rejected",
+        });
+        await setCompetitionOrganizerContactForEditor(
+          f.target,
+          f.competition,
+          { kind: "phone", value: "0812 3456 7890" },
+          tx as unknown as Database,
+        );
+        expect(await readContact(tx, f.competition)).toEqual({
+          kind: "phone",
+          value: "6281234567890",
+        });
+
+        await runDeletion(tx, f);
+
+        expect(await readContact(tx, f.competition)).toEqual({ kind: null, value: null });
       });
     });
 
