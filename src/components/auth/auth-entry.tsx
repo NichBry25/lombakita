@@ -264,8 +264,7 @@ export const AuthEntry = ({
       return;
     }
 
-    setSignupDetails(null);
-    setCompletingUnverified(false);
+    clearSignupForm();
     setIsSubmitting(true);
 
     try {
@@ -487,6 +486,7 @@ export const AuthEntry = ({
           message: verificationFailureMessage(response.status, errorCode),
         });
         if (errorCode === "email_exists") {
+          clearSignupForm();
           setStage("entry");
         }
         return;
@@ -501,6 +501,7 @@ export const AuthEntry = ({
           type: "success",
           message: "Email berhasil diverifikasi. Silakan masuk dengan password Anda.",
         });
+        clearSignupForm();
         setStage("entry");
       }
     } catch {
@@ -611,18 +612,32 @@ export const AuthEntry = ({
     void registerAccount("candidate", body);
   };
 
-  const backToChoose = () => {
+  // A return to the email step may hand the tab to another person, so no sign-up detail stays.
+  const clearSignupForm = () => {
     setSignupDetails(null);
     setCompletingUnverified(false);
+    setName("");
+    setConfirmPassword("");
+    setFullName("");
+    setPhoneNumber("");
+    setOccupation("");
+    setDateOfBirth("");
+    setRecruiterMobile("");
+    setRecruiterCorporateEmail("");
+    setVerificationCode("");
+  };
+
+  const backToChoose = () => {
+    clearSignupForm();
+    setPassword("");
     setMethod("choose");
     setStage("entry");
   };
 
   const backToEntry = () => {
-    setSignupDetails(null);
-    setCompletingUnverified(false);
+    clearSignupForm();
+    setPassword("");
     setStage("entry");
-    setConfirmPassword("");
   };
 
   const backToSignup = () => {

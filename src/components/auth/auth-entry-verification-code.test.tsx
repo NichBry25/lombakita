@@ -270,9 +270,48 @@ describe("verifying an email address with a code on the sign-in page", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Kembali" }));
     answer("/api/v1/auth/identify", 200, { state: "unverified" });
+    typeInto("Password", PASSWORD);
     fireEvent.click(await screen.findByRole("button", { name: "Lanjut" }));
 
     expect(await screen.findByRole("button", { name: "Lengkapi pendaftaran" })).toBeTruthy();
+  });
+
+  it("empties the sign-up form when the person goes back to the email step", async () => {
+    answer("/api/v1/auth/register", 200, { email: ADDRESS });
+    await signUpAsRecruiter();
+    await screen.findByLabelText("Kode verifikasi");
+
+    fireEvent.click(screen.getByRole("button", { name: "Kembali" }));
+
+    const emailField = (await screen.findByLabelText("Email")) as HTMLInputElement;
+    expect(emailField.value).toBe(ADDRESS);
+    const passwordField = screen.getByLabelText("Password") as HTMLInputElement;
+    expect(passwordField.value).toBe("");
+
+    answer("/api/v1/auth/identify", 200, { state: "unverified" });
+    typeInto("Password", PASSWORD);
+    fireEvent.click(screen.getByRole("button", { name: "Lanjut" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Lengkapi pendaftaran" }));
+
+    const nameField = (await screen.findByLabelText("Nama lengkap")) as HTMLInputElement;
+    expect(nameField.value).toBe("");
+    const confirmPasswordField = screen.getByLabelText("Konfirmasi password") as HTMLInputElement;
+    expect(confirmPasswordField.value).toBe("");
+
+    typeInto("Nama lengkap", "Rina Owner");
+    typeInto("Konfirmasi password", PASSWORD);
+    fireEvent.click(screen.getByRole("button", { name: /Daftar sebagai kandidat/ }));
+
+    const phoneNumberField = (await screen.findByLabelText("Nomor telepon")) as HTMLInputElement;
+    const candidateNameField = screen.getByLabelText("Nama lengkap") as HTMLInputElement;
+    expect(candidateNameField.value).toBe("Rina Owner");
+    expect(phoneNumberField.value).toBe("");
+
+    fireEvent.click(screen.getByRole("button", { name: "Kembali" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Daftar sebagai rekruter/ }));
+
+    const mobileNumberField = (await screen.findByLabelText("Nomor ponsel")) as HTMLInputElement;
+    expect(mobileNumberField.value).toBe("");
   });
 
   it("says to try again in 24 hours after too many wrong codes in a day", async () => {
