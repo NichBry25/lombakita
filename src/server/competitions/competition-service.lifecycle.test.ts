@@ -236,7 +236,7 @@ describe("updateCompetitionDraft — published edit (F6/F17)", () => {
       const setSpy = vi.fn();
       const updateSpy = vi.fn(() => updateChain([updated], setSpy));
       const editDb: Record<string, unknown> = {
-        select: publishedEditSelect([]),
+        select: makeSelectQueue([[FREE_PRICING], [], [FREE_PRICING]]),
         update: updateSpy,
       };
       editDb.transaction = (callback: (transaction: unknown) => unknown) => callback(editDb);
@@ -562,7 +562,10 @@ describe("updateCompetitionDraft — the invites of registered teams follow a mo
     const competition = baseCompetition();
     const patch = closeMovedBy25Days();
     const updated = { ...competition, registrationEndAt: patch.registrationEndAt as Date };
-    const tx = { update: () => updateChain([updated]) };
+    const tx = {
+      update: () => updateChain([updated]),
+      select: makeSelectQueue([[FREE_PRICING]]),
+    };
     const transaction = vi.fn((callback: (transaction: unknown) => unknown) => callback(tx));
     const db = { select: publishedEditSelect([]), transaction } as unknown as Database;
     assertCompetitionAccess.mockResolvedValue({ competition, membershipRole: "institution_owner" });
@@ -575,6 +578,7 @@ describe("updateCompetitionDraft — the invites of registered teams follow a mo
       tx,
       "comp_1",
       patch.registrationEndAt,
+      expect.any(Date),
     );
     expect(acquireCompetitionParticipationLock).toHaveBeenCalledWith(tx, "comp_1");
   });
@@ -583,15 +587,50 @@ describe("updateCompetitionDraft — the invites of registered teams follow a mo
     const competition = baseCompetition();
     const patch = closeMovedBy25Days();
     const updated = { ...competition, registrationEndAt: patch.registrationEndAt as Date };
+    const tx = {
+      update: () => updateChain([updated]),
+      select: makeSelectQueue([[PAID_PRICING]]),
+    };
+    const transaction = vi.fn((callback: (transaction: unknown) => unknown) => callback(tx));
     const db = {
       select: publishedEditSelect([], PAID_PRICING),
       update: () => updateChain([updated]),
+      transaction,
     } as unknown as Database;
     assertCompetitionAccess.mockResolvedValue({ competition, membershipRole: "institution_owner" });
 
     await expect(updateCompetitionDraft("u_1", "comp_1", patch, db)).resolves.toEqual(updated);
 
     expect(moveRegisteredTeamInvitationsToClose).not.toHaveBeenCalled();
+    expect(transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it("moves the open invites when the fee read under the lock is free, though the fee read before it was paid", async () => {
+    const competition = baseCompetition();
+    const patch = closeMovedBy25Days();
+    const updated = { ...competition, registrationEndAt: patch.registrationEndAt as Date };
+    const tx = {
+      update: () => updateChain([updated]),
+      select: makeSelectQueue([[FREE_PRICING]]),
+    };
+    const transaction = vi.fn((callback: (transaction: unknown) => unknown) => callback(tx));
+    const db = {
+      select: publishedEditSelect([], PAID_PRICING),
+      update: () => updateChain([updated]),
+      transaction,
+    } as unknown as Database;
+    assertCompetitionAccess.mockResolvedValue({ competition, membershipRole: "institution_owner" });
+
+    await expect(updateCompetitionDraft("u_1", "comp_1", patch, db)).resolves.toEqual(updated);
+
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(moveRegisteredTeamInvitationsToClose).toHaveBeenCalledTimes(1);
+    expect(moveRegisteredTeamInvitationsToClose).toHaveBeenCalledWith(
+      tx,
+      "comp_1",
+      patch.registrationEndAt,
+      expect.any(Date),
+    );
   });
 
   it("does not touch team invites when an edit keeps the close", async () => {

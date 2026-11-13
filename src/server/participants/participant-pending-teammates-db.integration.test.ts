@@ -2,7 +2,7 @@
 
 import { randomUUID } from "node:crypto";
 import { afterAll, describe, expect, it } from "vitest";
-import { TransactionRollbackError } from "drizzle-orm";
+import { TransactionRollbackError, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "@/server/db/schema";
@@ -276,6 +276,33 @@ describe.skipIf(skipWithoutDatabase)(
           invitedEmail: `sari_${uniqueSuffix()}@example.test`,
           expiresAt: OPEN_UNTIL(),
         });
+
+        const result = await listFor(tx, institutionId, competitionId);
+
+        expect(result.participants).toHaveLength(1);
+        expect(result.participants[0]!.team!.pendingTeammates).toEqual([]);
+      });
+    });
+
+    it("shows no pending teammate on a deleted competition", async () => {
+      await inRollback(async (tx) => {
+        const { institutionId, competitionId } = await seedCompetition(tx);
+        const { teamId, captain } = await seedTeamOfTwo(tx, {
+          competitionId,
+          teamStatus: "submitted",
+          registrationStatus: "confirmed",
+        });
+        await seedInvitation(tx, {
+          teamId,
+          invitedByUserId: captain.id,
+          status: "pending_claim",
+          invitedEmail: `sari_${uniqueSuffix()}@example.test`,
+          expiresAt: OPEN_UNTIL(),
+        });
+        await tx
+          .update(competitions)
+          .set({ deletedAt: new Date() })
+          .where(eq(competitions.id, competitionId));
 
         const result = await listFor(tx, institutionId, competitionId);
 

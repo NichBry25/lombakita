@@ -13,6 +13,7 @@ import {
   teams,
   userProfiles,
   users,
+  type CompetitionRegistrationReviewStatus,
   type TeamInvitationStatus,
   type TeamStatus,
 } from "@/server/db/schema";
@@ -732,9 +733,8 @@ const cancelInvitationIfStillOpen = async (db: DbOrTx, invitationId: string): Pr
   }
 };
 
-// Captain cancels a pending invitation by tokenHash (the value stored in the DB). This is the
-// token-keyed variant. Recipient accept/decline moved in-app (session-id matched);
-// this captain-side cancel is unchanged.
+// Captain cancels a pending or pending_claim invitation by its tokenHash (the value stored in the
+// DB), on a forming team, or on a registered free team until registration closes.
 export const cancelTeamInvitationByToken = async (
   userId: string,
   teamId: string,
@@ -946,10 +946,43 @@ const assertRegisteredTeamHasSeat = async (
   }
 };
 
+type TeamReview = {
+  internalReviewStatus: CompetitionRegistrationReviewStatus;
+  internalNotes: string | null;
+};
+
+// The organiser reviews a team as one, so a teammate who joins later takes the team's review.
+const loadTeamReview = async (tx: DbOrTx, teamId: string): Promise<TeamReview> => {
+  const [row] = await tx
+    .select({
+      internalReviewStatus: competitionRegistrations.internalReviewStatus,
+      internalNotes: competitionRegistrations.internalNotes,
+    })
+    .from(competitionRegistrations)
+    .where(
+      and(
+        eq(competitionRegistrations.teamId, teamId),
+        eq(competitionRegistrations.status, "confirmed"),
+      ),
+    )
+    .orderBy(competitionRegistrations.registeredAt, competitionRegistrations.id)
+    .limit(1);
+
+  if (!row) {
+    throw new TeamError(
+      "team_state_conflict",
+      "Team state changed during acceptance. Reload and retry.",
+    );
+  }
+
+  return row;
+};
+
 const insertTeamMemberRegistration = async (
   tx: DbOrTx,
   team: { id: string; competitionId: string },
   userId: string,
+  review: TeamReview,
   now: Date,
 ): Promise<string> => {
   try {
@@ -961,6 +994,8 @@ const insertTeamMemberRegistration = async (
         teamId: team.id,
         registrationType: "team",
         status: "confirmed",
+        internalReviewStatus: review.internalReviewStatus,
+        internalNotes: review.internalNotes,
         registeredAt: now,
       })
       .returning({ id: competitionRegistrations.id });
@@ -1003,7 +1038,8 @@ const joinRegisteredTeam = async (
   await assertAccountCanJoinTeam(tx, userId, team.competitionId);
   await assertRegisteredTeamHasSeat(tx, team.id, limits.maxTeamSize);
   await insertActiveMembership(tx, team.id, userId, now);
-  const registrationId = await insertTeamMemberRegistration(tx, team, userId, now);
+  const teamReview = await loadTeamReview(tx, team.id);
+  const registrationId = await insertTeamMemberRegistration(tx, team, userId, teamReview, now);
   await markInvitationAcceptedIfPending(tx, invitationId, now);
   await touchSubmittedTeam(tx, team.id, now);
 
@@ -1094,6 +1130,23 @@ export const acceptTeamInvitationForUser = async (
   return { teamId: accepted.teamId };
 };
 
+// An accept of the same invite may land first, so the decline lands only on an invite that is
+// still pending.
+const markInvitationDeclinedIfPending = async (db: DbOrTx, invitationId: string): Promise<void> => {
+  const declined = await db
+    .update(teamInvitations)
+    .set({ status: "declined" })
+    .where(and(eq(teamInvitations.id, invitationId), eq(teamInvitations.status, "pending")))
+    .returning({ id: teamInvitations.id });
+
+  if (declined.length === 0) {
+    throw new TeamError(
+      "team_invite_not_actionable",
+      "Invitation is no longer pending and cannot be declined",
+    );
+  }
+};
+
 // In-app decline, session-id matched. Same ownership/non-leak model as accept. Only a
 // live `pending` invite addressed to the caller can be declined.
 export const declineTeamInvitationForUser = async (
@@ -1122,10 +1175,7 @@ export const declineTeamInvitationForUser = async (
     );
   }
 
-  await db
-    .update(teamInvitations)
-    .set({ status: "declined" })
-    .where(eq(teamInvitations.id, invitation.id));
+  await markInvitationDeclinedIfPending(db, invitation.id);
 
   logger.info("team_invitation.declined", { invitationId: invitation.id });
 };

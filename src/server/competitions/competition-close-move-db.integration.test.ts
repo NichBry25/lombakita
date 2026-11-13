@@ -338,4 +338,38 @@ describe.skipIf(skipWithoutDatabase)("moving a free competition's registration c
       expect(await expiryOf(tx, sariInvite)).toBe(oldClose.getTime());
     });
   });
+
+  it("leaves the open invites of another institution's competition alone when a close moves", async () => {
+    await inRollback(async (tx) => {
+      const first = await seedCompetition(tx);
+      const other = await seedCompetition(tx);
+      const firstTeam = await seedTeam(tx, {
+        competitionId: first.competitionId,
+        status: "submitted",
+      });
+      const otherTeam = await seedTeam(tx, {
+        competitionId: other.competitionId,
+        status: "submitted",
+      });
+      const firstInvite = await seedInvitation(tx, {
+        teamId: firstTeam.teamId,
+        invitedByUserId: firstTeam.captainId,
+        status: "pending",
+        expiresAt: first.oldClose,
+      });
+      const otherInvite = await seedInvitation(tx, {
+        teamId: otherTeam.teamId,
+        invitedByUserId: otherTeam.captainId,
+        status: "pending",
+        expiresAt: other.oldClose,
+      });
+      const newClose = new Date(Date.now() + 18 * DAY_MS);
+
+      await moveCloseTo(tx, first.ownerId, first.competitionId, newClose);
+
+      expect(await expiryOf(tx, firstInvite)).toBe(newClose.getTime());
+      expect(await expiryOf(tx, otherInvite)).toBe(other.oldClose.getTime());
+      expect(await closeOf(tx, other.competitionId)).toBe(other.oldClose.getTime());
+    });
+  });
 });

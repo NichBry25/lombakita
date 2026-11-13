@@ -18,23 +18,28 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import { TEST_DATABASE_URL, skipWithoutDatabase } from "@/server/testing/database-url";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "@/server/db/schema";
 import {
   competitionRegistrations,
   competitions,
+  institutionMemberships,
   institutions,
   teamInvitations,
   teamMemberships,
   teams,
   users,
 } from "@/server/db/schema";
+import { parseCompetitionPatchInput } from "@/server/competitions/competition-core";
+import { setCompetitionFee } from "@/server/competitions/competition-fee-service";
+import { updateCompetitionDraft } from "@/server/competitions/competition-service";
 import { hashToken } from "@/server/teams/team-core";
 import {
   acceptTeamInvitationForUser,
   cancelTeamInvitationByToken,
+  declineTeamInvitationForUser,
   inviteTeamMember,
 } from "@/server/teams/team-service";
 import { submitTeamRegistration } from "@/server/teams/team-registration-service";
@@ -42,6 +47,7 @@ import { submitTeamRegistration } from "@/server/teams/team-registration-service
 const enqueueSpies = vi.hoisted(() => ({
   enqueueTeamInvitationDispatch: vi.fn(),
   enqueueRegistrationConfirmed: vi.fn(),
+  enqueueCompetitionEdited: vi.fn(),
 }));
 
 vi.mock("@/server/async/enqueue", async (importOriginal) => {
@@ -260,7 +266,38 @@ const seedUser = async (label: string): Promise<SeededUser> => {
   return { id: row!.id, email, username };
 };
 
-const seedFreeCompetition = async (): Promise<string> => {
+const seedOwner = async (institutionId: string): Promise<SeededUser> => {
+  const username = `${MARKER}_owner_${nextSeedId()}`;
+  const email = `${username}@example.test`;
+  const [row] = await control.db
+    .insert(users)
+    .values({
+      email,
+      username,
+      emailVerified: new Date(),
+      role: "recruiter",
+      recruiterVerifiedAt: new Date(),
+      recruiterVerificationTier: "elevated",
+    })
+    .returning({ id: users.id });
+
+  await control.db.insert(institutionMemberships).values({
+    institutionId,
+    userId: row!.id,
+    membershipRole: "institution_owner",
+    status: "active",
+  });
+
+  return { id: row!.id, email, username };
+};
+
+type CompetitionSeed = { maxTeamSize: number; paid: boolean };
+
+const FREE_TEAM_OF_THREE: CompetitionSeed = { maxTeamSize: 3, paid: false };
+
+const seedCompetition = async (
+  seed: CompetitionSeed,
+): Promise<{ competitionId: string; institutionId: string }> => {
   const id = nextSeedId();
 
   const [institution] = await control.db
@@ -283,7 +320,7 @@ const seedFreeCompetition = async (): Promise<string> => {
       category: "hackathon",
       mode: "team",
       minTeamSize: 3,
-      maxTeamSize: 3,
+      maxTeamSize: seed.maxTeamSize,
       status: "published",
       publishedAt: new Date(),
       registrationStartAt: new Date(Date.now() - 7 * DAY_MS),
@@ -292,10 +329,12 @@ const seedFreeCompetition = async (): Promise<string> => {
       eventStartAt: new Date(Date.now() + 30 * DAY_MS),
       eventEndAt: new Date(Date.now() + 31 * DAY_MS),
       resultAnnouncementAt: new Date(Date.now() + 40 * DAY_MS),
+      feeAmount: seed.paid ? 150_000 : null,
+      feeCurrency: seed.paid ? "IDR" : null,
     })
     .returning({ id: competitions.id });
 
-  return competition!.id;
+  return { competitionId: competition!.id, institutionId: institution!.id };
 };
 
 /**
@@ -304,13 +343,15 @@ const seedFreeCompetition = async (): Promise<string> => {
  */
 const seedTeam = async (
   status: "forming" | "submitted",
+  seed: CompetitionSeed = FREE_TEAM_OF_THREE,
 ): Promise<{
   competitionId: string;
+  institutionId: string;
   teamId: string;
   captain: SeededUser;
   budi: SeededUser;
 }> => {
-  const competitionId = await seedFreeCompetition();
+  const { competitionId, institutionId } = await seedCompetition(seed);
   const captain = await seedUser("captain");
   const budi = await seedUser("budi");
 
@@ -341,7 +382,7 @@ const seedTeam = async (
     );
   }
 
-  return { competitionId, teamId: team!.id, captain, budi };
+  return { competitionId, institutionId, teamId: team!.id, captain, budi };
 };
 
 const seedOpenInvitation = async (
@@ -379,6 +420,38 @@ const invitationStatus = async (invitationId: string) => {
     .from(teamInvitations)
     .where(eq(teamInvitations.id, invitationId));
   return row!.status;
+};
+
+const invitationExpiryOf = async (invitationId: string): Promise<number> => {
+  const [row] = await control.db
+    .select({ expiresAt: teamInvitations.expiresAt })
+    .from(teamInvitations)
+    .where(eq(teamInvitations.id, invitationId));
+  return row!.expiresAt.getTime();
+};
+
+const openInvitationsOf = async (teamId: string) =>
+  control.db
+    .select({ invitedEmail: teamInvitations.invitedEmail, expiresAt: teamInvitations.expiresAt })
+    .from(teamInvitations)
+    .where(
+      and(
+        eq(teamInvitations.teamId, teamId),
+        inArray(teamInvitations.status, ["pending", "pending_claim"]),
+      ),
+    );
+
+const competitionCloseAndFeeOf = async (
+  competitionId: string,
+): Promise<{ registrationEndAt: Date; feeAmount: number | null }> => {
+  const [row] = await control.db
+    .select({
+      registrationEndAt: competitions.registrationEndAt,
+      feeAmount: competitions.feeAmount,
+    })
+    .from(competitions)
+    .where(eq(competitions.id, competitionId));
+  return { registrationEndAt: row!.registrationEndAt!, feeAmount: row!.feeAmount };
 };
 
 const teamStatus = async (teamId: string) => {
@@ -433,6 +506,9 @@ const purgeMarkedRows = async (): Promise<void> => {
     delete from teams where competition_id in
       (select id from competitions where slug like ${slug})`;
   await control.sql`delete from competitions where slug like ${slug}`;
+  await control.sql`
+    delete from institution_memberships where institution_id in
+      (select id from institutions where slug like ${slug})`;
   await control.sql`delete from institutions where slug like ${slug}`;
   await control.sql`delete from users where username like ${username}`;
 };
@@ -458,6 +534,9 @@ const countMarkedSurvivors = async (): Promise<Record<string, number>> => {
       join competitions c on c.id = t.competition_id where c.slug like ${slug}
     union all
     select 'competitions', count(*) from competitions where slug like ${slug}
+    union all
+    select 'institution_memberships', count(*) from institution_memberships m
+      join institutions i on i.id = m.institution_id where i.slug like ${slug}
     union all
     select 'institutions', count(*) from institutions where slug like ${slug}
     union all
@@ -495,6 +574,7 @@ afterEach(async () => {
   await purgeMarkedRows();
   enqueueSpies.enqueueTeamInvitationDispatch.mockReset();
   enqueueSpies.enqueueRegistrationConfirmed.mockReset();
+  enqueueSpies.enqueueCompetitionEdited.mockReset();
 });
 
 afterAll(async () => {
@@ -527,6 +607,7 @@ afterAll(async () => {
 const readyEnqueueSpies = () => {
   enqueueSpies.enqueueTeamInvitationDispatch.mockResolvedValue({});
   enqueueSpies.enqueueRegistrationConfirmed.mockResolvedValue({});
+  enqueueSpies.enqueueCompetitionEdited.mockResolvedValue({});
 };
 
 describe.skipIf(skipWithoutDatabase)("a registered free team under real contention", () => {
@@ -699,5 +780,126 @@ describe.skipIf(skipWithoutDatabase)("a registered free team under real contenti
     if (cancelled.ok) return;
     expect(errorCodeOf(cancelled.error)).toBe("team_invite_not_actionable");
     expect(await invitationStatus(sariInvite.id)).toBe("accepted");
+  });
+
+  it("a forming invite waiting on the lock while the captain registers the team is refused, and leaves no seven-day invite on the registered team", async () => {
+    readyEnqueueSpies();
+    const { competitionId, teamId, captain } = await seedTeam("forming", {
+      maxTeamSize: 4,
+      paid: false,
+    });
+    const sari = await seedUser("sari");
+    await seedOpenInvitation(teamId, captain.id, sari);
+    const dewi = await seedUser("dewi");
+    const [barrierPid, submitPid, invitePid] = await Promise.all([
+      backendPidOf(barrier),
+      backendPidOf(racerOne),
+      backendPidOf(racerTwo),
+    ]);
+
+    const [submitted, invited] = await withParticipationLockHeld(competitionId, async (track) => {
+      const submitRun = track(
+        submitTeamRegistration(captain.id, competitionId, teamId, racerOne.db as never),
+      );
+      await awaitBlockedBy(submitPid, barrierPid, "the team registration");
+
+      // The invite has read the team as forming before it queued.
+      const inviteRun = track(
+        inviteTeamMember(
+          captain.id,
+          teamId,
+          { invitedIdentifier: dewi.username },
+          racerTwo.db as never,
+        ),
+      );
+      await awaitBlockedBy(invitePid, barrierPid, "the invite");
+
+      return [submitRun, inviteRun] as const;
+    }).then(async ([submitRun, inviteRun]) => [await submitRun, await inviteRun] as const);
+
+    expect(submitted.ok, "the registration threw").toBe(true);
+    expect(invited.ok, "the invite landed on a team that had just registered").toBe(false);
+    if (invited.ok) return;
+    expect(errorCodeOf(invited.error)).toBe("team_state_conflict");
+    expect(await teamStatus(teamId)).toBe("submitted");
+    const open = await openInvitationsOf(teamId);
+    expect(open.map((invitation) => invitation.invitedEmail)).toEqual([sari.email]);
+    const { registrationEndAt } = await competitionCloseAndFeeOf(competitionId);
+    expect(open[0]!.expiresAt.getTime()).toBe(registrationEndAt.getTime());
+  });
+
+  it("a decline that waits behind an accept leaves the accepted invite in place", async () => {
+    readyEnqueueSpies();
+    const { teamId, captain } = await seedTeam("forming");
+    const sari = await seedUser("sari");
+    const sariInvite = await seedOpenInvitation(teamId, captain.id, sari);
+    const [barrierPid, declinePid] = await Promise.all([
+      backendPidOf(barrier),
+      backendPidOf(racerOne),
+    ]);
+
+    const [declined] = await withInvitationAcceptedOnRelease(sariInvite.id, async (track) => {
+      // The decline has read the invite as pending, and its update waits on the row.
+      const declineRun = track(
+        declineTeamInvitationForUser(sariInvite.id, sari.id, racerOne.db as never),
+      );
+      await awaitBlockedBy(declinePid, barrierPid, "the decline");
+
+      return [declineRun] as const;
+    }).then(async ([declineRun]) => [await declineRun] as const);
+
+    expect(declined.ok, "the decline overwrote an accepted invite").toBe(false);
+    if (declined.ok) return;
+    expect(errorCodeOf(declined.error)).toBe("team_invite_not_actionable");
+    expect(await invitationStatus(sariInvite.id)).toBe("accepted");
+  });
+
+  it("a close edit waiting behind a fee being cleared moves the open invites of the now free competition's registered teams", async () => {
+    readyEnqueueSpies();
+    const { competitionId, institutionId, teamId, captain } = await seedTeam("submitted", {
+      maxTeamSize: 3,
+      paid: true,
+    });
+    const owner = await seedOwner(institutionId);
+    const sari = await seedUser("sari");
+    const sariInvite = await seedOpenInvitation(teamId, captain.id, sari);
+    const newClose = new Date(Date.now() + 18 * DAY_MS);
+    const [barrierPid, feePid, editPid] = await Promise.all([
+      backendPidOf(barrier),
+      backendPidOf(racerOne),
+      backendPidOf(racerTwo),
+    ]);
+
+    const [feeChange, closeEdit] = await withParticipationLockHeld(competitionId, async (track) => {
+      const feeRun = track(
+        setCompetitionFee(
+          owner.id,
+          competitionId,
+          { feeAmount: null, feeCurrency: null },
+          racerOne.db as never,
+        ),
+      );
+      await awaitBlockedBy(feePid, barrierPid, "the fee change");
+
+      // The edit has read the fee as paid before it queued.
+      const editRun = track(
+        updateCompetitionDraft(
+          owner.id,
+          competitionId,
+          parseCompetitionPatchInput({ registrationEndAt: newClose.toISOString() }),
+          racerTwo.db as never,
+        ),
+      );
+      await awaitBlockedBy(editPid, barrierPid, "the close edit");
+
+      return [feeRun, editRun] as const;
+    }).then(async ([feeRun, editRun]) => [await feeRun, await editRun] as const);
+
+    expect(feeChange.ok, "the fee change threw").toBe(true);
+    expect(closeEdit.ok, "the close edit threw").toBe(true);
+    const competition = await competitionCloseAndFeeOf(competitionId);
+    expect(competition.feeAmount).toBeNull();
+    expect(competition.registrationEndAt.getTime()).toBe(newClose.getTime());
+    expect(await invitationExpiryOf(sariInvite.id)).toBe(newClose.getTime());
   });
 });

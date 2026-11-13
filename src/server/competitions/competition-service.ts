@@ -541,18 +541,14 @@ const validateChangedRegistrationEnd = (
   validateRegistrationEndInFuture(registrationEndAt);
 };
 
-// The new close of a free competition whose close this edit moves, or null. The open invites of
-// its registered teams expire at the close, so they move with it.
-const movedCloseOfFreeCompetition = (
+const closeMovedByPatch = (
   patch: CompetitionPatchInput,
   competition: CompetitionRow,
-  pricing: CompetitionPricing,
 ): Date | null => {
   if (!(patch.registrationEndAt instanceof Date)) return null;
   if (immutableCompetitionValuesEqual(patch.registrationEndAt, competition.registrationEndAt)) {
     return null;
   }
-  if (isPaidCompetition(pricing.feeAmount)) return null;
   return patch.registrationEndAt;
 };
 
@@ -593,7 +589,7 @@ const updatePublishedCompetition = async (
 
   validateChangedRegistrationEnd(patch.registrationEndAt, competition.registrationEndAt);
   const pricing = await loadCompetitionPricing(competition.id, db);
-  const movedFreeClose = movedCloseOfFreeCompetition(patch, competition, pricing);
+  const movedClose = closeMovedByPatch(patch, competition);
   const merged = mergeForClassification(competition, patch, pricing);
   validateCancellationPolicy(merged.allowCancellation, merged.cancellationCutoffDays);
   validateMinimumParticipation({
@@ -677,17 +673,23 @@ const updatePublishedCompetition = async (
     return competition;
   }
 
+  // The app clock, which every reader of an invite's expiry compares with.
+  const now = new Date();
   let updated: CompetitionRow;
   try {
-    // The lock orders the move with a team registering or a teammate joining, which read the close
-    // under the same lock (registered-team.ts).
+    // The lock orders the move with a team registering, a teammate joining and a fee change, which
+    // read the close or the fee under the same lock. The fee is read again under it, after the write,
+    // so the invites move whenever the competition is free when its close moves.
     const [persisted] =
-      movedFreeClose === null
+      movedClose === null
         ? await writePublishedCompetitionUpdates(db, competition.id, updates)
         : await db.transaction(async (tx) => {
             await acquireCompetitionParticipationLock(tx, competition.id);
             const rows = await writePublishedCompetitionUpdates(tx, competition.id, updates);
-            await moveRegisteredTeamInvitationsToClose(tx, competition.id, movedFreeClose);
+            const pricingUnderLock = await loadCompetitionPricing(competition.id, tx);
+            if (!isPaidCompetition(pricingUnderLock.feeAmount)) {
+              await moveRegisteredTeamInvitationsToClose(tx, competition.id, movedClose, now);
+            }
             return rows;
           });
     if (!persisted) {

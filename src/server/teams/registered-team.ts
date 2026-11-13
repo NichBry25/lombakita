@@ -8,7 +8,13 @@ assertServerOnly("server/teams/registered-team");
 import { and, eq, gt, inArray, lte, sql, type SQL } from "drizzle-orm";
 import { isPaidCompetition } from "@/lib/competitions/paid-competition";
 import type { Database } from "@/server/db/client";
-import { competitionRegistrations, competitions, teamInvitations, teams } from "@/server/db/schema";
+import {
+  competitionRegistrations,
+  competitions,
+  teamInvitations,
+  teams,
+  type CompetitionStatus,
+} from "@/server/db/schema";
 import { TeamError } from "@/server/teams/team-core";
 
 type DbOrTx = Database | Parameters<Parameters<Database["transaction"]>[0]>[0];
@@ -16,9 +22,18 @@ type DbOrTx = Database | Parameters<Parameters<Database["transaction"]>[0]>[0];
 // A team is registered while it is submitted and holds a confirmed registration. The query this
 // goes into must have teams in its FROM.
 export const registeredTeamCondition = (): SQL =>
-  sql`${teams.status} = 'submitted' and exists (select 1 from ${competitionRegistrations} where ${competitionRegistrations.teamId} = ${teams.id} and ${competitionRegistrations.status} = 'confirmed')`;
+  sql`${eq(teams.status, "submitted")} and exists (select 1 from ${competitionRegistrations} where ${eq(competitionRegistrations.teamId, teams.id)} and ${eq(competitionRegistrations.status, "confirmed")})`;
 
 export type RegisteredFreeTeamLimits = { closesAt: Date; maxTeamSize: number | null };
+
+export const isPublishedAndNotCancelledOrDeleted = (competition: {
+  status: CompetitionStatus;
+  cancelledAt: Date | null;
+  deletedAt: Date | null;
+}): boolean =>
+  competition.status === "published" &&
+  competition.cancelledAt === null &&
+  competition.deletedAt === null;
 
 // The invite and the accept call this under the competition's participation lock, so their
 // answer holds until commit. Throws the TeamError a refused request answers with.
@@ -53,7 +68,13 @@ export const assertRegisteredFreeTeamOpen = async (
   if (isPaidCompetition(row.feeAmount)) {
     throw new TeamError("team_not_forming", "Team is no longer in forming state");
   }
-  if (row.competitionStatus !== "published" || row.cancelledAt !== null || row.deletedAt !== null) {
+  if (
+    !isPublishedAndNotCancelledOrDeleted({
+      status: row.competitionStatus,
+      cancelledAt: row.cancelledAt,
+      deletedAt: row.deletedAt,
+    })
+  ) {
     throw new TeamError(
       "team_competition_not_published",
       "Competition is not open for team registration",
@@ -73,8 +94,8 @@ export const assertRegisteredFreeTeamOpen = async (
   return { closesAt: row.registrationEndAt, maxTeamSize: row.maxTeamSize };
 };
 
-// The way an accept attempt treats an expired invite, so a registered team holds only invites
-// that expire at the close.
+// An invite already expired when the team registers can never be accepted, so it is cancelled
+// here, and the registered team holds only invites that expire at the close.
 export const cancelExpiredTeamInvitations = async (
   tx: DbOrTx,
   teamId: string,
@@ -92,7 +113,7 @@ export const cancelExpiredTeamInvitations = async (
     );
 };
 
-export const extendOpenTeamInvitationsToClose = async (
+export const setOpenTeamInvitationsExpiryToClose = async (
   tx: DbOrTx,
   teamId: string,
   closesAt: Date,
@@ -116,6 +137,7 @@ export const moveRegisteredTeamInvitationsToClose = async (
   tx: DbOrTx,
   competitionId: string,
   closesAt: Date,
+  now: Date,
 ): Promise<void> => {
   const registeredTeamIds = tx
     .select({ id: teams.id })
@@ -128,7 +150,7 @@ export const moveRegisteredTeamInvitationsToClose = async (
     .where(
       and(
         inArray(teamInvitations.status, ["pending", "pending_claim"]),
-        gt(teamInvitations.expiresAt, sql`now()`),
+        gt(teamInvitations.expiresAt, now),
         inArray(teamInvitations.teamId, registeredTeamIds),
       ),
     );

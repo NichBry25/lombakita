@@ -22,7 +22,10 @@ import {
   type CompetitionRegistrationReviewStatus,
 } from "@/server/db/schema";
 import { isPaidCompetition } from "@/lib/competitions/paid-competition";
-import { registeredTeamCondition } from "@/server/teams/registered-team";
+import {
+  isPublishedAndNotCancelledOrDeleted,
+  registeredTeamCondition,
+} from "@/server/teams/registered-team";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/participants/participant-service");
@@ -162,6 +165,7 @@ export const listCompetitionParticipants = async (
       id: competitions.id,
       status: competitions.status,
       cancelledAt: competitions.cancelledAt,
+      deletedAt: competitions.deletedAt,
       feeAmount: competitions.feeAmount,
     })
     .from(competitions)
@@ -171,7 +175,7 @@ export const listCompetitionParticipants = async (
   if (!comp) return EMPTY_RESULT;
 
   const showsPendingTeammates =
-    comp.status === "published" && comp.cancelledAt === null && !isPaidCompetition(comp.feeAmount);
+    isPublishedAndNotCancelledOrDeleted(comp) && !isPaidCompetition(comp.feeAmount);
 
   const page = resolvePage(filters.page);
   const limit = resolveLimit(filters.limit);

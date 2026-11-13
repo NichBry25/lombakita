@@ -564,7 +564,9 @@ describe("declineTeamInvitationForUser — session-id match", () => {
   });
 
   it("declines a pending invitation addressed to the caller", async () => {
-    const { db } = makeDb([[baseInvitation({ targetUserId: "cand_invitee" })]]);
+    const { db } = makeDb([[baseInvitation({ targetUserId: "cand_invitee" })]], {
+      updateReturning: [{ id: "inv_1" }],
+    });
     await expect(
       declineTeamInvitationForUser("inv_1", "cand_invitee", db as never),
     ).resolves.toBeUndefined();

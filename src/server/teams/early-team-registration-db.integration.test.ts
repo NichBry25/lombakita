@@ -90,7 +90,14 @@ import { POST as inviteRoute } from "@/app/api/v1/teams/[teamId]/invitations/rou
 import { DELETE as cancelInviteRoute } from "@/app/api/v1/teams/[teamId]/invitations/[token]/route";
 import { POST as acceptRoute } from "@/app/api/v1/me/invitations/team/[invitationId]/accept/route";
 import { POST as declineRoute } from "@/app/api/v1/me/invitations/team/[invitationId]/decline/route";
-import { unpublishCompetition } from "@/server/competitions/competition-service";
+import {
+  transitionCompetitionStatus,
+  unpublishCompetition,
+} from "@/server/competitions/competition-service";
+import {
+  parseReviewUpdatePayload,
+  updateRegistrationReview,
+} from "@/server/participants/review-service";
 import { claimPendingInvitationsForUser } from "@/server/invitations/claim-service";
 import { hashToken } from "@/server/teams/team-core";
 
@@ -1130,6 +1137,110 @@ describe.skipIf(skipWithoutDatabase)("accepting an invite of a registered free t
       expect(await activeMemberIds(tx, teamId)).not.toContain(sari.id);
       expect(await registrationsOf(tx, competitionId, [sari.id])).toHaveLength(0);
       expect((await invitationOf(tx, sariInvite.id)).status).toBe("pending");
+    });
+  });
+
+  it("refuses an accept and an invite on a team whose registration an unpublish cancelled, once the competition is published again", async () => {
+    await inRollback(async (tx) => {
+      const { competitionId, ownerId, registrationEndAt } = await seedCompetition(tx, {
+        minTeamSize: 2,
+        maxTeamSize: 4,
+      });
+      const rina = await seedCandidate(tx, "rina");
+      const budi = await seedCandidate(tx, "budi");
+      const sari = await seedCandidate(tx, "sari");
+      const dewi = await seedCandidate(tx, "dewi");
+      const teamId = await seedTeam(tx, {
+        competitionId,
+        captainId: rina.id,
+        memberIds: [budi.id],
+        status: "submitted",
+      });
+      const sariInvite = await openInviteToUser(tx, teamId, rina.id, sari, registrationEndAt);
+      // Publishing needs an organiser contact, which the seed leaves out.
+      await tx
+        .update(competitions)
+        .set({ organizerContactKind: "whatsapp", organizerContactValue: "628123456789" })
+        .where(eq(competitions.id, competitionId));
+      await unpublishCompetition(ownerId, competitionId, tx as unknown as Database);
+      await transitionCompetitionStatus(
+        ownerId,
+        competitionId,
+        "published",
+        tx as unknown as Database,
+      );
+
+      expect(await teamStatusOf(tx, teamId)).toBe("submitted");
+
+      const accept = await acceptViaRoute(tx, sari.id, sariInvite.id);
+      const invite = await inviteViaRoute(tx, rina.id, teamId, dewi.username);
+
+      expect([
+        { status: accept.status, code: errorCodeOf(accept) },
+        { status: invite.status, code: errorCodeOf(invite) },
+      ]).toEqual([
+        { status: 409, code: "team_not_forming" },
+        { status: 409, code: "team_not_forming" },
+      ]);
+      expect(await activeMemberIds(tx, teamId)).not.toContain(sari.id);
+      expect(await registrationsOf(tx, competitionId, [sari.id])).toHaveLength(0);
+      expect(await invitationsToEmail(tx, teamId, dewi.email)).toHaveLength(0);
+      expect((await invitationOf(tx, sariInvite.id)).status).toBe("pending");
+    });
+  });
+
+  it("a teammate who joins a reviewed team takes the team's review status and note", async () => {
+    await inRollback(async (tx) => {
+      const { institutionId, ownerId, competitionId, registrationEndAt } = await seedCompetition(
+        tx,
+        { minTeamSize: 2, maxTeamSize: 3 },
+      );
+      const rina = await seedCandidate(tx, "rina");
+      const budi = await seedCandidate(tx, "budi");
+      const sari = await seedCandidate(tx, "sari");
+      const teamId = await seedTeam(tx, {
+        competitionId,
+        captainId: rina.id,
+        memberIds: [budi.id],
+        status: "submitted",
+      });
+      const sariInvite = await openInviteToUser(tx, teamId, rina.id, sari, registrationEndAt);
+      const [ownerMembership] = await tx
+        .select({ id: institutionMemberships.id })
+        .from(institutionMemberships)
+        .where(eq(institutionMemberships.userId, ownerId));
+      const [rinaRegistration] = await registrationsOf(tx, competitionId, [rina.id]);
+      await updateRegistrationReview(
+        institutionId,
+        competitionId,
+        rinaRegistration!.id,
+        parseReviewUpdatePayload({
+          internalReviewStatus: "shortlisted",
+          internalNotes: "Proposal kuat",
+        }),
+        ownerMembership!.id,
+        tx as unknown as Database,
+      );
+
+      const answer = await acceptViaRoute(tx, sari.id, sariInvite.id);
+
+      expect(answer.status).toBe(200);
+      const [sariRegistration] = await tx
+        .select({
+          internalReviewStatus: competitionRegistrations.internalReviewStatus,
+          internalNotes: competitionRegistrations.internalNotes,
+        })
+        .from(competitionRegistrations)
+        .where(
+          and(
+            eq(competitionRegistrations.competitionId, competitionId),
+            eq(competitionRegistrations.studentId, sari.id),
+          ),
+        );
+      expect(sariRegistration).toEqual({
+        internalReviewStatus: "shortlisted",
+        internalNotes: "Proposal kuat",
+      });
     });
   });
 });

@@ -4,6 +4,7 @@ import { serverEnv } from "@/config/env.server";
 import { formatWib } from "@/lib/dates/date-format";
 import { logger } from "@/lib/logger";
 import { resolveEmailDelivery } from "@/server/email/delivery";
+import { escapeHtml } from "@/server/email/escape-html";
 import { throwEmailSendFailure } from "@/server/email/send-failure";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
@@ -55,6 +56,9 @@ export const sendTeamInvitationEmail = async (options: {
     ? `Undangan ini berlaku hingga pendaftaran ditutup pada ${formatWib(options.expiresAt, "longDateTime")} WIB.`
     : `Undangan ini berlaku hingga ${expiryFormatted}.`;
   const inviterLabel = options.inviterDisplayName ?? "Kapten tim";
+  const inviterLabelHtml = escapeHtml(inviterLabel);
+  const teamNameHtml = escapeHtml(options.teamName);
+  const competitionTitleHtml = escapeHtml(options.competitionTitle);
 
   const isClaim = options.mode === "claim";
   const actionUrl = isClaim ? buildClaimSignupUrl(options.rawToken as string) : buildInboxUrl();
@@ -95,9 +99,9 @@ export const sendTeamInvitationEmail = async (options: {
       <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto; color: #14453d;">
         <h2 style="margin-bottom: 12px;">Undangan tim Lombakita</h2>
         <p style="margin: 0 0 12px;">
-          <strong>${inviterLabel}</strong> mengundang Anda untuk bergabung dengan tim
-          <strong>${options.teamName}</strong> pada kompetisi
-          <strong>${options.competitionTitle}</strong>.
+          <strong>${inviterLabelHtml}</strong> mengundang Anda untuk bergabung dengan tim
+          <strong>${teamNameHtml}</strong> pada kompetisi
+          <strong>${competitionTitleHtml}</strong>.
         </p>
         ${options.joinsRegisteredTeam ? `<p style="margin: 0 0 12px;">${REGISTERED_TEAM_LINE}</p>` : ""}
         <p style="margin: 0 0 16px;">${leadLine}</p>

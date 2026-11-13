@@ -65,4 +65,22 @@ describe("the team invitation email", () => {
     expect(text).not.toContain("Tim ini sudah terdaftar");
     expect(html).not.toContain("Tim ini sudah terdaftar");
   });
+
+  it("escapes the team name, the competition title and the inviter's name in the html", async () => {
+    await sendTeamInvitationEmail({
+      toEmail: "dewi@example.test",
+      teamName: `Tim <a href="https://contoh.test">Klik</a>`,
+      competitionTitle: "Lomba <b>Uji</b>",
+      inviterDisplayName: "Budi <i>Kapten</i>",
+      expiresAt: EXPIRES_AT,
+      mode: "targeted",
+      joinsRegisteredTeam: false,
+    });
+
+    const { html } = sentMessage();
+    expect(html).toContain("Tim &lt;a href=&quot;https://contoh.test&quot;&gt;Klik&lt;/a&gt;");
+    expect(html).toContain("Lomba &lt;b&gt;Uji&lt;/b&gt;");
+    expect(html).toContain("Budi &lt;i&gt;Kapten&lt;/i&gt;");
+    expect(html).not.toContain(`<a href="https://contoh.test">`);
+  });
 });

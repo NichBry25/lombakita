@@ -17,7 +17,7 @@ import {
 import { TeamError } from "@/server/teams/team-core";
 import {
   cancelExpiredTeamInvitations,
-  extendOpenTeamInvitationsToClose,
+  setOpenTeamInvitationsExpiryToClose,
 } from "@/server/teams/registered-team";
 import { MAX_CANCELLATION_REASON_LENGTH } from "@/server/registrations/registration-core";
 import { isParticipantCancellationClosedByConfirmation } from "@/lib/competitions/competition-participation";
@@ -382,7 +382,7 @@ export const submitTeamRegistration = async (
 
       if (countsOpenInvitations) {
         await cancelExpiredTeamInvitations(tx, teamId, mutationAt);
-        await extendOpenTeamInvitationsToClose(tx, teamId, closesAt, mutationAt);
+        await setOpenTeamInvitationsExpiryToClose(tx, teamId, closesAt, mutationAt);
       }
 
       // ONE PAYMENT FOR THE WHOLE TEAM, anchored on the CAPTAIN'S row.
