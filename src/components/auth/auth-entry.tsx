@@ -98,6 +98,18 @@ const verificationFailureMessage = (status: number, errorCode: string | undefine
   return "Verifikasi gagal. Coba lagi beberapa saat.";
 };
 
+// The server first checks the details at the code stage on the unverified path, so a refusal
+// must send the person back to the form.
+const SIGNUP_DETAILS_ERROR_CODES = new Set([
+  "invalid_name",
+  "invalid_signup_role",
+  "candidate_profile_invalid_payload",
+  "candidate_profile_invalid_fields",
+  "candidate_profile_invalid_value",
+  "recruiter_verification_invalid_payload",
+  "recruiter_verification_invalid_value",
+]);
+
 export const AuthEntry = ({
   googleEnabled,
   verificationEnabled,
@@ -364,8 +376,8 @@ export const AuthEntry = ({
     void onResend();
   };
 
-  // Shared account-creation call. `roleBody` carries the candidate onboarding fields or the host
-  // fields of the chosen role.
+  // Shared account-creation call. `roleBody` carries the candidate onboarding fields or the
+  // recruiter fields of the chosen role.
   const registerAccount = async (
     role: "candidate" | "recruiter",
     roleBody: Record<string, unknown>,
@@ -455,6 +467,21 @@ export const AuthEntry = ({
           error?: { code?: string };
         } | null;
         const errorCode = payload?.error?.code;
+        if (errorCode && SIGNUP_DETAILS_ERROR_CODES.has(errorCode)) {
+          addToast({
+            type: "error",
+            message:
+              "Data pendaftaran belum sesuai. Periksa kembali isian Anda, lalu lanjutkan lagi.",
+          });
+          if (errorCode === "invalid_name" || errorCode === "invalid_signup_role") {
+            setStage("signup");
+          } else if (signupDetails.role === "candidate") {
+            setStage("candidateOnboarding");
+          } else {
+            setStage("recruiterOnboarding");
+          }
+          return;
+        }
         addToast({
           type: "error",
           message: verificationFailureMessage(response.status, errorCode),

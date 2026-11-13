@@ -63,11 +63,17 @@ vi.mock("@/server/redis/rate-limit", async (importOriginal) => {
 });
 
 import {
+  CredentialsAuthError,
   authenticateWithEmailPassword,
   registerUserWithCredentials,
   resendRegistrationVerification,
   verifyEmailCodeAndSetPassword,
 } from "@/server/auth/credentials-auth";
+import { elevateRecruiterTier } from "@/server/recruiter-tier/recruiter-tier-service";
+import {
+  listRecruiterVerificationQueue,
+  reviewRecruiterVerification,
+} from "@/server/recruiter-verification/recruiter-verification-service";
 
 const ADDRESS = "rina.code@example.test";
 const STRANGER_PASSWORD = "stranger-pass-1";
@@ -179,6 +185,7 @@ const hostRequestsOf = (tx: Database, userId: string) =>
       id: schema.recruiterVerificationSubmissions.id,
       status: schema.recruiterVerificationSubmissions.status,
       mobileNumber: schema.recruiterVerificationSubmissions.mobileNumber,
+      fullName: schema.recruiterVerificationSubmissions.fullName,
     })
     .from(schema.recruiterVerificationSubmissions)
     .where(eq(schema.recruiterVerificationSubmissions.userId, userId));
@@ -267,6 +274,21 @@ const invitationOf = async (tx: Database, invitationId: string) => {
     .where(eq(schema.institutionInvitations.id, invitationId));
   if (!row) throw new Error("No invitation row");
   return row;
+};
+
+const seedOperator = async (tx: Database): Promise<string> => {
+  const suffix = randomUUID();
+  const [row] = await tx
+    .insert(schema.users)
+    .values({
+      email: `ops_code_${suffix}@example.test`,
+      username: `ops_code_${suffix}`,
+      role: "platform_ops",
+      candidateVerifiedAt: new Date(),
+    })
+    .returning({ id: schema.users.id });
+  if (!row) throw new Error("No operator row");
+  return row.id;
 };
 
 const signsIn = async (tx: Database, password: string): Promise<boolean> => {
@@ -635,6 +657,75 @@ describe.skipIf(skipWithoutDatabase)("verifying an email address by code (real d
       );
       expect(countedKeys).toEqual([]);
       expect((await userOf(tx)).emailVerified).toBeNull();
+    });
+  });
+
+  it("hides a stranger's host request from platform ops until the owner's verification replaces it", async () => {
+    await inRollback(async (tx) => {
+      await signUpAsHost(tx, STRANGER_PASSWORD);
+      const { id: accountId } = await userOf(tx);
+      const [strangerRequest] = await hostRequestsOf(tx, accountId);
+      if (!strangerRequest) throw new Error("No recruiter request after the host sign-up");
+      const operatorId = await seedOperator(tx);
+      const queueEntriesOfAccount = async () =>
+        (await listRecruiterVerificationQueue(tx)).filter(
+          (entry) => entry.submission.userId === accountId,
+        );
+
+      expect(await queueEntriesOfAccount()).toHaveLength(0);
+      await expect(
+        reviewRecruiterVerification(operatorId, strangerRequest.id, "approve", null, { db: tx }),
+      ).rejects.toMatchObject({ code: "recruiter_verification_not_found" });
+      await expect(elevateRecruiterTier(operatorId, accountId, tx)).rejects.toMatchObject({
+        code: "tier_target_email_not_verified",
+      });
+      expect((await roleColumnsOf(tx, accountId)).recruiterVerificationTier).toBe("minimal");
+      expect((await hostRequestsOf(tx, accountId))[0]?.status).toBe("pending_review");
+
+      await resendRegistrationVerification({ email: ADDRESS }, tx);
+      await verify(tx, latestCode(), OWNER_PASSWORD, {
+        name: "Rina Pratama",
+        signupRole: "recruiter",
+        fullName: "Rina Pratama",
+        mobileNumber: "081211112222",
+        corporateEmail: null,
+      });
+
+      const ownerRequests = await hostRequestsOf(tx, accountId);
+      expect(ownerRequests).toHaveLength(1);
+      const [ownerRequest] = ownerRequests;
+      if (!ownerRequest) throw new Error("No recruiter request after the verification");
+      expect(ownerRequest.id).not.toBe(strangerRequest.id);
+      expect(ownerRequest.mobileNumber).toBe("081211112222");
+      expect(ownerRequest.fullName).toBe("Rina Pratama");
+      const queueEntries = await queueEntriesOfAccount();
+      expect(queueEntries).toHaveLength(1);
+      expect(queueEntries[0]?.submission.id).toBe(ownerRequest.id);
+    });
+  });
+
+  it("leaves the account unverified and the code unused when the replacement fails", async () => {
+    await inRollback(async (tx) => {
+      await signUp(tx, STRANGER_PASSWORD);
+      const code = latestCode();
+      const { id: userId } = await userOf(tx);
+      const passwordHashBefore = await storedPasswordHashOf(tx, userId);
+
+      const verification = verify(tx, code, OWNER_PASSWORD, {
+        ...CANDIDATE_DETAILS,
+        dateOfBirth: "2000-02-30",
+      });
+      const refusal = await verification.then(
+        () => null,
+        (error: unknown) => error,
+      );
+      expect(refusal).not.toBeNull();
+      expect(refusal).not.toBeInstanceOf(CredentialsAuthError);
+
+      await expectUnverifiedAndUnchanged(tx, userId, passwordHashBefore);
+
+      await verify(tx, code, OWNER_PASSWORD);
+      expect(await signsIn(tx, OWNER_PASSWORD)).toBe(true);
     });
   });
 });

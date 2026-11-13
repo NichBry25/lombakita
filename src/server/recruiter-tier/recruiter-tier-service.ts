@@ -88,7 +88,8 @@ export type TierElevationResult = {
 };
 
 // Elevates a recruiter-verified account to `elevated`. Idempotent: a second call returns
-// `changed: false` with the current tier. Rejects targets whose recruiter mode is not verified.
+// `changed: false` with the current tier. Rejects targets whose recruiter mode is not verified,
+// and targets whose email address is not verified.
 //
 // THE ACTOR IS RESOLVED, NOT ACCEPTED. `actorUserId` is a claim; `resolvePlatformOpsActor` asks the
 // database and refuses a caller whose account does not exist, does not hold `platform_ops`, or is
@@ -147,7 +148,8 @@ export const elevateRecruiterTier = async (
       );
     }
 
-    // A host sign-up before its address is proven may be a stranger's, and verification never lowers the tier.
+    // A recruiter sign-up before its address is proven may be a stranger's,
+    // and verification never lowers the tier.
     const [emailState] = await tx
       .select({ emailVerified: users.emailVerified })
       .from(users)

@@ -724,7 +724,9 @@ const findLiveVerificationCode = async (
   return codeRow;
 };
 
-// The person who typed the code defines the account, so nothing an earlier sign-up for this address wrote survives verification.
+// The person who typed the code defines the account: an earlier sign-up's name, role, profile
+// and recruiter request are replaced. The username stays when the name is unchanged, and the
+// recruiter tier is never lowered.
 const replaceSignupDetailsWithVerifiers = async (
   tx: Database,
   userId: string,
@@ -749,7 +751,8 @@ const replaceSignupDetailsWithVerifiers = async (
     deriveSignupRoleColumns(details.signupRole, now);
   const tierRises = !stored || !meetsRecruiterTier(stored.recruiterVerificationTier, declaredTier);
 
-  // The tier only rises here: users_recruiter_tier_no_downgrade refuses a lower value, and "minimal" grants nothing without recruiterVerifiedAt.
+  // The tier only rises here: users_recruiter_tier_no_downgrade refuses a lower value,
+  // and "minimal" grants nothing without recruiterVerifiedAt.
   await tx
     .update(users)
     .set({

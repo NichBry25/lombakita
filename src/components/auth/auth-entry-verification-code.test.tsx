@@ -308,4 +308,24 @@ describe("verifying an email address with a code on the sign-in page", () => {
     ).toBeTruthy();
     expect(signIn).not.toHaveBeenCalled();
   });
+
+  it("sends the person back to the form when the server refuses a detail", async () => {
+    answer("/api/v1/auth/register/verify", 400, {
+      error: {
+        code: "recruiter_verification_invalid_value",
+        message: "mobileNumber must be a valid phone number",
+      },
+    });
+    await reachCodeStageFromVerifyNotice();
+
+    submitCode("123456");
+
+    expect(
+      await screen.findByText(
+        "Data pendaftaran belum sesuai. Periksa kembali isian Anda, lalu lanjutkan lagi.",
+      ),
+    ).toBeTruthy();
+    const mobileNumberField = (await screen.findByLabelText("Nomor ponsel")) as HTMLInputElement;
+    expect(mobileNumberField.value).toBe("0812345678");
+  });
 });

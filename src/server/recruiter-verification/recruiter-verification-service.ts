@@ -848,7 +848,8 @@ export const reviewRecruiterVerification = async (
       );
     }
 
-    // A host request sent before its address is proven may be a stranger's, and verification replaces it.
+    // A recruiter request sent before its address is proven may be a stranger's,
+    // and verification replaces it.
     const [flipped] = await tx
       .update(recruiterVerificationSubmissions)
       .set({
