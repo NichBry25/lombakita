@@ -112,7 +112,7 @@ vi.mock("@/server/storage/r2.client", () => ({
 import { deidentifyAccount, DeidentificationError } from "./account-deidentification-service";
 import type { Database } from "@/server/db/client";
 import { setCompetitionOrganizerContactForEditor } from "@/server/competitions/competition-organizer-contact-service";
-import { changeMemberRole } from "@/server/institution-members/member-service";
+import { changeMemberRole, removeMember } from "@/server/institution-members/member-service";
 import { OperatorActorError } from "@/server/platform-ops/operator-actor";
 
 const client = TEST_DATABASE_URL ? postgres(TEST_DATABASE_URL, { max: 1 }) : null;
@@ -2152,6 +2152,107 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
         await runDeletion(tx, f);
 
         expect(await readContact(tx, revoked.competitionId)).toEqual({ kind: null, value: null });
+      });
+    });
+
+    it("keeps a number contact on an institution where only another person's history shows owner or staff", async () => {
+      await inRollback(async (tx) => {
+        const f = await buildFixture(tx);
+        const history = await insertInstitutionWithCompetition(
+          tx,
+          f,
+          "history",
+          "whatsapp",
+          "628123456789",
+        );
+        const bystanderMembershipId = randomUUID();
+        const targetMembershipId = randomUUID();
+        await tx.insert(institutionMemberships).values([
+          {
+            id: bystanderMembershipId,
+            institutionId: history.institutionId,
+            userId: f.bystander,
+            membershipRole: "institution_owner",
+            status: "active",
+          },
+          {
+            id: targetMembershipId,
+            institutionId: history.institutionId,
+            userId: f.target,
+            membershipRole: "institution_member",
+            status: "active",
+          },
+        ]);
+        await tx.insert(institutionAuditLogs).values({
+          institutionId: history.institutionId,
+          actorUserId: f.bystander,
+          action: "member.role_changed",
+          targetMembershipId: bystanderMembershipId,
+          metadata: { from: "institution_staff", to: "institution_owner" },
+        });
+        await removeMember(
+          f.bystander,
+          `deident-history-${f.suffix}`,
+          targetMembershipId,
+          tx as unknown as Database,
+        );
+        // Stands in for a re-invitation accepted as a member.
+        await tx
+          .update(institutionMemberships)
+          .set({ status: "active" })
+          .where(eq(institutionMemberships.id, targetMembershipId));
+
+        await runDeletion(tx, f);
+
+        expect(await readContact(tx, history.competitionId)).toEqual({
+          kind: "whatsapp",
+          value: "628123456789",
+        });
+      });
+    });
+
+    it("clears the account's own sign-up number on an institution it was removed from and rejoined as a member", async () => {
+      await inRollback(async (tx) => {
+        const f = await buildFixture(tx);
+        const rejoined = await insertInstitutionWithCompetition(
+          tx,
+          f,
+          "rejoined",
+          "whatsapp",
+          "628123456789",
+        );
+        const targetMembershipId = randomUUID();
+        await tx.insert(institutionMemberships).values([
+          {
+            id: randomUUID(),
+            institutionId: rejoined.institutionId,
+            userId: f.bystander,
+            membershipRole: "institution_owner",
+            status: "active",
+          },
+          {
+            id: targetMembershipId,
+            institutionId: rejoined.institutionId,
+            userId: f.target,
+            membershipRole: "institution_staff",
+            status: "active",
+          },
+        ]);
+        await removeMember(
+          f.bystander,
+          `deident-rejoined-${f.suffix}`,
+          targetMembershipId,
+          tx as unknown as Database,
+        );
+        // Stands in for a re-invitation accepted as a member.
+        await tx
+          .update(institutionMemberships)
+          .set({ membershipRole: "institution_member", status: "active" })
+          .where(eq(institutionMemberships.id, targetMembershipId));
+
+        await runDeletion(tx, f);
+
+        expect(await readContact(tx, rejoined.competitionId)).toEqual({ kind: null, value: null });
       });
     });
 
