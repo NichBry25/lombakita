@@ -31,7 +31,7 @@ describe("toCredentialsAuthErrorResponse — unexpected errors", () => {
     reportUnexpectedErrorMock.mockClear();
 
     toCredentialsAuthErrorResponse(
-      new CredentialsAuthError("verification_token_invalid", 400, "Token invalid"),
+      new CredentialsAuthError("verification_code_invalid", 400, "Kode verifikasi salah."),
     );
 
     expect(reportUnexpectedErrorMock).not.toHaveBeenCalled();

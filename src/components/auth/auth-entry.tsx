@@ -21,9 +21,13 @@ import {
 //     (/api/v1/auth/identify) and branch:
 //       • verified  → attempt the password sign-in (path a). Wrong/absent password → generic
 //                     "email atau password salah" (a Google-only account lands here too).
-//       • unverified→ show "email belum diverifikasi" + resend; never offer signup (the server refuses it).
+//       • unverified→ show the verify notice. The person completes the sign-up form, or keeps
+//                     the one register just refused, and gets a code through the resend
+//                     endpoint; the details sent with the code replace an earlier sign-up's.
+//                     Register is never called here (it refuses an existing address).
 //       • none      → role picker + profile; create the account via the existing register endpoint,
-//                     which sends the Resend verification (path b). Account usable on verification.
+//                     which sends a verification code (path b). Account usable once the code is
+//                     typed.
 // Suspension is enforced in `authorize` regardless of this shell; we route the
 // ACCOUNT_SUSPENDED signal to /suspended.
 
@@ -47,7 +51,7 @@ type Method = "choose" | "credentials";
 type CredentialStage =
   | "entry"
   | "verifyNotice"
-  | "checkEmail"
+  | "verifyCode"
   | "signup"
   | "candidateOnboarding"
   | "recruiterOnboarding";
@@ -85,11 +89,48 @@ const SIGNUP_ERROR_COPY: Partial<Record<string, string>> = {
   recruiter_verification_invalid_value: "Periksa data penyelenggara Anda lalu coba lagi.",
   email_exists: "Akun untuk email ini sudah ada. Silakan masuk, bukan mendaftar.",
   verification_email_failed:
-    "Akun sudah dibuat, tetapi email verifikasi belum terkirim. Masukkan email Anda lagi untuk mengirim ulang verifikasi.",
+    "Akun sudah dibuat, tetapi kode verifikasi belum terkirim. Tekan Selesai sekali lagi, lalu kirim kode verifikasi.",
   username_generation_failed: "Akun belum dapat dibuat saat ini. Coba lagi beberapa saat.",
 };
 
 const SIGNUP_FALLBACK = "Pendaftaran gagal. Coba lagi beberapa saat.";
+
+const verificationFailureMessage = (status: number, errorCode: string | undefined): string => {
+  if (errorCode === "verification_code_invalid") {
+    return "Kode salah atau sudah tidak berlaku. Periksa kode di email Anda, atau kirim ulang kode.";
+  }
+  if (errorCode === "verification_code_daily_limit") {
+    return "Terlalu banyak percobaan kode yang salah untuk email ini. Coba lagi dalam 24 jam.";
+  }
+  if (errorCode === "verification_code_attempts_exceeded") {
+    return "Terlalu banyak percobaan kode yang salah. Kirim ulang kode, atau coba lagi nanti.";
+  }
+  if (status === 429) {
+    return "Terlalu banyak permintaan dari jaringan ini. Tunggu beberapa menit lalu coba lagi.";
+  }
+  if (errorCode === "email_exists") {
+    return "Email ini sudah terverifikasi. Silakan masuk dengan password Anda.";
+  }
+  if (errorCode === "invalid_password") {
+    return "Password harus 8 sampai 72 karakter. Kembali, lalu masukkan password yang memenuhi syarat.";
+  }
+  if (status === 503) {
+    return "Verifikasi sedang tidak tersedia. Coba lagi beberapa saat.";
+  }
+  return "Verifikasi gagal. Coba lagi beberapa saat.";
+};
+
+// The server first checks the details at the code stage on the unverified path, so a refusal
+// must send the person back to the form.
+const SIGNUP_DETAILS_ERROR_CODES = new Set([
+  "invalid_name",
+  "invalid_signup_role",
+  "candidate_profile_invalid_payload",
+  "candidate_profile_invalid_fields",
+  "candidate_profile_invalid_value",
+  "recruiter_verification_invalid_payload",
+  "recruiter_verification_invalid_value",
+]);
 
 export const AuthEntry = ({
   googleEnabled,
@@ -124,7 +165,15 @@ export const AuthEntry = ({
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isResending, setIsResending] = useState(false);
+  const [verificationCode, setVerificationCode] = useState("");
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [signupDetails, setSignupDetails] = useState<{
+    role: "candidate" | "recruiter";
+    body: Record<string, unknown>;
+  } | null>(null);
+  const [completingUnverified, setCompletingUnverified] = useState(false);
   const stagePanelRef = useRef<HTMLDivElement>(null);
+  const verificationCodeInputRef = useRef<HTMLInputElement>(null);
   const { begin: beginPageTransition } = usePageTransition();
   const { addToast } = useToast();
 
@@ -157,10 +206,14 @@ export const AuthEntry = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage]);
 
-  // The form that held focus unmounts at these two stages, so focus moves to the message that replaced it.
+  // The form that held focus unmounts at these stages, so focus moves to what replaced it: the
+  // verify notice's message, or the code box.
   useEffect(() => {
-    if (stage === "checkEmail" || stage === "verifyNotice") {
+    if (stage === "verifyNotice") {
       stagePanelRef.current?.focus();
+    }
+    if (stage === "verifyCode") {
+      verificationCodeInputRef.current?.focus();
     }
   }, [stage]);
 
@@ -238,6 +291,7 @@ export const AuthEntry = ({
       return;
     }
 
+    clearSignupForm();
     setIsSubmitting(true);
 
     try {
@@ -296,39 +350,65 @@ export const AuthEntry = ({
       const response = await fetch("/api/v1/auth/register/resend", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          email: email.trim().toLowerCase(),
-          ...(callbackUrl ? { callbackUrl } : {}),
-        }),
+        body: JSON.stringify({ email: email.trim().toLowerCase() }),
       });
 
-      if (!response.ok) {
+      if (response.status === 429) {
         addToast({
           type: "error",
-          message: "Gagal mengirim ulang verifikasi. Coba lagi beberapa saat.",
+          message: "Terlalu banyak permintaan kode. Tunggu beberapa menit lalu coba lagi.",
         });
         return;
       }
 
+      if (!response.ok) {
+        addToast({
+          type: "error",
+          message: "Gagal mengirim kode verifikasi. Coba lagi beberapa saat.",
+        });
+        return;
+      }
+
+      setVerificationCode("");
+      setStage("verifyCode");
       addToast({
         type: "success",
-        message: "Email verifikasi baru telah dikirim. Buka inbox/spam Anda.",
+        message: "Kode verifikasi telah dikirim. Buka inbox/spam Anda.",
       });
     } catch {
       addToast({
         type: "error",
-        message: "Gagal mengirim ulang verifikasi karena gangguan koneksi.",
+        message: "Gagal mengirim kode verifikasi karena gangguan koneksi.",
       });
     } finally {
       setIsResending(false);
     }
   };
 
-  // Shared account-creation call. `onboardingBody` carries the chosen role's onboarding fields.
+  // The code verification sets this password, so a password the server would refuse must not spend a code.
+  const sendCodeForUnverifiedAddress = (
+    role: "candidate" | "recruiter",
+    roleBody: Record<string, unknown>,
+  ) => {
+    if (password.trim().length < 8 || password.trim().length > 72) {
+      addToast({
+        type: "error",
+        message:
+          "Password harus 8 sampai 72 karakter. Kembali, lalu masukkan password yang memenuhi syarat.",
+      });
+      return;
+    }
+    setSignupDetails({ role, body: roleBody });
+    void onResend();
+  };
+
+  // Shared account-creation call. `roleBody` carries the candidate onboarding fields or the
+  // recruiter fields of the chosen role.
   const registerAccount = async (
     role: "candidate" | "recruiter",
-    onboardingBody: Record<string, unknown> | null,
+    roleBody: Record<string, unknown>,
   ) => {
+    setSignupDetails({ role, body: roleBody });
     setIsSubmitting(true);
 
     try {
@@ -339,8 +419,7 @@ export const AuthEntry = ({
           name: fullName.trim(),
           email: email.trim().toLowerCase(),
           password,
-          ...(onboardingBody ?? {}),
-          ...(callbackUrl ? { callbackUrl } : {}),
+          ...roleBody,
         }),
       });
 
@@ -367,7 +446,8 @@ export const AuthEntry = ({
         return;
       }
 
-      setStage("checkEmail");
+      setVerificationCode("");
+      setStage("verifyCode");
     } catch {
       addToast({
         type: "error",
@@ -375,6 +455,84 @@ export const AuthEntry = ({
       });
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  // Plain fetch rather than sessionFetch: no session exists before the address is verified.
+  const onSubmitVerificationCode = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!signupDetails) {
+      setStage("verifyNotice");
+      return;
+    }
+    setIsVerifying(true);
+
+    try {
+      const response = await fetch("/api/v1/auth/register/verify", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          code: verificationCode.trim(),
+          password,
+          name: fullName.trim(),
+          signupRole: signupDetails.role,
+          ...signupDetails.body,
+        }),
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as {
+          error?: { code?: string };
+        } | null;
+        const errorCode = payload?.error?.code;
+        if (errorCode && SIGNUP_DETAILS_ERROR_CODES.has(errorCode)) {
+          addToast({
+            type: "error",
+            message:
+              "Data pendaftaran belum sesuai. Periksa kembali isian Anda, lalu lanjutkan lagi.",
+          });
+          // The name is typed on the profile stage, so only a refused role goes back to the role
+          // choice.
+          if (errorCode === "invalid_signup_role") {
+            setStage("signup");
+          } else if (signupDetails.role === "candidate") {
+            setStage("candidateOnboarding");
+          } else {
+            setStage("recruiterOnboarding");
+          }
+          return;
+        }
+        addToast({
+          type: "error",
+          message: verificationFailureMessage(response.status, errorCode),
+        });
+        if (errorCode === "email_exists") {
+          clearSignupForm();
+          setStage("entry");
+        }
+        return;
+      }
+
+      // The address is verified at this point, so a failed sign-in must not read as a failed
+      // verification.
+      try {
+        await attemptCredentialSignIn();
+      } catch {
+        addToast({
+          type: "success",
+          message: "Email berhasil diverifikasi. Silakan masuk dengan password Anda.",
+        });
+        clearSignupForm();
+        setStage("entry");
+      }
+    } catch {
+      addToast({
+        type: "error",
+        message: "Verifikasi gagal karena gangguan koneksi. Coba lagi beberapa saat.",
+      });
+    } finally {
+      setIsVerifying(false);
     }
   };
 
@@ -417,11 +575,17 @@ export const AuthEntry = ({
       return;
     }
 
-    void registerAccount("recruiter", {
+    const body = {
       fullName: fullName.trim(),
       mobileNumber: recruiterMobile.trim(),
       corporateEmail: recruiterCorporateEmail.trim() || null,
-    });
+    };
+
+    if (completingUnverified) {
+      sendCodeForUnverifiedAddress("recruiter", body);
+      return;
+    }
+    void registerAccount("recruiter", body);
   };
 
   const onSubmitCandidateOnboarding = (event: FormEvent<HTMLFormElement>) => {
@@ -444,22 +608,45 @@ export const AuthEntry = ({
       return;
     }
 
-    void registerAccount("candidate", {
+    const body = {
       fullName: fullName.trim(),
       phoneNumber: phoneNumber.trim(),
       occupation,
       dateOfBirth,
-    });
+    };
+
+    if (completingUnverified) {
+      sendCodeForUnverifiedAddress("candidate", body);
+      return;
+    }
+    void registerAccount("candidate", body);
+  };
+
+  // A return to the email step may hand the tab to another person, so no sign-up detail stays.
+  const clearSignupForm = () => {
+    setSignupDetails(null);
+    setCompletingUnverified(false);
+    setConfirmPassword("");
+    setFullName("");
+    setPhoneNumber("");
+    setOccupation("");
+    setDateOfBirth("");
+    setRecruiterMobile("");
+    setRecruiterCorporateEmail("");
+    setVerificationCode("");
   };
 
   const backToChoose = () => {
+    clearSignupForm();
+    setPassword("");
     setMethod("choose");
     setStage("entry");
   };
 
   const backToEntry = () => {
+    clearSignupForm();
+    setPassword("");
     setStage("entry");
-    setConfirmPassword("");
   };
 
   const backToSignup = () => {
@@ -562,21 +749,11 @@ export const AuthEntry = ({
         </form>
       ) : null}
 
-      {method === "credentials" && (stage === "verifyNotice" || stage === "checkEmail") ? (
+      {method === "credentials" && stage === "verifyNotice" && signupDetails ? (
         <div className="auth-stage-panel" ref={stagePanelRef} tabIndex={-1} role="status">
           <p>
-            {stage === "checkEmail" ? (
-              <>
-                <strong>Periksa email Anda.</strong> Kami mengirim tautan verifikasi ke{" "}
-                <span className="font-medium">{email}</span>. Tautan berlaku 24 jam. Buka inbox atau
-                folder spam Anda, atau kirim ulang di bawah ini.
-              </>
-            ) : (
-              <>
-                Email <span className="font-medium">{email}</span> belum diverifikasi. Buka tautan
-                verifikasi di inbox/spam Anda, atau kirim ulang di bawah ini.
-              </>
-            )}
+            Email <span className="font-medium">{email}</span> belum diverifikasi. Kirim kode
+            verifikasi ke email ini, lalu masukkan kodenya di langkah berikutnya.
           </p>
           <div className="auth-form-actions">
             <Button type="button" onClick={backToEntry} variant="ghost" size="sm">
@@ -587,24 +764,115 @@ export const AuthEntry = ({
               loading={isResending}
               disabled={!verificationEnabled}
               onClick={() => {
-                void onResend();
+                sendCodeForUnverifiedAddress(signupDetails.role, signupDetails.body);
               }}
-              variant="outline"
+              variant="primary"
               size="sm"
             >
-              Kirim ulang verifikasi
+              Kirim kode verifikasi
             </Button>
           </div>
         </div>
       ) : null}
 
+      {method === "credentials" && stage === "verifyNotice" && !signupDetails ? (
+        <div className="auth-stage-panel" ref={stagePanelRef} tabIndex={-1} role="status">
+          <p>
+            Email <span className="font-medium">{email}</span> belum diverifikasi. Lengkapi data
+            pendaftaran Anda, lalu kami kirim kode verifikasi ke email ini.
+          </p>
+          <div className="auth-form-actions">
+            <Button type="button" onClick={backToEntry} variant="ghost" size="sm">
+              Kembali
+            </Button>
+            <Button
+              type="button"
+              disabled={!verificationEnabled}
+              onClick={() => {
+                setCompletingUnverified(true);
+                setStage("signup");
+              }}
+              variant="primary"
+              size="sm"
+            >
+              Lengkapi pendaftaran
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {method === "credentials" && stage === "verifyCode" ? (
+        <form onSubmit={onSubmitVerificationCode} className="auth-form">
+          <p id="auth-verification-code-status" role="status">
+            Kami sudah mengirim kode 6 digit ke <span className="font-medium">{email}</span>.
+            Masukkan kode tersebut untuk mengaktifkan akun Anda. Kode berlaku 10 menit.
+          </p>
+
+          <div className="form-field">
+            <label className="form-label form-label-required" htmlFor="auth-verification-code">
+              Kode verifikasi
+            </label>
+            <input
+              ref={verificationCodeInputRef}
+              id="auth-verification-code"
+              name="code"
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              pattern="[0-9]{6}"
+              maxLength={6}
+              required
+              value={verificationCode}
+              onChange={(event) => setVerificationCode(event.target.value.replace(/\D/g, ""))}
+              className="form-input"
+              aria-describedby="auth-verification-code-status"
+            />
+          </div>
+
+          <div className="auth-form-actions">
+            <Button type="button" onClick={backToEntry} variant="ghost" size="sm">
+              Kembali
+            </Button>
+            <Button
+              type="button"
+              loading={isResending}
+              disabled={isVerifying}
+              onClick={() => {
+                void onResend();
+              }}
+              variant="outline"
+              size="sm"
+            >
+              Kirim ulang kode
+            </Button>
+            <Button
+              type="submit"
+              loading={isVerifying}
+              disabled={isResending}
+              variant="primary"
+              size="md"
+            >
+              Verifikasi
+            </Button>
+          </div>
+        </form>
+      ) : null}
+
       {method === "credentials" && stage === "signup" ? (
         <div className="auth-stage-panel">
           <StepIndicator current={2} total={3} label="Peran" />
-          <p>
-            Belum ada akun untuk <span className="font-medium">{email}</span>. Ulangi password Anda
-            lalu pilih peran untuk mendaftar.
-          </p>
+          {completingUnverified ? (
+            <p>
+              Email <span className="font-medium">{email}</span> belum diverifikasi. Ulangi password
+              Anda dan pilih peran. Setelah data Anda lengkap, kami kirim kode verifikasi ke email
+              ini.
+            </p>
+          ) : (
+            <p>
+              Belum ada akun untuk <span className="font-medium">{email}</span>. Ulangi password
+              Anda lalu pilih peran untuk mendaftar.
+            </p>
+          )}
 
           <div className="form-field">
             <label className="form-label form-label-required" htmlFor="auth-confirm-password">
@@ -716,7 +984,7 @@ export const AuthEntry = ({
             <Button type="button" onClick={backToSignup} variant="ghost" size="sm">
               Kembali
             </Button>
-            <Button type="submit" loading={isSubmitting} variant="primary" size="md">
+            <Button type="submit" loading={isSubmitting || isResending} variant="primary" size="md">
               Selesai
             </Button>
           </div>
@@ -786,7 +1054,7 @@ export const AuthEntry = ({
             <Button type="button" onClick={backToSignup} variant="ghost" size="sm">
               Kembali
             </Button>
-            <Button type="submit" loading={isSubmitting} variant="primary" size="md">
+            <Button type="submit" loading={isSubmitting || isResending} variant="primary" size="md">
               Selesai
             </Button>
           </div>

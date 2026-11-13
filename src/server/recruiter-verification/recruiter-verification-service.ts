@@ -2,7 +2,7 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/recruiter-verification/recruiter-verification-service");
 
-import { and, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { logger } from "@/lib/logger";
 import {
   enqueueRecruiterVerificationApproved,
@@ -74,8 +74,8 @@ const buildInsertValues = (userId: string, input: RecruiterVerificationInput) =>
 });
 
 // Inserts the recruiter verification submission inside an existing transaction — used by the
-// registration and second-role verification paths so the submission lands atomically with the
-// recruiter role grant. A pre-existing open submission is left untouched.
+// registration, email code verification and second-role verification paths so the submission
+// lands atomically with the recruiter role grant. A pre-existing open submission is left untouched.
 export const createRecruiterVerificationSubmissionInTransaction = async (
   tx: Database,
   userId: string,
@@ -661,7 +661,12 @@ export const listRecruiterVerificationQueue = async (
     })
     .from(recruiterVerificationSubmissions)
     .innerJoin(users, eq(users.id, recruiterVerificationSubmissions.userId))
-    .where(inArray(recruiterVerificationSubmissions.status, ["pending_review", "rejected"]))
+    .where(
+      and(
+        inArray(recruiterVerificationSubmissions.status, ["pending_review", "rejected"]),
+        isNotNull(users.emailVerified),
+      ),
+    )
     .orderBy(
       sql`(${recruiterVerificationSubmissions.status} = 'pending_review') desc`,
       sql`(${recruiterVerificationSubmissions.vouchedAt} is not null) desc`,
@@ -847,6 +852,8 @@ export const reviewRecruiterVerification = async (
       );
     }
 
+    // A recruiter request sent before its address is proven may be a stranger's,
+    // and verification replaces it.
     const [flipped] = await tx
       .update(recruiterVerificationSubmissions)
       .set({
@@ -860,6 +867,7 @@ export const reviewRecruiterVerification = async (
         and(
           eq(recruiterVerificationSubmissions.id, submissionId),
           eq(recruiterVerificationSubmissions.status, "pending_review"),
+          sql`exists (select 1 from ${users} where ${users.id} = ${recruiterVerificationSubmissions.userId} and ${users.emailVerified} is not null)`,
         ),
       )
       .returning({
@@ -871,7 +879,13 @@ export const reviewRecruiterVerification = async (
       const [existing] = await tx
         .select({ id: recruiterVerificationSubmissions.id })
         .from(recruiterVerificationSubmissions)
-        .where(eq(recruiterVerificationSubmissions.id, submissionId))
+        .innerJoin(users, eq(users.id, recruiterVerificationSubmissions.userId))
+        .where(
+          and(
+            eq(recruiterVerificationSubmissions.id, submissionId),
+            isNotNull(users.emailVerified),
+          ),
+        )
         .limit(1);
       if (!existing) {
         throw new RecruiterVerificationError(

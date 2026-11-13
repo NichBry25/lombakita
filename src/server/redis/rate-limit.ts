@@ -15,7 +15,8 @@ assertServerOnly("server/redis/rate-limit");
 //     they fail OPEN (allow) and record the degradation to Sentry.
 //   - OPERATIONAL limiting (checkFixedWindowLimitFailClosed) guards platform_ops / finance_ops
 //     capability, where refusing is the safe answer — the same asymmetry DEC-0112 applies to the
-//     live role read and DEC-0134 to MFA. It fails CLOSED.
+//     live role read and DEC-0134 to MFA. It fails CLOSED. The guessing limits of the email
+//     verification code use it too: a guess that cannot be counted is a guess with no limit.
 //   - The single-use consume and the stored grant are replay guards. They must POSITIVELY confirm,
 //     so if Redis cannot confirm they fail CLOSED (the error propagates and the caller refuses).
 // When REDIS_URL is not configured (local dev without Redis) the FAIL-OPEN limiters silently allow —
@@ -137,8 +138,10 @@ export type FixedWindowDecision =
  * which states what it does when Redis is gone.
  *
  * Fail-closed is correct only where refusing is the safe answer — the operational surfaces, under
- * the same asymmetry DEC-0112 applies to role reads and DEC-0134 to MFA. It must NOT be swapped in
- * on the self-service auth paths: there, refusing everyone is the harm.
+ * the same asymmetry DEC-0112 applies to role reads and DEC-0134 to MFA, and the guessing limits
+ * of the email verification code, where a guess that cannot be counted is a guess with no limit.
+ * Elsewhere on the self-service auth paths it must NOT be swapped in: there, refusing everyone is
+ * the harm.
  *
  * An unconfigured Redis is treated identically to an unreachable one. There is no "feature off"
  * reading available to a fail-closed limiter: a limiter that cannot count has not established that

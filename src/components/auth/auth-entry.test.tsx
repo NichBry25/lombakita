@@ -208,17 +208,27 @@ const RETURN_PATH = "/competitions/acme/lomba-1";
 const resendCalls = () => fetchMock.mock.calls.filter(([url]) => url === RESEND_URL);
 
 describe("the email sign-up return address and end stage", () => {
-  it("sends the return address with the email sign-up", async () => {
+  it("returns to the page it started from once the code is verified", async () => {
     await reachCandidateStage(RETURN_PATH);
     fillCandidateProfile("Andi Saputra");
-
     submitProfile();
 
-    const body = await sentRegisterBody();
-    expect(body.callbackUrl).toBe(RETURN_PATH);
+    fireEvent.change(await screen.findByLabelText("Kode verifikasi"), {
+      target: { value: "123456" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Verifikasi" }));
+
+    await waitFor(() =>
+      expect(signIn).toHaveBeenCalledWith(
+        "credentials",
+        expect.objectContaining({ callbackUrl: RETURN_PATH }),
+      ),
+    );
+    const registerBody = JSON.parse(registerCalls()[0]?.[1].body);
+    expect(registerBody).not.toHaveProperty("callbackUrl");
   });
 
-  it("sends the return address with a resent verification", async () => {
+  it("keeps the return address out of the code request", async () => {
     fetchMock.mockImplementation(async (url: string) => {
       if (url === IDENTIFY_URL) {
         return jsonResponse(200, { state: "unverified" });
@@ -231,26 +241,30 @@ describe("the email sign-up return address and end stage", () => {
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: PASSWORD } });
     fireEvent.click(screen.getByRole("button", { name: "Lanjut" }));
 
-    const resendButton = await screen.findByRole("button", { name: "Kirim ulang verifikasi" });
-    fireEvent.click(resendButton);
+    fireEvent.click(await screen.findByRole("button", { name: "Lengkapi pendaftaran" }));
+    fireEvent.change(await screen.findByLabelText("Konfirmasi password"), {
+      target: { value: PASSWORD },
+    });
+    chooseRole("Daftar sebagai kandidat");
+    fillCandidateProfile("Andi Saputra");
+    submitProfile();
 
     await waitFor(() => expect(resendCalls()).toHaveLength(1));
     const body = JSON.parse(resendCalls()[0]?.[1].body);
-    expect(body).toEqual({ email: "andi.saputra@example.test", callbackUrl: RETURN_PATH });
+    expect(body).toEqual({ email: "andi.saputra@example.test" });
   });
 
-  it("ends email sign-up on the check-email stage", async () => {
+  it("ends email sign-up on the code stage", async () => {
     await reachCandidateStage();
     fillCandidateProfile("Andi Saputra");
 
     submitProfile();
 
-    expect(await screen.findByText("Periksa email Anda.")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Kirim ulang verifikasi" })).toBeTruthy();
-    await waitFor(() => expect(document.activeElement?.getAttribute("role")).toBe("status"));
-    expect(document.activeElement?.textContent).toContain("Periksa email Anda.");
-    expect(document.activeElement?.textContent).toContain(EMAIL);
-    expect(document.activeElement?.textContent).toContain("Tautan berlaku 24 jam");
+    const codeBox = await screen.findByLabelText("Kode verifikasi");
+    await waitFor(() => expect(document.activeElement).toBe(codeBox));
+    const description = document.getElementById(codeBox.getAttribute("aria-describedby") ?? "");
+    expect(description?.textContent).toContain(EMAIL);
+    expect(description?.textContent).toContain("Kode berlaku 10 menit");
     expect(screen.queryByText(/Pendaftaran berhasil/)).toBeNull();
   });
 

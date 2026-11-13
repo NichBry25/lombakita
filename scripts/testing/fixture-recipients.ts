@@ -384,11 +384,6 @@ export const ACCEPTED_ROUTABLE_TEST_ADDRESSES: readonly AcceptedRoutableTestFile
     reason: "mocked_delivery",
   },
   {
-    file: "src/server/auth/credentials-claim-wiring.test.ts",
-    addresses: ["user@e.com"],
-    reason: "mocked_delivery",
-  },
-  {
     file: "src/server/auth/oauth-account.test.ts",
     addresses: ["attacker@corp.co.id"],
     reason: "mocked_delivery",
@@ -545,7 +540,7 @@ export const scanGovernedTestFiles = (): FixtureRecipient[] =>
  * assertion true by construction and measure nothing, which is the defect this whole gate exists
  * to avoid shipping.
  */
-export const PINNED_ADDRESS_CEILING = 83;
+export const PINNED_ADDRESS_CEILING = 82;
 
 /** What the register actually holds right now. Compared against the literal above. */
 export const pinnedAddressTotal = (): number =>

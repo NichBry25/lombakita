@@ -51,6 +51,7 @@ const EXCEPTIONS: Record<string, string> = {
   "src/app/api/v1/auth/identify/route.ts#POST": "Public sign-in account classification.",
   "src/app/api/v1/auth/register/route.ts#POST": "Public registration must precede authentication.",
   "src/app/api/v1/auth/register/resend/route.ts#POST": "Public email verification resend.",
+  "src/app/api/v1/auth/register/verify/route.ts#POST": "Public email verification by code.",
   "src/app/api/v1/auth/password-reset/request/route.ts#POST":
     "Public password-reset request; the caller is not signed in.",
   "src/app/api/v1/auth/password-reset/confirm/route.ts#POST":

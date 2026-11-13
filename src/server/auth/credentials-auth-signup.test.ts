@@ -30,6 +30,11 @@ vi.mock("@/server/auth/password", () => ({
   verifyPassword: vi.fn(),
 }));
 vi.mock("@/server/auth/email-verification", () => ({ sendRegistrationVerificationEmail }));
+vi.mock("@/server/auth/registration-code", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/server/auth/registration-code")>()),
+  issueRegistrationCode: () => "123456",
+  hashRegistrationCode: (userId: string, code: string) => `hash:${userId}:${code}`,
+}));
 
 import {
   registerUserWithCredentials,
@@ -211,64 +216,28 @@ const resendWithReturnAddress = async (callbackUrl: string) => {
   );
 };
 
-describe("the return address in the verification email", () => {
+describe("the verification email of a sign-up that carries a return address", () => {
   beforeEach(() => {
     sendRegistrationVerificationEmail.mockClear();
   });
 
-  it("puts a path on this site into the verification email", async () => {
+  it("sends only the address and the code after a sign-up", async () => {
     await registerCandidateWithReturnAddress("/competitions/acme/lomba-1");
 
     expect(sendRegistrationVerificationEmail).toHaveBeenCalledTimes(1);
-    expect(sendRegistrationVerificationEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ returnPath: "/competitions/acme/lomba-1" }),
-    );
+    expect(sendRegistrationVerificationEmail).toHaveBeenCalledWith({
+      email: "candidate@example.com",
+      code: "123456",
+    });
   });
 
-  it("keeps a return address to another site out of the verification email", async () => {
-    await registerCandidateWithReturnAddress("https://example.com");
-
-    expect(sendRegistrationVerificationEmail).toHaveBeenCalledTimes(1);
-    expect(sendRegistrationVerificationEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ returnPath: null }),
-    );
-  });
-
-  it("drops a return address longer than 512 characters", async () => {
-    await registerCandidateWithReturnAddress("/" + "a".repeat(512));
-
-    expect(sendRegistrationVerificationEmail).toHaveBeenCalledTimes(1);
-    expect(sendRegistrationVerificationEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ returnPath: null }),
-    );
-  });
-
-  it("keeps a return address of exactly 512 characters", async () => {
-    const returnPath = "/" + "a".repeat(511);
-
-    await registerCandidateWithReturnAddress(returnPath);
-
-    expect(sendRegistrationVerificationEmail).toHaveBeenCalledTimes(1);
-    expect(sendRegistrationVerificationEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ returnPath }),
-    );
-  });
-
-  it("puts a path on this site into the resent verification email", async () => {
+  it("sends only the address and the code after a resend", async () => {
     await resendWithReturnAddress("/competitions/acme/lomba-1");
 
     expect(sendRegistrationVerificationEmail).toHaveBeenCalledTimes(1);
-    expect(sendRegistrationVerificationEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ returnPath: "/competitions/acme/lomba-1" }),
-    );
-  });
-
-  it("keeps a return address to another site out of the resent verification email", async () => {
-    await resendWithReturnAddress("//example.com");
-
-    expect(sendRegistrationVerificationEmail).toHaveBeenCalledTimes(1);
-    expect(sendRegistrationVerificationEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ returnPath: null }),
-    );
+    expect(sendRegistrationVerificationEmail).toHaveBeenCalledWith({
+      email: "candidate@example.com",
+      code: "123456",
+    });
   });
 });

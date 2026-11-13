@@ -57,31 +57,6 @@ describe("POST /api/v1/auth/register", () => {
     );
   });
 
-  it("hands the return address in the body to the service", async () => {
-    registerUserWithCredentials.mockResolvedValue({
-      email: "candidate@example.com",
-      verificationRequired: true,
-      alreadyVerified: false,
-    });
-
-    const request = new Request("http://localhost/api/v1/auth/register?as=candidate", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        name: "Candidate",
-        email: "candidate@example.com",
-        password: "very-strong-password",
-        callbackUrl: "/competitions/acme/lomba-1",
-      }),
-    });
-
-    await POST(request);
-
-    expect(registerUserWithCredentials).toHaveBeenCalledWith(
-      expect.objectContaining({ callbackUrl: "/competitions/acme/lomba-1" }),
-    );
-  });
-
   it("registers a recruiter when ?as=recruiter is supplied", async () => {
     registerUserWithCredentials.mockResolvedValue({
       email: "recruiter@example.com",
