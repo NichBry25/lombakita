@@ -65,7 +65,7 @@ describe("parseOrganizerContactInput", () => {
   });
 
   it("refuses a number that names no country", () => {
-    const refusal = refusalOf({ kind: "phone", value: "812 3456 7890" });
+    const refusal = refusalOf({ kind: "phone", value: "1234 5678" });
     expect(refusal.code).toBe("competition_organizer_contact_invalid");
     expect(refusal.httpStatus).toBe(400);
   });
@@ -74,6 +74,36 @@ describe("parseOrganizerContactInput", () => {
     const refusal = refusalOf({ kind: "whatsapp", value: "+1 555 123 4567" });
     expect(refusal.code).toBe("competition_organizer_contact_not_indonesian");
     expect(refusal.httpStatus).toBe(400);
+  });
+
+  it("refuses a WhatsApp contact that is not an Indonesian mobile number", () => {
+    for (const value of ["021-555-1234", "+1 415 555 0100", "08123456"]) {
+      const refusal = refusalOf({ kind: "whatsapp", value });
+      expect(refusal.code).toBe("competition_organizer_contact_not_indonesian");
+      expect(refusal.httpStatus).toBe(400);
+    }
+  });
+
+  it("accepts an Indonesian mobile number written with +62 and a 0", () => {
+    expect(parseOrganizerContactInput({ kind: "whatsapp", value: "+62 0812 3456 7890" })).toEqual({
+      kind: "whatsapp",
+      value: "6281234567890",
+    });
+  });
+
+  it("refuses a number of more than 15 digits", () => {
+    const refusal = refusalOf({ kind: "phone", value: "0812345678901234567" });
+    expect(refusal.code).toBe("competition_organizer_contact_invalid");
+    expect(refusal.httpStatus).toBe(400);
+    expect(refusal.message).toBe("value must have 8 to 15 digits");
+  });
+
+  it("refuses an email contact with link characters", () => {
+    for (const value of ["panitia@kampus.test?cc=orang%40lain.test", "panitia@kampus.test#x"]) {
+      const refusal = refusalOf({ kind: "email", value });
+      expect(refusal.code).toBe("competition_organizer_contact_invalid");
+      expect(refusal.httpStatus).toBe(400);
+    }
   });
 
   it("refuses an email the host sign-up would refuse", () => {

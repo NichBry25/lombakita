@@ -39,6 +39,14 @@ const parseEmailContact = (value: string): OrganizerContact => {
       "value must be a valid email address",
     );
   }
+  // The address becomes a mailto link, so ? & = and the like would add hidden recipients or text.
+  if (!/^[a-z0-9._+-]+@[a-z0-9.-]+\.[a-z]{2,}$/.test(normalized)) {
+    throw new CompetitionError(
+      "competition_organizer_contact_invalid",
+      400,
+      "value must be a valid email address",
+    );
+  }
   return { kind: "email", value: normalized };
 };
 
@@ -56,14 +64,22 @@ const parsePhoneContact = (kind: "whatsapp" | "phone", value: string): Organizer
     throw new CompetitionError(
       "competition_organizer_contact_invalid",
       400,
-      "value must start with 0, 62 or a + country code",
+      "value must be an Indonesian number or a number with a + country code",
     );
   }
-  if (kind === "whatsapp" && !digits.startsWith("62")) {
+  if (digits.length < 8 || digits.length > 15) {
+    throw new CompetitionError(
+      "competition_organizer_contact_invalid",
+      400,
+      "value must have 8 to 15 digits",
+    );
+  }
+  // WhatsApp needs a mobile number: an Indonesian mobile number is 628 followed by 8 to 11 digits.
+  if (kind === "whatsapp" && !/^628\d{8,11}$/.test(digits)) {
     throw new CompetitionError(
       "competition_organizer_contact_not_indonesian",
       400,
-      "A WhatsApp contact must be an Indonesian number",
+      "A WhatsApp contact must be an Indonesian mobile number",
     );
   }
   return { kind, value: digits };

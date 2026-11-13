@@ -270,13 +270,14 @@ const putContact = async (
   actorUserId: string,
   competitionId: string,
   payload: unknown,
+  expectedUserId: string = actorUserId,
 ): Promise<RouteAnswer> => {
   stage(tx, actorUserId);
   const request = new Request(
     `https://lombakita.test/api/v1/competitions/${competitionId}/contact`,
     {
       method: "PUT",
-      headers: { "content-type": "application/json", "X-Expected-User-Id": actorUserId },
+      headers: { "content-type": "application/json", "X-Expected-User-Id": expectedUserId },
       body: JSON.stringify(payload),
     },
   );
@@ -397,6 +398,53 @@ describe.skipIf(skipWithoutDatabase)("the contact route against a real database"
         kind: "whatsapp",
         value: "6281234567890",
       });
+    });
+  });
+
+  it("refuses a contact save sent for another account after a session change", async () => {
+    await inRollback(async (tx) => {
+      const institution = await seedInstitution(tx);
+      const owner = await seedUser(tx);
+      await addMember(tx, institution.id, owner.id, "institution_owner");
+      const otherUser = await seedUser(tx);
+      const competition = await seedCompetition(tx, institution.id, {
+        contact: { kind: "whatsapp", value: "6281234567890" },
+      });
+
+      const answer = await putContact(
+        tx,
+        owner.id,
+        competition.id,
+        { kind: "phone", value: "0811-2222-3333" },
+        otherUser.id,
+      );
+
+      expect(answer.status).toBe(409);
+      expect(errorCodeOf(answer)).toBe("session_user_mismatch");
+      expect(await readContact(tx, competition.id)).toEqual({
+        kind: "whatsapp",
+        value: "6281234567890",
+      });
+    });
+  });
+
+  it("does not show a draft's contact to a plain member or another institution's owner", async () => {
+    await inRollback(async (tx) => {
+      const institution = await seedInstitution(tx);
+      const member = await seedUser(tx);
+      await addMember(tx, institution.id, member.id, "institution_member");
+      const competition = await seedCompetition(tx, institution.id, {
+        contact: { kind: "whatsapp", value: "6281234567890" },
+      });
+      const otherInstitution = await seedInstitution(tx);
+      const otherOwner = await seedUser(tx);
+      await addMember(tx, otherInstitution.id, otherOwner.id, "institution_owner");
+
+      for (const reader of [member, otherOwner]) {
+        const answer = await getContact(tx, reader.id, competition.id);
+        expect(answer.status).toBe(403);
+        expect(JSON.stringify(answer.body)).not.toContain("6281234567890");
+      }
     });
   });
 

@@ -818,8 +818,8 @@ const runDeidentificationWrites = async (
   // still names them.
   const retainedKeys = await findReferencedPaymentInstructionKeys(tx);
 
-  // Read BEFORE the host sign-up rows are deleted below: the contact clear matches the numbers
-  // they hold.
+  // Read BEFORE the host sign-up rows are deleted and the memberships revoked below. A sign-up
+  // number is never checked, so it is matched only on institutions the account helped run.
   const ownSignupNumbers = await tx
     .select({ mobileNumber: recruiterVerificationSubmissions.mobileNumber })
     .from(recruiterVerificationSubmissions)
@@ -828,6 +828,20 @@ const runDeidentificationWrites = async (
     const digits = toDialDigits(row.mobileNumber);
     return digits === null ? [] : [digits];
   });
+  const ownStaffInstitutionIds = (
+    await tx
+      .select({ institutionId: institutionMemberships.institutionId })
+      .from(institutionMemberships)
+      .where(
+        and(
+          eq(institutionMemberships.userId, accountId),
+          inArray(institutionMemberships.membershipRole, [
+            "institution_owner",
+            "institution_staff",
+          ]),
+        ),
+      )
+  ).map((row) => row.institutionId);
 
   const flipped = await tx
     .update(users)
@@ -1133,26 +1147,35 @@ const runDeidentificationWrites = async (
       .returning({ id: competitionReviews.id }),
   );
 
-  // The public contact of every competition that shows this person's own address or sign-up
-  // number, whoever set it there. A contact that is anyone else's stays.
+  // The public contact of every competition that shows this person's own address, and of every
+  // competition of an institution the person ran that shows their own sign-up number. A contact
+  // that is anyone else's stays. Nobody is told, so the audit row names every competition and
+  // institution it touched.
   const ownEmailContact = and(
     eq(competitions.organizerContactKind, "email"),
     sql`lower(${competitions.organizerContactValue}) = lower(${facts.originalEmail})`,
   );
   const ownNumberContact =
-    ownContactDigits.length === 0
+    ownContactDigits.length === 0 || ownStaffInstitutionIds.length === 0
       ? undefined
       : and(
           inArray(competitions.organizerContactKind, ["whatsapp", "phone"]),
           inArray(competitions.organizerContactValue, ownContactDigits),
+          inArray(competitions.institutionId, ownStaffInstitutionIds),
         );
-  await scrubIn("competitions", () =>
-    tx
+  let clearedOrganizerContacts: { competitionId: string; institutionId: string }[] = [];
+  await scrubIn("competitions", async () => {
+    const clearedRows = await tx
       .update(competitions)
       .set({ organizerContactKind: null, organizerContactValue: null, updatedAt: sql`now()` })
       .where(or(ownEmailContact, ownNumberContact))
-      .returning({ id: competitions.id }),
-  );
+      .returning({ id: competitions.id, institutionId: competitions.institutionId });
+    clearedOrganizerContacts = clearedRows.map((row) => ({
+      competitionId: row.id,
+      institutionId: row.institutionId,
+    }));
+    return clearedRows;
+  });
 
   // Revoked, not deleted: the membership row is what tells a reader the institution once had this
   // owner, and deleting it is what the `preflight-owners` predicate exists to prevent elsewhere.
@@ -1252,6 +1275,7 @@ const runDeidentificationWrites = async (
       rowsDeleted,
       rowsScrubbed,
       personalInstitutionId,
+      clearedOrganizerContacts,
     },
   });
 

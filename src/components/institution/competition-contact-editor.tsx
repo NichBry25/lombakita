@@ -41,7 +41,7 @@ const SHARED_SAVE_COPY: Partial<Record<string, string>> = {
   competition_invalid_payload:
     "Permintaan tidak dapat diproses. Muat ulang halaman lalu coba lagi.",
   competition_organizer_contact_not_indonesian:
-    "Nomor WhatsApp harus nomor Indonesia yang diawali 0 atau 62. Untuk nomor lain, pilih Telepon.",
+    "Nomor WhatsApp harus nomor ponsel Indonesia, misalnya 0812 3456 7890. Untuk nomor lain, pilih Telepon.",
 };
 
 const NUMBER_SAVE_COPY: Partial<Record<string, string>> = {

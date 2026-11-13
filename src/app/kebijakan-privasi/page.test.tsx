@@ -198,8 +198,10 @@ describe("PrivacyPage", () => {
 
     it("says the contact goes when the account it belongs to is deleted", () => {
       expect(renderPage()).toContain(
-        "Jika akun pemilik nomor atau email itu dihapus, kontak tersebut dihapus dari setiap " +
-          "kompetisi yang memakainya. Tombol untuk menghubungi penyelenggara tidak tampil lagi " +
+        "Jika sebuah akun dihapus, kontak yang sama dengan email akun itu dihapus dari setiap " +
+          "kompetisi yang memakainya. Kontak yang sama dengan nomor ponsel pendaftaran " +
+          "penyelenggara akun itu dihapus dari kompetisi institusi tempat akun itu pernah menjadi " +
+          "pemilik atau staf. Tombol untuk menghubungi penyelenggara tidak tampil lagi " +
           "sampai penyelenggara mengisi kontak baru.",
       );
     });

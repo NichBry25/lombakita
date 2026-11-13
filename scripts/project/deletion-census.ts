@@ -1714,8 +1714,9 @@ export const TABLE_RULINGS: readonly StoreRuling[] = Object.freeze([
       "still titled `Kuis Mingguan Rina`, published and publicly reachable, carrying a given " +
       "name that appears nowhere in the account's own rows. The de-identification action clears " +
       "`organizer_contact_kind` and `organizer_contact_value` wherever the value is the account's own " +
-      "email or a number from its own host sign-up submissions, and leaves a contact that is anyone " +
-      "else's",
+      "email, and on competitions of institutions where the account held an owner or staff " +
+      "membership wherever it is a number from its own host sign-up submissions. A contact that is " +
+      "anyone else's stays",
   },
   {
     store: "finance_fee_accruals",

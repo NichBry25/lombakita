@@ -101,8 +101,9 @@ export default function TermsPage() {
             Saat menerbitkan kompetisi, penyelenggara memilih satu kontak untuk peserta, berupa
             nomor WhatsApp, nomor telepon, atau alamat email. Dengan menerbitkan, penyelenggara
             menyetujui kontak itu tampil untuk umum di halaman kompetisi dan dapat muncul di mesin
-            pencari. Kontak itu dihapus dari kompetisi jika akun pemilik nomor atau email tersebut
-            dihapus.
+            pencari. Kontak itu dihapus dari kompetisi jika akun yang memakai email tersebut
+            dihapus, atau jika akun pemilik atau staf institusi penyelenggara yang mendaftar dengan
+            nomor tersebut dihapus.
           </p>
         </section>
 

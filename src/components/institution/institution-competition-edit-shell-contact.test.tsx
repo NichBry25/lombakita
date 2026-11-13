@@ -190,7 +190,7 @@ describe("the contact part in the edit shell", () => {
 
     expect(
       await screen.findByText(
-        "Kontak untuk peserta belum tersimpan. Nomor WhatsApp harus nomor Indonesia yang diawali 0 atau 62. Untuk nomor lain, pilih Telepon.",
+        "Kontak untuk peserta belum tersimpan. Nomor WhatsApp harus nomor ponsel Indonesia, misalnya 0812 3456 7890. Untuk nomor lain, pilih Telepon.",
       ),
     ).toBeTruthy();
     expect(calls).toEqual([COMPETITION_URL, CONTACT_GET, CONTACT_PUT]);

@@ -174,7 +174,7 @@ describe("CompetitionContactEditor", () => {
     expect(result).toEqual({
       ok: false,
       errorMessage:
-        "Nomor WhatsApp harus nomor Indonesia yang diawali 0 atau 62. Untuk nomor lain, pilih Telepon.",
+        "Nomor WhatsApp harus nomor ponsel Indonesia, misalnya 0812 3456 7890. Untuk nomor lain, pilih Telepon.",
     });
   });
 

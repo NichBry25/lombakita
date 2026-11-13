@@ -25,7 +25,24 @@ describe("the organiser contact", () => {
   });
 
   it("gives no digits for a number that names no country", () => {
-    expect(toDialDigits("812 3456 7890")).toBeNull();
+    expect(toDialDigits("1234 5678")).toBeNull();
+  });
+
+  it("reads every way of writing an Indonesian number as one number", () => {
+    for (const written of [
+      "0812 3456 7890",
+      "62812 3456 7890",
+      "+62 812 3456 7890",
+      "+62 0812 3456 7890",
+      "0062 812 3456 7890",
+      "81234567890",
+    ]) {
+      expect(toDialDigits(written)).toBe("6281234567890");
+    }
+    expect(toDialDigits("021-555-1234")).toBe("62215551234");
+    expect(toDialDigits("+1 415 555 0100")).toBe("14155550100");
+    expect(toDialDigits("")).toBeNull();
+    expect(toDialDigits("12345")).toBeNull();
   });
 
   it("builds a WhatsApp chat, a call and an email link", () => {

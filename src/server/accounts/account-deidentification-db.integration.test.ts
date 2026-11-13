@@ -1944,41 +1944,139 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
         reason: "permintaan pemilik",
       });
 
-    it("clears every competition contact that is the account's own sign-up number", async () => {
+    // A company institution and its published competition showing the given contact. The target
+    // holds no membership in it unless a test adds one.
+    const insertInstitutionWithCompetition = async (
+      tx: Tx,
+      f: Fixture,
+      slugPart: string,
+      kind: ContactKind,
+      value: string,
+    ): Promise<{ institutionId: string; competitionId: string }> => {
+      const institutionId = randomUUID();
+      await tx.insert(institutions).values({
+        id: institutionId,
+        slug: `deident-${slugPart}-${f.suffix}`,
+        institutionType: "company",
+        displayName: `Penyelenggara ${f.suffix}`,
+        status: "active",
+        verificationStatus: "verified",
+      });
+      const competitionId = randomUUID();
+      await tx.insert(competitions).values({
+        id: competitionId,
+        institutionId,
+        slug: `deident-${slugPart}-comp-${f.suffix}`,
+        title: `Kompetisi lain ${f.suffix}`,
+        status: "published",
+        publishedAt: new Date(),
+        organizerContactKind: kind,
+        organizerContactValue: value,
+      });
+      return { institutionId, competitionId };
+    };
+
+    const readAuditMetadata = async (tx: Tx, f: Fixture) => {
+      const audit = await tx
+        .select()
+        .from(platformOpsAuditLogs)
+        .where(eq(platformOpsAuditLogs.targetUserId, f.target));
+      return audit[0]!.metadata as {
+        rowsScrubbed: Record<string, number>;
+        clearedOrganizerContacts: { competitionId: string; institutionId: string }[];
+      };
+    };
+
+    it("clears the account's own sign-up number on its own institutions and leaves it on others", async () => {
       await inRollback(async (tx) => {
         const f = await buildFixture(tx);
         await setContact(tx, f.competition, "whatsapp", "628123456789");
-        const otherInstitution = randomUUID();
-        await tx.insert(institutions).values({
-          id: otherInstitution,
-          slug: `deident-other-${f.suffix}`,
-          institutionType: "company",
-          displayName: `Penyelenggara ${f.suffix}`,
-          status: "active",
-          verificationStatus: "verified",
-        });
-        const otherCompetition = randomUUID();
-        await tx.insert(competitions).values({
-          id: otherCompetition,
-          institutionId: otherInstitution,
-          slug: `deident-other-comp-${f.suffix}`,
-          title: `Kompetisi lain ${f.suffix}`,
-          status: "published",
-          publishedAt: new Date(),
-          organizerContactKind: "phone",
-          organizerContactValue: "628123456789",
-        });
+        const other = await insertInstitutionWithCompetition(
+          tx,
+          f,
+          "other",
+          "phone",
+          "628123456789",
+        );
 
         await runDeletion(tx, f);
 
         expect(await readContact(tx, f.competition)).toEqual({ kind: null, value: null });
-        expect(await readContact(tx, otherCompetition)).toEqual({ kind: null, value: null });
-        const audit = await tx
-          .select()
-          .from(platformOpsAuditLogs)
-          .where(eq(platformOpsAuditLogs.targetUserId, f.target));
-        const metadata = audit[0]!.metadata as { rowsScrubbed: Record<string, number> };
-        expect(metadata.rowsScrubbed.competitions).toBe(2);
+        expect(await readContact(tx, other.competitionId)).toEqual({
+          kind: "phone",
+          value: "628123456789",
+        });
+        const metadata = await readAuditMetadata(tx, f);
+        expect(metadata.rowsScrubbed.competitions).toBe(1);
+      });
+    });
+
+    it("clears a contact written in another form of the account's sign-up number", async () => {
+      await inRollback(async (tx) => {
+        const f = await buildFixture(tx);
+        await tx.insert(recruiterVerificationSubmissions).values({
+          userId: f.target,
+          fullName: f.targetName,
+          mobileNumber: "81234567890",
+          status: "rejected",
+        });
+        await setContact(tx, f.competition, "phone", "6281234567890");
+
+        await runDeletion(tx, f);
+
+        expect(await readContact(tx, f.competition)).toEqual({ kind: null, value: null });
+      });
+    });
+
+    it("leaves a number contact on an institution where the account was only a member", async () => {
+      await inRollback(async (tx) => {
+        const f = await buildFixture(tx);
+        const memberOnly = await insertInstitutionWithCompetition(
+          tx,
+          f,
+          "member-only",
+          "whatsapp",
+          "628123456789",
+        );
+        await tx.insert(institutionMemberships).values({
+          id: randomUUID(),
+          institutionId: memberOnly.institutionId,
+          userId: f.target,
+          membershipRole: "institution_member",
+          status: "active",
+        });
+
+        await runDeletion(tx, f);
+
+        expect(await readContact(tx, memberOnly.competitionId)).toEqual({
+          kind: "whatsapp",
+          value: "628123456789",
+        });
+      });
+    });
+
+    it("names every cleared competition and its institution in the audit row", async () => {
+      await inRollback(async (tx) => {
+        const f = await buildFixture(tx);
+        await setContact(tx, f.competition, "whatsapp", "628123456789");
+        const stranger = await insertInstitutionWithCompetition(
+          tx,
+          f,
+          "stranger",
+          "email",
+          f.targetEmail,
+        );
+
+        await runDeletion(tx, f);
+
+        const metadata = await readAuditMetadata(tx, f);
+        expect(metadata.clearedOrganizerContacts).toHaveLength(2);
+        expect(metadata.clearedOrganizerContacts).toEqual(
+          expect.arrayContaining([
+            { competitionId: f.competition, institutionId: f.institution },
+            { competitionId: stranger.competitionId, institutionId: stranger.institutionId },
+          ]),
+        );
       });
     });
 
