@@ -471,6 +471,61 @@ export const submitTeamRegistration = async (
   return submitResult;
 };
 
+// Today's team cancellation, shared by the captain's cancel and the registration close check, so
+// both leave the team in forming with its joined members. The caller holds the participation lock.
+export const revertSubmittedTeamToForming = async (
+  tx: DbOrTx,
+  teamId: string,
+  competitionId: string,
+  cancellationReason: string,
+  mutationAt: Date,
+): Promise<TeamRegistrationResult> => {
+  const cancelled = await tx
+    .update(competitionRegistrations)
+    .set({
+      status: "cancelled",
+      cancelledAt: mutationAt,
+      cancellationReason,
+      updatedAt: sql`now()`,
+    })
+    .where(
+      and(
+        eq(competitionRegistrations.teamId, teamId),
+        eq(competitionRegistrations.status, "confirmed"),
+      ),
+    )
+    .returning({
+      id: competitionRegistrations.id,
+      studentId: competitionRegistrations.studentId,
+      status: competitionRegistrations.status,
+    });
+
+  const teamUpdate = await tx
+    .update(teams)
+    .set({ status: "forming", updatedAt: mutationAt })
+    .where(and(eq(teams.id, teamId), eq(teams.status, "submitted")))
+    .returning({ id: teams.id });
+
+  if (teamUpdate.length !== 1) {
+    throw new TeamError(
+      "team_state_conflict",
+      "Team state changed during cancellation — reload and retry",
+    );
+  }
+
+  logger.info("team_registration.cancelled", {
+    teamId,
+    competitionId,
+    cancelledRegistrations: cancelled.length,
+  });
+
+  return {
+    teamId,
+    status: "forming" as const,
+    registrations: cancelled,
+  };
+};
+
 // Captain reverts a submitted team back to forming by cancelling every team-typed
 // registration row. The same candidate-cancellation policy as the individual path applies:
 // reason required, the paid block conditional on a submitted bukti transfer, institution allow
@@ -560,50 +615,7 @@ export const cancelTeamRegistration = async (
     }
     assertTeamCancellationWindowOpen(lockedCompetition, mutationAt);
 
-    const cancelled = await tx
-      .update(competitionRegistrations)
-      .set({
-        status: "cancelled",
-        cancelledAt: mutationAt,
-        cancellationReason,
-        updatedAt: sql`now()`,
-      })
-      .where(
-        and(
-          eq(competitionRegistrations.teamId, teamId),
-          eq(competitionRegistrations.status, "confirmed"),
-        ),
-      )
-      .returning({
-        id: competitionRegistrations.id,
-        studentId: competitionRegistrations.studentId,
-        status: competitionRegistrations.status,
-      });
-
-    const teamUpdate = await tx
-      .update(teams)
-      .set({ status: "forming", updatedAt: mutationAt })
-      .where(and(eq(teams.id, teamId), eq(teams.status, "submitted")))
-      .returning({ id: teams.id });
-
-    if (teamUpdate.length !== 1) {
-      throw new TeamError(
-        "team_state_conflict",
-        "Team state changed during cancellation — reload and retry",
-      );
-    }
-
-    logger.info("team_registration.cancelled", {
-      teamId,
-      competitionId,
-      cancelledRegistrations: cancelled.length,
-    });
-
-    return {
-      teamId,
-      status: "forming" as const,
-      registrations: cancelled,
-    };
+    return revertSubmittedTeamToForming(tx, teamId, competitionId, cancellationReason, mutationAt);
   });
 
   for (const reg of cancelResult.registrations) {

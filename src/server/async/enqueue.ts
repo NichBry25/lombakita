@@ -9,6 +9,7 @@ import {
   type AsyncJobPayloadByName,
   type PaymentOutcomePayload,
   type PaymentProofSubmittedPayload,
+  type TeamCancelledBelowMinimumPayload,
 } from "@/server/async/contracts";
 import { buildAsyncJobId, sanitizeIdempotencyKey } from "@/server/async/idempotency";
 import { logEnqueueAccepted, logEnqueueRequested } from "@/server/async/observability";
@@ -389,6 +390,32 @@ export const enqueuePaymentOutcome = async (
   return enqueueAsyncJob({
     jobName: ASYNC_JOB_NAMES.paymentOutcome,
     idempotencyKey: `${input.paymentId}__${input.outcome}__${input.attempt}`,
+    payload: { ...input },
+  });
+};
+
+// Idempotency key: the team and the close the reminder serves, so a reminder re-armed by a moved
+// close is a new job. Fire-and-forget, callers must catch errors.
+export const enqueueTeamJoinReminder = async (input: {
+  teamId: string;
+  competitionId: string;
+  closesAt: Date;
+}): Promise<EnqueueAsyncJobResult<typeof ASYNC_JOB_NAMES.teamJoinReminder>> => {
+  return enqueueAsyncJob({
+    jobName: ASYNC_JOB_NAMES.teamJoinReminder,
+    idempotencyKey: `${input.teamId}__${input.closesAt.getTime()}`,
+    payload: { teamId: input.teamId, competitionId: input.competitionId },
+  });
+};
+
+// Idempotency key: registrationId, one notice per cancelled registration row.
+// Fire-and-forget, callers must catch errors.
+export const enqueueTeamCancelledBelowMinimum = async (
+  input: TeamCancelledBelowMinimumPayload,
+): Promise<EnqueueAsyncJobResult<typeof ASYNC_JOB_NAMES.teamCancelledBelowMinimum>> => {
+  return enqueueAsyncJob({
+    jobName: ASYNC_JOB_NAMES.teamCancelledBelowMinimum,
+    idempotencyKey: input.registrationId,
     payload: { ...input },
   });
 };

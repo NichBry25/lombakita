@@ -31,6 +31,9 @@ export const ASYNC_JOB_NAMES = {
   emailEgressProbe: "email.egress.probe",
   paymentProofSubmitted: "payment.proof.submitted",
   paymentOutcome: "payment.outcome",
+  teamCloseCheck: "team.close.check",
+  teamJoinReminder: "team.join.reminder",
+  teamCancelledBelowMinimum: "team.cancelled.below_minimum",
 } as const;
 
 export type AsyncJobName = (typeof ASYNC_JOB_NAMES)[keyof typeof ASYNC_JOB_NAMES];
@@ -230,6 +233,29 @@ export type EmailEgressProbePayload = {
   scheduledFor: string;
 };
 
+// No request triggers this one either. It fires on a timer (see `team-close-check-scheduler.ts`), and the
+// payload carries the fire time only for log correlation. The check reads the due teams itself.
+export type TeamCloseCheckPayload = {
+  scheduledFor: string;
+};
+
+// The reminder's words are read at delivery, so the payload carries only the team.
+export type TeamJoinReminderPayload = {
+  teamId: string;
+  competitionId: string;
+};
+
+// Carries the member count and the minimum that decided the cancellation, so an edit to the minimum
+// after the close cannot change what the member is told.
+export type TeamCancelledBelowMinimumPayload = {
+  registrationId: string;
+  studentId: string;
+  competitionId: string;
+  teamId: string;
+  memberCount: number;
+  minTeamSize: number;
+};
+
 export type AsyncJobPayloadByName = {
   [ASYNC_JOB_NAMES.probePing]: AsyncProbeJobPayload;
   [ASYNC_JOB_NAMES.competitionSearchSync]: CompetitionSearchSyncPayload;
@@ -250,6 +276,9 @@ export type AsyncJobPayloadByName = {
   [ASYNC_JOB_NAMES.emailEgressProbe]: EmailEgressProbePayload;
   [ASYNC_JOB_NAMES.paymentProofSubmitted]: PaymentProofSubmittedPayload;
   [ASYNC_JOB_NAMES.paymentOutcome]: PaymentOutcomePayload;
+  [ASYNC_JOB_NAMES.teamCloseCheck]: TeamCloseCheckPayload;
+  [ASYNC_JOB_NAMES.teamJoinReminder]: TeamJoinReminderPayload;
+  [ASYNC_JOB_NAMES.teamCancelledBelowMinimum]: TeamCancelledBelowMinimumPayload;
 };
 
 export const ASYNC_JOB_QUEUE_BY_NAME = {
@@ -281,4 +310,9 @@ export const ASYNC_JOB_QUEUE_BY_NAME = {
   // sweep causes, which is exactly what the note above means by "enqueued separately".
   [ASYNC_JOB_NAMES.paymentProofSubmitted]: ASYNC_QUEUE_NAMES.notifications,
   [ASYNC_JOB_NAMES.paymentOutcome]: ASYNC_QUEUE_NAMES.notifications,
+  // Platform maintenance on the reasoning of the payment expiry sweep. The two notices it causes are
+  // participant events, so they sit on the notifications queue.
+  [ASYNC_JOB_NAMES.teamCloseCheck]: ASYNC_QUEUE_NAMES.infrastructure,
+  [ASYNC_JOB_NAMES.teamJoinReminder]: ASYNC_QUEUE_NAMES.notifications,
+  [ASYNC_JOB_NAMES.teamCancelledBelowMinimum]: ASYNC_QUEUE_NAMES.notifications,
 } as const satisfies Record<AsyncJobName, AsyncQueueName>;

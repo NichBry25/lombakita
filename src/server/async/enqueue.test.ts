@@ -16,6 +16,8 @@ import {
   enqueueAsyncJob,
   enqueueCompetitionSearchSync,
   enqueueProbeJob,
+  enqueueTeamCancelledBelowMinimum,
+  enqueueTeamJoinReminder,
 } from "@/server/async/enqueue";
 
 const createAcceptingQueue = () => ({
@@ -142,5 +144,74 @@ describe("enqueueProbeJob", () => {
     );
     expect(result.duplicate).toBe(true);
     expect(result.jobId).toBe("existing-job");
+  });
+});
+
+describe("the team close check's notices", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getAsyncQueue.mockReturnValue(createAcceptingQueue());
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("keys a join reminder by its team and close, so a moved close is a new job", async () => {
+    const queue = createAcceptingQueue();
+    getAsyncQueue.mockReturnValue(queue);
+
+    const first = await enqueueTeamJoinReminder({
+      teamId: "team-1",
+      competitionId: "comp-1",
+      closesAt: new Date("2026-12-15T16:59:00.000Z"),
+    });
+    const second = await enqueueTeamJoinReminder({
+      teamId: "team-1",
+      competitionId: "comp-1",
+      closesAt: new Date("2026-12-15T17:59:00.000Z"),
+    });
+
+    expect([first.jobId, second.jobId]).toEqual([
+      "team.join.reminder__team-1__1797353940000",
+      "team.join.reminder__team-1__1797357540000",
+    ]);
+    expect(() => validateBullmqJobId(first.jobId)).not.toThrow();
+    expect(() => validateBullmqJobId(second.jobId)).not.toThrow();
+    expect(getAsyncQueue).toHaveBeenCalledWith(ASYNC_QUEUE_NAMES.notifications);
+    expect(queue.add).toHaveBeenCalledTimes(2);
+    expect(queue.add).toHaveBeenNthCalledWith(
+      1,
+      ASYNC_JOB_NAMES.teamJoinReminder,
+      { teamId: "team-1", competitionId: "comp-1" },
+      { jobId: first.jobId },
+    );
+    expect(queue.add).toHaveBeenNthCalledWith(
+      2,
+      ASYNC_JOB_NAMES.teamJoinReminder,
+      { teamId: "team-1", competitionId: "comp-1" },
+      { jobId: second.jobId },
+    );
+  });
+
+  it("keys a below-minimum notice by its registration", async () => {
+    const queue = createAcceptingQueue();
+    getAsyncQueue.mockReturnValue(queue);
+    const notice = {
+      registrationId: "reg-1",
+      studentId: "user-1",
+      competitionId: "comp-1",
+      teamId: "team-1",
+      memberCount: 2,
+      minTeamSize: 3,
+    };
+
+    const result = await enqueueTeamCancelledBelowMinimum(notice);
+
+    expect(result.jobId).toBe("team.cancelled.below_minimum__reg-1");
+    expect(getAsyncQueue).toHaveBeenCalledWith(ASYNC_QUEUE_NAMES.notifications);
+    expect(queue.add).toHaveBeenCalledWith(ASYNC_JOB_NAMES.teamCancelledBelowMinimum, notice, {
+      jobId: "team.cancelled.below_minimum__reg-1",
+    });
   });
 });
