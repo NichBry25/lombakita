@@ -74,6 +74,8 @@ type TeamRegistrationResult = {
   registrations: { id: string; studentId: string; status: CompetitionRegistrationStatus }[];
 };
 
+type TransactionClient = Parameters<Parameters<Database["transaction"]>[0]>[0];
+
 type DbOrTx = Database | Parameters<Parameters<Database["transaction"]>[0]>[0];
 
 const loadTeam = async (teamId: string, db: Database): Promise<TeamSnapshot | null> => {
@@ -474,7 +476,7 @@ export const submitTeamRegistration = async (
 // Today's team cancellation, shared by the captain's cancel and the registration close check, so
 // both leave the team in forming with its joined members. The caller holds the participation lock.
 export const revertSubmittedTeamToForming = async (
-  tx: DbOrTx,
+  tx: TransactionClient,
   teamId: string,
   competitionId: string,
   cancellationReason: string,

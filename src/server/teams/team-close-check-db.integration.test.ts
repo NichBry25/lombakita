@@ -18,7 +18,7 @@ import {
   users,
 } from "@/server/db/schema";
 import { TEST_DATABASE_URL, skipWithoutDatabase } from "@/server/testing/database-url";
-import type { Database } from "@/server/db/client";
+import { getDb, type Database } from "@/server/db/client";
 
 const DATABASE_URL = TEST_DATABASE_URL;
 const client = DATABASE_URL ? postgres(DATABASE_URL, { max: 1 }) : null;
@@ -70,6 +70,8 @@ const enqueueSpies = vi.hoisted(() => ({
   enqueueRegistrationCancelled: vi.fn(),
   enqueueRegistrationConfirmed: vi.fn(),
   enqueueTeamInvitationDispatch: vi.fn(),
+  enqueueCompetitionSearchSync: vi.fn(),
+  enqueueCompetitionCancelled: vi.fn(),
 }));
 
 vi.mock("@/server/async/enqueue", async (importOriginal) => {
@@ -99,11 +101,20 @@ import {
   type TeamCancelledBelowMinimumJob,
 } from "@/server/async/jobs/team-cancelled-below-minimum";
 import {
+  markJoinReminderForCurrentClose,
   settleTeamsAtRegistrationClose,
   TEAM_BELOW_MINIMUM_CANCELLATION_REASON,
 } from "@/server/teams/team-close-check-service";
-import { submitTeamRegistration } from "@/server/teams/team-registration-service";
-import { acceptTeamInvitationForUser } from "@/server/teams/team-service";
+import {
+  cancelTeamRegistration,
+  revertSubmittedTeamToForming,
+  submitTeamRegistration,
+} from "@/server/teams/team-registration-service";
+import {
+  acceptTeamInvitationForUser,
+  declineTeamInvitationForUser,
+} from "@/server/teams/team-service";
+import { unpublishCompetition } from "@/server/competitions/competition-service";
 import { moveRegisteredTeamInvitationsToClose } from "@/server/teams/registered-team";
 import { hashToken } from "@/server/teams/team-core";
 import { formatWib } from "@/lib/dates/date-format";
@@ -160,6 +171,7 @@ const seedOwner = async (tx: Tx): Promise<SeededUser> => {
 };
 
 type SeededCompetition = {
+  ownerId: string;
   institutionId: string;
   institutionSlug: string;
   competitionId: string;
@@ -173,6 +185,9 @@ type CompetitionSeed = {
   maxTeamSize: number;
   registrationEndAt: Date;
   paid?: boolean;
+  status?: "published" | "archived";
+  deletedAt?: Date;
+  allowCancellation?: boolean;
   participation?: {
     participantConfirmationAt: Date;
     participationConfirmedAt?: Date;
@@ -232,7 +247,9 @@ const seedCompetition = async (tx: Tx, input: CompetitionSeed): Promise<SeededCo
       mode: "team",
       minTeamSize: input.minTeamSize,
       maxTeamSize: input.maxTeamSize,
-      status: "published",
+      status: input.status ?? "published",
+      ...(input.deletedAt ? { deletedAt: input.deletedAt } : {}),
+      ...(input.allowCancellation ? { allowCancellation: true, cancellationCutoffDays: 1 } : {}),
       publishedAt: new Date(),
       registrationStartAt: new Date(Date.now() - 7 * DAY_MS),
       registrationEndAt: input.registrationEndAt,
@@ -247,6 +264,7 @@ const seedCompetition = async (tx: Tx, input: CompetitionSeed): Promise<SeededCo
     .returning({ id: competitions.id, registrationEndAt: competitions.registrationEndAt });
 
   return {
+    ownerId: owner.id,
     institutionId: institution!.id,
     institutionSlug,
     competitionId: competition!.id,
@@ -737,6 +755,154 @@ describe.skipIf(skipWithoutDatabase)("the reminder a day before registration clo
   });
 });
 
+// Each test calls the marker update directly for a team the reminder's read chose, whose
+// competition or team changed before the update. The archived, cancelled, deleted and forming
+// states with a registered team's rows are reached by hand, because the real paths leave no
+// registered team there.
+describe.skipIf(skipWithoutDatabase)("the reminder marker decides in its own statement", () => {
+  const seedRegisteredTeamBeforeClose = async (
+    tx: Tx,
+    competitionOverrides: Partial<CompetitionSeed>,
+    registeredAt?: Date,
+  ) => {
+    const competition = await seedCompetition(tx, {
+      minTeamSize: 3,
+      maxTeamSize: 3,
+      registrationEndAt: new Date(Date.now() + 20 * HOUR_MS),
+      ...competitionOverrides,
+    });
+    const captain = await seedCandidate(tx, "captain");
+    const budi = await seedCandidate(tx, "budi");
+    const teamId = await seedTeam(tx, {
+      competitionId: competition.competitionId,
+      captainId: captain.id,
+      memberIds: [budi.id],
+      status: "submitted",
+      registeredAt,
+    });
+    return { competition, teamId };
+  };
+
+  it("marks a registered team of a published competition with the close it serves", async () => {
+    await inRollback(async (tx) => {
+      const { competition, teamId } = await seedRegisteredTeamBeforeClose(tx, {});
+      const close = await closeOf(tx, competition.competitionId);
+
+      const now = new Date();
+      const windowEnd = new Date(now.getTime() + 24 * HOUR_MS);
+      const marked = await markJoinReminderForCurrentClose(
+        [teamId],
+        now,
+        windowEnd,
+        tx as unknown as Database,
+      );
+
+      expect({ marked, marker: await markerOf(tx, teamId) }).toEqual({
+        marked: [{ teamId, competitionId: competition.competitionId, closesAt: close }],
+        marker: close,
+      });
+      expect(await markerMatchesClose(tx, teamId)).toBe(true);
+    });
+  });
+
+  it("does not mark a team registered within the last 24 hours before the close", async () => {
+    await inRollback(async (tx) => {
+      const { teamId } = await seedRegisteredTeamBeforeClose(
+        tx,
+        {},
+        new Date(Date.now() - 30 * 60_000),
+      );
+
+      const now = new Date();
+      const windowEnd = new Date(now.getTime() + 24 * HOUR_MS);
+      const marked = await markJoinReminderForCurrentClose(
+        [teamId],
+        now,
+        windowEnd,
+        tx as unknown as Database,
+      );
+
+      expect({ marked, marker: await markerOf(tx, teamId) }).toEqual({ marked: [], marker: null });
+    });
+  });
+
+  it("does not mark a team that is not registered", async () => {
+    await inRollback(async (tx) => {
+      const { teamId } = await seedRegisteredTeamBeforeClose(tx, {});
+      await tx.update(teams).set({ status: "forming" }).where(eq(teams.id, teamId));
+
+      const now = new Date();
+      const windowEnd = new Date(now.getTime() + 24 * HOUR_MS);
+      const marked = await markJoinReminderForCurrentClose(
+        [teamId],
+        now,
+        windowEnd,
+        tx as unknown as Database,
+      );
+
+      expect({ marked, marker: await markerOf(tx, teamId) }).toEqual({ marked: [], marker: null });
+    });
+  });
+
+  it("does not mark a team of a competition that is no longer published", async () => {
+    await inRollback(async (tx) => {
+      const { teamId } = await seedRegisteredTeamBeforeClose(tx, { status: "archived" });
+
+      const now = new Date();
+      const windowEnd = new Date(now.getTime() + 24 * HOUR_MS);
+      const marked = await markJoinReminderForCurrentClose(
+        [teamId],
+        now,
+        windowEnd,
+        tx as unknown as Database,
+      );
+
+      expect({ marked, marker: await markerOf(tx, teamId) }).toEqual({ marked: [], marker: null });
+    });
+  });
+
+  it("does not mark a team of a cancelled competition", async () => {
+    await inRollback(async (tx) => {
+      const { teamId } = await seedRegisteredTeamBeforeClose(tx, {
+        participation: {
+          participantConfirmationAt: new Date(Date.now() + 21 * HOUR_MS),
+          cancelledAt: new Date(Date.now() + 22 * HOUR_MS),
+        },
+      });
+
+      const now = new Date();
+      const windowEnd = new Date(now.getTime() + 24 * HOUR_MS);
+      const marked = await markJoinReminderForCurrentClose(
+        [teamId],
+        now,
+        windowEnd,
+        tx as unknown as Database,
+      );
+
+      expect({ marked, marker: await markerOf(tx, teamId) }).toEqual({ marked: [], marker: null });
+    });
+  });
+
+  it("does not mark a team of a deleted competition", async () => {
+    await inRollback(async (tx) => {
+      const { teamId } = await seedRegisteredTeamBeforeClose(tx, {
+        deletedAt: new Date(Date.now() - 60_000),
+      });
+
+      const now = new Date();
+      const windowEnd = new Date(now.getTime() + 24 * HOUR_MS);
+      const marked = await markJoinReminderForCurrentClose(
+        [teamId],
+        now,
+        windowEnd,
+        tx as unknown as Database,
+      );
+
+      expect({ marked, marker: await markerOf(tx, teamId) }).toEqual({ marked: [], marker: null });
+    });
+  });
+});
+
 describe.skipIf(skipWithoutDatabase)("what happens at the registration close", () => {
   it("cancels a free team registered through the real registration that is still short at the close, and tells each member once", async () => {
     await inRollback(async (tx) => {
@@ -846,6 +1012,69 @@ describe.skipIf(skipWithoutDatabase)("what happens at the registration close", (
         teamId,
         memberCount: 3,
         minTeamSize: 4,
+      }));
+      const noticeCalls = callsForTeam(enqueueSpies.enqueueTeamCancelledBelowMinimum, teamId);
+      expect([...noticeCalls].sort(byRegistrationId)).toEqual(
+        [...expectedNotices].sort(byRegistrationId),
+      );
+    });
+  });
+
+  it("cancels a team that a decline left short, with no unanswered invite at the close, and tells each member once", async () => {
+    await inRollback(async (tx) => {
+      const competition = await seedCompetition(tx, {
+        minTeamSize: 3,
+        maxTeamSize: 3,
+        registrationEndAt: new Date(Date.now() + 23 * HOUR_MS),
+      });
+      const { rina, budi, teamId, invitees } = await registerThroughRealRegistration(
+        tx,
+        competition,
+        ["sari"],
+      );
+      const sari = invitees[0]!;
+
+      await expect(
+        declineTeamInvitationForUser(sari.invitationId, sari.id, tx as unknown as Database),
+      ).resolves.toBeUndefined();
+
+      expect((await invitationOf(tx, sari.invitationId)).status).toBe("declined");
+      const unansweredInvitations = await tx
+        .select({ id: teamInvitations.id })
+        .from(teamInvitations)
+        .where(
+          and(
+            eq(teamInvitations.teamId, teamId),
+            inArray(teamInvitations.status, ["pending", "pending_claim"]),
+          ),
+        );
+      expect(unansweredInvitations).toHaveLength(0);
+
+      await closeRegistration(tx, competition.competitionId);
+
+      await runTeamCloseCheckJob();
+
+      expect(await teamStatusOf(tx, teamId)).toBe("forming");
+      expect(await activeMemberIds(tx, teamId)).toEqual([rina.id, budi.id].sort());
+      const registrations = await registrationsOf(tx, competition.competitionId, [
+        rina.id,
+        budi.id,
+      ]);
+      expect(registrations).toHaveLength(2);
+      for (const registration of registrations) {
+        expect(registration.status).toBe("cancelled");
+        expect(registration.cancellationReason).toBe(TEAM_BELOW_MINIMUM_CANCELLATION_REASON);
+        expect(registration.cancelledAt).not.toBeNull();
+      }
+      expect((await invitationOf(tx, sari.invitationId)).status).toBe("declined");
+
+      const expectedNotices = registrations.map((registration) => ({
+        registrationId: registration.id,
+        studentId: registration.studentId,
+        competitionId: competition.competitionId,
+        teamId,
+        memberCount: 2,
+        minTeamSize: 3,
       }));
       const noticeCalls = callsForTeam(enqueueSpies.enqueueTeamCancelledBelowMinimum, teamId);
       expect([...noticeCalls].sort(byRegistrationId)).toEqual(
@@ -1197,6 +1426,21 @@ describe.skipIf(skipWithoutDatabase)("what happens at the registration close", (
 });
 
 describe.skipIf(skipWithoutDatabase)("the captain's reminder and the members' notice", () => {
+  const queueReminderThroughTheRealCheck = async (tx: Tx, allowCancellation?: boolean) => {
+    const competition = await seedCompetition(tx, {
+      minTeamSize: 3,
+      maxTeamSize: 3,
+      registrationEndAt: new Date(Date.now() + 23 * HOUR_MS),
+      allowCancellation,
+    });
+    const { rina, teamId } = await registerThroughRealRegistration(tx, competition, ["sari"]);
+
+    await runTeamCloseCheckJob();
+
+    expect(callsForTeam(enqueueSpies.enqueueTeamJoinReminder, teamId)).toHaveLength(1);
+    return { competition, rina, teamId };
+  };
+
   it("tells the captain who has not joined, how many the team needs and when registration closes", async () => {
     await inRollback(async (tx) => {
       const competition = await seedCompetition(tx, {
@@ -1303,6 +1547,79 @@ describe.skipIf(skipWithoutDatabase)("the captain's reminder and the members' no
     });
   });
 
+  it("sends nothing when the host unpublished the competition after the reminder was queued", async () => {
+    await inRollback(async (tx) => {
+      const { competition, rina, teamId } = await queueReminderThroughTheRealCheck(tx);
+
+      await unpublishCompetition(
+        competition.ownerId,
+        competition.competitionId,
+        tx as unknown as Database,
+      );
+
+      await expect(
+        processTeamJoinReminderJob({
+          id: "job-reminder",
+          data: { teamId, competitionId: competition.competitionId },
+        } as unknown as TeamJoinReminderJob),
+      ).resolves.toBeUndefined();
+
+      expect({
+        inbox: await notificationsOf(tx, rina.id),
+        sends: noticeSpies.sendTeamCloseNoticeEmail.mock.calls.length,
+      }).toEqual({ inbox: [], sends: 0 });
+      expect(await teamStatusOf(tx, teamId)).toBe("submitted");
+    });
+  });
+
+  it("sends nothing when registration closed before the reminder was delivered", async () => {
+    await inRollback(async (tx) => {
+      const { competition, rina, teamId } = await queueReminderThroughTheRealCheck(tx);
+
+      await closeRegistration(tx, competition.competitionId);
+
+      await expect(
+        processTeamJoinReminderJob({
+          id: "job-reminder",
+          data: { teamId, competitionId: competition.competitionId },
+        } as unknown as TeamJoinReminderJob),
+      ).resolves.toBeUndefined();
+
+      expect({
+        inbox: await notificationsOf(tx, rina.id),
+        sends: noticeSpies.sendTeamCloseNoticeEmail.mock.calls.length,
+      }).toEqual({ inbox: [], sends: 0 });
+    });
+  });
+
+  it("sends nothing to a captain who cancelled the team's registration after the reminder was queued", async () => {
+    await inRollback(async (tx) => {
+      const { competition, rina, teamId } = await queueReminderThroughTheRealCheck(tx, true);
+
+      await expect(
+        cancelTeamRegistration(
+          rina.id,
+          competition.competitionId,
+          teamId,
+          "Kami batal ikut",
+          tx as unknown as Database,
+        ),
+      ).resolves.toMatchObject({ status: "forming" });
+
+      await expect(
+        processTeamJoinReminderJob({
+          id: "job-reminder",
+          data: { teamId, competitionId: competition.competitionId },
+        } as unknown as TeamJoinReminderJob),
+      ).resolves.toBeUndefined();
+
+      expect({
+        inbox: await notificationsOf(tx, rina.id),
+        sends: noticeSpies.sendTeamCloseNoticeEmail.mock.calls.length,
+      }).toEqual({ inbox: [], sends: 0 });
+    });
+  });
+
   it("tells a remaining member why the team's registration was cancelled", async () => {
     await inRollback(async (tx) => {
       const competition = await seedCompetition(tx, {
@@ -1363,5 +1680,15 @@ describe.skipIf(skipWithoutDatabase)("the captain's reminder and the members' no
         teamPagePath: `/competitions/${competition.institutionSlug}/${competition.competitionSlug}/registration`,
       });
     });
+  });
+});
+
+describe("today's team cancellation's handle", () => {
+  it("takes only a transaction handle", () => {
+    const callWithBareDatabase = () =>
+      // @ts-expect-error A bare database runs the two writes outside one transaction.
+      revertSubmittedTeamToForming(getDb(), "team-1", "comp-1", "alasan", new Date());
+
+    expect(typeof callWithBareDatabase).toBe("function");
   });
 });

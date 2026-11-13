@@ -266,6 +266,8 @@ const enqueueNoticesForTeamsCancelledAtClose = (settled: TeamsSettledAtClose): v
   }
 };
 
+// The teams that may be due: the close is within the lead and someone is missing. The fee is checked
+// below, and the marker update decides the rest in its own statement.
 const selectTeamsDueForJoinReminder = async (
   now: Date,
   reminderWindowEnd: Date,
@@ -277,13 +279,8 @@ const selectTeamsDueForJoinReminder = async (
     .innerJoin(competitions, eq(competitions.id, teams.competitionId))
     .where(
       and(
-        registeredTeamCondition(),
-        eq(competitions.status, "published"),
-        isNull(competitions.cancelledAt),
-        isNull(competitions.deletedAt),
         gt(competitions.registrationEndAt, now),
         lte(competitions.registrationEndAt, reminderWindowEnd),
-        teamRegisteredBeforeReminderWindow(),
         or(teamHasOpenInvitation(now), teamIsBelowMinimum()),
       ),
     );
@@ -291,7 +288,9 @@ const selectTeamsDueForJoinReminder = async (
 // The marker takes the competition's close inside this statement and never a JavaScript copy of it:
 // the column keeps microseconds and a Date keeps milliseconds, so a copied close might never match.
 // The compare-and-set also makes two runs at once remind once.
-const markJoinReminderForCurrentClose = async (
+// The team's registration, the competition's state and the close sit in this statement, so a competition
+// cancelled, a close moved or a team cancelled after the read above is judged as it stands at the write.
+export const markJoinReminderForCurrentClose = async (
   teamIds: string[],
   now: Date,
   reminderWindowEnd: Date,
@@ -305,6 +304,11 @@ const markJoinReminderForCurrentClose = async (
       and(
         inArray(teams.id, teamIds),
         eq(teams.competitionId, competitions.id),
+        registeredTeamCondition(),
+        eq(competitions.status, "published"),
+        isNull(competitions.cancelledAt),
+        isNull(competitions.deletedAt),
+        teamRegisteredBeforeReminderWindow(),
         sql`${teams.joinReminderCloseAt} is distinct from ${competitions.registrationEndAt}`,
         gt(competitions.registrationEndAt, now),
         lte(competitions.registrationEndAt, reminderWindowEnd),

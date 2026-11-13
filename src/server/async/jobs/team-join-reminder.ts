@@ -11,6 +11,7 @@ import { ASYNC_JOB_NAMES, type TeamJoinReminderPayload } from "@/server/async/co
 import { writeInboxNotificationSafely } from "@/server/notifications/inbox-write";
 import { NOTIFICATION_TYPES } from "@/server/notifications/notification-types";
 import { getTeamForViewer } from "@/server/teams/team-service";
+import { isPublishedAndNotCancelledOrDeleted } from "@/server/teams/registered-team";
 import {
   buildTeamJoinReminderNotice,
   buildTeamPagePath,
@@ -34,6 +35,9 @@ const loadReminderRecipient = async (teamId: string, db: Database) => {
       institutionSlug: institutions.slug,
       minTeamSize: competitions.minTeamSize,
       registrationEndAt: competitions.registrationEndAt,
+      competitionStatus: competitions.status,
+      cancelledAt: competitions.cancelledAt,
+      deletedAt: competitions.deletedAt,
     })
     .from(teams)
     .innerJoin(users, eq(users.id, teams.captainId))
@@ -57,11 +61,30 @@ export const processTeamJoinReminderJob = async (job: TeamJoinReminderJob): Prom
   const { teamId } = job.data;
 
   const db = getDb();
+  const deliveredAt = new Date();
 
   const recipient = await loadReminderRecipient(teamId, db);
   if (recipient === null || recipient.registrationEndAt === null) {
     logger.warn("team.join_reminder.skipped", {
       reason: "team_not_found",
+      jobId: job.id,
+      teamId,
+    });
+    return;
+  }
+
+  // A retry or a slow queue can deliver after the competition stopped taking registrations, and
+  // the reminder's words would then be false.
+  if (
+    !isPublishedAndNotCancelledOrDeleted({
+      status: recipient.competitionStatus,
+      cancelledAt: recipient.cancelledAt,
+      deletedAt: recipient.deletedAt,
+    }) ||
+    recipient.registrationEndAt.getTime() <= deliveredAt.getTime()
+  ) {
+    logger.warn("team.join_reminder.skipped", {
+      reason: "registration_not_open",
       jobId: job.id,
       teamId,
     });
@@ -78,7 +101,6 @@ export const processTeamJoinReminderJob = async (job: TeamJoinReminderJob): Prom
     return;
   }
 
-  const deliveredAt = new Date();
   // An invite whose own expiry has passed can no longer be accepted, so the reminder does not name it.
   const openInvitations = snapshot.pendingInvitations.filter(
     (invitation) => invitation.expiresAt.getTime() > deliveredAt.getTime(),
