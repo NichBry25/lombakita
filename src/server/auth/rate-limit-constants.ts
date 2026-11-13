@@ -63,6 +63,41 @@ export const REGISTRATION_RESEND_IP_LIMIT = {
 } as const;
 
 /**
+ * Fixed-window limiter on POST /api/v1/auth/register/verify, keyed by client IP.
+ *
+ * The broad-sweep bound, fail OPEN through checkClientIpBound like the resend route's. It does not
+ * bound guessing; the two limits below do, and they fail closed.
+ * Twice REGISTRATION_RATE_LIMIT, because every sign-up on a shared campus network needs at least
+ * one code check.
+ */
+export const REGISTRATION_CODE_IP_LIMIT = {
+  limit: 60,
+  windowSeconds: 10 * 60,
+  keyPrefix: "rl:register-verify-ip:",
+} as const;
+
+/**
+ * Attempts against one verification code, keyed by the code's row id. FAIL CLOSED: a limiter that
+ * cannot count refuses the attempt. Counted before the code is compared, so concurrent guesses
+ * cannot pass together. The window equals the code's life.
+ */
+export const REGISTRATION_CODE_ATTEMPT_LIMIT = {
+  limit: 3,
+  windowSeconds: 10 * 60,
+  keyPrefix: "rl:register-code:",
+} as const;
+
+/**
+ * Code attempts against one account in a day, keyed by user id, whatever network address they come
+ * from. FAIL CLOSED and counted before the code is compared, like the per-code limit above.
+ */
+export const REGISTRATION_CODE_DAILY_LIMIT = {
+  limit: 10,
+  windowSeconds: 24 * 60 * 60,
+  keyPrefix: "rl:register-code-day:",
+} as const;
+
+/**
  * Fixed-window limiter keyed by the ADDRESS a verification email is being requested for.
  *
  * This is the anti-amplification bound proper: without it, an attacker rotating IPs can have the
@@ -70,11 +105,10 @@ export const REGISTRATION_RESEND_IP_LIMIT = {
  * reputation. A real user needs one signup and, occasionally, one resend.
  *
  * ONE BUDGET SHARED BY /register AND /register/resend, which is the only shape that bounds what it
- * claims to. Both endpoints mail the same verification message to an address the caller names, and
- * registering an existing-but-unverified address re-sends rather than being refused, so a separate
- * counter per route would let a caller alternate the two and draw both allowances against one
- * victim. The question the counter answers is "how many verification emails may this address be
- * sent", and that question does not have a per-route answer.
+ * claims to. Both endpoints mail the same verification message to an address the caller names, so
+ * a separate counter per route would let a caller alternate the two and draw both allowances
+ * against one victim. The question the counter answers is "how many verification emails may this
+ * address be sent", and that question does not have a per-route answer.
  *
  * COUNTED BEFORE THE ADDRESS IS LOOKED UP, deliberately. A counter that only advanced when a send
  * actually happened would cap known addresses and never cap unknown ones, so reaching the cap would

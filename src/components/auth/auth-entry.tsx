@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { signIn } from "next-auth/react";
 import { Button, ButtonLink, SelectField, usePageTransition } from "@/components/ui";
 import { AssentNotice } from "@/components/legal/assent-notice";
@@ -16,9 +16,11 @@ import { PENDING_PROMPT_KEY } from "@/components/auth/second-role-prompt-modal";
 //     (/api/v1/auth/identify) and branch:
 //       • verified  → attempt the password sign-in (path a). Wrong/absent password → generic
 //                     "email atau password salah" (a Google-only account lands here too).
-//       • unverified→ show "email belum diverifikasi" + resend; never offer signup (would 23505).
+//       • unverified→ show the verify notice, which sends a verification code; never offer signup
+//                     (a sign-up for an address that already has an account is refused).
 //       • none      → role picker + name; create the account via the existing register endpoint,
-//                     which sends the Resend verification (path b). Account usable on verification.
+//                     which sends a verification code (path b). Account usable once the code is
+//                     typed.
 // Suspension is enforced in `authorize` regardless of this shell; we route the
 // ACCOUNT_SUSPENDED signal to /suspended.
 
@@ -42,6 +44,7 @@ type Method = "choose" | "credentials";
 type CredentialStage =
   | "entry"
   | "verifyNotice"
+  | "verifyCode"
   | "signup"
   | "candidateOnboarding"
   | "recruiterOnboarding";
@@ -67,6 +70,31 @@ const OCCUPATION_OPTIONS = [
   { value: "professional", label: "Profesional / bekerja" },
   { value: "other", label: "Lainnya" },
 ] as const;
+
+const verificationFailureMessage = (status: number, errorCode: string | undefined): string => {
+  if (errorCode === "verification_code_invalid") {
+    return "Kode salah atau sudah tidak berlaku. Periksa kode di email Anda, atau kirim ulang kode.";
+  }
+  if (errorCode === "verification_code_daily_limit") {
+    return "Terlalu banyak percobaan kode yang salah untuk email ini hari ini. Coba lagi besok.";
+  }
+  if (errorCode === "verification_code_attempts_exceeded") {
+    return "Terlalu banyak percobaan kode yang salah. Kirim ulang kode, atau coba lagi nanti.";
+  }
+  if (status === 429) {
+    return "Terlalu banyak permintaan dari jaringan ini. Tunggu beberapa menit lalu coba lagi.";
+  }
+  if (errorCode === "email_exists") {
+    return "Email ini sudah terverifikasi. Silakan masuk dengan password Anda.";
+  }
+  if (errorCode === "invalid_password") {
+    return "Password harus 8 sampai 72 karakter. Kembali, lalu masukkan password yang memenuhi syarat.";
+  }
+  if (status === 503) {
+    return "Verifikasi sedang tidak tersedia. Coba lagi beberapa saat.";
+  }
+  return "Verifikasi gagal. Coba lagi beberapa saat.";
+};
 
 export const AuthEntry = ({
   googleEnabled,
@@ -102,6 +130,9 @@ export const AuthEntry = ({
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isResending, setIsResending] = useState(false);
+  const [verificationCode, setVerificationCode] = useState("");
+  const [isVerifying, setIsVerifying] = useState(false);
+  const verificationCodeInputRef = useRef<HTMLInputElement>(null);
   const { begin: beginPageTransition } = usePageTransition();
   const { addToast } = useToast();
 
@@ -132,6 +163,12 @@ export const AuthEntry = ({
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage]);
+
+  useEffect(() => {
+    if (stage === "verifyCode") {
+      verificationCodeInputRef.current?.focus();
+    }
   }, [stage]);
 
   const startGoogle = () => {
@@ -269,22 +306,32 @@ export const AuthEntry = ({
         body: JSON.stringify({ email: email.trim().toLowerCase() }),
       });
 
-      if (!response.ok) {
+      if (response.status === 429) {
         addToast({
           type: "error",
-          message: "Gagal mengirim ulang verifikasi. Coba lagi beberapa saat.",
+          message: "Terlalu banyak permintaan kode. Tunggu beberapa menit lalu coba lagi.",
         });
         return;
       }
 
+      if (!response.ok) {
+        addToast({
+          type: "error",
+          message: "Gagal mengirim kode verifikasi. Coba lagi beberapa saat.",
+        });
+        return;
+      }
+
+      setVerificationCode("");
+      setStage("verifyCode");
       addToast({
         type: "success",
-        message: "Email verifikasi baru telah dikirim. Buka inbox/spam Anda.",
+        message: "Kode verifikasi telah dikirim. Buka inbox/spam Anda.",
       });
     } catch {
       addToast({
         type: "error",
-        message: "Gagal mengirim ulang verifikasi karena gangguan koneksi.",
+        message: "Gagal mengirim kode verifikasi karena gangguan koneksi.",
       });
     } finally {
       setIsResending(false);
@@ -320,6 +367,13 @@ export const AuthEntry = ({
             type: "error",
             message: "Akun untuk email ini sudah ada. Silakan masuk, bukan mendaftar.",
           });
+        } else if (payload?.error?.code === "email_not_verified") {
+          addToast({
+            type: "error",
+            message:
+              "Akun untuk email ini sudah ada tetapi belum diverifikasi. Kirim kode verifikasi untuk melanjutkan.",
+          });
+          setStage("verifyNotice");
         } else {
           addToast({
             type: "error",
@@ -330,11 +384,11 @@ export const AuthEntry = ({
         return;
       }
 
-      setStage("entry");
+      setVerificationCode("");
+      setStage("verifyCode");
       addToast({
         type: "success",
-        message:
-          "Pendaftaran berhasil. Kami sudah mengirim email verifikasi. Buka inbox Anda untuk mengaktifkan akun, lalu masuk.",
+        message: "Pendaftaran berhasil. Kami sudah mengirim kode verifikasi ke email Anda.",
       });
     } catch {
       addToast({
@@ -343,6 +397,58 @@ export const AuthEntry = ({
       });
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  // Plain fetch rather than sessionFetch: no session exists before the address is verified.
+  const onSubmitVerificationCode = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setIsVerifying(true);
+
+    try {
+      const response = await fetch("/api/v1/auth/register/verify", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          code: verificationCode.trim(),
+          password,
+        }),
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as {
+          error?: { code?: string };
+        } | null;
+        const errorCode = payload?.error?.code;
+        addToast({
+          type: "error",
+          message: verificationFailureMessage(response.status, errorCode),
+        });
+        if (errorCode === "email_exists") {
+          setStage("entry");
+        }
+        return;
+      }
+
+      // The address is verified at this point, so a failed sign-in must not read as a failed
+      // verification.
+      try {
+        await attemptCredentialSignIn();
+      } catch {
+        addToast({
+          type: "success",
+          message: "Email berhasil diverifikasi. Silakan masuk dengan password Anda.",
+        });
+        setStage("entry");
+      }
+    } catch {
+      addToast({
+        type: "error",
+        message: "Verifikasi gagal karena gangguan koneksi. Coba lagi beberapa saat.",
+      });
+    } finally {
+      setIsVerifying(false);
     }
   };
 
@@ -542,8 +648,8 @@ export const AuthEntry = ({
       {method === "credentials" && stage === "verifyNotice" ? (
         <div className="auth-stage-panel">
           <p>
-            Email <span className="font-medium">{email}</span> belum diverifikasi. Buka tautan
-            verifikasi di inbox/spam Anda, atau kirim ulang di bawah ini.
+            Email <span className="font-medium">{email}</span> belum diverifikasi. Kirim kode
+            verifikasi ke email ini, lalu masukkan kodenya di langkah berikutnya.
           </p>
           <div className="auth-form-actions">
             <Button type="button" onClick={backToEntry} variant="ghost" size="sm">
@@ -554,15 +660,80 @@ export const AuthEntry = ({
               loading={isResending}
               disabled={!verificationEnabled}
               onClick={() => {
+                // The code verification sets this password, so a password the server would refuse must not spend a code.
+                if (password.trim().length < 8 || password.trim().length > 72) {
+                  addToast({
+                    type: "error",
+                    message:
+                      "Password harus 8 sampai 72 karakter. Kembali, lalu masukkan password yang memenuhi syarat.",
+                  });
+                  return;
+                }
+                void onResend();
+              }}
+              variant="primary"
+              size="sm"
+            >
+              Kirim kode verifikasi
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {method === "credentials" && stage === "verifyCode" ? (
+        <form onSubmit={onSubmitVerificationCode} className="auth-form">
+          <p role="status">
+            Kami sudah mengirim kode 6 digit ke <span className="font-medium">{email}</span>.
+            Masukkan kode tersebut untuk mengaktifkan akun Anda. Kode berlaku 10 menit.
+          </p>
+
+          <div className="form-field">
+            <label className="form-label form-label-required" htmlFor="auth-verification-code">
+              Kode verifikasi
+            </label>
+            <input
+              ref={verificationCodeInputRef}
+              id="auth-verification-code"
+              name="code"
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              pattern="[0-9]{6}"
+              maxLength={6}
+              required
+              value={verificationCode}
+              onChange={(event) => setVerificationCode(event.target.value.replace(/\D/g, ""))}
+              className="form-input"
+            />
+          </div>
+
+          <div className="auth-form-actions">
+            <Button type="button" onClick={backToEntry} variant="ghost" size="sm">
+              Kembali
+            </Button>
+            <Button
+              type="button"
+              loading={isResending}
+              disabled={isVerifying}
+              onClick={() => {
                 void onResend();
               }}
               variant="outline"
               size="sm"
             >
-              Kirim ulang verifikasi
+              Kirim ulang kode
+            </Button>
+            <Button
+              type="submit"
+              loading={isVerifying}
+              disabled={isResending}
+              variant="primary"
+              size="md"
+            >
+              Verifikasi
             </Button>
           </div>
-        </div>
+        </form>
       ) : null}
 
       {method === "credentials" && stage === "signup" ? (
