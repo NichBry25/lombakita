@@ -34,6 +34,7 @@ import { RegisterStickyBar } from "./register-sticky-bar";
 import { RegistrationButton } from "./registration-button";
 import { SaveButton } from "./save-button";
 import { DetailActions } from "./detail-actions";
+import { OrganizerContactLink } from "./organizer-contact-link";
 import { CompetitionReviewForm } from "./competition-review-form";
 import { formatTeamSizeText } from "./team-size-utils";
 import { isPaidCompetition } from "@/lib/competitions/paid-competition";
@@ -768,6 +769,12 @@ export default async function CompetitionDetailPage({
               description={competition.description}
             />
           </div>
+          {competition.organizerContact ? (
+            <>
+              <div className="detail-rail-divider" />
+              <OrganizerContactLink contact={competition.organizerContact} />
+            </>
+          ) : null}
         </aside>
         <RegisterStickyBar targetId="register-actions">
           <RegistrationButton

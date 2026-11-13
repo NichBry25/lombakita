@@ -97,6 +97,13 @@ export default function TermsPage() {
             Pertanyaan dan keberatan tentang jalannya sebuah kompetisi ditujukan kepada
             penyelenggara kompetisi tersebut.
           </p>
+          <p>
+            Saat menerbitkan kompetisi, penyelenggara memilih satu kontak untuk peserta, berupa
+            nomor WhatsApp, nomor telepon, atau alamat email. Dengan menerbitkan, penyelenggara
+            menyetujui kontak itu tampil untuk umum di halaman kompetisi dan dapat muncul di mesin
+            pencari. Kontak itu dihapus dari kompetisi jika akun pemilik nomor atau email tersebut
+            dihapus.
+          </p>
         </section>
 
         <section className="stack-md document-clause">

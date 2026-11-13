@@ -7,6 +7,7 @@ export const COMPETITION_EDITOR_PART_ORDER = [
   "rounds",
   "prizes",
   "fee",
+  "contact",
 ] as const;
 export type CompetitionEditorPartKey = (typeof COMPETITION_EDITOR_PART_ORDER)[number];
 
@@ -17,6 +18,7 @@ export const COMPETITION_EDITOR_PART_LABELS: Record<CompetitionEditorPartKey, st
   rounds: "Tahapan & linimasa",
   prizes: "Hadiah",
   fee: "Biaya pendaftaran",
+  contact: "Kontak untuk peserta",
 };
 
 export const describePartLoadFailure = (key: CompetitionEditorPartKey): string =>

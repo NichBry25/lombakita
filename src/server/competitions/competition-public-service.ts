@@ -45,6 +45,7 @@ import {
   deriveCompetitionPhase,
   type CompetitionPhase,
 } from "@/lib/competitions/competition-phase";
+import { toOrganizerContact, type OrganizerContact } from "@/lib/competitions/organizer-contact";
 import {
   getInstitutionDisplayName,
   institutionOwnerUsernameSql,
@@ -583,6 +584,8 @@ const PUBLIC_DETAIL_COLUMNS = {
   feeAmount: competitions.feeAmount,
   feeCurrency: competitions.feeCurrency,
   eligibilityNote: competitions.eligibilityNote,
+  organizerContactKind: competitions.organizerContactKind,
+  organizerContactValue: competitions.organizerContactValue,
   publishedAt: competitions.publishedAt,
   institutionId: institutions.id,
   institutionSlug: institutions.slug,
@@ -596,12 +599,11 @@ const PUBLIC_DETAIL_COLUMNS = {
   institutionOwnerAvatarKey: institutionOwnerAvatarKeySql,
   institutionOwnerBannerKey: institutionOwnerBannerKeySql,
   institutionAbout: institutions.about,
-  // The organizer's contact details are deliberately NOT read here. They are gated on verification
-  // status and on the viewer (institution-public-service.ts), and this endpoint is unauthenticated
-  // and has no viewer to gate on — so it could only ever return them to everyone, which is the
-  // exposure the gate exists to close. Nothing rendered them: the competition detail page reads
-  // `organizer.name`, `logoUrl`, `about`, `websiteUrl` and `socialLinks`, and no component read a
-  // contact field.
+  // The institution's contact details are deliberately NOT read here. They are gated on
+  // verification status and on the viewer (institution-public-service.ts), and this endpoint is
+  // unauthenticated and has no viewer to gate on, so it could only ever return them to everyone,
+  // which is the exposure the gate exists to close. The competition's own contact, read above, is a
+  // different field, public by the terms and the privacy policy.
   institutionWebsiteUrl: institutions.websiteUrl,
 } as const;
 
@@ -643,6 +645,8 @@ export type PublicCompetitionDetail = {
   feeAmount: number | null;
   feeCurrency: string | null;
   eligibilityNote: string | null;
+  // The contact the host chose at publish, or null for a competition published without one.
+  organizerContact: OrganizerContact | null;
   tags: string[];
   publishedAt: Date | null;
   registrantCount: number;
@@ -822,6 +826,7 @@ export const getPublicCompetitionDetail = async (
     feeAmount: row.feeAmount,
     feeCurrency: row.feeCurrency,
     eligibilityNote: row.eligibilityNote,
+    organizerContact: toOrganizerContact(row.organizerContactKind, row.organizerContactValue),
     tags,
     publishedAt: row.publishedAt,
     registrantCount,

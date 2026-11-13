@@ -54,6 +54,9 @@ vi.mock("@/components/institution/competition-eligibility-editor", () => ({
 vi.mock("@/components/institution/competition-fee-section", () => ({
   CompetitionFeeSection: () => null,
 }));
+vi.mock("@/components/institution/competition-contact-editor", () => ({
+  CompetitionContactEditor: () => null,
+}));
 
 const recruiterSession = (): Session => ({
   user: {
@@ -136,5 +139,16 @@ describe("competition edit page institution-admin guard", () => {
       viewerIsOwner: true,
     });
     expect(mocks.isOwner).toHaveBeenCalledWith("recruiter-user", "institution");
+  });
+
+  it("hands the contact part the competition and the signed-in viewer", async () => {
+    mocks.isAdmin.mockResolvedValue(true);
+
+    const page = await renderEditPage();
+
+    expect(page.props.contactEditor.props).toEqual({
+      competitionId: "competition-id",
+      expectedUserId: "recruiter-user",
+    });
   });
 });

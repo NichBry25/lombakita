@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { AccessError } from "@/server/auth/access-core";
 import { getDb, type Database } from "@/server/db/client";
 import {
@@ -45,6 +45,7 @@ import { acquireCompetitionParticipationLock } from "@/server/competitions/compe
 import {
   assertActorIsTrustedRecruiter,
   assertCompetitionAccess,
+  assertCompetitionHasOrganizerContact,
   assertCompetitionRead,
   assertInstitutionNotSuspended,
   assertInstitutionVerified,
@@ -915,6 +916,8 @@ export const transitionCompetitionStatus = async (
       );
     }
 
+    await assertCompetitionHasOrganizerContact(competitionId, db);
+
     // THE CHARGING GATE AT PUBLISH (DEC-0158). A PAID competition cannot go live for an
     // institution that is not verified; a FREE one publishes normally, which is the whole point of
     // the distinction: verification gates the right to charge, never the right to publish.
@@ -949,12 +952,23 @@ export const transitionCompetitionStatus = async (
   // publishedAt is intentionally NOT cleared on unpublish (published → draft). It records the
   // first-publication timestamp as historical metadata — useful for audit and discovery signals.
 
+  // An account deletion can clear the contact after the gate above read it, so the publish write
+  // itself refuses a row without one (Rule 25).
+  const contactStillSet =
+    targetStatus === "published" ? isNotNull(competitions.organizerContactValue) : undefined;
+
   // CAS guard: WHERE also checks current status equals the snapshot status to prevent
   // concurrent transitions from landing on top of each other.
   const [row] = await db
     .update(competitions)
     .set(updates)
-    .where(and(eq(competitions.id, competitionId), eq(competitions.status, competition.status)))
+    .where(
+      and(
+        eq(competitions.id, competitionId),
+        eq(competitions.status, competition.status),
+        contactStillSet,
+      ),
+    )
     .returning(PUBLIC_COMPETITION_COLUMNS);
 
   if (!row) {

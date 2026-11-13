@@ -430,7 +430,7 @@ describe.skipIf(skipWithoutDatabase)("contact disclosure by viewer", () => {
   });
 });
 
-// ─── The public detail read carries no contact ────────────────────────────────
+// ─── The public detail read carries no institution contact ────────────────────
 //
 // The payload an anonymous caller receives for a published competition, read from the same service
 // the public competition page renders from. `getPublicCompetitionDetail` has no session parameter at
@@ -441,7 +441,11 @@ describe.skipIf(skipWithoutDatabase)("contact disclosure by viewer", () => {
 // below are visible to it without a mock and without a second connection. What is real here: the
 // service, every query behind it, and the object it builds. The fixtures are built by real inserts
 // through the real schema rather than assembled as an object (Rule 33).
-const seedCompetition = async (tx: Tx, institutionId: string): Promise<string> => {
+const seedCompetition = async (
+  tx: Tx,
+  institutionId: string,
+  contact?: { kind: "whatsapp" | "phone" | "email"; value: string },
+): Promise<string> => {
   const id = uniqueSuffix();
   const [row] = await tx
     .insert(competitions)
@@ -451,13 +455,15 @@ const seedCompetition = async (tx: Tx, institutionId: string): Promise<string> =
       title: `Exposure fixture ${id}`,
       status: "published",
       publishedAt: new Date(),
+      organizerContactKind: contact?.kind ?? null,
+      organizerContactValue: contact?.value ?? null,
     })
     .returning({ slug: competitions.slug });
   return row!.slug;
 };
 
 describe.skipIf(skipWithoutDatabase)("the unauthenticated competition detail read", () => {
-  it("contains no organizer contact key at any depth", async () => {
+  it("contains none of the institution's contact keys at any depth", async () => {
     await inRollback(async (tx) => {
       const institution = await seedInstitution(tx, {
         verificationStatus: "verified",
@@ -483,6 +489,30 @@ describe.skipIf(skipWithoutDatabase)("the unauthenticated competition detail rea
       // fixture that never had a contact to leak.
       const page = (await pageFor(tx, institution.slug))!;
       expect(page.contactEmail).toContain("@example.test");
+    });
+  });
+
+  it("carries the competition's own contact and none of the institution's", async () => {
+    await inRollback(async (tx) => {
+      const institution = await seedInstitution(tx, {
+        verificationStatus: "verified",
+        contact: true,
+      });
+      const contact = { kind: "email" as const, value: "panitia.lomba@example.test" };
+      const competitionSlug = await seedCompetition(tx, institution.id, contact);
+
+      const detail = await getPublicCompetitionDetail(
+        institution.slug,
+        competitionSlug,
+        tx as unknown as Database,
+      );
+      if (detail === null) throw new Error("a published competition was not publicly readable");
+
+      expect(detail.organizerContact).toEqual(contact);
+      expect(findKeys(detail, ["contactName", "contactEmail", "contactPhone"])).toEqual([]);
+      const page = (await pageFor(tx, institution.slug))!;
+      expect(page.contactEmail).toContain("@example.test");
+      expect(JSON.stringify(detail)).not.toContain(page.contactEmail!);
     });
   });
 });

@@ -58,8 +58,10 @@ export default function PrivacyPage() {
             <li>alamat email dan status verifikasi email;</li>
             <li>nama dan nama pengguna;</li>
             <li>foto dari akun Google, jika Anda mendaftar dengan Google;</li>
-            <li>peran akun, status akun, serta waktu verifikasi peran kandidat dan rekruter;</li>
-            <li>tingkat verifikasi rekruter, untuk akun penyelenggara;</li>
+            <li>
+              peran akun, status akun, serta waktu verifikasi peran kandidat dan penyelenggara;
+            </li>
+            <li>tingkat verifikasi akun penyelenggara;</li>
             <li>
               status penangguhan dan alasannya, jika akun Anda pernah ditangguhkan oleh tim kami;
             </li>
@@ -102,7 +104,7 @@ export default function PrivacyPage() {
             <li>logo dan sampul institusi, untuk akun penyelenggara;</li>
             <li>gambar QRIS pembayaran yang diunggah penyelenggara;</li>
             <li>dokumen yang diminta penyelenggara pada sebuah kompetisi;</li>
-            <li>dokumen verifikasi institusi dan dokumen verifikasi rekruter;</li>
+            <li>dokumen verifikasi institusi dan dokumen verifikasi penyelenggara;</li>
             <li>bukti transfer, termasuk bukti transfer yang pernah Anda kirim sebelumnya.</li>
           </ul>
         </section>
@@ -134,7 +136,7 @@ export default function PrivacyPage() {
           </p>
           <ul className="document-list">
             <li>foto profil, sampul profil, CV, dan berkas sertifikasi;</li>
-            <li>dokumen verifikasi rekruter.</li>
+            <li>dokumen verifikasi penyelenggara.</li>
           </ul>
           <p>
             <strong>Berkas institusi.</strong> Logo, sampul, gambar QRIS, dan dokumen verifikasi
@@ -244,7 +246,27 @@ export default function PrivacyPage() {
         </section>
 
         <section className="stack-md document-clause">
-          <h2 className="section-title">10. Perubahan kebijakan</h2>
+          <h2 className="section-title">10. Kontak penyelenggara pada halaman kompetisi</h2>
+          <p>
+            Saat menerbitkan kompetisi, penyelenggara memilih satu kontak untuk peserta: nomor
+            WhatsApp, nomor telepon, atau alamat email. Kontak itu tampil untuk semua orang di
+            halaman kompetisi tersebut, termasuk pengunjung yang belum masuk, dan dapat muncul di
+            mesin pencari.
+          </p>
+          <p>
+            Formulir terbit mengisi kontak itu lebih dulu dengan nomor ponsel dari pendaftaran
+            penyelenggara Anda yang sudah disetujui. Jika Anda memilih Email, formulir mengisinya
+            dengan email akun Anda. Anda dapat mengubah kontak itu sebelum menerbitkan.
+          </p>
+          <p>
+            Jika akun pemilik nomor atau email itu dihapus, kontak tersebut dihapus dari setiap
+            kompetisi yang memakainya. Tombol untuk menghubungi penyelenggara tidak tampil lagi
+            sampai penyelenggara mengisi kontak baru.
+          </p>
+        </section>
+
+        <section className="stack-md document-clause">
+          <h2 className="section-title">11. Perubahan kebijakan</h2>
           <p>
             Kebijakan ini dapat berubah seiring perubahan produk. Versi dan tanggal berlaku
             tercantum di bagian atas halaman ini. Ketentuan penggunaan layanan ada pada halaman{" "}

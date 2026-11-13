@@ -217,6 +217,31 @@ export const assertActorIsTrustedRecruiter = async (
   }
 };
 
+// Publishing needs the contact participants reach the organiser through. Read here because
+// PUBLIC_COMPETITION_COLUMNS, and so CompetitionRow, leaves the contact columns out.
+// Throws CompetitionError 422 competition_organizer_contact_missing.
+export const assertCompetitionHasOrganizerContact = async (
+  competitionId: string,
+  db: Database = getDb(),
+): Promise<void> => {
+  const [row] = await db
+    .select({ organizerContactValue: competitions.organizerContactValue })
+    .from(competitions)
+    .where(eq(competitions.id, competitionId))
+    .limit(1);
+
+  if (!row) {
+    throw new CompetitionError("competition_not_found", 404, "Competition not found");
+  }
+  if (row.organizerContactValue === null) {
+    throw new CompetitionError(
+      "competition_organizer_contact_missing",
+      422,
+      "Publishing requires an organizer contact",
+    );
+  }
+};
+
 // THE CHARGING GATE (DEC-0158). Asserts that the institution's verification_status is "verified".
 //
 // Verification gates the right to CHARGE MONEY, never the right to publish. An unverified

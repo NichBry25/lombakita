@@ -12,6 +12,7 @@ const {
   assertCompetitionAccess,
   assertActorIsTrustedRecruiter,
   assertInstitutionNotSuspended,
+  assertCompetitionHasOrganizerContact,
   enqueueCompetitionSearchSync,
   enqueueCompetitionEdited,
   enqueueCompetitionCancelled,
@@ -19,6 +20,7 @@ const {
   assertCompetitionAccess: vi.fn(),
   assertActorIsTrustedRecruiter: vi.fn(),
   assertInstitutionNotSuspended: vi.fn(),
+  assertCompetitionHasOrganizerContact: vi.fn(),
   enqueueCompetitionSearchSync: vi.fn(async () => ({})),
   enqueueCompetitionEdited: vi.fn(async () => ({})),
   enqueueCompetitionCancelled: vi.fn(async () => ({})),
@@ -39,6 +41,7 @@ vi.mock("@/server/competitions/competition-access", async () => {
     assertCompetitionAccess,
     assertActorIsTrustedRecruiter,
     assertInstitutionNotSuspended,
+    assertCompetitionHasOrganizerContact,
   };
 });
 

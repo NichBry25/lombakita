@@ -56,6 +56,11 @@ const REASONS: Record<CompetitionPublishBlockerCode, PublishBlockerReason> = {
     text: "Data kompetisi belum lengkap atau belum valid.",
     link: { kind: "edit", label: "Buka halaman edit" },
   },
+  competition_organizer_contact_missing: {
+    code: "competition_organizer_contact_missing",
+    text: "Kontak untuk peserta belum diisi. Isi nomor WhatsApp, nomor telepon, atau email yang dapat dihubungi peserta.",
+    link: { kind: "edit", label: "Isi kontak" },
+  },
   competition_institution_not_verified: {
     code: "competition_institution_not_verified",
     text: "Kompetisi berbayar hanya dapat diterbitkan oleh institusi yang sudah terverifikasi.",

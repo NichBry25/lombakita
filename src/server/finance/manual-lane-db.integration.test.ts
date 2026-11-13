@@ -3240,6 +3240,9 @@ describe.skipIf(skipWithoutDatabase)("the charging gate at PUBLISH (real databas
         eventEndAt: new Date(Date.now() + 21 * 86_400_000),
         resultAnnouncementAt: new Date(Date.now() + 25 * 86_400_000),
         minimumParticipantEntries: 1,
+        // Publishing needs a contact for participants.
+        organizerContactKind: "whatsapp",
+        organizerContactValue: "6281234567890",
       })
       .where(eq(competitions.id, tenant.competitionId));
   };

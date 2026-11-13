@@ -28,6 +28,7 @@ const BLOCKER_CODES: CompetitionPublishBlockerCode[] = [
   "competition_recruiter_not_trusted",
   "institution_suspended",
   "competition_publish_validation_failed",
+  "competition_organizer_contact_missing",
   "competition_institution_not_verified",
   "competition_personal_individual_only",
   "competition_personal_publish_limit",
@@ -37,8 +38,9 @@ const BLOCKER_CODES: CompetitionPublishBlockerCode[] = [
 // assertCompetitionAccess (competition-access.ts:162,165), assertActorIsTrustedRecruiter (:215),
 // assertInstitutionNotSuspended (:302), transitionCompetitionStatus (competition-service.ts:889),
 // assertInstitutionVerified (competition-access.ts:274), assertPersonalCompetitionPublishable
-// (:342, :391), assertCompetitionInInstitution (competition-service.ts:133), and
-// isAllowedStatusTransition (competition-service.ts:859).
+// (:342, :391), assertCompetitionInInstitution (competition-service.ts:133),
+// isAllowedStatusTransition (competition-service.ts:859), and
+// assertCompetitionHasOrganizerContact (competition-access.ts).
 const SERVER_REFUSAL_MESSAGES = [
   "Institution owner/staff access required",
   "institution_owner access required",
@@ -50,6 +52,7 @@ const SERVER_REFUSAL_MESSAGES = [
   `A personal institution may have at most ${MAX_PUBLISHED_COMPETITIONS_FOR_PERSONAL} published competitions`,
   "Competition not found",
   "Cannot transition competition from 'draft' to 'published'",
+  "Publishing requires an organizer contact",
 ];
 
 describe("publish blocker reasons", () => {
@@ -62,6 +65,8 @@ describe("publish blocker reasons", () => {
       institution_suspended:
         "Institusi ini sedang ditangguhkan oleh tim Lombakita. Kompetisi tidak dapat diterbitkan.",
       competition_publish_validation_failed: "Data kompetisi belum lengkap atau belum valid.",
+      competition_organizer_contact_missing:
+        "Kontak untuk peserta belum diisi. Isi nomor WhatsApp, nomor telepon, atau email yang dapat dihubungi peserta.",
       competition_institution_not_verified:
         "Kompetisi berbayar hanya dapat diterbitkan oleh institusi yang sudah terverifikasi.",
       competition_personal_individual_only:
@@ -82,6 +87,7 @@ describe("publish blocker reasons", () => {
       competition_recruiter_not_trusted: "Verifikasi penyelenggara",
       institution_suspended: null,
       competition_publish_validation_failed: "Buka halaman edit",
+      competition_organizer_contact_missing: "Isi kontak",
       competition_institution_not_verified: "Ajukan verifikasi",
       competition_personal_individual_only: null,
       competition_personal_publish_limit: null,
@@ -91,6 +97,13 @@ describe("publish blocker reasons", () => {
       const { link } = getPublishBlockerReason(code);
       expect(link?.label ?? null, code).toBe(links[code]);
     }
+  });
+
+  it("points the missing-contact reason at the editor", () => {
+    expect(getPublishBlockerReason("competition_organizer_contact_missing").link).toEqual({
+      kind: "edit",
+      label: "Isi kontak",
+    });
   });
 
   it("names the personal reach cap from the shared constant, never a literal", () => {

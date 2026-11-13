@@ -647,6 +647,9 @@ const main = async (): Promise<void> => {
       // separated by a later seed. Absent means free: `fee_amount` NULL and 0 both mean free
       // (see isPaidCompetition), and only a price makes the manual lane reachable for a fixture.
       feeAmount?: number;
+      // The contact participants reach the organiser through. Publishing needs one, so a draft that
+      // a test publishes declares it here.
+      contact?: { kind: "whatsapp" | "phone" | "email"; value: string };
     };
     const comps: CompSeed[] = [
       {
@@ -1115,6 +1118,7 @@ const main = async (): Promise<void> => {
         featured: false,
         featuredOrder: null,
         publishedAt: null,
+        contact: { kind: "whatsapp", value: "6281200003333" },
       },
     ];
     for (const c of comps) {
@@ -1130,6 +1134,8 @@ const main = async (): Promise<void> => {
       // cannot declare a price without denominating it.
       const feeAmount = c.feeAmount ?? null;
       const feeCurrency = c.feeAmount ? SEED_FEE_CURRENCY : null;
+      const contactKind = c.contact?.kind ?? null;
+      const contactValue = c.contact?.value ?? null;
       await sql`
         INSERT INTO competitions (id, institution_id, created_by_user_id, slug, title, description,
           status, category, mode, min_team_size, max_team_size,
@@ -1137,12 +1143,14 @@ const main = async (): Promise<void> => {
           result_announcement_at, minimum_participant_entries, participant_confirmation_at,
           allow_cancellation, cancellation_cutoff_days,
           eligibility_note, fee_amount, fee_currency, payment_window_days,
+          organizer_contact_kind, organizer_contact_value,
           is_featured, featured_order, published_at)
         VALUES (${c.id}, ${c.inst}, ${c.createdBy}, ${c.slug}, ${c.title}, ${c.description},
           ${c.status}, ${c.category}, ${c.mode}, ${c.minTeam}, ${c.maxTeam},
           ${c.rs}, ${c.re}, ${c.es}, ${c.ee},
           ${c.ra}, ${minEntries}, ${pca}, ${c.allowCancel}, ${c.cutoffDays},
           ${c.eligibilityNote}, ${feeAmount}, ${feeCurrency}, ${DEFAULT_PAYMENT_WINDOW_DAYS},
+          ${contactKind}, ${contactValue},
           ${c.featured}, ${c.featuredOrder}, ${c.publishedAt})
         ON CONFLICT (id) DO UPDATE SET
           slug = EXCLUDED.slug, title = EXCLUDED.title, description = EXCLUDED.description,
@@ -1159,6 +1167,8 @@ const main = async (): Promise<void> => {
           eligibility_note = EXCLUDED.eligibility_note,
           fee_amount = EXCLUDED.fee_amount, fee_currency = EXCLUDED.fee_currency,
           payment_window_days = EXCLUDED.payment_window_days,
+          organizer_contact_kind = EXCLUDED.organizer_contact_kind,
+          organizer_contact_value = EXCLUDED.organizer_contact_value,
           is_featured = EXCLUDED.is_featured, featured_order = EXCLUDED.featured_order,
           published_at = EXCLUDED.published_at, deleted_at = NULL, updated_at = now()
       `;

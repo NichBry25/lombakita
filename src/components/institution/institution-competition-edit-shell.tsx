@@ -395,6 +395,7 @@ export const InstitutionCompetitionEditShell = ({
   isPersonal = false,
   step,
   stepChildren,
+  contactEditor,
   children,
 }: {
   institutionSlug: string;
@@ -416,6 +417,9 @@ export const InstitutionCompetitionEditShell = ({
   // The same sub-editors grouped by the step that shows them, rendered in place of `children` in
   // step mode so the page does not need to know the competition's status.
   stepChildren?: Partial<Record<1 | 2 | 3 | 4, ReactNode>>;
+  // The contact part. The shell places it on a draft's step 5, where Terbitkan saves it before
+  // publishing, and in section 1 of a published competition, where Simpan saves it.
+  contactEditor?: ReactNode;
 }) => {
   const router = useRouter();
   const { openModal } = useModal();
@@ -503,7 +507,7 @@ export const InstitutionCompetitionEditShell = ({
   const [pendingStepAction, setPendingStepAction] = useState<"next" | "exit" | null>(null);
 
   // Every step change drops what was typed and not saved, so a value left on another step is never
-  // sent by a later save and step 5 never opens with unsaved changes.
+  // sent by a later save. Step 5 may open with a suggested contact, which Terbitkan saves.
   const [renderedStep, setRenderedStep] = useState(step);
   if (step !== renderedStep) {
     setRenderedStep(step);
@@ -529,7 +533,11 @@ export const InstitutionCompetitionEditShell = ({
   const partsHaveUnsavedChanges = COMPETITION_EDITOR_PART_ORDER.some(
     (key) => editorParts[key]?.isDirty === true,
   );
-  const hasUnsavedChanges = isDirty || partsHaveUnsavedChanges;
+  // Step 5 holds only the contact part, and Terbitkan is what saves it, so a contact waiting
+  // there neither blocks publishing nor asks before leaving.
+  const publishSavesParts = activeStep === COMPETITION_STEP_COUNT;
+  const hasUnsavedChanges = isDirty || (!publishSavesParts && partsHaveUnsavedChanges);
+  const contactAwaitsPublish = publishSavesParts && editorParts.contact?.isDirty === true;
   const missingPublishFields = getMissingCompetitionPublishFields({
     title,
     description,
@@ -580,34 +588,37 @@ export const InstitutionCompetitionEditShell = ({
   // The server's reasons for refusing a publish, in the publish path's order. No reasons are shown
   // against an unknown answer: a reason is a claim about what the server will do, and the shell has
   // just failed to ask it.
-  const serverPublishReasons = readinessIsKnown
-    ? publishReadiness.blockers
-        // Dropped only when the sentence above really is on screen. The server's checklist can
-        // refuse for reasons this form has no check for, and dropping the reason there would leave
-        // a disabled control with nothing to explain it.
-        .filter(
-          (code) =>
-            code !== "competition_publish_validation_failed" || !clientChecklistReasonIsRendered,
-        )
-        // This shell IS the page that reason's link points at, so the link is dropped rather than
-        // rendered as a control that sends the user to the page they are already on.
-        .map((code) => {
-          const reason = getPublishBlockerReason(code);
-          return code === "competition_publish_validation_failed"
-            ? { ...reason, link: null }
-            : reason;
-        })
+  // The server still names a missing contact while the one on step 5 waits for Terbitkan to
+  // save it, so that reason is set aside until then.
+  const serverBlockers = readinessIsKnown
+    ? publishReadiness.blockers.filter(
+        (code) => code !== "competition_organizer_contact_missing" || !contactAwaitsPublish,
+      )
     : [];
+  const serverPublishReasons = serverBlockers
+    // Dropped only when the sentence above really is on screen. The server's checklist can
+    // refuse for reasons this form has no check for, and dropping the reason there would leave
+    // a disabled control with nothing to explain it.
+    .filter(
+      (code) =>
+        code !== "competition_publish_validation_failed" || !clientChecklistReasonIsRendered,
+    )
+    // This shell IS the page an edit link points at, so such a link is dropped rather than
+    // rendered as a control that sends the user to the page they are already on.
+    .map((code) => {
+      const reason = getPublishBlockerReason(code);
+      return reason.link?.kind === "edit" ? { ...reason, link: null } : reason;
+    });
 
-  const publishIsBlocked =
-    clientPublishIsBlocked || (readinessIsKnown && !publishReadiness.canPublish);
+  const publishIsBlocked = clientPublishIsBlocked || serverBlockers.length > 0;
   // "siap diterbitkan" is a claim the control has to be able to back, so it is the default only
   // while the control is enabled. When a server refusal is what blocks, that refusal is on screen
   // above this line instead of a sentence here — there is always one, because a block with no client
   // check behind it is a server refusal.
-  let editorStatusMessage: string | null = publishIsBlocked
-    ? null
+  const readyStatusMessage = contactAwaitsPublish
+    ? "Siap diterbitkan. Kontak tersimpan saat Anda menekan Terbitkan."
     : "Semua perubahan tersimpan dan siap diterbitkan";
+  let editorStatusMessage: string | null = publishIsBlocked ? null : readyStatusMessage;
   if (timelineIsInvalid) {
     editorStatusMessage = `Perbaiki urutan jadwal: ${timelineErrors[0]?.message}`;
   } else if (hasUnsavedChanges) {
@@ -718,7 +729,7 @@ export const InstitutionCompetitionEditShell = ({
     return () => window.clearTimeout(id);
   }, [load]);
 
-  // Warn browser on page unload/refresh while the main fields or any part have unsaved changes.
+  // A contact waiting on step 5 does not count as unsaved here, because Terbitkan saves it.
   useEffect(() => {
     if (!hasUnsavedChanges) return;
     const handler = (e: BeforeUnloadEvent) => {
@@ -1011,6 +1022,10 @@ export const InstitutionCompetitionEditShell = ({
     setIsPublishing(true);
     const url = `/api/v1/institutions/${encodeURIComponent(institutionSlug)}/competitions/${encodeURIComponent(competitionId)}/publish`;
     try {
+      if (publishSavesParts) {
+        const partsSaved = await saveChangedParts();
+        if (!partsSaved) return false;
+      }
       const response = await sessionFetch(expectedUserId, url, { method: "POST" });
       if (!response.ok) {
         const { code, failures } = await extractError(response);
@@ -1021,6 +1036,8 @@ export const InstitutionCompetitionEditShell = ({
             resolvePublishRefusalToastText(code, failures),
           ),
         });
+        // The readiness on screen was read before this attempt saved the contact.
+        if (publishSavesParts) void load().catch(endThrownReload);
         return false;
       }
       addToast({ type: "success", message: "Kompetisi diterbitkan." });
@@ -1039,8 +1056,8 @@ export const InstitutionCompetitionEditShell = ({
     if (published) void load();
   };
 
-  // No reload: the user is leaving the editor, and a reload would announce a published
-  // competition here.
+  // No reload after a publish that succeeds: the user is leaving the editor, and a reload would
+  // announce a published competition here. A refused publish reloads inside publishCompetition.
   const onPublishAndOpenManagement = () =>
     runAndNavigate(
       async () => {
@@ -1158,6 +1175,9 @@ export const InstitutionCompetitionEditShell = ({
   // the server 422 as a backstop.
   const isPublished = competition.status === "published";
   const showsStep = (blockStep: CompetitionStep) => activeStep === null || activeStep === blockStep;
+  const showsContactEditor =
+    contactEditor !== undefined &&
+    ((isDraft && activeStep === COMPETITION_STEP_COUNT) || (isPublished && activeStep === 1));
 
   const titleField = (
     <label className="form-field">
@@ -1362,8 +1382,16 @@ export const InstitutionCompetitionEditShell = ({
   ));
 
   const isDraftStep = activeStep !== null && isDraft;
-  const editorPartsNode =
+  const stepPartsNode =
     activeStep === null ? children : activeStep === 5 ? null : stepChildren?.[activeStep];
+  const editorPartsNode = showsContactEditor ? (
+    <>
+      {stepPartsNode}
+      {contactEditor}
+    </>
+  ) : (
+    stepPartsNode
+  );
 
   return (
     <main className="page-shell app-page competition-form-page">

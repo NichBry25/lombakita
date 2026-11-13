@@ -1,5 +1,6 @@
 import { and, count, eq, inArray, isNotNull, ne, or, sql } from "drizzle-orm";
 import { logger } from "@/lib/logger";
+import { toDialDigits } from "@/lib/competitions/organizer-contact";
 import { getDb, type Database } from "@/server/db/client";
 import {
   accounts,
@@ -11,6 +12,7 @@ import {
   competitionReviews,
   competitionSaves,
   competitionSubmissions,
+  competitions,
   financePaymentInstructionSnapshots,
   institutionInvitations,
   institutionMemberships,
@@ -816,6 +818,17 @@ const runDeidentificationWrites = async (
   // still names them.
   const retainedKeys = await findReferencedPaymentInstructionKeys(tx);
 
+  // Read BEFORE the host sign-up rows are deleted below: the contact clear matches the numbers
+  // they hold.
+  const ownSignupNumbers = await tx
+    .select({ mobileNumber: recruiterVerificationSubmissions.mobileNumber })
+    .from(recruiterVerificationSubmissions)
+    .where(eq(recruiterVerificationSubmissions.userId, accountId));
+  const ownContactDigits = ownSignupNumbers.flatMap((row) => {
+    const digits = toDialDigits(row.mobileNumber);
+    return digits === null ? [] : [digits];
+  });
+
   const flipped = await tx
     .update(users)
     .set({
@@ -1118,6 +1131,27 @@ const runDeidentificationWrites = async (
       .set({ body: null, updatedAt: sql`now()` })
       .where(eq(competitionReviews.authorUserId, accountId))
       .returning({ id: competitionReviews.id }),
+  );
+
+  // The public contact of every competition that shows this person's own address or sign-up
+  // number, whoever set it there. A contact that is anyone else's stays.
+  const ownEmailContact = and(
+    eq(competitions.organizerContactKind, "email"),
+    sql`lower(${competitions.organizerContactValue}) = lower(${facts.originalEmail})`,
+  );
+  const ownNumberContact =
+    ownContactDigits.length === 0
+      ? undefined
+      : and(
+          inArray(competitions.organizerContactKind, ["whatsapp", "phone"]),
+          inArray(competitions.organizerContactValue, ownContactDigits),
+        );
+  await scrubIn("competitions", () =>
+    tx
+      .update(competitions)
+      .set({ organizerContactKind: null, organizerContactValue: null, updatedAt: sql`now()` })
+      .where(or(ownEmailContact, ownNumberContact))
+      .returning({ id: competitions.id }),
   );
 
   // Revoked, not deleted: the membership row is what tells a reader the institution once had this

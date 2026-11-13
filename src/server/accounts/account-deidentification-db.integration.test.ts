@@ -1910,4 +1910,129 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
       });
     });
   });
+
+  describe("a competition's contact", () => {
+    type ContactKind = "whatsapp" | "phone" | "email";
+
+    const setContact = async (
+      tx: Tx,
+      competitionId: string,
+      kind: ContactKind,
+      value: string,
+    ): Promise<void> => {
+      await tx
+        .update(competitions)
+        .set({ organizerContactKind: kind, organizerContactValue: value })
+        .where(eq(competitions.id, competitionId));
+    };
+
+    const readContact = async (tx: Tx, competitionId: string) => {
+      const [row] = await tx
+        .select({
+          kind: competitions.organizerContactKind,
+          value: competitions.organizerContactValue,
+        })
+        .from(competitions)
+        .where(eq(competitions.id, competitionId))
+        .limit(1);
+      return row;
+    };
+
+    const runDeletion = (tx: Tx, f: Fixture) =>
+      run(tx, f.operator, f.target, {
+        confirmUsername: f.targetUsername,
+        reason: "permintaan pemilik",
+      });
+
+    it("clears every competition contact that is the account's own sign-up number", async () => {
+      await inRollback(async (tx) => {
+        const f = await buildFixture(tx);
+        await setContact(tx, f.competition, "whatsapp", "628123456789");
+        const otherInstitution = randomUUID();
+        await tx.insert(institutions).values({
+          id: otherInstitution,
+          slug: `deident-other-${f.suffix}`,
+          institutionType: "company",
+          displayName: `Penyelenggara ${f.suffix}`,
+          status: "active",
+          verificationStatus: "verified",
+        });
+        const otherCompetition = randomUUID();
+        await tx.insert(competitions).values({
+          id: otherCompetition,
+          institutionId: otherInstitution,
+          slug: `deident-other-comp-${f.suffix}`,
+          title: `Kompetisi lain ${f.suffix}`,
+          status: "published",
+          publishedAt: new Date(),
+          organizerContactKind: "phone",
+          organizerContactValue: "628123456789",
+        });
+
+        await runDeletion(tx, f);
+
+        expect(await readContact(tx, f.competition)).toEqual({ kind: null, value: null });
+        expect(await readContact(tx, otherCompetition)).toEqual({ kind: null, value: null });
+        const audit = await tx
+          .select()
+          .from(platformOpsAuditLogs)
+          .where(eq(platformOpsAuditLogs.targetUserId, f.target));
+        const metadata = audit[0]!.metadata as { rowsScrubbed: Record<string, number> };
+        expect(metadata.rowsScrubbed.competitions).toBe(2);
+      });
+    });
+
+    it("clears a competition contact that is the account's own email, whatever its letter case", async () => {
+      await inRollback(async (tx) => {
+        const f = await buildFixture(tx);
+        await setContact(tx, f.competition, "email", f.targetEmail.toUpperCase());
+
+        await runDeletion(tx, f);
+
+        expect(await readContact(tx, f.competition)).toEqual({ kind: null, value: null });
+      });
+    });
+
+    it("keeps a competition contact that is someone else's", async () => {
+      await inRollback(async (tx) => {
+        const f = await buildFixture(tx);
+        await setContact(tx, f.competition, "whatsapp", "6281111111111");
+        const secondDraft = randomUUID();
+        await tx.insert(competitions).values({
+          id: secondDraft,
+          institutionId: f.institution,
+          slug: `deident-second-${f.suffix}`,
+          title: `Draf kedua ${f.suffix}`,
+          organizerContactKind: "email",
+          organizerContactValue: "panitia@example.test",
+        });
+
+        await runDeletion(tx, f);
+
+        expect(await readContact(tx, f.competition)).toEqual({
+          kind: "whatsapp",
+          value: "6281111111111",
+        });
+        expect(await readContact(tx, secondDraft)).toEqual({
+          kind: "email",
+          value: "panitia@example.test",
+        });
+      });
+    });
+
+    it("keeps every contact when the run stops before its commit", async () => {
+      await inRollback(async (tx) => {
+        const f = await buildFixture(tx);
+        await setContact(tx, f.competition, "whatsapp", "628123456789");
+        r2.failFrom = `resumes/${f.target}/`;
+
+        await expectCode(runDeletion(tx, f), "deidentify_storage_failed", 502);
+
+        expect(await readContact(tx, f.competition)).toEqual({
+          kind: "whatsapp",
+          value: "628123456789",
+        });
+      });
+    });
+  });
 });

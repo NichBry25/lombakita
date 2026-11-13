@@ -97,6 +97,15 @@ const parseFullName = (value: unknown): string => {
 };
 
 // Permissive mobile validation: an optional leading `+` followed by digits, spaces, or hyphens.
+export const isValidMobileNumber = (trimmed: string): boolean => {
+  const digitCount = trimmed.replace(/\D/g, "").length;
+  return (
+    /^\+?[\d\s-]+$/.test(trimmed) &&
+    digitCount >= MIN_MOBILE_DIGITS &&
+    trimmed.length <= MAX_MOBILE_LENGTH
+  );
+};
+
 // Stored as the trimmed input. Mirrors the candidate onboarding phone rule.
 const parseMobileNumber = (value: unknown): string => {
   if (typeof value !== "string") {
@@ -108,13 +117,8 @@ const parseMobileNumber = (value: unknown): string => {
   }
 
   const trimmed = value.trim();
-  const digitCount = trimmed.replace(/\D/g, "").length;
 
-  if (
-    !/^\+?[\d\s-]+$/.test(trimmed) ||
-    digitCount < MIN_MOBILE_DIGITS ||
-    trimmed.length > MAX_MOBILE_LENGTH
-  ) {
+  if (!isValidMobileNumber(trimmed)) {
     throw new RecruiterVerificationError(
       "recruiter_verification_invalid_value",
       "mobileNumber must be a valid phone number",
@@ -124,6 +128,10 @@ const parseMobileNumber = (value: unknown): string => {
 
   return trimmed;
 };
+
+// A light shape check on an address that is already trimmed and lowercased.
+export const isValidEmailAddress = (normalized: string): boolean =>
+  normalized.length <= MAX_EMAIL_LENGTH && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized);
 
 // Optional field: absent, null, or empty/whitespace-only all normalize to null. A present value
 // must look like an email address; it is stored lowercased.
@@ -141,7 +149,7 @@ const parseCorporateEmail = (value: unknown): string | null => {
   const trimmed = value.trim().toLowerCase();
   if (trimmed.length === 0) return null;
 
-  if (trimmed.length > MAX_EMAIL_LENGTH || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+  if (!isValidEmailAddress(trimmed)) {
     throw new RecruiterVerificationError(
       "recruiter_verification_invalid_value",
       "corporateEmail must be a valid email address",

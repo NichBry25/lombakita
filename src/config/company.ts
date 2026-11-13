@@ -43,7 +43,7 @@ export const CANONICAL_SITE_ORIGIN = "https://lombakita.com";
  * `updatedDate` with it.
  */
 export const LEGAL_DOCUMENT = {
-  version: "1.1",
+  version: "1.2",
   // The date these documents became publicly readable. A live, operative document that claims a
   // future effective date misstates its own standing, so this never runs ahead of the deploy.
   effectiveDate: "2026-09-04",

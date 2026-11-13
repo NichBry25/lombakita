@@ -6,6 +6,7 @@ import { CompetitionRoundsEditor } from "@/components/institution/competition-ro
 import { CompetitionTagsEditor } from "@/components/institution/competition-tags-editor";
 import { CompetitionEligibilityEditor } from "@/components/institution/competition-eligibility-editor";
 import { CompetitionFeeSection } from "@/components/institution/competition-fee-section";
+import { CompetitionContactEditor } from "@/components/institution/competition-contact-editor";
 import type { CompetitionStep } from "@/components/institution/competition-steps";
 import { AccessError } from "@/server/auth/access-core";
 import { requireRolePage } from "@/server/auth/page-guard";
@@ -92,6 +93,9 @@ export default async function InstitutionCompetitionEditPage({ params, searchPar
           </>
         ),
       }}
+      contactEditor={
+        <CompetitionContactEditor competitionId={competitionId} expectedUserId={session.user.id} />
+      }
     >
       <CompetitionRoundsEditor competitionId={competitionId} expectedUserId={session.user.id} />
       <CompetitionPrizesEditor competitionId={competitionId} expectedUserId={session.user.id} />

@@ -68,4 +68,20 @@ describe("TermsPage", () => {
       expect(html).toContain("bagian 6 tidak dapat dipakai untuk");
     });
   });
+
+  it("states that the contact a host chooses is public and goes with the account it belongs to", () => {
+    expect(renderToStaticMarkup(TermsPage())).toContain(
+      "Saat menerbitkan kompetisi, penyelenggara memilih satu kontak untuk peserta, berupa nomor " +
+        "WhatsApp, nomor telepon, atau alamat email. Dengan menerbitkan, penyelenggara menyetujui " +
+        "kontak itu tampil untuk umum di halaman kompetisi dan dapat muncul di mesin pencari. " +
+        "Kontak itu dihapus dari kompetisi jika akun pemilik nomor atau email tersebut dihapus.",
+    );
+  });
+
+  it("states version 1.2 and the effective date as published", () => {
+    const html = renderToStaticMarkup(TermsPage());
+
+    expect(html).toContain("<span>Versi 1.2</span>");
+    expect(html).toContain("<span>Berlaku sejak 4 September 2026</span>");
+  });
 });
