@@ -7,6 +7,8 @@ import {
 } from "@/lib/username/generate";
 import { getDb, type Database } from "@/server/db/client";
 import {
+  candidateProfiles,
+  recruiterVerificationSubmissions,
   userEmailVerificationTokens,
   userPasswordCredentials,
   userProfiles,
@@ -14,6 +16,7 @@ import {
 } from "@/server/db/schema";
 import { hashPassword, verifyPassword } from "@/server/auth/password";
 import { sendRegistrationVerificationEmail } from "@/server/auth/email-verification";
+import { meetsRecruiterTier } from "@/server/auth/recruiter-tier";
 import {
   REGISTRATION_CODE_TTL_MS,
   hashRegistrationCode,
@@ -96,8 +99,8 @@ export const deriveSignupRoleColumns = (
 
 // Generates a unique, reserved-word-safe username from a display name, probing availability inside
 // the caller's transaction. Wraps the username generator + name split so both signup paths share
-// one implementation. Throws UsernameGenerationError if the bounded retry loop is exhausted; both
-// callers translate that into a clean 503.
+// one implementation. Throws UsernameGenerationError if the bounded retry loop is exhausted; every
+// caller translates that into a clean error.
 export const generateUniqueUsernameForName = async (
   name: string,
   isAvailable: UsernameAvailabilityCheck,
@@ -346,6 +349,59 @@ const writePasswordHash = async (
     });
 };
 
+const usernameIsFreeIn =
+  (tx: Database): UsernameAvailabilityCheck =>
+  async (candidate) => {
+    const [taken] = await tx
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.username, candidate))
+      .limit(1);
+    return !taken;
+  };
+
+const usernameFailureError = (error: unknown, email: string): CredentialsAuthError | null => {
+  // Username generation exhausted its bounded retry
+  // loop. Recoverable: log and surface a clean 503 instead of a raw 500.
+  if (error instanceof UsernameGenerationError) {
+    logger.error("username.generation.exhausted", { email });
+    return new CredentialsAuthError(
+      "username_generation_failed",
+      503,
+      "Account could not be created right now. Please try again.",
+    );
+  }
+
+  // The `users` table carries two unique
+  // constraints reachable on INSERT: `email` and `users_username_unique_idx`.
+  // A 23505 must be classified by constraint, otherwise a username collision
+  // (e.g. the bounded generation loop loses a concurrent-registration race)
+  // would be misreported to the client as `email_exists`. The constraint
+  // name is exposed as `constraint_name` (postgres.js) or `constraint`
+  // (node-postgres); `detail` is a final fallback.
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: string }).code === "23505"
+  ) {
+    const pgError = error as { constraint_name?: string; constraint?: string; detail?: string };
+    const constraint = pgError.constraint_name ?? pgError.constraint ?? "";
+    const detail = pgError.detail ?? "";
+
+    if (constraint.includes("username") || detail.includes("username")) {
+      logger.error("username.generation.collision", { email });
+      return new CredentialsAuthError(
+        "username_generation_failed",
+        503,
+        "Account could not be created right now. Please try again.",
+      );
+    }
+  }
+
+  return null;
+};
+
 export const registerUserWithCredentials = async (
   payload: unknown,
   db: Database = getDb(),
@@ -400,14 +456,7 @@ export const registerUserWithCredentials = async (
       // transaction: the uniqueness probe sees only committed rows, and a
       // generation failure aborts the transaction so no user row is ever
       // persisted without a username.
-      const username = await generateUniqueUsernameForName(input.name, async (candidate) => {
-        const [taken] = await tx
-          .select({ id: users.id })
-          .from(users)
-          .where(eq(users.username, candidate))
-          .limit(1);
-        return !taken;
-      });
+      const username = await generateUniqueUsernameForName(input.name, usernameIsFreeIn(tx));
 
       const [inserted] = await tx
         .insert(users)
@@ -495,43 +544,18 @@ export const registerUserWithCredentials = async (
       throw error;
     }
 
-    // Username generation exhausted its bounded retry
-    // loop. Recoverable: log and surface a clean 503 instead of a raw 500.
-    if (error instanceof UsernameGenerationError) {
-      logger.error("username.generation.exhausted", { email: input.email });
-      throw new CredentialsAuthError(
-        "username_generation_failed",
-        503,
-        "Account could not be created right now. Please try again.",
-      );
+    const usernameError = usernameFailureError(error, input.email);
+
+    if (usernameError) {
+      throw usernameError;
     }
 
-    // The `users` table carries two unique
-    // constraints reachable on INSERT: `email` and `users_username_unique_idx`.
-    // A 23505 must be classified by constraint, otherwise a username collision
-    // (e.g. the bounded generation loop loses a concurrent-registration race)
-    // would be misreported to the client as `email_exists`. The constraint
-    // name is exposed as `constraint_name` (postgres.js) or `constraint`
-    // (node-postgres); `detail` is a final fallback.
     if (
       typeof error === "object" &&
       error !== null &&
       "code" in error &&
       (error as { code?: string }).code === "23505"
     ) {
-      const pgError = error as { constraint_name?: string; constraint?: string; detail?: string };
-      const constraint = pgError.constraint_name ?? pgError.constraint ?? "";
-      const detail = pgError.detail ?? "";
-
-      if (constraint.includes("username") || detail.includes("username")) {
-        logger.error("username.generation.collision", { email: input.email });
-        throw new CredentialsAuthError(
-          "username_generation_failed",
-          503,
-          "Account could not be created right now. Please try again.",
-        );
-      }
-
       throw new CredentialsAuthError(
         "email_exists",
         409,
@@ -628,7 +652,7 @@ const dailyCodeLimitError = (): CredentialsAuthError =>
   new CredentialsAuthError(
     "verification_code_daily_limit",
     429,
-    "Terlalu banyak percobaan kode yang salah untuk email ini hari ini.",
+    "Terlalu banyak percobaan kode yang salah untuk email ini.",
   );
 
 const emailAlreadyVerifiedError = (): CredentialsAuthError =>
@@ -638,21 +662,18 @@ const emailAlreadyVerifiedError = (): CredentialsAuthError =>
     "Email already verified. Please login with your password",
   );
 
-const parseVerificationCodePayload = (
-  payload: unknown,
-): { email: string; code: string; password: string } => {
+const parseVerificationCodePayload = (payload: unknown): RegistrationInput & { code: string } => {
   if (!isRecord(payload)) {
     throw new CredentialsAuthError("invalid_payload", 400, "Payload must be a JSON object");
   }
 
-  const email = parseEmail(payload.email);
   const code = typeof payload.code === "string" ? payload.code.trim() : "";
 
   if (!VERIFICATION_CODE_PATTERN.test(code)) {
     throw invalidVerificationCodeError();
   }
 
-  return { email, code, password: parsePassword(payload.password) };
+  return { ...parseRegistrationInput(payload), code };
 };
 
 // Fail-closed: a limiter that cannot count refuses, because an uncounted guess is an unlimited one.
@@ -703,11 +724,79 @@ const findLiveVerificationCode = async (
   return codeRow;
 };
 
+// The person who typed the code defines the account: an earlier sign-up's name, role, profile
+// and recruiter request are replaced. The username stays when the name is unchanged, and the
+// recruiter tier is never lowered.
+const replaceSignupDetailsWithVerifiers = async (
+  tx: Database,
+  userId: string,
+  details: RegistrationInput,
+  now: Date,
+): Promise<void> => {
+  const [stored] = await tx
+    .select({
+      name: users.name,
+      username: users.username,
+      recruiterVerificationTier: users.recruiterVerificationTier,
+    })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+
+  const username =
+    stored && stored.name === details.name
+      ? stored.username
+      : await generateUniqueUsernameForName(details.name, usernameIsFreeIn(tx));
+  const { recruiterVerificationTier: declaredTier, ...declaredRoleColumns } =
+    deriveSignupRoleColumns(details.signupRole, now);
+  const tierRises = !stored || !meetsRecruiterTier(stored.recruiterVerificationTier, declaredTier);
+
+  // The tier only rises here: users_recruiter_tier_no_downgrade refuses a lower value,
+  // and "minimal" grants nothing without recruiterVerifiedAt.
+  await tx
+    .update(users)
+    .set({
+      name: details.name,
+      username,
+      ...declaredRoleColumns,
+      ...(tierRises ? { recruiterVerificationTier: declaredTier } : {}),
+      updatedAt: now,
+    })
+    .where(eq(users.id, userId));
+
+  await tx
+    .insert(userProfiles)
+    .values({ userId, displayName: details.name })
+    .onConflictDoUpdate({
+      target: userProfiles.userId,
+      set: { displayName: details.name },
+    });
+
+  await tx.delete(candidateProfiles).where(eq(candidateProfiles.userId, userId));
+
+  if (details.candidateProfile) {
+    await insertCandidateProfileInTransaction(tx, userId, details.candidateProfile);
+  }
+
+  await tx
+    .delete(recruiterVerificationSubmissions)
+    .where(eq(recruiterVerificationSubmissions.userId, userId));
+
+  if (details.recruiterVerification) {
+    await createRecruiterVerificationSubmissionInTransaction(
+      tx,
+      userId,
+      details.recruiterVerification,
+    );
+  }
+};
+
 const completeCodeVerification = async (
   tx: Database,
   user: { id: string; email: string },
   codeRowId: string,
   passwordHash: string,
+  details: RegistrationInput,
 ): Promise<void> => {
   const now = new Date();
 
@@ -737,6 +826,7 @@ const completeCodeVerification = async (
   }
 
   await writePasswordHash(tx, user.id, passwordHash, now);
+  await replaceSignupDetailsWithVerifiers(tx, user.id, details, now);
 
   await tx
     .delete(userEmailVerificationTokens)
@@ -755,7 +845,8 @@ const completeCodeVerification = async (
 };
 
 // The code proves the person holds the inbox, and the password sent with it becomes the account's
-// password, so a password a stranger set before verification never survives verification.
+// password, so a password a stranger set before verification never survives verification. The
+// details sent with the code replace whatever an earlier sign-up wrote.
 export const verifyEmailCodeAndSetPassword = async (
   payload: unknown,
   db: Database = getDb(),
@@ -800,7 +891,19 @@ export const verifyEmailCodeAndSetPassword = async (
 
   const passwordHash = await hashPassword(input.password);
 
-  await db.transaction((tx) => completeCodeVerification(tx, user, codeRow.id, passwordHash));
+  try {
+    await db.transaction((tx) =>
+      completeCodeVerification(tx, user, codeRow.id, passwordHash, input),
+    );
+  } catch (error) {
+    const usernameError = usernameFailureError(error, user.email);
+
+    if (usernameError) {
+      throw usernameError;
+    }
+
+    throw error;
+  }
 
   return { email: user.email };
 };
@@ -811,7 +914,8 @@ export const verifyEmailCodeAndSetPassword = async (
 // email-first (unlike OAuth, where the provider resolves identity), so we classify by email:
 //   - `none`       — no account; the page offers the role picker (signup).
 //   - `unverified` — an account exists but email is not yet verified; the page shows the
-//                    verify notice + resend, and must NOT offer signup (register refuses it).
+//                    verify notice, collects the sign-up details and sends a code through
+//                    resend. Register refuses it; the details travel with the code instead.
 //   - `verified`   — an account exists and is verified (incl. a Google-only account, which has
 //                    emailVerified set but no password); the page attempts the password sign-in,
 //                    where a wrong/absent password collapses to the generic invalid-credentials

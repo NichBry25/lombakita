@@ -179,5 +179,79 @@ describe.skipIf(skipWithoutDatabase)(
         });
       });
     });
+
+    it("neither lists nor decides a host request of an account whose address is not verified", async () => {
+      await inRollback(async (tx) => {
+        const { listRecruiterVerificationQueue, reviewRecruiterVerification } =
+          await import("./recruiter-verification-service");
+        const id = uniqueSuffix();
+        const [host] = await tx
+          .insert(users)
+          .values({
+            email: `unverified_host_${id}@example.test`,
+            username: `unverified_host_${id}`,
+            emailVerified: null,
+            role: "recruiter",
+            recruiterVerifiedAt: new Date(),
+            recruiterVerificationTier: "minimal",
+          })
+          .returning({ id: users.id });
+        const hostId = host!.id;
+        const submissionId = await seedSubmission(tx, hostId, { status: "pending_review" });
+        const operatorId = await seedOperator(tx);
+
+        const queueIdsOf = async () =>
+          (await listRecruiterVerificationQueue(tx)).map((entry) => entry.submission.id);
+
+        expect(await queueIdsOf()).not.toContain(submissionId);
+        await expect(
+          reviewRecruiterVerification(operatorId, submissionId, "approve", null, { db: tx }),
+        ).rejects.toMatchObject({ code: "recruiter_verification_not_found" });
+
+        expect((await readSubmission(tx, submissionId)).status).toBe("pending_review");
+        expect(await readTier(tx, hostId)).toBe("minimal");
+        expect(await auditRowsAbout(tx, hostId)).toHaveLength(0);
+
+        await tx.update(users).set({ emailVerified: new Date() }).where(eq(users.id, hostId));
+
+        expect(await queueIdsOf()).toContain(submissionId);
+      });
+    });
+
+    it("refuses to raise an account whose address is not verified to elevated", async () => {
+      await inRollback(async (tx) => {
+        const { elevateRecruiterTier } =
+          await import("@/server/recruiter-tier/recruiter-tier-service");
+        const id = uniqueSuffix();
+        const [host] = await tx
+          .insert(users)
+          .values({
+            email: `unverified_host_${id}@example.test`,
+            username: `unverified_host_${id}`,
+            emailVerified: null,
+            role: "recruiter",
+            recruiterVerifiedAt: new Date(),
+            recruiterVerificationTier: "minimal",
+          })
+          .returning({ id: users.id });
+        const hostId = host!.id;
+        const operatorId = await seedOperator(tx);
+
+        await expect(elevateRecruiterTier(operatorId, hostId, tx)).rejects.toMatchObject({
+          code: "tier_target_email_not_verified",
+          status: 422,
+        });
+
+        expect(await readTier(tx, hostId)).toBe("minimal");
+        expect(await auditRowsAbout(tx, hostId)).toHaveLength(0);
+
+        await tx.update(users).set({ emailVerified: new Date() }).where(eq(users.id, hostId));
+
+        await expect(elevateRecruiterTier(operatorId, hostId, tx)).resolves.toMatchObject({
+          tier: "elevated",
+        });
+        expect(await readTier(tx, hostId)).toBe("elevated");
+      });
+    });
   },
 );

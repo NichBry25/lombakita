@@ -63,11 +63,17 @@ vi.mock("@/server/redis/rate-limit", async (importOriginal) => {
 });
 
 import {
+  CredentialsAuthError,
   authenticateWithEmailPassword,
   registerUserWithCredentials,
   resendRegistrationVerification,
   verifyEmailCodeAndSetPassword,
 } from "@/server/auth/credentials-auth";
+import { elevateRecruiterTier } from "@/server/recruiter-tier/recruiter-tier-service";
+import {
+  listRecruiterVerificationQueue,
+  reviewRecruiterVerification,
+} from "@/server/recruiter-verification/recruiter-verification-service";
 
 const ADDRESS = "rina.code@example.test";
 const STRANGER_PASSWORD = "stranger-pass-1";
@@ -101,17 +107,28 @@ beforeEach(() => {
   mocks.unavailableKeyPrefix.current = null;
 });
 
+const CANDIDATE_DETAILS = {
+  name: "Rina Pratama",
+  signupRole: "candidate",
+  fullName: "Rina Pratama",
+  phoneNumber: "0812345678",
+  occupation: "college_student",
+  dateOfBirth: "2000-01-15",
+};
+
 const signUp = (tx: Database, password: string) =>
+  registerUserWithCredentials({ ...CANDIDATE_DETAILS, email: ADDRESS, password }, tx);
+
+const signUpAsHost = (tx: Database, password: string) =>
   registerUserWithCredentials(
     {
-      name: "Rina Pratama",
+      name: "Budi Santoso",
       email: ADDRESS,
       password,
-      signupRole: "candidate",
-      fullName: "Rina Pratama",
-      phoneNumber: "0812345678",
-      occupation: "college_student",
-      dateOfBirth: "2000-01-15",
+      signupRole: "recruiter",
+      fullName: "Budi Santoso",
+      mobileNumber: "081298765432",
+      corporateEmail: null,
     },
     tx,
   );
@@ -124,8 +141,56 @@ const latestCode = (): string => {
 
 const wrongCodeFor = (code: string): string => (code === "000000" ? "000001" : "000000");
 
-const verify = (tx: Database, code: string, password: string) =>
-  verifyEmailCodeAndSetPassword({ email: ADDRESS, code, password }, tx);
+const verify = (
+  tx: Database,
+  code: string,
+  password: string,
+  details: Record<string, unknown> = CANDIDATE_DETAILS,
+) => verifyEmailCodeAndSetPassword({ ...details, email: ADDRESS, code, password }, tx);
+
+const accountOf = async (tx: Database, userId: string) => {
+  const [row] = await tx
+    .select({ name: schema.users.name, username: schema.users.username })
+    .from(schema.users)
+    .where(eq(schema.users.id, userId));
+  if (!row) throw new Error("No user row");
+  return row;
+};
+
+const displayNameOf = async (tx: Database, userId: string) => {
+  const [row] = await tx
+    .select({ displayName: schema.userProfiles.displayName })
+    .from(schema.userProfiles)
+    .where(eq(schema.userProfiles.userId, userId));
+  if (!row) throw new Error("No user profile row");
+  return row.displayName;
+};
+
+const candidateProfileOf = async (tx: Database, userId: string) => {
+  const [row] = await tx
+    .select({
+      fullName: schema.candidateProfiles.fullName,
+      phoneNumber: schema.candidateProfiles.phoneNumber,
+      occupation: schema.candidateProfiles.occupation,
+      dateOfBirth: schema.candidateProfiles.dateOfBirth,
+    })
+    .from(schema.candidateProfiles)
+    .where(eq(schema.candidateProfiles.userId, userId));
+  return row ?? null;
+};
+
+const hostRequestsOf = (tx: Database, userId: string) =>
+  tx
+    .select({
+      id: schema.recruiterVerificationSubmissions.id,
+      status: schema.recruiterVerificationSubmissions.status,
+      mobileNumber: schema.recruiterVerificationSubmissions.mobileNumber,
+      fullName: schema.recruiterVerificationSubmissions.fullName,
+    })
+    .from(schema.recruiterVerificationSubmissions)
+    .where(eq(schema.recruiterVerificationSubmissions.userId, userId));
+
+const limiterKeysCounted = (): string[] => [...mocks.windowCounts.keys()];
 
 const userOf = async (tx: Database) => {
   const [row] = await tx
@@ -209,6 +274,21 @@ const invitationOf = async (tx: Database, invitationId: string) => {
     .where(eq(schema.institutionInvitations.id, invitationId));
   if (!row) throw new Error("No invitation row");
   return row;
+};
+
+const seedOperator = async (tx: Database): Promise<string> => {
+  const suffix = randomUUID();
+  const [row] = await tx
+    .insert(schema.users)
+    .values({
+      email: `ops_code_${suffix}@example.test`,
+      username: `ops_code_${suffix}`,
+      role: "platform_ops",
+      candidateVerifiedAt: new Date(),
+    })
+    .returning({ id: schema.users.id });
+  if (!row) throw new Error("No operator row");
+  return row.id;
 };
 
 const signsIn = async (tx: Database, password: string): Promise<boolean> => {
@@ -469,6 +549,183 @@ describe.skipIf(skipWithoutDatabase)("verifying an email address by code (real d
       expect(row.tokenHash).not.toBe(code);
       expect(row.tokenHash).not.toBe(sha256Hex(code));
       expect(row.tokenHash).not.toBe(sha256Hex(`${userId}:${code}`));
+    });
+  });
+
+  it("replaces a stranger's host sign-up with the details sent with the code", async () => {
+    await inRollback(async (tx) => {
+      await signUpAsHost(tx, STRANGER_PASSWORD);
+      const { id: userId } = await userOf(tx);
+      const usernameAfterSignUp = (await accountOf(tx, userId)).username;
+
+      await resendRegistrationVerification({ email: ADDRESS }, tx);
+      await verify(tx, latestCode(), OWNER_PASSWORD);
+
+      const account = await accountOf(tx, userId);
+      expect(account.name).toBe("Rina Pratama");
+      expect(account.username).not.toBe(usernameAfterSignUp);
+      const roleColumns = await roleColumnsOf(tx, userId);
+      expect(roleColumns.role).toBe("candidate");
+      expect(roleColumns.candidateVerifiedAt).toBeInstanceOf(Date);
+      expect(roleColumns.recruiterVerifiedAt).toBeNull();
+      expect(roleColumns.recruiterVerificationTier).toBe("minimal");
+      expect(await displayNameOf(tx, userId)).toBe("Rina Pratama");
+      expect(await candidateProfileOf(tx, userId)).toEqual({
+        fullName: "Rina Pratama",
+        phoneNumber: "0812345678",
+        occupation: "college_student",
+        dateOfBirth: "2000-01-15",
+      });
+      expect(await hostRequestsOf(tx, userId)).toHaveLength(0);
+    });
+  });
+
+  it("replaces a stranger's candidate sign-up with a host sign-up sent with the code", async () => {
+    await inRollback(async (tx) => {
+      await signUp(tx, STRANGER_PASSWORD);
+      const { id: userId } = await userOf(tx);
+
+      await resendRegistrationVerification({ email: ADDRESS }, tx);
+      await verify(tx, latestCode(), OWNER_PASSWORD, {
+        name: "Rina Pratama",
+        signupRole: "recruiter",
+        fullName: "Rina Pratama",
+        mobileNumber: "081211112222",
+        corporateEmail: null,
+      });
+
+      const roleColumns = await roleColumnsOf(tx, userId);
+      expect(roleColumns.role).toBe("recruiter");
+      expect(roleColumns.recruiterVerifiedAt).toBeInstanceOf(Date);
+      expect(roleColumns.candidateVerifiedAt).toBeNull();
+      expect(roleColumns.recruiterVerificationTier).toBe("minimal");
+      expect(await candidateProfileOf(tx, userId)).toBeNull();
+      const hostRequests = await hostRequestsOf(tx, userId);
+      expect(hostRequests).toHaveLength(1);
+      expect(hostRequests[0]).toMatchObject({
+        status: "pending_review",
+        mobileNumber: "081211112222",
+      });
+    });
+  });
+
+  it("keeps the username of a person who verifies their own sign-up", async () => {
+    await inRollback(async (tx) => {
+      await signUp(tx, PASSWORD);
+      const { id: userId } = await userOf(tx);
+      const usernameBefore = (await accountOf(tx, userId)).username;
+      const candidateProfileBefore = await candidateProfileOf(tx, userId);
+
+      await verify(tx, latestCode(), PASSWORD);
+
+      expect((await accountOf(tx, userId)).username).toBe(usernameBefore);
+      expect(await candidateProfileOf(tx, userId)).toEqual(candidateProfileBefore);
+    });
+  });
+
+  it("writes no details for a wrong code", async () => {
+    await inRollback(async (tx) => {
+      await signUpAsHost(tx, STRANGER_PASSWORD);
+      const { id: userId } = await userOf(tx);
+      const accountBefore = await accountOf(tx, userId);
+      const roleBefore = (await roleColumnsOf(tx, userId)).role;
+      const hostRequestsBefore = await hostRequestsOf(tx, userId);
+
+      await expect(verify(tx, wrongCodeFor(latestCode()), OWNER_PASSWORD)).rejects.toMatchObject({
+        code: "verification_code_invalid",
+      });
+
+      expect((await accountOf(tx, userId)).name).toBe(accountBefore.name);
+      expect((await roleColumnsOf(tx, userId)).role).toBe(roleBefore);
+      expect(await hostRequestsOf(tx, userId)).toEqual(hostRequestsBefore);
+      expect(await candidateProfileOf(tx, userId)).toBeNull();
+    });
+  });
+
+  it("refuses details that sign-up would refuse, before counting a try", async () => {
+    await inRollback(async (tx) => {
+      await signUp(tx, STRANGER_PASSWORD);
+      const detailsWithoutDateOfBirth: Record<string, unknown> = { ...CANDIDATE_DETAILS };
+      delete detailsWithoutDateOfBirth.dateOfBirth;
+
+      await expect(
+        verify(tx, latestCode(), OWNER_PASSWORD, detailsWithoutDateOfBirth),
+      ).rejects.toMatchObject({ status: 400 });
+
+      const countedKeys = limiterKeysCounted().filter(
+        (key) => key.startsWith("rl:register-code-day:") || key.startsWith("rl:register-code:"),
+      );
+      expect(countedKeys).toEqual([]);
+      expect((await userOf(tx)).emailVerified).toBeNull();
+    });
+  });
+
+  it("hides a stranger's host request from platform ops until the owner's verification replaces it", async () => {
+    await inRollback(async (tx) => {
+      await signUpAsHost(tx, STRANGER_PASSWORD);
+      const { id: accountId } = await userOf(tx);
+      const [strangerRequest] = await hostRequestsOf(tx, accountId);
+      if (!strangerRequest) throw new Error("No recruiter request after the host sign-up");
+      const operatorId = await seedOperator(tx);
+      const queueEntriesOfAccount = async () =>
+        (await listRecruiterVerificationQueue(tx)).filter(
+          (entry) => entry.submission.userId === accountId,
+        );
+
+      expect(await queueEntriesOfAccount()).toHaveLength(0);
+      await expect(
+        reviewRecruiterVerification(operatorId, strangerRequest.id, "approve", null, { db: tx }),
+      ).rejects.toMatchObject({ code: "recruiter_verification_not_found" });
+      await expect(elevateRecruiterTier(operatorId, accountId, tx)).rejects.toMatchObject({
+        code: "tier_target_email_not_verified",
+      });
+      expect((await roleColumnsOf(tx, accountId)).recruiterVerificationTier).toBe("minimal");
+      expect((await hostRequestsOf(tx, accountId))[0]?.status).toBe("pending_review");
+
+      await resendRegistrationVerification({ email: ADDRESS }, tx);
+      await verify(tx, latestCode(), OWNER_PASSWORD, {
+        name: "Rina Pratama",
+        signupRole: "recruiter",
+        fullName: "Rina Pratama",
+        mobileNumber: "081211112222",
+        corporateEmail: null,
+      });
+
+      const ownerRequests = await hostRequestsOf(tx, accountId);
+      expect(ownerRequests).toHaveLength(1);
+      const [ownerRequest] = ownerRequests;
+      if (!ownerRequest) throw new Error("No recruiter request after the verification");
+      expect(ownerRequest.id).not.toBe(strangerRequest.id);
+      expect(ownerRequest.mobileNumber).toBe("081211112222");
+      expect(ownerRequest.fullName).toBe("Rina Pratama");
+      const queueEntries = await queueEntriesOfAccount();
+      expect(queueEntries).toHaveLength(1);
+      expect(queueEntries[0]?.submission.id).toBe(ownerRequest.id);
+    });
+  });
+
+  it("leaves the account unverified and the code unused when the replacement fails", async () => {
+    await inRollback(async (tx) => {
+      await signUp(tx, STRANGER_PASSWORD);
+      const code = latestCode();
+      const { id: userId } = await userOf(tx);
+      const passwordHashBefore = await storedPasswordHashOf(tx, userId);
+
+      const verification = verify(tx, code, OWNER_PASSWORD, {
+        ...CANDIDATE_DETAILS,
+        dateOfBirth: "2000-02-30",
+      });
+      const refusal = await verification.then(
+        () => null,
+        (error: unknown) => error,
+      );
+      expect(refusal).not.toBeNull();
+      expect(refusal).not.toBeInstanceOf(CredentialsAuthError);
+
+      await expectUnverifiedAndUnchanged(tx, userId, passwordHashBefore);
+
+      await verify(tx, code, OWNER_PASSWORD);
+      expect(await signsIn(tx, OWNER_PASSWORD)).toBe(true);
     });
   });
 });
