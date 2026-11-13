@@ -101,17 +101,28 @@ beforeEach(() => {
   mocks.unavailableKeyPrefix.current = null;
 });
 
+const CANDIDATE_DETAILS = {
+  name: "Rina Pratama",
+  signupRole: "candidate",
+  fullName: "Rina Pratama",
+  phoneNumber: "0812345678",
+  occupation: "college_student",
+  dateOfBirth: "2000-01-15",
+};
+
 const signUp = (tx: Database, password: string) =>
+  registerUserWithCredentials({ ...CANDIDATE_DETAILS, email: ADDRESS, password }, tx);
+
+const signUpAsHost = (tx: Database, password: string) =>
   registerUserWithCredentials(
     {
-      name: "Rina Pratama",
+      name: "Budi Santoso",
       email: ADDRESS,
       password,
-      signupRole: "candidate",
-      fullName: "Rina Pratama",
-      phoneNumber: "0812345678",
-      occupation: "college_student",
-      dateOfBirth: "2000-01-15",
+      signupRole: "recruiter",
+      fullName: "Budi Santoso",
+      mobileNumber: "081298765432",
+      corporateEmail: null,
     },
     tx,
   );
@@ -124,8 +135,55 @@ const latestCode = (): string => {
 
 const wrongCodeFor = (code: string): string => (code === "000000" ? "000001" : "000000");
 
-const verify = (tx: Database, code: string, password: string) =>
-  verifyEmailCodeAndSetPassword({ email: ADDRESS, code, password }, tx);
+const verify = (
+  tx: Database,
+  code: string,
+  password: string,
+  details: Record<string, unknown> = CANDIDATE_DETAILS,
+) => verifyEmailCodeAndSetPassword({ ...details, email: ADDRESS, code, password }, tx);
+
+const accountOf = async (tx: Database, userId: string) => {
+  const [row] = await tx
+    .select({ name: schema.users.name, username: schema.users.username })
+    .from(schema.users)
+    .where(eq(schema.users.id, userId));
+  if (!row) throw new Error("No user row");
+  return row;
+};
+
+const displayNameOf = async (tx: Database, userId: string) => {
+  const [row] = await tx
+    .select({ displayName: schema.userProfiles.displayName })
+    .from(schema.userProfiles)
+    .where(eq(schema.userProfiles.userId, userId));
+  if (!row) throw new Error("No user profile row");
+  return row.displayName;
+};
+
+const candidateProfileOf = async (tx: Database, userId: string) => {
+  const [row] = await tx
+    .select({
+      fullName: schema.candidateProfiles.fullName,
+      phoneNumber: schema.candidateProfiles.phoneNumber,
+      occupation: schema.candidateProfiles.occupation,
+      dateOfBirth: schema.candidateProfiles.dateOfBirth,
+    })
+    .from(schema.candidateProfiles)
+    .where(eq(schema.candidateProfiles.userId, userId));
+  return row ?? null;
+};
+
+const hostRequestsOf = (tx: Database, userId: string) =>
+  tx
+    .select({
+      id: schema.recruiterVerificationSubmissions.id,
+      status: schema.recruiterVerificationSubmissions.status,
+      mobileNumber: schema.recruiterVerificationSubmissions.mobileNumber,
+    })
+    .from(schema.recruiterVerificationSubmissions)
+    .where(eq(schema.recruiterVerificationSubmissions.userId, userId));
+
+const limiterKeysCounted = (): string[] => [...mocks.windowCounts.keys()];
 
 const userOf = async (tx: Database) => {
   const [row] = await tx
@@ -469,6 +527,114 @@ describe.skipIf(skipWithoutDatabase)("verifying an email address by code (real d
       expect(row.tokenHash).not.toBe(code);
       expect(row.tokenHash).not.toBe(sha256Hex(code));
       expect(row.tokenHash).not.toBe(sha256Hex(`${userId}:${code}`));
+    });
+  });
+
+  it("replaces a stranger's host sign-up with the details sent with the code", async () => {
+    await inRollback(async (tx) => {
+      await signUpAsHost(tx, STRANGER_PASSWORD);
+      const { id: userId } = await userOf(tx);
+      const usernameAfterSignUp = (await accountOf(tx, userId)).username;
+
+      await resendRegistrationVerification({ email: ADDRESS }, tx);
+      await verify(tx, latestCode(), OWNER_PASSWORD);
+
+      const account = await accountOf(tx, userId);
+      expect(account.name).toBe("Rina Pratama");
+      expect(account.username).not.toBe(usernameAfterSignUp);
+      const roleColumns = await roleColumnsOf(tx, userId);
+      expect(roleColumns.role).toBe("candidate");
+      expect(roleColumns.candidateVerifiedAt).toBeInstanceOf(Date);
+      expect(roleColumns.recruiterVerifiedAt).toBeNull();
+      expect(roleColumns.recruiterVerificationTier).toBe("minimal");
+      expect(await displayNameOf(tx, userId)).toBe("Rina Pratama");
+      expect(await candidateProfileOf(tx, userId)).toEqual({
+        fullName: "Rina Pratama",
+        phoneNumber: "0812345678",
+        occupation: "college_student",
+        dateOfBirth: "2000-01-15",
+      });
+      expect(await hostRequestsOf(tx, userId)).toHaveLength(0);
+    });
+  });
+
+  it("replaces a stranger's candidate sign-up with a host sign-up sent with the code", async () => {
+    await inRollback(async (tx) => {
+      await signUp(tx, STRANGER_PASSWORD);
+      const { id: userId } = await userOf(tx);
+
+      await resendRegistrationVerification({ email: ADDRESS }, tx);
+      await verify(tx, latestCode(), OWNER_PASSWORD, {
+        name: "Rina Pratama",
+        signupRole: "recruiter",
+        fullName: "Rina Pratama",
+        mobileNumber: "081211112222",
+        corporateEmail: null,
+      });
+
+      const roleColumns = await roleColumnsOf(tx, userId);
+      expect(roleColumns.role).toBe("recruiter");
+      expect(roleColumns.recruiterVerifiedAt).toBeInstanceOf(Date);
+      expect(roleColumns.candidateVerifiedAt).toBeNull();
+      expect(roleColumns.recruiterVerificationTier).toBe("minimal");
+      expect(await candidateProfileOf(tx, userId)).toBeNull();
+      const hostRequests = await hostRequestsOf(tx, userId);
+      expect(hostRequests).toHaveLength(1);
+      expect(hostRequests[0]).toMatchObject({
+        status: "pending_review",
+        mobileNumber: "081211112222",
+      });
+    });
+  });
+
+  it("keeps the username of a person who verifies their own sign-up", async () => {
+    await inRollback(async (tx) => {
+      await signUp(tx, PASSWORD);
+      const { id: userId } = await userOf(tx);
+      const usernameBefore = (await accountOf(tx, userId)).username;
+      const candidateProfileBefore = await candidateProfileOf(tx, userId);
+
+      await verify(tx, latestCode(), PASSWORD);
+
+      expect((await accountOf(tx, userId)).username).toBe(usernameBefore);
+      expect(await candidateProfileOf(tx, userId)).toEqual(candidateProfileBefore);
+    });
+  });
+
+  it("writes no details for a wrong code", async () => {
+    await inRollback(async (tx) => {
+      await signUpAsHost(tx, STRANGER_PASSWORD);
+      const { id: userId } = await userOf(tx);
+      const accountBefore = await accountOf(tx, userId);
+      const roleBefore = (await roleColumnsOf(tx, userId)).role;
+      const hostRequestsBefore = await hostRequestsOf(tx, userId);
+
+      await expect(verify(tx, wrongCodeFor(latestCode()), OWNER_PASSWORD)).rejects.toMatchObject({
+        code: "verification_code_invalid",
+      });
+
+      expect((await accountOf(tx, userId)).name).toBe(accountBefore.name);
+      expect((await roleColumnsOf(tx, userId)).role).toBe(roleBefore);
+      expect(await hostRequestsOf(tx, userId)).toEqual(hostRequestsBefore);
+      expect(await candidateProfileOf(tx, userId)).toBeNull();
+    });
+  });
+
+  it("refuses details that sign-up would refuse, before counting a try", async () => {
+    await inRollback(async (tx) => {
+      await signUp(tx, STRANGER_PASSWORD);
+      const detailsWithoutDateOfBirth: Record<string, unknown> = { ...CANDIDATE_DETAILS };
+      delete detailsWithoutDateOfBirth.dateOfBirth;
+
+      await expect(
+        verify(tx, latestCode(), OWNER_PASSWORD, detailsWithoutDateOfBirth),
+      ).rejects.toMatchObject({ status: 400 });
+
+      const countedKeys = limiterKeysCounted().filter(
+        (key) => key.startsWith("rl:register-code-day:") || key.startsWith("rl:register-code:"),
+      );
+      expect(countedKeys).toEqual([]);
+      expect((await userOf(tx)).emailVerified).toBeNull();
     });
   });
 });

@@ -92,6 +92,7 @@ const seedAccount = async (tx: Tx, account: SeedAccount): Promise<string> => {
       email: `ops_actor_${id}@example.test`,
       username: `ops_actor_${id}`,
       role: account.role,
+      emailVerified: new Date(),
       candidateVerifiedAt: new Date(),
       recruiterVerifiedAt: recruiterTier === "unverified" ? null : new Date(),
       recruiterVerificationTier: recruiterTier,

@@ -50,6 +50,8 @@ export const sendRegistrationVerificationEmail = async (options: {
         "",
         "Kode ini berlaku 10 menit. Masukkan kode ini di halaman tempat Anda mendaftar atau masuk.",
         "",
+        "Jangan berikan kode ini kepada siapa pun, termasuk yang mengaku dari Lombakita atau institusi Anda.",
+        "",
         "Jika Anda tidak meminta kode ini, abaikan email ini.",
       ].join("\n"),
       html: `
@@ -59,6 +61,7 @@ export const sendRegistrationVerificationEmail = async (options: {
           <p style="margin: 0 0 12px;">Kode verifikasi akun Lombakita Anda:</p>
           <p style="font-size: 28px; font-weight: 700; letter-spacing: 6px; margin: 0 0 16px;">${options.code}</p>
           <p style="margin: 0 0 12px;">Kode ini berlaku 10 menit. Masukkan kode ini di halaman tempat Anda mendaftar atau masuk.</p>
+          <p style="margin: 0 0 12px;">Jangan berikan kode ini kepada siapa pun, termasuk yang mengaku dari Lombakita atau institusi Anda.</p>
           <p style="margin: 0; color: #3d5c56;">Jika Anda tidak meminta kode ini, abaikan email ini.</p>
         </div>
       `,

@@ -30,6 +30,7 @@ export type TierElevationErrorCode =
   | "tier_invalid_target"
   | "tier_account_not_found"
   | "tier_target_not_recruiter_verified"
+  | "tier_target_email_not_verified"
   | "account_deactivated";
 
 export class RecruiterTierElevationError extends Error {
@@ -143,6 +144,21 @@ export const elevateRecruiterTier = async (
         "tier_target_not_recruiter_verified",
         422,
         "Account does not hold a verified recruiter role and cannot be elevated",
+      );
+    }
+
+    // A host sign-up before its address is proven may be a stranger's, and verification never lowers the tier.
+    const [emailState] = await tx
+      .select({ emailVerified: users.emailVerified })
+      .from(users)
+      .where(eq(users.id, accountId))
+      .limit(1);
+
+    if (!emailState?.emailVerified) {
+      throw new RecruiterTierElevationError(
+        "tier_target_email_not_verified",
+        422,
+        "Account has not verified its email address and cannot be elevated",
       );
     }
 

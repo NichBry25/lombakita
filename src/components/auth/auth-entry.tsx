@@ -16,8 +16,10 @@ import { PENDING_PROMPT_KEY } from "@/components/auth/second-role-prompt-modal";
 //     (/api/v1/auth/identify) and branch:
 //       • verified  → attempt the password sign-in (path a). Wrong/absent password → generic
 //                     "email atau password salah" (a Google-only account lands here too).
-//       • unverified→ show the verify notice, which sends a verification code; never offer signup
-//                     (a sign-up for an address that already has an account is refused).
+//       • unverified→ show the verify notice. The person completes the sign-up form, or keeps
+//                     the one register just refused, and gets a code through the resend
+//                     endpoint; the details sent with the code replace an earlier sign-up's.
+//                     Register is never called here (it refuses an existing address).
 //       • none      → role picker + name; create the account via the existing register endpoint,
 //                     which sends a verification code (path b). Account usable once the code is
 //                     typed.
@@ -76,7 +78,7 @@ const verificationFailureMessage = (status: number, errorCode: string | undefine
     return "Kode salah atau sudah tidak berlaku. Periksa kode di email Anda, atau kirim ulang kode.";
   }
   if (errorCode === "verification_code_daily_limit") {
-    return "Terlalu banyak percobaan kode yang salah untuk email ini hari ini. Coba lagi besok.";
+    return "Terlalu banyak percobaan kode yang salah untuk email ini. Coba lagi dalam 24 jam.";
   }
   if (errorCode === "verification_code_attempts_exceeded") {
     return "Terlalu banyak percobaan kode yang salah. Kirim ulang kode, atau coba lagi nanti.";
@@ -132,6 +134,11 @@ export const AuthEntry = ({
   const [isResending, setIsResending] = useState(false);
   const [verificationCode, setVerificationCode] = useState("");
   const [isVerifying, setIsVerifying] = useState(false);
+  const [signupDetails, setSignupDetails] = useState<{
+    role: "candidate" | "recruiter";
+    body: Record<string, unknown>;
+  } | null>(null);
+  const [completingUnverified, setCompletingUnverified] = useState(false);
   const verificationCodeInputRef = useRef<HTMLInputElement>(null);
   const { begin: beginPageTransition } = usePageTransition();
   const { addToast } = useToast();
@@ -245,6 +252,8 @@ export const AuthEntry = ({
       return;
     }
 
+    setSignupDetails(null);
+    setCompletingUnverified(false);
     setIsSubmitting(true);
 
     try {
@@ -338,12 +347,30 @@ export const AuthEntry = ({
     }
   };
 
-  // Shared account-creation call. `candidateBody` carries the candidate onboarding fields on the
-  // candidate path; it is null for recruiters.
+  // The code verification sets this password, so a password the server would refuse must not spend a code.
+  const sendCodeForUnverifiedAddress = (
+    role: "candidate" | "recruiter",
+    roleBody: Record<string, unknown>,
+  ) => {
+    if (password.trim().length < 8 || password.trim().length > 72) {
+      addToast({
+        type: "error",
+        message:
+          "Password harus 8 sampai 72 karakter. Kembali, lalu masukkan password yang memenuhi syarat.",
+      });
+      return;
+    }
+    setSignupDetails({ role, body: roleBody });
+    void onResend();
+  };
+
+  // Shared account-creation call. `roleBody` carries the candidate onboarding fields or the host
+  // fields of the chosen role.
   const registerAccount = async (
     role: "candidate" | "recruiter",
-    candidateBody: Record<string, unknown> | null,
+    roleBody: Record<string, unknown>,
   ) => {
+    setSignupDetails({ role, body: roleBody });
     setIsSubmitting(true);
 
     try {
@@ -354,7 +381,7 @@ export const AuthEntry = ({
           name: name.trim(),
           email: email.trim().toLowerCase(),
           password,
-          ...(candidateBody ?? {}),
+          ...roleBody,
         }),
       });
 
@@ -403,6 +430,10 @@ export const AuthEntry = ({
   // Plain fetch rather than sessionFetch: no session exists before the address is verified.
   const onSubmitVerificationCode = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!signupDetails) {
+      setStage("verifyNotice");
+      return;
+    }
     setIsVerifying(true);
 
     try {
@@ -413,6 +444,9 @@ export const AuthEntry = ({
           email: email.trim().toLowerCase(),
           code: verificationCode.trim(),
           password,
+          name: name.trim(),
+          signupRole: signupDetails.role,
+          ...signupDetails.body,
         }),
       });
 
@@ -503,11 +537,17 @@ export const AuthEntry = ({
       return;
     }
 
-    void registerAccount("recruiter", {
+    const body = {
       fullName: fullName.trim(),
       mobileNumber: recruiterMobile.trim(),
       corporateEmail: recruiterCorporateEmail.trim() || null,
-    });
+    };
+
+    if (completingUnverified) {
+      sendCodeForUnverifiedAddress("recruiter", body);
+      return;
+    }
+    void registerAccount("recruiter", body);
   };
 
   const onSubmitCandidateOnboarding = (event: FormEvent<HTMLFormElement>) => {
@@ -530,20 +570,30 @@ export const AuthEntry = ({
       return;
     }
 
-    void registerAccount("candidate", {
+    const body = {
       fullName: fullName.trim(),
       phoneNumber: phoneNumber.trim(),
       occupation,
       dateOfBirth,
-    });
+    };
+
+    if (completingUnverified) {
+      sendCodeForUnverifiedAddress("candidate", body);
+      return;
+    }
+    void registerAccount("candidate", body);
   };
 
   const backToChoose = () => {
+    setSignupDetails(null);
+    setCompletingUnverified(false);
     setMethod("choose");
     setStage("entry");
   };
 
   const backToEntry = () => {
+    setSignupDetails(null);
+    setCompletingUnverified(false);
     setStage("entry");
     setConfirmPassword("");
   };
@@ -645,7 +695,7 @@ export const AuthEntry = ({
         </form>
       ) : null}
 
-      {method === "credentials" && stage === "verifyNotice" ? (
+      {method === "credentials" && stage === "verifyNotice" && signupDetails ? (
         <div className="auth-stage-panel">
           <p>
             Email <span className="font-medium">{email}</span> belum diverifikasi. Kirim kode
@@ -660,21 +710,38 @@ export const AuthEntry = ({
               loading={isResending}
               disabled={!verificationEnabled}
               onClick={() => {
-                // The code verification sets this password, so a password the server would refuse must not spend a code.
-                if (password.trim().length < 8 || password.trim().length > 72) {
-                  addToast({
-                    type: "error",
-                    message:
-                      "Password harus 8 sampai 72 karakter. Kembali, lalu masukkan password yang memenuhi syarat.",
-                  });
-                  return;
-                }
-                void onResend();
+                sendCodeForUnverifiedAddress(signupDetails.role, signupDetails.body);
               }}
               variant="primary"
               size="sm"
             >
               Kirim kode verifikasi
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {method === "credentials" && stage === "verifyNotice" && !signupDetails ? (
+        <div className="auth-stage-panel">
+          <p>
+            Email <span className="font-medium">{email}</span> belum diverifikasi. Lengkapi data
+            pendaftaran Anda, lalu kami kirim kode verifikasi ke email ini.
+          </p>
+          <div className="auth-form-actions">
+            <Button type="button" onClick={backToEntry} variant="ghost" size="sm">
+              Kembali
+            </Button>
+            <Button
+              type="button"
+              disabled={!verificationEnabled}
+              onClick={() => {
+                setCompletingUnverified(true);
+                setStage("signup");
+              }}
+              variant="primary"
+              size="sm"
+            >
+              Lengkapi pendaftaran
             </Button>
           </div>
         </div>
@@ -738,10 +805,17 @@ export const AuthEntry = ({
 
       {method === "credentials" && stage === "signup" ? (
         <div className="auth-stage-panel">
-          <p>
-            Belum ada akun untuk <span className="font-medium">{email}</span>. Lengkapi nama dan
-            pilih peran untuk mendaftar.
-          </p>
+          {completingUnverified ? (
+            <p>
+              Email <span className="font-medium">{email}</span> belum diverifikasi. Lengkapi nama
+              dan pilih peran, lalu kami kirim kode verifikasi ke email ini.
+            </p>
+          ) : (
+            <p>
+              Belum ada akun untuk <span className="font-medium">{email}</span>. Lengkapi nama dan
+              pilih peran untuk mendaftar.
+            </p>
+          )}
 
           <div className="form-field">
             <label className="form-label form-label-required" htmlFor="auth-name">
@@ -864,7 +938,7 @@ export const AuthEntry = ({
             <Button type="button" onClick={backToSignup} variant="ghost" size="sm">
               Kembali
             </Button>
-            <Button type="submit" loading={isSubmitting} variant="primary" size="md">
+            <Button type="submit" loading={isSubmitting || isResending} variant="primary" size="md">
               Selesai
             </Button>
           </div>
@@ -929,7 +1003,7 @@ export const AuthEntry = ({
             <Button type="button" onClick={backToSignup} variant="ghost" size="sm">
               Kembali
             </Button>
-            <Button type="submit" loading={isSubmitting} variant="primary" size="md">
+            <Button type="submit" loading={isSubmitting || isResending} variant="primary" size="md">
               Selesai
             </Button>
           </div>

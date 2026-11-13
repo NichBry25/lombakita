@@ -54,6 +54,20 @@ describe("the verification code email", () => {
     }
   });
 
+  it("tells the reader never to share the code", async () => {
+    mocks.resolveEmailDelivery.mockReturnValue(DELIVERY);
+    mocks.serverEnv.emailDeliveryEnabled = true;
+
+    await sendRegistrationVerificationEmail({ email: EMAIL, code: CODE });
+
+    const message = sentMessage();
+    for (const part of [message.text, message.html]) {
+      expect(part).toContain(
+        "Jangan berikan kode ini kepada siapa pun, termasuk yang mengaku dari Lombakita atau institusi Anda.",
+      );
+    }
+  });
+
   it("logs the code only where delivery is switched off", async () => {
     mocks.resolveEmailDelivery.mockReturnValue(null);
     mocks.serverEnv.emailDeliveryEnabled = false;
