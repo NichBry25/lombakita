@@ -264,8 +264,8 @@ function TeamCancelReasonForm({
   return (
     <div className="stack-md">
       <p className="muted-copy">
-        Tim akan kembali ke status &apos;forming&apos; dan semua pendaftaran tim dibatalkan.
-        Tuliskan alasan pembatalan (wajib diisi).
+        Tim akan kembali ke tahap pembentukan dan semua pendaftaran tim dibatalkan. Tuliskan alasan
+        pembatalan (wajib diisi).
       </p>
       <textarea
         value={reason}

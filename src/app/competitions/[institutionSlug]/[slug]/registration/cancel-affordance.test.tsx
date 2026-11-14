@@ -13,7 +13,7 @@
 // manual-lane integration suite. What is proven here is that the answer reaches the screen.
 
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { UIPrimitivesProvider } from "@/components/ui/primitives";
 import { IndividualRegistrationSection } from "./individual-section";
 import { CompetitionTeamSection } from "./team-section";
@@ -136,6 +136,19 @@ describe("the team cancel affordance", () => {
     renderTeam(true, { status: "forming" });
 
     expect(screen.queryByText(WITHHELD_COPY)).toBeNull();
+  });
+
+  it("names the state the team returns to in Indonesian when the captain opens the cancel dialog", () => {
+    renderTeam(false);
+    fireEvent.click(screen.getByRole("button", { name: TEAM_CANCEL_LABEL }));
+
+    const dialogText = screen.getByRole("dialog").textContent ?? "";
+    expect({
+      saysPembentukan: dialogText.includes(
+        "Tim akan kembali ke tahap pembentukan dan semua pendaftaran tim dibatalkan.",
+      ),
+      showsRawStatus: dialogText.includes("forming"),
+    }).toEqual({ saysPembentukan: true, showsRawStatus: false });
   });
 });
 
