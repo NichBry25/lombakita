@@ -18,7 +18,7 @@ const PENDING_INVITATION = {
   expiresAt: "2026-09-08T00:00:00.000Z",
 };
 
-const renderTeam = (
+const teamSection = (
   viewerId: string,
   registerAgainClosedByPaymentProof: boolean,
   minTeamSize = 2,
@@ -28,43 +28,44 @@ const renderTeam = (
     invitedEmail: string;
     expiresAt: string;
   }[] = [],
-) =>
-  render(
-    <UIPrimitivesProvider>
-      <CompetitionTeamSection
-        competitionId="comp-1"
-        competitionMode="team"
-        minTeamSize={minTeamSize}
-        maxTeamSize={4}
-        registrationOpen
-        expectedUserId={viewerId}
-        initialTeam={{ id: "team-1", name: "Tim Uji", captainId: CAPTAIN, status: "forming" }}
-        initialMembers={[
-          {
-            membershipId: "m-1",
-            userId: CAPTAIN,
-            role: "captain",
-            displayName: "Kapten",
-            email: "kapten@example.test",
-          },
-          {
-            membershipId: "m-2",
-            userId: "user-member",
-            role: "member",
-            displayName: "Anggota",
-            email: "anggota@example.test",
-          },
-        ]}
-        initialPendingInvitations={pendingInvitations}
-        registrationWithheld={false}
-        cancellationClosedByPaymentProof={false}
-        isFreeCompetition={false}
-        openInvitationCount={0}
-        registrationClosesAt={null}
-        registerAgainClosedByPaymentProof={registerAgainClosedByPaymentProof}
-      />
-    </UIPrimitivesProvider>,
-  );
+) => (
+  <UIPrimitivesProvider>
+    <CompetitionTeamSection
+      competitionId="comp-1"
+      competitionMode="team"
+      minTeamSize={minTeamSize}
+      maxTeamSize={4}
+      registrationOpen
+      expectedUserId={viewerId}
+      initialTeam={{ id: "team-1", name: "Tim Uji", captainId: CAPTAIN, status: "forming" }}
+      initialMembers={[
+        {
+          membershipId: "m-1",
+          userId: CAPTAIN,
+          role: "captain",
+          displayName: "Kapten",
+          email: "kapten@example.test",
+        },
+        {
+          membershipId: "m-2",
+          userId: "user-member",
+          role: "member",
+          displayName: "Anggota",
+          email: "anggota@example.test",
+        },
+      ]}
+      initialPendingInvitations={pendingInvitations}
+      registrationWithheld={false}
+      cancellationClosedByPaymentProof={false}
+      isFreeCompetition={false}
+      openInvitationCount={0}
+      registrationClosesAt={null}
+      registerAgainClosedByPaymentProof={registerAgainClosedByPaymentProof}
+    />
+  </UIPrimitivesProvider>
+);
+
+const renderTeam = (...args: Parameters<typeof teamSection>) => render(teamSection(...args));
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -233,4 +234,49 @@ it("still warns on leaving a forming team below its minimum", async () => {
     modal: screen.queryByText("Tim belum lengkap") !== null,
     backCalls: routerSpies.back.mock.calls.length,
   }).toEqual({ leaveBlocked: true, modal: true, backCalls: 0 });
+});
+
+it("moves focus to the note after the refusal replaces the register button", async () => {
+  const { rerender } = renderTeam(CAPTAIN, false);
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              code: "team_register_again_closed_by_payment_proof",
+              message:
+                "A payment proof was sent for a cancelled registration of this team, so it cannot register again",
+            },
+          }),
+          { status: 409, headers: { "content-type": "application/json" } },
+        ),
+    ),
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: "Daftarkan tim" }));
+  await screen.findByText(CLOSED_SENTENCE);
+  rerender(teamSection(CAPTAIN, true));
+
+  expect({
+    refreshCalls: routerSpies.refresh.mock.calls.length,
+    registerButton: screen.queryByRole("button", { name: "Daftarkan tim" }) !== null,
+    focusedText: document.activeElement?.textContent,
+    focusedTabIndex: document.activeElement?.getAttribute("tabindex"),
+  }).toEqual({
+    refreshCalls: 1,
+    registerButton: false,
+    focusedText: CLOSED_SENTENCE,
+    focusedTabIndex: "-1",
+  });
+});
+
+it("leaves focus alone on a page that opens with the note", () => {
+  renderTeam(CAPTAIN, true);
+
+  expect({
+    focusedIsBody: document.activeElement === document.body,
+    note: screen.queryByText(CLOSED_SENTENCE) !== null,
+  }).toEqual({ focusedIsBody: true, note: true });
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { errorMessageFor, NETWORK_ERROR_MESSAGE } from "@/lib/errors/error-copy";
 import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
@@ -319,6 +319,10 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
   const busy = pendingAction !== null;
   // a username OR an email; resolved server-side.
   const [inviteIdentifier, setInviteIdentifier] = useState("");
+  // Set by the refusal that reloads the page, so the note that replaces the focused register
+  // control takes the focus once it renders; a page that opens with the note keeps its focus.
+  const focusesRegisterAgainNoteRef = useRef(false);
+  const registerAgainNoteRef = useRef<HTMLDivElement>(null);
 
   const ownMembership = props.initialMembers.find((m) => m.userId === props.expectedUserId);
 
@@ -385,6 +389,10 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isCaptain, ownMembership]);
 
+  useEffect(() => {
+    if (focusesRegisterAgainNoteRef.current) registerAgainNoteRef.current?.focus();
+  }, [props.registerAgainClosedByPaymentProof]);
+
   const executeAction = async (
     actionKey: string,
     label: string,
@@ -402,6 +410,7 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
         // This refusal holds for as long as the team exists, so the page is read again and the
         // register control gives way to the note.
         if (code === "team_register_again_closed_by_payment_proof") {
+          focusesRegisterAgainNoteRef.current = true;
           router.refresh();
         }
         return;
@@ -762,7 +771,9 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
       {/* Stands where the register control would have been, and only for the captain, like the cancel
           note below. */}
       {isCaptain && status === "forming" && props.registerAgainClosedByPaymentProof && (
-        <Feedback tone="neutral">{TEAM_REGISTER_AGAIN_CLOSED_MESSAGE}</Feedback>
+        <div ref={registerAgainNoteRef} tabIndex={-1}>
+          <Feedback tone="neutral">{TEAM_REGISTER_AGAIN_CLOSED_MESSAGE}</Feedback>
+        </div>
       )}
 
       {/* Stands where the cancel control would have been, and only for the captain. A member who

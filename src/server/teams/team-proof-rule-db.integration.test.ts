@@ -781,6 +781,46 @@ describe.skipIf(skipWithoutDatabase)("who is told when a team payment lapses", (
   });
 });
 
+describe.skipIf(skipWithoutDatabase)("who is told when an individual payment lapses", () => {
+  it("tells an individual payer whose payment lapsed, and nobody else", async () => {
+    await inRollback(async (tx) => {
+      const seed = await seedPricedTeam(tx, "both");
+      const individual = await createIndividualRegistration(
+        seed.memberUserId,
+        seed.competitionId,
+        tx as never,
+        T0,
+      );
+      const paymentId = await paymentIdAnchoredOn(tx, individual.id);
+
+      const result = await sweepExpiredPayments(SWEEP_AT, tx as never);
+      await deliverExpiryNotice(tx, paymentId);
+
+      const [row] = await tx
+        .select({
+          status: competitionRegistrations.status,
+          cancellationReason: competitionRegistrations.cancellationReason,
+        })
+        .from(competitionRegistrations)
+        .where(eq(competitionRegistrations.id, individual.id));
+      expect({
+        outcome: result.expired.filter((entry) => entry.paymentId === paymentId),
+        row,
+        inbox: {
+          payer: await paymentOutcomeInboxCount(tx, seed.memberUserId),
+          captain: await paymentOutcomeInboxCount(tx, seed.captainUserId),
+        },
+        emailed: emailSpies.sendPaymentOutcomeEmail.mock.calls.map(([input]) => input.recipientId),
+      }).toEqual({
+        outcome: [{ paymentId, registrationsCancelled: 1 }],
+        row: { status: "cancelled", cancellationReason: "payment_deadline_expired" },
+        inbox: { payer: 1, captain: 0 },
+        emailed: [seed.memberUserId],
+      });
+    });
+  });
+});
+
 describe.skipIf(skipWithoutDatabase)("the payment panel after a team registered again", () => {
   it("shows the team's newest payment, open for its proof, after the team registered again", async () => {
     await inRollback(async (tx) => {

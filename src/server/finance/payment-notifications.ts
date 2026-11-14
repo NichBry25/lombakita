@@ -135,7 +135,9 @@ export const notifyPaymentProofSubmitted = async (
 };
 
 /**
- * Tells every member of the payment group what became of the money. Per R13, the whole group.
+ * Tells what became of the money (R13): a verdict to every member of the payment group, an expiry
+ * to the members whose registrations made with the payment carry its reason. The job resolves both
+ * at delivery.
  *
  * `expired` carries no reason and no resubmission flag because there is no organiser decision to
  * describe, and the copy downstream says so outright.
