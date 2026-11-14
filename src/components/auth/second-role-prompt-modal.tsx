@@ -56,7 +56,7 @@ const secondRoleToOffer = (
 export function SecondRolePromptModal() {
   const router = useRouter();
   const { data: session, status } = useSession();
-  const { openModal } = useModal();
+  const { openModal, closeModal } = useModal();
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -70,7 +70,12 @@ export function SecondRolePromptModal() {
   // openModal may not run during render. Opening here also lets a press made while the session
   // still loads open the pop-up once it has loaded.
   useEffect(() => {
-    if (!open || offeredRole === null) return;
+    if (!open) return;
+    // The pop-up closes when the session in this tab stops having a role to offer.
+    if (offeredRole === null) {
+      closeModal();
+      return;
+    }
     const copy = ROLE_COPY[offeredRole];
     openModal({
       title: copy.headline,
@@ -85,7 +90,7 @@ export function SecondRolePromptModal() {
       ],
       onClose: () => setOpen(false),
     });
-  }, [open, offeredRole, openModal, router]);
+  }, [open, offeredRole, openModal, closeModal, router]);
 
   return null;
 }

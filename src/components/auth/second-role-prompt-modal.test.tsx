@@ -4,7 +4,7 @@ import { act } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { SecondRolePromptModal, SHOW_SECOND_ROLE_PROMPT_EVENT } from "./second-role-prompt-modal";
-import { UIPrimitivesProvider } from "@/components/ui/primitives";
+import { UIPrimitivesProvider, useModal } from "@/components/ui/primitives";
 import { VerifyOtherRoleButton } from "@/app/profile/verify-other-role-button";
 
 const mocks = vi.hoisted(() => {
@@ -54,6 +54,18 @@ const popUpBesideProfileButton = () => (
     <SecondRolePromptModal />
   </UIPrimitivesProvider>
 );
+
+const AnotherModalOpener = () => {
+  const { openModal } = useModal();
+  return (
+    <button
+      type="button"
+      onClick={() => openModal({ title: "Pangkas foto", body: "Atur bagian foto.", actions: [] })}
+    >
+      Buka modal lain
+    </button>
+  );
+};
 
 const pressProfileButton = (): HTMLElement => {
   const profileButton = screen.getByRole("button", { name: "Verifikasi sebagai Kandidat" });
@@ -135,6 +147,40 @@ describe("the second role pop-up", () => {
     expect({ openWhileLoading, openAfterLoad: screen.queryByRole("dialog") !== null }).toEqual({
       openWhileLoading: false,
       openAfterLoad: true,
+    });
+  });
+
+  it("closes the open pop-up when the session in this tab turns into an operational account", () => {
+    signInAs("recruiter", ["recruiter"]);
+    const { rerender } = render(popUpBesideProfileButton());
+    pressProfileButton();
+    const openBefore = screen.queryByRole("dialog") !== null;
+    signInAs("platform_ops", ["candidate"]);
+    rerender(popUpBesideProfileButton());
+
+    expect({ openBefore, openAfter: screen.queryByRole("dialog") !== null }).toEqual({
+      openBefore: true,
+      openAfter: false,
+    });
+  });
+
+  it("keeps another component's modal open when the session changes while the pop-up is shut", () => {
+    signInAs("recruiter", ["recruiter"]);
+    const tree = () => (
+      <UIPrimitivesProvider>
+        <AnotherModalOpener />
+        <SecondRolePromptModal />
+      </UIPrimitivesProvider>
+    );
+    const { rerender } = render(tree());
+    fireEvent.click(screen.getByRole("button", { name: "Buka modal lain" }));
+    const openBefore = screen.queryByRole("dialog") !== null;
+    signInAs("platform_ops", ["candidate"]);
+    rerender(tree());
+
+    expect({ openBefore, openAfter: screen.queryByRole("dialog") !== null }).toEqual({
+      openBefore: true,
+      openAfter: true,
     });
   });
 });
