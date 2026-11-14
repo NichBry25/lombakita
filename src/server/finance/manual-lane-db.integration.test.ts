@@ -6493,8 +6493,9 @@ describe.skipIf(skipWithoutDatabase)("what the manual lane announces (real datab
 
       const payload = mockEnqueuePaymentOutcome.mock.calls[0]![0] as { registrationId: string };
       // R13's second half, and the reason the payload carries a registration rather than a list:
-      // the worker resolves recipients at delivery from this id, through the same helper the expiry
-      // sweep cancels by. The set told and the set affected are one set by construction.
+      // the worker resolves recipients at delivery from this id. A verdict goes to the whole
+      // payment group, read by this helper. An expiry goes to the members whose rows carry its
+      // reason.
       const recipients = await resolvePaymentGroupMemberUserIds(
         payload.registrationId,
         tx as never,

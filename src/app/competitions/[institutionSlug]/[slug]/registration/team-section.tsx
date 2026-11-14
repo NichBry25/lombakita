@@ -70,7 +70,7 @@ type SurfaceCopy = Partial<Record<string, string>>;
 
 // The server's refusal and the note that replaces the register control say the same thing.
 const TEAM_REGISTER_AGAIN_CLOSED_MESSAGE =
-  "Pendaftaran ulang tim tidak tersedia karena bukti transfer sudah dikirim untuk pendaftaran tim sebelumnya. Hubungi penyelenggara jika ada kekeliruan.";
+  "Pendaftaran ulang tim tidak tersedia karena bukti transfer sudah dikirim untuk pendaftaran tim ini.";
 
 const TEAM_ERROR_COPY: SurfaceCopy = {
   forbidden: "Akun Anda bukan akun kandidat. Masuk dengan akun kandidat untuk melanjutkan.",
@@ -352,6 +352,9 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
   const isRegisteredFreeTeamOpen =
     status === "submitted" && props.isFreeCompetition && props.registrationOpen;
   const takesInviteChanges = status === "forming" || isRegisteredFreeTeamOpen;
+  // A team that cannot register again gains nothing from a new member, so the form is withheld.
+  // The server still takes an invite to such a team and the invitee's acceptance.
+  const offersInviteForm = takesInviteChanges && !props.registerAgainClosedByPaymentProof;
 
   useEffect(() => {
     if (atCapacity) {
@@ -393,8 +396,14 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
     try {
       const res = await sessionFetch(props.expectedUserId, url, init);
       if (!res.ok) {
-        const message = await readRefusalMessage(res, surfaceCopy, `Gagal ${label}.`);
+        const code = await readErrorCode(res);
+        const message = errorMessageFor(code, surfaceCopy, `Gagal ${label}.`);
         addToast({ type: "error", message });
+        // This refusal holds for as long as the team exists, so the page is read again and the
+        // register control gives way to the note.
+        if (code === "team_register_again_closed_by_payment_proof") {
+          router.refresh();
+        }
         return;
       }
       router.refresh();
@@ -534,20 +543,24 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
       body: <TeamCancelReasonForm onConfirm={submitTeamCancel} onCancel={closeModal} />,
     });
 
+  // A team that cannot register again cannot be completed, so leaving it is not warned against.
+  const warnsOnLeavingIncompleteTeam =
+    sizeBelowMin && status === "forming" && !props.registerAgainClosedByPaymentProof;
+
   // Warn on hard navigation (URL change, tab close, refresh) when team is incomplete.
   useEffect(() => {
-    if (!sizeBelowMin || status !== "forming") return;
+    if (!warnsOnLeavingIncompleteTeam) return;
     const handler = (e: BeforeUnloadEvent) => {
       e.preventDefault();
       e.returnValue = "";
     };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
-  }, [sizeBelowMin, status]);
+  }, [warnsOnLeavingIncompleteTeam]);
 
   // Offer to save the competition as a bookmark when backing out with an incomplete team.
   const handleBackOut = () => {
-    if (!sizeBelowMin || status !== "forming") {
+    if (!warnsOnLeavingIncompleteTeam) {
       router.back();
       return;
     }
@@ -679,7 +692,7 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
         </>
       )}
 
-      {isCaptain && takesInviteChanges && (
+      {isCaptain && offersInviteForm && (
         <>
           <h3 className="team-subheading">Undang anggota</h3>
           <form onSubmit={onInvite} className="team-inline-form">

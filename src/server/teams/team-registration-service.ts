@@ -208,15 +208,18 @@ const assertFreeTeamSeatsWithinSize = (
   }
 };
 
-// A cancelled registration of this team that a payment proof was sent for keeps the team from
-// registering again (DEC-0174: the proof, not the competition's price). Only this team's rows count.
-// The page asks the same question with this reader, so it never offers what the server refuses.
-export const hasPaymentProofOnCancelledTeamRegistrations = async (
+// Whether a payment proof was ever sent for this team's money, in any status (DEC-0174: the
+// proof, not the competition's price). Asked only of a forming team, whose registrations are all
+// cancelled: one cancelled row stands for the team, because hasSubmittedPaymentProof reads every
+// payment anchored on any row sharing its team_id. Asked of a submitted team it would also count
+// a proof on the payment of its live registration. The page asks the same question with this
+// reader, so it never offers what the server refuses.
+export const hasFormingTeamSentPaymentProof = async (
   teamId: string,
   competitionId: string,
   db: DbOrTx = getDb(),
 ): Promise<boolean> => {
-  const cancelledRows = await db
+  const [cancelledRow] = await db
     .select({ id: competitionRegistrations.id })
     .from(competitionRegistrations)
     .where(
@@ -225,22 +228,19 @@ export const hasPaymentProofOnCancelledTeamRegistrations = async (
         eq(competitionRegistrations.competitionId, competitionId),
         eq(competitionRegistrations.status, "cancelled"),
       ),
-    );
+    )
+    .limit(1);
 
-  for (const { id } of cancelledRows) {
-    if (await hasSubmittedPaymentProof(id, db)) {
-      return true;
-    }
-  }
-  return false;
+  if (!cancelledRow) return false;
+  return hasSubmittedPaymentProof(cancelledRow.id, db);
 };
 
-const assertNoPaymentProofOnCancelledTeamRegistrations = async (
+const assertFormingTeamSentNoPaymentProof = async (
   teamId: string,
   competitionId: string,
   tx: TransactionClient,
 ): Promise<void> => {
-  if (await hasPaymentProofOnCancelledTeamRegistrations(teamId, competitionId, tx)) {
+  if (await hasFormingTeamSentPaymentProof(teamId, competitionId, tx)) {
     throw new TeamError(
       "team_register_again_closed_by_payment_proof",
       "A payment proof was sent for a cancelled registration of this team, so it cannot register again",
@@ -389,7 +389,7 @@ export const submitTeamRegistration = async (
         registrationUserIds = lockedMembers.map((member) => member.userId);
       }
 
-      await assertNoPaymentProofOnCancelledTeamRegistrations(teamId, competitionId, tx);
+      await assertFormingTeamSentNoPaymentProof(teamId, competitionId, tx);
 
       const insertedRows = await tx
         .insert(competitionRegistrations)

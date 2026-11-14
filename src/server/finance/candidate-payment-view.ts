@@ -182,7 +182,10 @@ export const loadCandidatePaymentView = async (
     .limit(1);
 
   const [anchor] = await db
-    .select({ competitionId: competitionRegistrations.competitionId })
+    .select({
+      competitionId: competitionRegistrations.competitionId,
+      status: competitionRegistrations.status,
+    })
     .from(competitionRegistrations)
     .where(eq(competitionRegistrations.id, payment.competitionRegistrationId ?? ""))
     .limit(1);
@@ -190,10 +193,13 @@ export const loadCandidatePaymentView = async (
   const status = foldPaymentEvents(events).status;
   const isPayer = payment.payerUserId === userId;
 
-  // A settled payment and a cancelled registration both close the lane. Neither is a refusal the
-  // candidate has to discover by clicking. The control is simply not offered.
+  // A settled payment, the person's cancelled registration and a cancelled registration of the
+  // payment itself each close the lane. The server refuses a proof on a payment whose own
+  // registration is cancelled, and a control that appears and then refuses is what DEC-0131 rules
+  // out, so the control is simply not offered.
   const laneOpen =
     membership.status !== "cancelled" &&
+    anchor?.status !== "cancelled" &&
     status !== "succeeded" &&
     status !== "refunded" &&
     status !== "expired";

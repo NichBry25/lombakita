@@ -1,7 +1,8 @@
 // @vitest-environment node
 
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { TransactionRollbackError, eq, inArray } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
+import { TransactionRollbackError, and, eq, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "@/server/db/schema";
@@ -13,18 +14,25 @@ import {
   financePayments,
   institutionPaymentInstructions,
   institutions,
+  notifications,
+  teamInvitations,
   teamMemberships,
   teams,
   users,
 } from "@/server/db/schema";
 import { TEST_DATABASE_URL, skipWithoutDatabase } from "@/server/testing/database-url";
 import type { Database } from "@/server/db/client";
-import { TeamError } from "@/server/teams/team-core";
+import { TeamError, hashToken } from "@/server/teams/team-core";
+import { acceptTeamInvitationForUser, removeTeamMember } from "@/server/teams/team-service";
 import {
   cancelTeamRegistration,
-  hasPaymentProofOnCancelledTeamRegistrations,
+  hasFormingTeamSentPaymentProof,
   submitTeamRegistration,
 } from "@/server/teams/team-registration-service";
+import {
+  processPaymentOutcomeJob,
+  type PaymentOutcomeJob,
+} from "@/server/async/jobs/payment-outcome";
 import {
   rejectManualPaymentProof,
   submitManualPaymentProof,
@@ -55,11 +63,30 @@ vi.mock("@/server/storage/r2.client", async (importOriginal) => ({
   deleteObject: vi.fn(async () => undefined),
 }));
 
+const deliveryState = vi.hoisted(() => ({ database: null as unknown }));
+
+vi.mock("@/server/db/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/server/db/client")>();
+  return {
+    ...actual,
+    getDb: () => (deliveryState.database ?? actual.getDb()) as ReturnType<typeof actual.getDb>,
+  };
+});
+
+const emailSpies = vi.hoisted(() => ({ sendPaymentOutcomeEmail: vi.fn() }));
+
+vi.mock("@/server/notifications/notification-email", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/server/notifications/notification-email")>()),
+  ...emailSpies,
+}));
+
 const readyEnqueueSpies = () => {
   for (const spy of Object.values(enqueueSpies)) {
     spy.mockReset();
     spy.mockResolvedValue({});
   }
+  emailSpies.sendPaymentOutcomeEmail.mockReset();
+  emailSpies.sendPaymentOutcomeEmail.mockResolvedValue(undefined);
 };
 
 beforeEach(readyEnqueueSpies);
@@ -95,6 +122,7 @@ const REGISTERED_AGAIN_AT = new Date("2026-09-02T03:00:00.000Z");
 const VERIFIED_AT = new Date("2026-09-02T04:00:00.000Z");
 const SWEEP_AT = new Date("2026-09-04T04:00:00.000Z");
 const AFTER_SWEEP = new Date("2026-09-04T05:00:00.000Z");
+const SECOND_SWEEP_AT = new Date("2026-09-05T04:00:00.000Z");
 
 const refusalOf = async (
   work: Promise<unknown>,
@@ -262,6 +290,51 @@ const expiredOutcomeSentFor = (paymentId: string): boolean =>
     ([payload]) => payload.paymentId === paymentId && payload.outcome === "expired",
   );
 
+const deliverExpiryNotice = async (tx: Tx, paymentId: string): Promise<void> => {
+  const [payload] = enqueueSpies.enqueuePaymentOutcome.mock.calls
+    .map(([enqueued]) => enqueued)
+    .filter((enqueued) => enqueued.paymentId === paymentId && enqueued.outcome === "expired");
+  deliveryState.database = tx;
+  try {
+    await processPaymentOutcomeJob({
+      id: "job-outcome",
+      data: payload,
+    } as unknown as PaymentOutcomeJob);
+  } finally {
+    deliveryState.database = null;
+  }
+};
+
+const paymentOutcomeInboxCount = async (tx: Tx, userId: string): Promise<number> => {
+  const rows = await tx
+    .select({ id: notifications.id })
+    .from(notifications)
+    .where(and(eq(notifications.userId, userId), eq(notifications.type, "payment_outcome")));
+  return rows.length;
+};
+
+const seedInvitation = async (
+  tx: Tx,
+  teamId: string,
+  captainUserId: string,
+  inviteeUserId: string,
+  inviteeEmail: string,
+): Promise<string> => {
+  const [invitation] = await tx
+    .insert(teamInvitations)
+    .values({
+      teamId,
+      invitedByUserId: captainUserId,
+      invitedEmail: inviteeEmail,
+      targetUserId: inviteeUserId,
+      tokenHash: hashToken(randomUUID()),
+      status: "pending",
+      expiresAt: new Date("2026-09-08T00:00:00.000Z"),
+    })
+    .returning({ id: teamInvitations.id });
+  return invitation!.id;
+};
+
 describe.skipIf(skipWithoutDatabase)("registering a team again after a payment proof", () => {
   it("keeps a team whose proof was rejected and whose payment lapsed from registering again, even after the fee is cleared", async () => {
     await inRollback(async (tx) => {
@@ -331,7 +404,7 @@ describe.skipIf(skipWithoutDatabase)("registering a team again after a payment p
         rowIds: rowsAfterRefusal.map((row) => row.id).sort(),
         rowStatuses: rowsAfterRefusal.map((row) => row.status),
         paymentIds: anchoredPayments.map((payment) => payment.id),
-        proofOnCancelledRows: await hasPaymentProofOnCancelledTeamRegistrations(
+        proofOnCancelledRows: await hasFormingTeamSentPaymentProof(
           seed.teamId,
           seed.competitionId,
           tx as never,
@@ -389,7 +462,7 @@ describe.skipIf(skipWithoutDatabase)("registering a team again after a payment p
         individualStatus: individualRow!.status,
         teamStatus: teamResult.status,
         teamRowStatuses: teamResult.registrations.map((row) => row.status),
-        teamProofOnCancelledRows: await hasPaymentProofOnCancelledTeamRegistrations(
+        teamProofOnCancelledRows: await hasFormingTeamSentPaymentProof(
           seed.teamId,
           seed.competitionId,
           tx as never,
@@ -573,16 +646,92 @@ describe.skipIf(skipWithoutDatabase)("the expiry of a team payment", () => {
   });
 });
 
-describe.skipIf(skipWithoutDatabase)("the payment panel after a team registered again", () => {
-  it("shows the team's newest payment, open for its proof, after the team registered again", async () => {
+describe.skipIf(skipWithoutDatabase)("who is told when a team payment lapses", () => {
+  it("tells the lapse only to the members it cancelled, not to a teammate who joined after the fee was cleared", async () => {
     await inRollback(async (tx) => {
       const seed = await seedPricedTeam(tx, "team");
+      const registered = await submitTeamRegistration(
+        seed.captainUserId,
+        seed.competitionId,
+        seed.teamId,
+        tx as never,
+        T0,
+      );
+      const captainRow = registered.registrations.find(
+        (row) => row.studentId === seed.captainUserId,
+      );
+      const firstPaymentId = await paymentIdAnchoredOn(tx, captainRow!.id);
+      await tx
+        .update(competitions)
+        .set({ feeAmount: null, feeCurrency: null })
+        .where(eq(competitions.id, seed.competitionId));
+      const joinerSuffix = uniqueSuffix();
+      const joinerUserId = await seedUser(tx, "joiner", joinerSuffix);
+      const invitationId = await seedInvitation(
+        tx,
+        seed.teamId,
+        seed.captainUserId,
+        joinerUserId,
+        `proof_rule_joiner_${joinerSuffix}@example.test`,
+      );
+      await acceptTeamInvitationForUser(
+        invitationId,
+        joinerUserId,
+        tx as never,
+        REGISTERED_AGAIN_AT,
+      );
+
+      const result = await sweepExpiredPayments(SWEEP_AT, tx as never);
+      await deliverExpiryNotice(tx, firstPaymentId);
+
+      const [joinerRow] = await tx
+        .select({ status: competitionRegistrations.status })
+        .from(competitionRegistrations)
+        .where(
+          and(
+            eq(competitionRegistrations.teamId, seed.teamId),
+            eq(competitionRegistrations.studentId, joinerUserId),
+          ),
+        );
+      expect({
+        outcome: result.expired.filter((entry) => entry.paymentId === firstPaymentId),
+        joinerRow: joinerRow?.status,
+        inbox: {
+          captain: await paymentOutcomeInboxCount(tx, seed.captainUserId),
+          member: await paymentOutcomeInboxCount(tx, seed.memberUserId),
+          joiner: await paymentOutcomeInboxCount(tx, joinerUserId),
+        },
+        emailed: emailSpies.sendPaymentOutcomeEmail.mock.calls
+          .map(([input]) => input.recipientId)
+          .sort(),
+      }).toEqual({
+        outcome: [{ paymentId: firstPaymentId, registrationsCancelled: 2 }],
+        joinerRow: "confirmed",
+        inbox: { captain: 1, member: 1, joiner: 0 },
+        emailed: [seed.captainUserId, seed.memberUserId].sort(),
+      });
+    });
+  });
+
+  it("does not tell the lapse of a later payment to a member who left after the team withdrew", async () => {
+    await inRollback(async (tx) => {
+      const seed = await seedPricedTeam(tx, "team");
+      const leaverSuffix = uniqueSuffix();
+      const leaverUserId = await seedUser(tx, "leaver", leaverSuffix);
+      const [leaverMembership] = await tx
+        .insert(teamMemberships)
+        .values({ teamId: seed.teamId, userId: leaverUserId, role: "member", status: "active" })
+        .returning({ id: teamMemberships.id });
       const first = await submitTeamRegistration(
         seed.captainUserId,
         seed.competitionId,
         seed.teamId,
         tx as never,
         T0,
+      );
+      const firstPaymentId = await paymentIdAnchoredOn(
+        tx,
+        first.registrations.find((row) => row.studentId === seed.captainUserId)!.id,
       );
       await cancelTeamRegistration(
         seed.captainUserId,
@@ -592,6 +741,7 @@ describe.skipIf(skipWithoutDatabase)("the payment panel after a team registered 
         tx as never,
         WITHDRAWN_AT,
       );
+      await removeTeamMember(leaverUserId, seed.teamId, leaverMembership!.id, tx as never);
       const second = await submitTeamRegistration(
         seed.captainUserId,
         seed.competitionId,
@@ -599,27 +749,109 @@ describe.skipIf(skipWithoutDatabase)("the payment panel after a team registered 
         tx as never,
         REGISTERED_AGAIN_AT,
       );
-      const rowOf = (result: typeof first, userId: string) =>
-        result.registrations.find((row) => row.studentId === userId)!.id;
-      const secondPaymentId = await paymentIdAnchoredOn(tx, rowOf(second, seed.captainUserId));
+      const secondPaymentId = await paymentIdAnchoredOn(
+        tx,
+        second.registrations.find((row) => row.studentId === seed.captainUserId)!.id,
+      );
 
-      const views = [
-        await loadCandidatePaymentView(
-          rowOf(second, seed.captainUserId),
+      const result = await sweepExpiredPayments(SECOND_SWEEP_AT, tx as never);
+      await deliverExpiryNotice(tx, secondPaymentId);
+
+      expect({
+        outcomes: [firstPaymentId, secondPaymentId].map((id) =>
+          result.expired.find((entry) => entry.paymentId === id),
+        ),
+        inbox: {
+          captain: await paymentOutcomeInboxCount(tx, seed.captainUserId),
+          member: await paymentOutcomeInboxCount(tx, seed.memberUserId),
+          leaver: await paymentOutcomeInboxCount(tx, leaverUserId),
+        },
+        emailed: emailSpies.sendPaymentOutcomeEmail.mock.calls
+          .map(([input]) => input.recipientId)
+          .sort(),
+      }).toEqual({
+        outcomes: [
+          { paymentId: firstPaymentId, registrationsCancelled: 0 },
+          { paymentId: secondPaymentId, registrationsCancelled: 2 },
+        ],
+        inbox: { captain: 1, member: 1, leaver: 0 },
+        emailed: [seed.captainUserId, seed.memberUserId].sort(),
+      });
+    });
+  });
+});
+
+describe.skipIf(skipWithoutDatabase)("the payment panel after a team registered again", () => {
+  it("shows the team's newest payment, open for its proof, after the team registered again", async () => {
+    await inRollback(async (tx) => {
+      // Eight teams, so a read with no order passes for every one of them only by chance.
+      const PANEL_TEAMS = 8;
+      const views: Awaited<ReturnType<typeof loadCandidatePaymentView>>[] = [];
+      const expected: { paymentId: string; isPayer: boolean; canSubmitProof: boolean }[] = [];
+
+      for (let team = 0; team < PANEL_TEAMS; team += 1) {
+        const seed = await seedPricedTeam(tx, "team");
+        const first = await submitTeamRegistration(
           seed.captainUserId,
+          seed.competitionId,
+          seed.teamId,
           tx as never,
-        ),
-        await loadCandidatePaymentView(
-          rowOf(first, seed.captainUserId),
+          T0,
+        );
+        await cancelTeamRegistration(
           seed.captainUserId,
+          seed.competitionId,
+          seed.teamId,
+          "berubah rencana",
           tx as never,
-        ),
-        await loadCandidatePaymentView(
-          rowOf(second, seed.memberUserId),
-          seed.memberUserId,
+          WITHDRAWN_AT,
+        );
+        const second = await submitTeamRegistration(
+          seed.captainUserId,
+          seed.competitionId,
+          seed.teamId,
           tx as never,
-        ),
-      ];
+          REGISTERED_AGAIN_AT,
+        );
+        const rowOf = (result: typeof first, userId: string) =>
+          result.registrations.find((row) => row.studentId === userId)!.id;
+        const firstPaymentId = await paymentIdAnchoredOn(tx, rowOf(first, seed.captainUserId));
+        const secondPaymentId = await paymentIdAnchoredOn(tx, rowOf(second, seed.captainUserId));
+
+        // Every row in one transaction carries the same now(), so createdAt is set by hand, and in the
+        // order opposite to the registrations, so that only the registeredAt order picks the newest payment.
+        await tx
+          .update(financePayments)
+          .set({ createdAt: new Date("2026-09-02T03:00:00.000Z") })
+          .where(eq(financePayments.id, firstPaymentId));
+        await tx
+          .update(financePayments)
+          .set({ createdAt: new Date("2026-09-01T03:00:00.000Z") })
+          .where(eq(financePayments.id, secondPaymentId));
+
+        views.push(
+          await loadCandidatePaymentView(
+            rowOf(second, seed.captainUserId),
+            seed.captainUserId,
+            tx as never,
+          ),
+          await loadCandidatePaymentView(
+            rowOf(first, seed.captainUserId),
+            seed.captainUserId,
+            tx as never,
+          ),
+          await loadCandidatePaymentView(
+            rowOf(second, seed.memberUserId),
+            seed.memberUserId,
+            tx as never,
+          ),
+        );
+        expected.push(
+          { paymentId: secondPaymentId, isPayer: true, canSubmitProof: true },
+          { paymentId: secondPaymentId, isPayer: true, canSubmitProof: true },
+          { paymentId: secondPaymentId, isPayer: false, canSubmitProof: false },
+        );
+      }
 
       expect(
         views.map((view) => ({
@@ -627,11 +859,75 @@ describe.skipIf(skipWithoutDatabase)("the payment panel after a team registered 
           isPayer: view?.isPayer,
           canSubmitProof: view?.canSubmitProof,
         })),
-      ).toEqual([
-        { paymentId: secondPaymentId, isPayer: true, canSubmitProof: true },
-        { paymentId: secondPaymentId, isPayer: true, canSubmitProof: true },
-        { paymentId: secondPaymentId, isPayer: false, canSubmitProof: false },
-      ]);
+      ).toEqual(expected);
+    });
+  });
+
+  it("offers no upload on a payment whose own registration a withdrawal cancelled, after the fee was cleared and the team registered again free", async () => {
+    await inRollback(async (tx) => {
+      const seed = await seedPricedTeam(tx, "team");
+      const first = await submitTeamRegistration(
+        seed.captainUserId,
+        seed.competitionId,
+        seed.teamId,
+        tx as never,
+        T0,
+      );
+      const firstPaymentId = await paymentIdAnchoredOn(
+        tx,
+        first.registrations.find((row) => row.studentId === seed.captainUserId)!.id,
+      );
+      await cancelTeamRegistration(
+        seed.captainUserId,
+        seed.competitionId,
+        seed.teamId,
+        "berubah rencana",
+        tx as never,
+        WITHDRAWN_AT,
+      );
+      await tx
+        .update(competitions)
+        .set({ feeAmount: null, feeCurrency: null })
+        .where(eq(competitions.id, seed.competitionId));
+      const second = await submitTeamRegistration(
+        seed.captainUserId,
+        seed.competitionId,
+        seed.teamId,
+        tx as never,
+        REGISTERED_AGAIN_AT,
+      );
+      const secondCaptainRowId = second.registrations.find(
+        (row) => row.studentId === seed.captainUserId,
+      )!.id;
+
+      const view = await loadCandidatePaymentView(
+        secondCaptainRowId,
+        seed.captainUserId,
+        tx as never,
+      );
+      const refusal = await sendProof(
+        tx,
+        firstPaymentId,
+        seed.captainUserId,
+        seed.competitionId,
+      ).then(
+        () => null,
+        (error: { code?: string }) => error.code ?? "no code",
+      );
+
+      expect({
+        paymentId: view?.paymentId,
+        isPayer: view?.isPayer,
+        canSubmitProof: view?.canSubmitProof,
+        canResubmitProof: view?.canResubmitProof,
+        refusal,
+      }).toEqual({
+        paymentId: firstPaymentId,
+        isPayer: true,
+        canSubmitProof: false,
+        canResubmitProof: false,
+        refusal: "manual_proof_registration_cancelled",
+      });
     });
   });
 });

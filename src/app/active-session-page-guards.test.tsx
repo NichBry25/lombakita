@@ -68,7 +68,7 @@ vi.mock("@/server/registrations/registration-service", () => ({
 }));
 vi.mock("@/server/teams/team-service", () => ({ getTeamForCompetitionAndCandidate: mocks.team }));
 vi.mock("@/server/teams/team-registration-service", () => ({
-  hasPaymentProofOnCancelledTeamRegistrations: mocks.teamRegisterAgainProof,
+  hasFormingTeamSentPaymentProof: mocks.teamRegisterAgainProof,
 }));
 vi.mock("@/server/finance/cancel-affordance", () => ({
   resolveCancelAffordanceState: mocks.cancel,

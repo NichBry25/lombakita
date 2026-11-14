@@ -147,6 +147,32 @@ const resolveRegistrationIdsMadeWithPayment = async (
 };
 
 /**
+ * The holders of the registrations made with this payment that carry the expiry's reason. A
+ * teammate who joined after the payment, and a former member whose row a withdrawal cancelled,
+ * are left out. A row that an earlier expiry of the team cancelled carries the same reason and is
+ * counted too.
+ */
+export const resolveMemberUserIdsCancelledByExpiry = async (
+  anchorRegistrationId: string,
+  db: Database = getDb(),
+): Promise<string[]> => {
+  const registrationIds = await resolveRegistrationIdsMadeWithPayment(anchorRegistrationId, db);
+  if (registrationIds.length === 0) return [];
+
+  const rows = await db
+    .select({ studentId: competitionRegistrations.studentId })
+    .from(competitionRegistrations)
+    .where(
+      and(
+        inArray(competitionRegistrations.id, registrationIds),
+        eq(competitionRegistrations.cancellationReason, PAYMENT_EXPIRY_CANCELLATION_REASON),
+      ),
+    );
+
+  return [...new Set(rows.map((row) => row.studentId))];
+};
+
+/**
  * Expires ONE overdue payment, or declines to and says why.
  *
  * THE SERIALIZATION POINT IS THE ANCHOR REGISTRATION ROW, taken `FOR UPDATE` as the first statement

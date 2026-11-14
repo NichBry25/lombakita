@@ -1076,7 +1076,7 @@ describe.skipIf(skipWithoutDatabase)(
 
     it("keeps the team from registering again when its proof lands while the captain withdraws", async () => {
       const { captainUserId, competitionId, teamId } = await landProofDuringTeamWithdrawal();
-      const { submitTeamRegistration, hasPaymentProofOnCancelledTeamRegistrations } =
+      const { submitTeamRegistration, hasFormingTeamSentPaymentProof } =
         await import("@/server/teams/team-registration-service");
 
       const again = await settle(
@@ -1103,7 +1103,7 @@ describe.skipIf(skipWithoutDatabase)(
         teamStatus: team?.status,
         confirmedRows: teamRows.filter((row) => row.status === "confirmed").length,
         payments: payments.length,
-        proofOnCancelledRows: await hasPaymentProofOnCancelledTeamRegistrations(
+        proofOnCancelledRows: await hasFormingTeamSentPaymentProof(
           teamId,
           competitionId,
           control.db as never,
@@ -1121,7 +1121,7 @@ describe.skipIf(skipWithoutDatabase)(
 
     it("keeps the team from registering again after its fee is cleared, when its proof landed while the captain withdrew", async () => {
       const { captainUserId, competitionId, teamId } = await landProofDuringTeamWithdrawal();
-      const { submitTeamRegistration, hasPaymentProofOnCancelledTeamRegistrations } =
+      const { submitTeamRegistration, hasFormingTeamSentPaymentProof } =
         await import("@/server/teams/team-registration-service");
       await control.sql`
       update competitions set fee_amount = null, fee_currency = null where id = ${competitionId}`;
@@ -1150,7 +1150,7 @@ describe.skipIf(skipWithoutDatabase)(
         teamStatus: team?.status,
         confirmedRows: teamRows.filter((row) => row.status === "confirmed").length,
         payments: payments.length,
-        proofOnCancelledRows: await hasPaymentProofOnCancelledTeamRegistrations(
+        proofOnCancelledRows: await hasFormingTeamSentPaymentProof(
           teamId,
           competitionId,
           control.db as never,

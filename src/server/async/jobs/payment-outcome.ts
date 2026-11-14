@@ -9,6 +9,7 @@ import { users } from "@/server/db/schema";
 import { logger } from "@/lib/logger";
 import { ASYNC_JOB_NAMES, type PaymentOutcomePayload } from "@/server/async/contracts";
 import { resolvePaymentGroupMemberUserIds } from "@/server/finance/paid-registration";
+import { resolveMemberUserIdsCancelledByExpiry } from "@/server/finance/payment-expiry-service";
 import { sendPaymentOutcomeEmail } from "@/server/notifications/notification-email";
 import { writeInboxNotificationSafely } from "@/server/notifications/inbox-write";
 import { NOTIFICATION_TYPES } from "@/server/notifications/notification-types";
@@ -73,21 +74,26 @@ const inboxCopy = (
 };
 
 /**
- * Announces a payment's outcome to EVERY member of its payment group (R13).
+ * Announces a payment's outcome to the people it decides (R13).
  *
- * A team pays once, anchored on the captain's row, and a verdict on that payment decides whether
- * the whole team is still entered. Telling the captain alone leaves the other members to discover
- * from the competition page that they are no longer registered.
+ * A team pays once, anchored on the captain's row. A verdict (verified, rejected or voided) decides
+ * whether the whole team is still entered, so it goes to every member of the payment group.
+ * Telling the captain alone leaves the other members to discover from the competition page that
+ * they are no longer registered. An expiry goes only to the members whose registrations made with
+ * the payment carry the expiry's reason, so a teammate who joined after the payment keeps a live
+ * registration and is not told otherwise.
  *
- * Recipients are resolved at delivery from the registration group rather than carried on the
- * payload, through the same helper the expiry sweep cancels by, so the set that is told and the
- * set that is affected are the same set.
+ * Recipients are resolved at delivery rather than carried on the payload. An expiry's are read
+ * from the rows the expiry sweep cancels by, narrowed to those that carry the expiry's reason.
  */
 export const processPaymentOutcomeJob = async (job: PaymentOutcomeJob): Promise<void> => {
   const { paymentId, registrationId, competitionTitle, outcome } = job.data;
 
   const db = getDb();
-  const recipientIds = await resolvePaymentGroupMemberUserIds(registrationId, db);
+  const recipientIds =
+    outcome === "expired"
+      ? await resolveMemberUserIdsCancelledByExpiry(registrationId, db)
+      : await resolvePaymentGroupMemberUserIds(registrationId, db);
 
   if (recipientIds.length === 0) {
     logger.warn("notification.skipped", {
