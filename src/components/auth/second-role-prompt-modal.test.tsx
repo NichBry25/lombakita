@@ -2,24 +2,32 @@
 
 import { act } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { SecondRolePromptModal, SHOW_SECOND_ROLE_PROMPT_EVENT } from "./second-role-prompt-modal";
+import { UIPrimitivesProvider } from "@/components/ui/primitives";
+import { VerifyOtherRoleButton } from "@/app/profile/verify-other-role-button";
 
-const mocks = vi.hoisted(() => ({
-  session: {
-    current: {
-      data: { user: { id: "u1", role: "recruiter", verifiedRoles: ["recruiter"] } },
-      status: "authenticated",
-    } as {
-      data: { user: { id: string; role: string; verifiedRoles: string[] } };
-      status: string;
+const mocks = vi.hoisted(() => {
+  const push = vi.fn();
+  return {
+    session: {
+      current: {
+        data: { user: { id: "u1", role: "recruiter", verifiedRoles: ["recruiter"] } },
+        status: "authenticated",
+      } as {
+        data: { user: { id: string; role: string; verifiedRoles: string[] } } | null;
+        status: string;
+      },
     },
-  },
-  push: vi.fn(),
-}));
+    push,
+    router: { push },
+  };
+});
 
 vi.mock("next-auth/react", () => ({ useSession: () => mocks.session.current }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
+// One router object for the whole file, as the app router gives. A new object on every render
+// would make the pop-up's opening effect run again on every render, without end.
+vi.mock("next/navigation", () => ({ useRouter: () => mocks.router }));
 
 const signInAs = (role: string, verifiedRoles: string[]) => {
   mocks.session.current = {
@@ -34,6 +42,31 @@ const openFromProfileButton = () => {
   });
 };
 
+const popUpOnly = () => (
+  <UIPrimitivesProvider>
+    <SecondRolePromptModal />
+  </UIPrimitivesProvider>
+);
+
+const popUpBesideProfileButton = () => (
+  <UIPrimitivesProvider>
+    <VerifyOtherRoleButton unverifiedRoleLabel="Kandidat" />
+    <SecondRolePromptModal />
+  </UIPrimitivesProvider>
+);
+
+const pressProfileButton = (): HTMLElement => {
+  const profileButton = screen.getByRole("button", { name: "Verifikasi sebagai Kandidat" });
+  act(() => profileButton.focus());
+  fireEvent.click(profileButton);
+  return profileButton;
+};
+
+const press = (key: string, init: KeyboardEventInit = {}) =>
+  act(() => {
+    document.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, ...init }));
+  });
+
 afterEach(() => {
   window.sessionStorage.clear();
   vi.clearAllMocks();
@@ -44,14 +77,14 @@ describe("the second role pop-up", () => {
     signInAs("recruiter", ["recruiter"]);
     window.sessionStorage.setItem("lombakita:second-role-prompt:pending", "1");
 
-    render(<SecondRolePromptModal />);
+    render(popUpOnly());
 
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("opens from the profile button's event and offers the participant role to a host", () => {
     signInAs("recruiter", ["recruiter"]);
-    render(<SecondRolePromptModal />);
+    render(popUpOnly());
 
     openFromProfileButton();
 
@@ -66,7 +99,7 @@ describe("the second role pop-up", () => {
 
   it("names the host role penyelenggara for a participant", () => {
     signInAs("candidate", ["candidate"]);
-    render(<SecondRolePromptModal />);
+    render(popUpOnly());
 
     openFromProfileButton();
 
@@ -79,11 +112,103 @@ describe("the second role pop-up", () => {
   });
 
   it("offers nothing to an operational account", () => {
-    signInAs("platform_ops", []);
-    render(<SecondRolePromptModal />);
+    const opened: Record<string, boolean> = {};
+    for (const role of ["platform_ops", "finance_ops", "reviewer_or_judge"]) {
+      signInAs(role, ["candidate"]);
+      const { unmount } = render(popUpOnly());
+      openFromProfileButton();
+      opened[role] = screen.queryByRole("dialog") !== null;
+      unmount();
+    }
 
-    openFromProfileButton();
+    expect(opened).toEqual({ platform_ops: false, finance_ops: false, reviewer_or_judge: false });
+  });
 
-    expect(screen.queryByRole("dialog")).toBeNull();
+  it("opens once the session has loaded when the profile button was pressed while it loaded", () => {
+    mocks.session.current = { data: null, status: "loading" };
+    const { rerender } = render(popUpBesideProfileButton());
+    pressProfileButton();
+    const openWhileLoading = screen.queryByRole("dialog") !== null;
+    signInAs("recruiter", ["recruiter"]);
+    rerender(popUpBesideProfileButton());
+
+    expect({ openWhileLoading, openAfterLoad: screen.queryByRole("dialog") !== null }).toEqual({
+      openWhileLoading: false,
+      openAfterLoad: true,
+    });
+  });
+});
+
+describe("the second role pop-up from the keyboard", () => {
+  it("moves focus into the pop-up when the profile button opens it", () => {
+    signInAs("recruiter", ["recruiter"]);
+    render(popUpBesideProfileButton());
+    pressProfileButton();
+    const dialog = screen.queryByRole("dialog");
+
+    expect({
+      open: dialog !== null,
+      focusInside: dialog?.contains(document.activeElement) ?? false,
+    }).toEqual({ open: true, focusInside: true });
+  });
+
+  it("keeps Tab inside the pop-up", () => {
+    signInAs("recruiter", ["recruiter"]);
+    render(popUpBesideProfileButton());
+    pressProfileButton();
+    const buttons = within(screen.getByRole("dialog")).getAllByRole("button");
+    const first = buttons[0]!;
+    const last = buttons[buttons.length - 1]!;
+    act(() => last.focus());
+    press("Tab");
+    const afterTabFromLast = document.activeElement;
+    act(() => first.focus());
+    press("Tab", { shiftKey: true });
+    const afterShiftTabFromFirst = document.activeElement;
+
+    expect({
+      tabFromLastLandsOnFirst: afterTabFromLast === first,
+      shiftTabFromFirstLandsOnLast: afterShiftTabFromFirst === last,
+    }).toEqual({ tabFromLastLandsOnFirst: true, shiftTabFromFirstLandsOnLast: true });
+  });
+
+  it("closes the pop-up on Escape without leaving the page", () => {
+    signInAs("recruiter", ["recruiter"]);
+    render(popUpBesideProfileButton());
+    pressProfileButton();
+    press("Escape");
+
+    expect({
+      open: screen.queryByRole("dialog") !== null,
+      pushed: mocks.push.mock.calls,
+    }).toEqual({ open: false, pushed: [] });
+  });
+
+  it("returns focus to the profile button when the pop-up closes", () => {
+    signInAs("recruiter", ["recruiter"]);
+    render(popUpBesideProfileButton());
+    const profileButton = pressProfileButton();
+    const dialog = screen.getByRole("dialog");
+    const focusInsideWhileOpen = dialog.contains(document.activeElement);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Nanti saja" }));
+
+    expect({
+      focusInsideWhileOpen,
+      open: screen.queryByRole("dialog") !== null,
+      focusOnProfileButton: document.activeElement === profileButton,
+    }).toEqual({ focusInsideWhileOpen: true, open: false, focusOnProfileButton: true });
+  });
+
+  it("opens again when the profile button is pressed after the pop-up was closed", () => {
+    signInAs("recruiter", ["recruiter"]);
+    render(popUpBesideProfileButton());
+    pressProfileButton();
+    const dialog = screen.getByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Nanti saja" }));
+    pressProfileButton();
+
+    expect({ openAfterSecondPress: screen.queryByRole("dialog") !== null }).toEqual({
+      openAfterSecondPress: true,
+    });
   });
 });

@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
+import type { Session } from "next-auth";
 import { isSelfServiceRole } from "@/lib/access/roles";
-import { Button, Icon } from "@/components/ui";
+import { useModal } from "@/components/ui/primitives";
 
 // Global event name. A component dispatches this on `window` to open the modal (the profile
 // page's "Verifikasi sebagai ..." button does).
@@ -31,11 +32,31 @@ const ROLE_COPY: Record<
 const isCandidateOrRecruiter = (s: string): s is "candidate" | "recruiter" =>
   s === "candidate" || s === "recruiter";
 
-// Global modal mounted in the root layout. It opens only when a component dispatches
+const secondRoleToOffer = (
+  status: string,
+  user: Session["user"] | undefined,
+): "candidate" | "recruiter" | null => {
+  if (status !== "authenticated" || !user) return null;
+
+  // An operational account carries the participant verification it was created with, so it would
+  // otherwise be offered the second role here, an offer the verify-role endpoint refuses.
+  if (!isSelfServiceRole(user.role)) return null;
+
+  const verified = Array.isArray(user.verifiedRoles) ? user.verifiedRoles : [];
+  const verifiedRoleCandidates = verified.filter(isCandidateOrRecruiter);
+
+  // Only single-verified-role accounts see the prompt. Dual-role and zero-role accounts skip.
+  if (verifiedRoleCandidates.length !== 1) return null;
+
+  return verifiedRoleCandidates[0] === "candidate" ? "recruiter" : "candidate";
+};
+
+// Mounted once in the root layout. It opens the canonical modal only when a component dispatches
 // SHOW_SECOND_ROLE_PROMPT_EVENT on window, never on its own after a sign-in.
 export function SecondRolePromptModal() {
   const router = useRouter();
   const { data: session, status } = useSession();
+  const { openModal } = useModal();
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -44,64 +65,27 @@ export function SecondRolePromptModal() {
     return () => window.removeEventListener(SHOW_SECOND_ROLE_PROMPT_EVENT, handler);
   }, []);
 
-  if (status !== "authenticated" || !session?.user) return null;
+  const offeredRole = secondRoleToOffer(status, session?.user);
 
-  // An operational account carries the participant verification it was created with, so it would
-  // otherwise be offered the second role here — an offer the verify-role endpoint refuses.
-  if (!isSelfServiceRole(session.user.role)) return null;
+  // openModal may not run during render. Opening here also lets a press made while the session
+  // still loads open the pop-up once it has loaded.
+  useEffect(() => {
+    if (!open || offeredRole === null) return;
+    const copy = ROLE_COPY[offeredRole];
+    openModal({
+      title: copy.headline,
+      body: copy.description,
+      actions: [
+        {
+          label: copy.cta,
+          variant: "primary",
+          onClick: () => router.push(`/auth/verify-role?as=${offeredRole}`),
+        },
+        { label: "Nanti saja", variant: "secondary", onClick: () => {} },
+      ],
+      onClose: () => setOpen(false),
+    });
+  }, [open, offeredRole, openModal, router]);
 
-  const verified = Array.isArray(session.user.verifiedRoles) ? session.user.verifiedRoles : [];
-  const verifiedRoleCandidates = verified.filter(isCandidateOrRecruiter);
-
-  // Only single-verified-role accounts see the prompt. Dual-role and zero-role accounts skip.
-  if (verifiedRoleCandidates.length !== 1) return null;
-
-  if (!open) return null;
-
-  const verifiedRole = verifiedRoleCandidates[0];
-  const unverifiedRole: "candidate" | "recruiter" =
-    verifiedRole === "candidate" ? "recruiter" : "candidate";
-
-  const onDismiss = () => {
-    setOpen(false);
-  };
-
-  const onVerify = () => {
-    onDismiss();
-    router.push(`/auth/verify-role?as=${unverifiedRole}`);
-  };
-
-  const copy = ROLE_COPY[unverifiedRole];
-
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="second-role-prompt-title"
-      className="modal-backdrop"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onDismiss();
-      }}
-    >
-      <div className="modal-dialog second-role-dialog">
-        <span className="auth-state-icon" aria-hidden="true">
-          <Icon name="user" size="lg" />
-        </span>
-        <div className="stack-xs">
-          <h2 id="second-role-prompt-title" className="modal-title">
-            {copy.headline}
-          </h2>
-          <p className="second-role-copy">{copy.description}</p>
-        </div>
-        <div className="modal-actions second-role-actions">
-          <Button type="button" onClick={onVerify}>
-            {copy.cta}
-          </Button>
-          <Button type="button" variant="outline" onClick={onDismiss}>
-            Nanti saja
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
+  return null;
 }

@@ -17,7 +17,7 @@ import { PageTransitionProvider } from "@/components/ui/page-transition";
 import { GOOGLE_RETURN_PATH_KEY } from "./google-return-path";
 import { OAuthRolePicker } from "./oauth-role-picker";
 
-// The finalize call posts to the oauth-finalize credentials provider; nothing here reaches it.
+// signIn is a mock, so a finalize call made here sends no request. Tests read its arguments.
 vi.mock("next-auth/react", () => ({ signIn: vi.fn() }));
 
 // PageTransitionProvider reads the pathname.
