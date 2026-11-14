@@ -32,7 +32,8 @@ const HOUR_MS = 60 * 60 * 1000;
 // captain's own reason.
 export const TEAM_BELOW_MINIMUM_CANCELLATION_REASON = "team_below_minimum_at_close";
 
-// Each piece below goes into a query that has teams and competitions in its FROM.
+// Each piece below goes into a query over teams and competitions: both in its FROM, or teams as the
+// update's target with competitions in its FROM.
 const activeMemberCount = (): SQL<number> =>
   sql<number>`(select count(*)::int from ${teamMemberships} where ${teamMemberships.teamId} = ${teams.id} and ${teamMemberships.status} = 'active')`;
 
@@ -266,8 +267,8 @@ const enqueueNoticesForTeamsCancelledAtClose = (settled: TeamsSettledAtClose): v
   }
 };
 
-// The teams that may be due: the close is within the lead and someone is missing. The fee is checked
-// below, and the marker update decides the rest in its own statement.
+// The submitted teams that may be due: the close is within the lead and someone is missing. The fee
+// is checked below, and the marker update decides the rest in its own statement.
 const selectTeamsDueForJoinReminder = async (
   now: Date,
   reminderWindowEnd: Date,
@@ -279,6 +280,7 @@ const selectTeamsDueForJoinReminder = async (
     .innerJoin(competitions, eq(competitions.id, teams.competitionId))
     .where(
       and(
+        eq(teams.status, "submitted"),
         gt(competitions.registrationEndAt, now),
         lte(competitions.registrationEndAt, reminderWindowEnd),
         or(teamHasOpenInvitation(now), teamIsBelowMinimum()),
@@ -318,6 +320,9 @@ export const markJoinReminderForCurrentClose = async (
       teamId: teams.id,
       competitionId: teams.competitionId,
       closesAt: sql<Date>`${teams.joinReminderCloseAt}`.mapWith(teams.joinReminderCloseAt),
+      // The exact close the marker now holds, as UTC text with microseconds, so delivery can compare it
+      // with the columns in SQL. A Date keeps only milliseconds.
+      markedClose: sql<string>`to_char(${teams.joinReminderCloseAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
     });
 
 export const remindCaptainsBeforeClose = async (now: Date, db: Database): Promise<number> => {
@@ -338,6 +343,7 @@ export const remindCaptainsBeforeClose = async (now: Date, db: Database): Promis
       teamId: row.teamId,
       competitionId: row.competitionId,
       closesAt: row.closesAt,
+      markedClose: row.markedClose,
     }).catch((error: unknown) => {
       logger.warn("team.join_reminder.enqueue_failed", {
         teamId: row.teamId,

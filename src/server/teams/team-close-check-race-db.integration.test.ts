@@ -58,9 +58,9 @@ const BARRIER_TIMEOUT_MS = 5_000;
 const BARRIER_POLL_MS = 5;
 
 // The close and the reminder window sit in 2020 so this harness's team is the only one the reminder
-// run can select. remindCaptainsBeforeClose is global by construction: it reads every registered
-// team whose close falls within 24 hours after the time it is given. Dating the fixture into the
-// past makes that a property of the clock, and the reminder race checks it before it runs.
+// run can select. remindCaptainsBeforeClose is global by construction: it reads every submitted team
+// whose close falls within 24 hours after the time it is given. Dating the fixture into the past
+// makes that a property of the clock, and the reminder race checks it before it runs.
 const CLOSE_AT = new Date("2020-01-01T00:00:00.000Z");
 const CLOSE_RUN_AT = new Date("2020-01-01T01:00:00.000Z");
 const REMINDER_RUN_AT = new Date("2020-01-01T00:00:00.000Z");
@@ -723,6 +723,7 @@ describe.skipIf(skipWithoutDatabase)("the registration close under real contenti
       teamId,
       competitionId,
       closesAt: REMINDER_CLOSE_AT,
+      markedClose: "2020-01-01T12:00:00.000000Z",
     });
     expect(await reminderMarkerEqualsClose(teamId)).toBe(true);
   });

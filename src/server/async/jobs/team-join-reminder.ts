@@ -2,7 +2,7 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/async/jobs/team-join-reminder");
 
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { Job } from "bullmq";
 import { logger } from "@/lib/logger";
 import { getDb, type Database } from "@/server/db/client";
@@ -13,11 +13,14 @@ import { NOTIFICATION_TYPES } from "@/server/notifications/notification-types";
 import { getTeamForViewer } from "@/server/teams/team-service";
 import { isPublishedAndNotCancelledOrDeleted } from "@/server/teams/registered-team";
 import {
+  JOIN_REMINDER_LEAD_HOURS,
   buildTeamJoinReminderNotice,
   buildTeamPagePath,
   sendTeamCloseNoticeEmail,
   type TeamShortfall,
 } from "@/server/teams/team-close-notices";
+
+const HOUR_MS = 60 * 60 * 1000;
 
 export type TeamJoinReminderJob = Job<
   TeamJoinReminderPayload,
@@ -25,7 +28,7 @@ export type TeamJoinReminderJob = Job<
   typeof ASYNC_JOB_NAMES.teamJoinReminder
 >;
 
-const loadReminderRecipient = async (teamId: string, db: Database) => {
+const loadReminderRecipient = async (teamId: string, markedClose: string, db: Database) => {
   const [row] = await db
     .select({
       captainId: teams.captainId,
@@ -38,6 +41,9 @@ const loadReminderRecipient = async (teamId: string, db: Database) => {
       competitionStatus: competitions.status,
       cancelledAt: competitions.cancelledAt,
       deletedAt: competitions.deletedAt,
+      queuedCloseIsCurrent: sql<
+        boolean | null
+      >`${teams.joinReminderCloseAt} = ${markedClose}::timestamptz and ${competitions.registrationEndAt} = ${markedClose}::timestamptz`,
     })
     .from(teams)
     .innerJoin(users, eq(users.id, teams.captainId))
@@ -58,12 +64,12 @@ const shortfallOf = (minTeamSize: number | null, memberCount: number): TeamShort
 // The check decides that a reminder is due. Its words are read here from the team as it is now, so a
 // teammate who joined in between is not named, and a team with nobody missing gets nothing.
 export const processTeamJoinReminderJob = async (job: TeamJoinReminderJob): Promise<void> => {
-  const { teamId } = job.data;
+  const { teamId, markedClose } = job.data;
 
   const db = getDb();
   const deliveredAt = new Date();
 
-  const recipient = await loadReminderRecipient(teamId, db);
+  const recipient = await loadReminderRecipient(teamId, markedClose, db);
   if (recipient === null || recipient.registrationEndAt === null) {
     logger.warn("team.join_reminder.skipped", {
       reason: "team_not_found",
@@ -85,6 +91,21 @@ export const processTeamJoinReminderJob = async (job: TeamJoinReminderJob): Prom
   ) {
     logger.warn("team.join_reminder.skipped", {
       reason: "registration_not_open",
+      jobId: job.id,
+      teamId,
+    });
+    return;
+  }
+
+  // The check queued this reminder for the close in markedClose. After a move or a later marking,
+  // the next hourly run decides on its own, and "24 jam" holds only inside the lead.
+  if (
+    recipient.queuedCloseIsCurrent !== true ||
+    recipient.registrationEndAt.getTime() >
+      deliveredAt.getTime() + JOIN_REMINDER_LEAD_HOURS * HOUR_MS
+  ) {
+    logger.warn("team.join_reminder.skipped", {
+      reason: "close_moved",
       jobId: job.id,
       teamId,
     });

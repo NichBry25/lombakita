@@ -12,8 +12,8 @@
 // reaches which call in what order, and that is not a textual property.
 
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { readFileSync, readdirSync } from "node:fs";
+import { resolve, sep } from "node:path";
 import ts from "typescript";
 
 const SEND_FILES = [
@@ -130,9 +130,49 @@ const sendSitesIn = (file: string): SendSite[] => {
 
 const sites = SEND_FILES.flatMap(sendSitesIn);
 
+// SEND_FILES is declared by hand, so a sender in a file it does not name would pass the count.
+// This scan refuses any source file under src that uses the Resend SDK and is not listed.
+const usesResend = (file: string): boolean => {
+  const text = readFileSync(resolve(process.cwd(), file), "utf8");
+  const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+  let found = false;
+
+  const visit = (node: ts.Node): void => {
+    const importsResend =
+      ts.isImportDeclaration(node) &&
+      ts.isStringLiteral(node.moduleSpecifier) &&
+      node.moduleSpecifier.text === "resend";
+    const constructsResend =
+      ts.isNewExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === "Resend";
+    if (importsResend || constructsResend) found = true;
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+
+  return found;
+};
+
+// Test files are left out: they mock the SDK and send nothing.
+const sourceFilesUnderSrc = (): string[] =>
+  readdirSync(resolve(process.cwd(), "src"), { encoding: "utf8", recursive: true })
+    .filter((relative) => /\.tsx?$/.test(relative) && !/\.(test\.tsx?|d\.ts)$/.test(relative))
+    .map((relative) => `src/${relative.split(sep).join("/")}`);
+
 describe("outbound email send sites", () => {
   it("finds every send function the five email modules declare", () => {
     expect(sites).toHaveLength(EXPECTED_SEND_FUNCTIONS);
+  });
+
+  it("lists every file under src that uses the Resend SDK", () => {
+    const resendFiles = sourceFilesUnderSrc().filter(usesResend);
+    const listed: readonly string[] = SEND_FILES;
+
+    expect({
+      scanFindsTheTeamNotices: resendFiles.includes("src/server/teams/team-close-notices.ts"),
+      unlisted: resendFiles.filter((file) => !listed.includes(file)),
+    }).toEqual({ scanFindsTheTeamNotices: true, unlisted: [] });
   });
 
   it.each(sites.map((site) => [`${site.fn} (${site.file})`, site] as const))(

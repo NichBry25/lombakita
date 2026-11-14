@@ -165,11 +165,13 @@ describe("the team close check's notices", () => {
       teamId: "team-1",
       competitionId: "comp-1",
       closesAt: new Date("2026-12-15T16:59:00.000Z"),
+      markedClose: "2026-12-15T16:59:00.000000Z",
     });
     const second = await enqueueTeamJoinReminder({
       teamId: "team-1",
       competitionId: "comp-1",
       closesAt: new Date("2026-12-15T17:59:00.000Z"),
+      markedClose: "2026-12-15T17:59:00.000000Z",
     });
 
     expect([first.jobId, second.jobId]).toEqual([
@@ -183,13 +185,13 @@ describe("the team close check's notices", () => {
     expect(queue.add).toHaveBeenNthCalledWith(
       1,
       ASYNC_JOB_NAMES.teamJoinReminder,
-      { teamId: "team-1", competitionId: "comp-1" },
+      { teamId: "team-1", competitionId: "comp-1", markedClose: "2026-12-15T16:59:00.000000Z" },
       { jobId: first.jobId },
     );
     expect(queue.add).toHaveBeenNthCalledWith(
       2,
       ASYNC_JOB_NAMES.teamJoinReminder,
-      { teamId: "team-1", competitionId: "comp-1" },
+      { teamId: "team-1", competitionId: "comp-1", markedClose: "2026-12-15T17:59:00.000000Z" },
       { jobId: second.jobId },
     );
   });

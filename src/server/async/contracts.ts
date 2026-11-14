@@ -239,10 +239,12 @@ export type TeamCloseCheckPayload = {
   scheduledFor: string;
 };
 
-// The reminder's words are read at delivery, so the payload carries only the team.
+// The reminder's words are read at delivery. The payload carries the team and the close the check
+// marked, as exact UTC text with microseconds, which delivery compares with the columns in SQL.
 export type TeamJoinReminderPayload = {
   teamId: string;
   competitionId: string;
+  markedClose: string;
 };
 
 // Carries the member count and the minimum that decided the cancellation, so an edit to the minimum

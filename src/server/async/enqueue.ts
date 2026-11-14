@@ -400,11 +400,16 @@ export const enqueueTeamJoinReminder = async (input: {
   teamId: string;
   competitionId: string;
   closesAt: Date;
+  markedClose: string;
 }): Promise<EnqueueAsyncJobResult<typeof ASYNC_JOB_NAMES.teamJoinReminder>> => {
   return enqueueAsyncJob({
     jobName: ASYNC_JOB_NAMES.teamJoinReminder,
     idempotencyKey: `${input.teamId}__${input.closesAt.getTime()}`,
-    payload: { teamId: input.teamId, competitionId: input.competitionId },
+    payload: {
+      teamId: input.teamId,
+      competitionId: input.competitionId,
+      markedClose: input.markedClose,
+    },
   });
 };
 
