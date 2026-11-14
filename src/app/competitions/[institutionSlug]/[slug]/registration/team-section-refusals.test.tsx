@@ -42,6 +42,7 @@ const renderTeam = (viewerId: string) =>
         isFreeCompetition={false}
         openInvitationCount={0}
         registrationClosesAt={null}
+        registerAgainClosedByPaymentProof={false}
       />
     </UIPrimitivesProvider>,
   );

@@ -138,8 +138,7 @@ export const loadCompetitionPayerUserIds = async (
  * on that payment ends or confirms the participation of every member. Notifying the captain alone
  * leaves three people to discover from the competition page that their team is no longer entered.
  *
- * Built on `resolvePaymentGroupRegistrationIds` rather than re-deriving the group, so the set that
- * is NOTIFIED and the set that is CANCELLED by an expiry are the same set by construction.
+ * Built on `resolvePaymentGroupRegistrationIds` rather than re-deriving the group.
  */
 export const resolvePaymentGroupMemberUserIds = async (
   registrationId: string,

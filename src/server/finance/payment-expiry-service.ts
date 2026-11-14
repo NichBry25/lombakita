@@ -2,7 +2,8 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/finance/payment-expiry-service");
 
-import { and, eq, gt, inArray, lt, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, lt, lte, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { getDb, type Database } from "@/server/db/client";
 import {
   competitionRegistrations,
@@ -109,8 +110,12 @@ const selectOverduePayments = async (now: Date, db: Database): Promise<string[]>
   return rows.map((row) => row.id);
 };
 
-/** Every registration sharing this payment's group: the team's rows, or the single payer's. */
-const resolveGroupRegistrationIds = async (
+/**
+ * The registrations this payment was made with: the single payer's row, or the team's rows
+ * registered no later than the payment's own row. A team that withdrew and registered again keeps
+ * its later rows out of reach of the earlier payment, which the withdrawal left open.
+ */
+const resolveRegistrationIdsMadeWithPayment = async (
   anchorRegistrationId: string,
   db: Database,
 ): Promise<string[]> => {
@@ -123,10 +128,20 @@ const resolveGroupRegistrationIds = async (
   if (!anchor) return [];
   if (anchor.teamId === null) return [anchor.id];
 
+  // Compared in SQL against the anchor row itself, so a registered_at with microseconds is never
+  // rounded to a JavaScript millisecond on the way.
+  const anchorRow = alias(competitionRegistrations, "anchor_registration");
   const rows = await db
     .select({ id: competitionRegistrations.id })
     .from(competitionRegistrations)
-    .where(eq(competitionRegistrations.teamId, anchor.teamId));
+    .innerJoin(
+      anchorRow,
+      and(
+        eq(anchorRow.teamId, competitionRegistrations.teamId),
+        lte(competitionRegistrations.registeredAt, anchorRow.registeredAt),
+      ),
+    )
+    .where(eq(anchorRow.id, anchor.id));
 
   return rows.map((row) => row.id);
 };
@@ -216,10 +231,14 @@ const expireOnePayment = async (
       scoped,
     );
 
-    // The whole payment group goes, not just the anchor. A team pays once, so a lapsed team payment
-    // ends every member's registration. Leaving three members "registered" for a competition their
-    // team never paid for would be worse than cancelling them.
-    const groupIds = await resolveGroupRegistrationIds(payment.registrationId, scoped);
+    // Every registration made with this payment goes, not just the anchor. A team pays once, so a
+    // lapsed team payment ends the registration of every member it was made with. Leaving three
+    // members "registered" for a competition their team never paid for would be worse than
+    // cancelling them.
+    const registrationIds = await resolveRegistrationIdsMadeWithPayment(
+      payment.registrationId,
+      scoped,
+    );
 
     const cancelled = await scoped
       .update(competitionRegistrations)
@@ -233,7 +252,7 @@ const expireOnePayment = async (
       // exactly as it is, with its own reason intact.
       .where(
         and(
-          inArray(competitionRegistrations.id, groupIds),
+          inArray(competitionRegistrations.id, registrationIds),
           eq(competitionRegistrations.status, "confirmed"),
         ),
       )

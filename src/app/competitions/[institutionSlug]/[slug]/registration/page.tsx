@@ -7,6 +7,7 @@ import {
   hasPaymentProofOnCancelledIndividualRegistrations,
 } from "@/server/registrations/registration-service";
 import { getTeamForCompetitionAndCandidate } from "@/server/teams/team-service";
+import { hasPaymentProofOnCancelledTeamRegistrations } from "@/server/teams/team-registration-service";
 import { resolveCancelAffordanceState } from "@/server/finance/cancel-affordance";
 import { resolveChargingReadinessBySlug } from "@/server/finance/charging-readiness";
 import { isPaidCompetition } from "@/lib/competitions/paid-competition";
@@ -83,6 +84,12 @@ export default async function CompetitionRegistrationPage({
         expiresAt: p.expiresAt.toISOString(),
       }))
     : [];
+
+  // Asked only of a forming team, the one state in which the register control is offered.
+  const teamRegisterAgainClosedByPaymentProof =
+    teamSnapshot !== null &&
+    teamSnapshot.team.status === "forming" &&
+    (await hasPaymentProofOnCancelledTeamRegistrations(teamSnapshot.team.id, competition.id));
 
   // Whether either cancel control may be offered at all (DEC-0131). Resolved through the same
   // predicate the two cancel services call, so the page cannot offer what the server refuses.
@@ -167,6 +174,7 @@ export default async function CompetitionRegistrationPage({
           expectedUserId={session.user.id}
           cancellationClosedByPaymentProof={teamCancellationClosed}
           registrationWithheld={paidRegistrationUnavailable}
+          registerAgainClosedByPaymentProof={teamRegisterAgainClosedByPaymentProof}
           isFreeCompetition={!isPaidCompetition(competition.feeAmount)}
           openInvitationCount={openInvitationCount}
           registrationClosesAt={

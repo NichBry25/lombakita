@@ -58,6 +58,7 @@ export type TeamErrorCode =
   | "team_member_already_registered"
   | "team_not_submitted"
   | "team_state_conflict"
+  | "team_register_again_closed_by_payment_proof"
   // Candidate-cancellation policy applied to the captain's team cancellation.
   // Same code strings as the individual cancel path (registration-core) for client parity.
   | "cancellation_reason_required"
@@ -105,6 +106,7 @@ const STATUS_BY_CODE: Record<TeamErrorCode, number> = {
   team_member_already_registered: 409,
   team_not_submitted: 409,
   team_state_conflict: 409,
+  team_register_again_closed_by_payment_proof: 409,
   team_registration_invariant_violation: 422,
   cancellation_reason_required: 422,
   cancellation_reason_too_long: 422,

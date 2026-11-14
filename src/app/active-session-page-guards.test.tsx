@@ -4,9 +4,11 @@ import type { Session } from "next-auth";
 import { getRedirectError } from "next/dist/client/components/redirect";
 import { readFileSync } from "node:fs";
 import ts from "typescript";
+import { isValidElement, type ReactElement } from "react";
 import { AccessError } from "@/server/auth/access-core";
 import { requireActiveSessionPage, requireRolePage } from "@/server/auth/page-guard";
 import { createEnrolmentTestDatabase } from "@/server/auth/mfa/enrolment-test-db";
+import { CompetitionTeamSection } from "./competitions/[institutionSlug]/[slug]/registration/team-section";
 
 const mocks = vi.hoisted(() => ({
   session: vi.fn(),
@@ -16,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   competition: vi.fn(),
   registration: vi.fn(),
   registerAgainProof: vi.fn(),
+  teamRegisterAgainProof: vi.fn(),
   team: vi.fn(),
   cancel: vi.fn(),
   charging: vi.fn(),
@@ -64,6 +67,9 @@ vi.mock("@/server/registrations/registration-service", () => ({
   hasPaymentProofOnCancelledIndividualRegistrations: mocks.registerAgainProof,
 }));
 vi.mock("@/server/teams/team-service", () => ({ getTeamForCompetitionAndCandidate: mocks.team }));
+vi.mock("@/server/teams/team-registration-service", () => ({
+  hasPaymentProofOnCancelledTeamRegistrations: mocks.teamRegisterAgainProof,
+}));
 vi.mock("@/server/finance/cancel-affordance", () => ({
   resolveCancelAffordanceState: mocks.cancel,
 }));
@@ -134,6 +140,7 @@ const READERS = [
   mocks.competition,
   mocks.registration,
   mocks.registerAgainProof,
+  mocks.teamRegisterAgainProof,
   mocks.team,
   mocks.cancel,
   mocks.charging,
@@ -152,6 +159,7 @@ beforeEach(() => {
   });
   mocks.registration.mockResolvedValue(null);
   mocks.registerAgainProof.mockResolvedValue(false);
+  mocks.teamRegisterAgainProof.mockResolvedValue(false);
   mocks.team.mockResolvedValue(null);
   mocks.cancel.mockResolvedValue({
     individualCancellationClosed: false,
@@ -231,6 +239,65 @@ describe.each(CASES)("active page $name", (entry) => {
       expect(mocks.registration).toHaveBeenCalledOnce();
       expect(mocks.team).toHaveBeenCalledOnce();
     }
+  });
+});
+
+const findElementOfType = (
+  node: unknown,
+  type: unknown,
+): ReactElement<Record<string, unknown>> | null => {
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      const found = findElementOfType(child, type);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (!isValidElement<Record<string, unknown>>(node)) return null;
+  if (node.type === type) return node;
+  return findElementOfType(node.props.children, type);
+};
+
+describe("the registration page's team section", () => {
+  it("hands the team section whether a forming team may register again", async () => {
+    mocks.session.mockResolvedValue(session({ role: "candidate", mfaStatus: "not_applicable" }));
+    mocks.team.mockResolvedValue({
+      team: { id: "team-1", name: "Tim Uji", captainId: "user", status: "forming" },
+      roster: [],
+      pendingInvitations: [],
+    });
+    mocks.teamRegisterAgainProof.mockResolvedValue(true);
+
+    const page = await CASES.find((entry) => entry.name === "registration")!.run();
+    const teamSection = findElementOfType(page, CompetitionTeamSection);
+
+    expect({
+      registerAgainClosedByPaymentProof: teamSection?.props.registerAgainClosedByPaymentProof,
+      readerCalls: mocks.teamRegisterAgainProof.mock.calls,
+    }).toEqual({
+      registerAgainClosedByPaymentProof: true,
+      readerCalls: [["team-1", "competition"]],
+    });
+  });
+
+  it("asks nothing of a team that is not forming", async () => {
+    mocks.session.mockResolvedValue(session({ role: "candidate", mfaStatus: "not_applicable" }));
+    mocks.team.mockResolvedValue({
+      team: { id: "team-1", name: "Tim Uji", captainId: "user", status: "submitted" },
+      roster: [],
+      pendingInvitations: [],
+    });
+
+    const page = await CASES.find((entry) => entry.name === "registration")!.run();
+    const teamSection = findElementOfType(page, CompetitionTeamSection);
+
+    expect({
+      registerAgainClosedByPaymentProof: teamSection?.props.registerAgainClosedByPaymentProof,
+      readerCalls: mocks.teamRegisterAgainProof.mock.calls,
+    }).toEqual({
+      registerAgainClosedByPaymentProof: false,
+      readerCalls: [],
+    });
   });
 });
 

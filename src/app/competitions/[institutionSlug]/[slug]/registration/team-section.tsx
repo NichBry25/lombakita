@@ -61,9 +61,16 @@ type Props = {
   // Invites still pending and not expired, counted by the page on the server.
   openInvitationCount: number;
   registrationClosesAt: string | null;
+  // A payment proof was sent for a cancelled registration of this team, so the server will not
+  // register it again. The register control is withheld and a sentence stands in its place.
+  registerAgainClosedByPaymentProof: boolean;
 };
 
 type SurfaceCopy = Partial<Record<string, string>>;
+
+// The server's refusal and the note that replaces the register control say the same thing.
+const TEAM_REGISTER_AGAIN_CLOSED_MESSAGE =
+  "Pendaftaran ulang tim tidak tersedia karena bukti transfer sudah dikirim untuk pendaftaran tim sebelumnya. Hubungi penyelenggara jika ada kekeliruan.";
 
 const TEAM_ERROR_COPY: SurfaceCopy = {
   forbidden: "Akun Anda bukan akun kandidat. Masuk dengan akun kandidat untuk melanjutkan.",
@@ -94,6 +101,7 @@ const TEAM_ERROR_COPY: SurfaceCopy = {
   team_member_already_registered: "Satu atau lebih anggota tim sudah terdaftar di kompetisi ini.",
   team_state_conflict: "Status tim baru saja berubah. Muat ulang halaman lalu coba lagi.",
   team_not_submitted: "Tim ini belum didaftarkan, jadi tidak ada pendaftaran yang bisa dibatalkan.",
+  team_register_again_closed_by_payment_proof: TEAM_REGISTER_AGAIN_CLOSED_MESSAGE,
   // The organiser cannot take payment right now: unverified, no published account, or no fee rule
   // in force. All three collapse to one code server-side so none of them leaks, and none of them is
   // the candidate's to fix. A generic "coba lagi" message would invite a retry that cannot succeed.
@@ -353,11 +361,16 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
   }, [atCapacity]);
 
   useEffect(() => {
-    if (isCaptain && submitDisabledReason && status === "forming") {
+    if (
+      isCaptain &&
+      submitDisabledReason &&
+      status === "forming" &&
+      !props.registerAgainClosedByPaymentProof
+    ) {
       addToast({ type: "warning", message: submitDisabledReason });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isCaptain, submitDisabledReason, status]);
+  }, [isCaptain, submitDisabledReason, status, props.registerAgainClosedByPaymentProof]);
 
   useEffect(() => {
     if (!isCaptain && ownMembership) {
@@ -694,18 +707,20 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
 
       {isCaptain && (
         <div className="team-primary-actions">
-          {status === "forming" && !props.registrationWithheld && (
-            <Button
-              onClick={onSubmitTeam}
-              loading={pendingAction === "submit-team"}
-              disabled={busy || submitDisabledReason !== null}
-              title={submitDisabledReason ?? ""}
-              variant="primary"
-              size="md"
-            >
-              Daftarkan tim
-            </Button>
-          )}
+          {status === "forming" &&
+            !props.registrationWithheld &&
+            !props.registerAgainClosedByPaymentProof && (
+              <Button
+                onClick={onSubmitTeam}
+                loading={pendingAction === "submit-team"}
+                disabled={busy || submitDisabledReason !== null}
+                title={submitDisabledReason ?? ""}
+                variant="primary"
+                size="md"
+              >
+                Daftarkan tim
+              </Button>
+            )}
           {status === "submitted" && !props.cancellationClosedByPaymentProof && (
             <Button
               onClick={onCancelSubmission}
@@ -729,6 +744,12 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
             </Button>
           )}
         </div>
+      )}
+
+      {/* Stands where the register control would have been, and only for the captain, like the cancel
+          note below. */}
+      {isCaptain && status === "forming" && props.registerAgainClosedByPaymentProof && (
+        <Feedback tone="neutral">{TEAM_REGISTER_AGAIN_CLOSED_MESSAGE}</Feedback>
       )}
 
       {/* Stands where the cancel control would have been, and only for the captain. A member who

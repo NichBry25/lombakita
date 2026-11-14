@@ -208,6 +208,46 @@ const assertFreeTeamSeatsWithinSize = (
   }
 };
 
+// A cancelled registration of this team that a payment proof was sent for keeps the team from
+// registering again (DEC-0174: the proof, not the competition's price). Only this team's rows count.
+// The page asks the same question with this reader, so it never offers what the server refuses.
+export const hasPaymentProofOnCancelledTeamRegistrations = async (
+  teamId: string,
+  competitionId: string,
+  db: DbOrTx = getDb(),
+): Promise<boolean> => {
+  const cancelledRows = await db
+    .select({ id: competitionRegistrations.id })
+    .from(competitionRegistrations)
+    .where(
+      and(
+        eq(competitionRegistrations.teamId, teamId),
+        eq(competitionRegistrations.competitionId, competitionId),
+        eq(competitionRegistrations.status, "cancelled"),
+      ),
+    );
+
+  for (const { id } of cancelledRows) {
+    if (await hasSubmittedPaymentProof(id, db)) {
+      return true;
+    }
+  }
+  return false;
+};
+
+const assertNoPaymentProofOnCancelledTeamRegistrations = async (
+  teamId: string,
+  competitionId: string,
+  tx: TransactionClient,
+): Promise<void> => {
+  if (await hasPaymentProofOnCancelledTeamRegistrations(teamId, competitionId, tx)) {
+    throw new TeamError(
+      "team_register_again_closed_by_payment_proof",
+      "A payment proof was sent for a cancelled registration of this team, so it cannot register again",
+    );
+  }
+};
+
 // Assert that the caller is the active captain of this team and that the team belongs to the
 // URL competitionId. A teamId/competitionId mismatch returns 404 — never 403 — so attackers
 // cannot probe team ownership across competitions by URL forging.
@@ -348,6 +388,8 @@ export const submitTeamRegistration = async (
         );
         registrationUserIds = lockedMembers.map((member) => member.userId);
       }
+
+      await assertNoPaymentProofOnCancelledTeamRegistrations(teamId, competitionId, tx);
 
       const insertedRows = await tx
         .insert(competitionRegistrations)

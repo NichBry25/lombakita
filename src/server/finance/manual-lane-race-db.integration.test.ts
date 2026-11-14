@@ -30,17 +30,24 @@ import { TEST_DATABASE_URL, skipWithoutDatabase } from "@/server/testing/databas
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 
-// THE ONE SEAM IN THIS FILE, and it is drawn at object storage rather than at anything this file
+// THE SEAM AT OBJECT STORAGE, drawn there rather than at anything this file
 // exists to measure. The proof writers confirm the uploaded object before recording it, and there
 // is no R2 here, so without this the racers would fail on a missing bucket long before they
 // reached the row they are supposed to contend over, and a lock proof would turn into a
 // configuration error wearing the same red.
 //
-// The lock behaviour itself is untouched: only the two calls that reach the network are replaced.
+// The lock behaviour is untouched: only the two storage calls that reach the network are replaced.
 vi.mock("@/server/storage/r2.client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/server/storage/r2.client")>()),
   headObject: vi.fn(async () => ({ sizeBytes: 2048, contentType: "image/jpeg" })),
   deleteObject: vi.fn(async () => undefined),
+}));
+// The team registration and withdrawal announce themselves on the queue. Replaced so a committed
+// race writes no job to a real queue; every other enqueue in this file is the real one.
+vi.mock("@/server/async/enqueue", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/server/async/enqueue")>()),
+  enqueueRegistrationConfirmed: vi.fn(async () => ({})),
+  enqueueRegistrationCancelled: vi.fn(async () => ({})),
 }));
 import * as schema from "@/server/db/schema";
 
@@ -347,6 +354,106 @@ const seedCommittedFixture = async (): Promise<RaceFixture> => {
   };
 };
 
+/** A forming team of two on a published, priced team competition that allows withdrawal, COMMITTED. */
+const seedCommittedPricedTeam = async (): Promise<{
+  captainUserId: string;
+  memberUserId: string;
+  institutionId: string;
+  competitionId: string;
+  teamId: string;
+}> => {
+  const id = `${Date.now()}_${seedCounter++}`;
+  const now = Date.now();
+  const DAY_MS = 24 * 60 * 60 * 1000;
+
+  const [captain] = await control.db
+    .insert(schema.users)
+    .values({
+      email: `${MARKER}_${id}_captain@example.test`,
+      username: `${MARKER}_${id}_captain`,
+      candidateVerifiedAt: FEE_RULE_FROM,
+    })
+    .returning({ id: schema.users.id });
+
+  const [member] = await control.db
+    .insert(schema.users)
+    .values({
+      email: `${MARKER}_${id}_member@example.test`,
+      username: `${MARKER}_${id}_member`,
+      candidateVerifiedAt: FEE_RULE_FROM,
+    })
+    .returning({ id: schema.users.id });
+
+  const [institution] = await control.db
+    .insert(schema.institutions)
+    .values({
+      slug: `${MARKER}-inst-${id}`,
+      institutionType: "company",
+      displayName: `Race team ${id}`,
+      verificationStatus: "verified",
+    })
+    .returning({ id: schema.institutions.id });
+
+  await control.db.insert(schema.institutionPaymentInstructions).values({
+    institutionId: institution!.id,
+    bankName: "Bank Contoh",
+    accountNumber: "1234567890",
+    accountHolderName: "Panitia Lomba",
+  });
+
+  await control.db.insert(schema.financeFeeRules).values({
+    institutionId: institution!.id,
+    currency: "IDR",
+    basisPoints: 250,
+    flatAmount: 0,
+    effectiveFrom: FEE_RULE_FROM,
+  });
+
+  const [competition] = await control.db
+    .insert(schema.competitions)
+    .values({
+      institutionId: institution!.id,
+      slug: `${MARKER}-comp-${id}`,
+      title: `Race team ${id}`,
+      status: "published",
+      mode: "team",
+      minTeamSize: 2,
+      maxTeamSize: 4,
+      registrationStartAt: new Date(now - DAY_MS),
+      registrationEndAt: new Date(now + 30 * DAY_MS),
+      eventStartAt: new Date(now + 60 * DAY_MS),
+      allowCancellation: true,
+      cancellationCutoffDays: 1,
+      feeAmount: 150_000,
+      feeCurrency: "IDR",
+      paymentWindowDays: 3,
+    })
+    .returning({ id: schema.competitions.id });
+
+  const [team] = await control.db
+    .insert(schema.teams)
+    .values({
+      competitionId: competition!.id,
+      captainId: captain!.id,
+      name: `Tim ${id}`,
+      status: "forming",
+    })
+    .returning({ id: schema.teams.id });
+
+  await control.db.insert(schema.teamMemberships).values([
+    { teamId: team!.id, userId: captain!.id, role: "captain", status: "active" },
+    { teamId: team!.id, userId: member!.id, role: "member", status: "active" },
+  ]);
+
+  return {
+    captainUserId: captain!.id,
+    memberUserId: member!.id,
+    institutionId: institution!.id,
+    competitionId: competition!.id,
+    teamId: team!.id,
+  };
+};
+
 /**
  * Confirms this fixture's payment is the ONLY thing the sweep can reach at the harness clock.
  *
@@ -427,6 +534,13 @@ const purgeMarkedRows = async (): Promise<void> => {
   await control.sql`
     delete from competition_registrations where competition_id in
       (select id from competitions where slug like ${slug})`;
+  await control.sql`
+    delete from team_memberships where team_id in
+      (select t.id from teams t join competitions c on c.id = t.competition_id
+       where c.slug like ${slug})`;
+  await control.sql`
+    delete from teams where competition_id in
+      (select id from competitions where slug like ${slug})`;
   await control.sql`delete from competitions where slug like ${slug}`;
   await control.sql`
     delete from finance_fee_rules where institution_id in
@@ -458,7 +572,14 @@ const countMarkedSurvivors = async (): Promise<Record<string, number>> => {
     union all
     select 'finance_payments', count(*) from finance_payments p
       join competition_registrations r on r.id = p.competition_registration_id
-      join competitions c on c.id = r.competition_id where c.slug like ${slug}`;
+      join competitions c on c.id = r.competition_id where c.slug like ${slug}
+    union all
+    select 'teams', count(*) from teams t
+      join competitions c on c.id = t.competition_id where c.slug like ${slug}
+    union all
+    select 'team_memberships', count(*) from team_memberships m
+      join teams t on t.id = m.team_id
+      join competitions c on c.id = t.competition_id where c.slug like ${slug}`;
 
   return Object.fromEntries(rows.map((row) => [row.table_name, Number(row.count)]));
 };
@@ -871,6 +992,178 @@ describe.skipIf(skipWithoutDatabase)(
 
       const outcome = await settled;
       expect(outcome.ok).toBe(true);
+    });
+  },
+);
+
+describe.skipIf(skipWithoutDatabase)(
+  "a proof that lands while the captain withdraws the team",
+  () => {
+    const landProofDuringTeamWithdrawal = async (): Promise<{
+      captainUserId: string;
+      competitionId: string;
+      teamId: string;
+      paymentId: string;
+    }> => {
+      const { submitTeamRegistration, cancelTeamRegistration } =
+        await import("@/server/teams/team-registration-service");
+      const { submitManualPaymentProof } =
+        await import("@/server/finance/manual-payment-proof-service");
+      const { captainUserId, competitionId, teamId } = await seedCommittedPricedTeam();
+
+      const registered = await submitTeamRegistration(
+        captainUserId,
+        competitionId,
+        teamId,
+        control.db as never,
+      );
+      const captainRow = registered.registrations.find((row) => row.studentId === captainUserId);
+      const payment = await control.db.query.financePayments.findFirst({
+        where: (fields, { eq }) => eq(fields.competitionRegistrationId, captainRow!.id),
+      });
+      const paymentId = payment!.id;
+
+      const [barrierPid, racerPid] = await Promise.all([
+        backendPidOf(barrier),
+        backendPidOf(racerOne),
+      ]);
+
+      const [settled] = await withParticipationLockHeld(competitionId, async (track) => {
+        const withdrawal = track(
+          cancelTeamRegistration(
+            captainUserId,
+            competitionId,
+            teamId,
+            "berubah rencana",
+            racerOne.db as never,
+          ),
+        );
+
+        await awaitBlockedBy(racerPid, barrierPid, "the team withdrawal");
+
+        await submitManualPaymentProof(
+          {
+            paymentId,
+            submittedByUserId: captainUserId,
+            r2Key: `payment-proofs/${competitionId}/${paymentId}/bukti.jpg`,
+            originalFileName: "bukti.jpg",
+          },
+          racerTwo.db as never,
+        );
+
+        return [withdrawal] as const;
+      });
+
+      const outcome = await settled;
+      expect(
+        outcome.ok,
+        "the withdrawal was refused, so this race no longer reaches the team's proof rule",
+      ).toBe(true);
+
+      const team = await control.db.query.teams.findFirst({
+        where: (fields, { eq }) => eq(fields.id, teamId),
+      });
+      const proof = await control.db.query.financeManualPaymentProofs.findFirst({
+        where: (fields, { eq }) => eq(fields.paymentId, paymentId),
+      });
+      expect({ teamStatus: team?.status, proofStatus: proof?.status }).toEqual({
+        teamStatus: "forming",
+        proofStatus: "pending_review",
+      });
+
+      return { captainUserId, competitionId, teamId, paymentId };
+    };
+
+    it("keeps the team from registering again when its proof lands while the captain withdraws", async () => {
+      const { captainUserId, competitionId, teamId } = await landProofDuringTeamWithdrawal();
+      const { submitTeamRegistration, hasPaymentProofOnCancelledTeamRegistrations } =
+        await import("@/server/teams/team-registration-service");
+
+      const again = await settle(
+        submitTeamRegistration(captainUserId, competitionId, teamId, control.db as never),
+      );
+
+      const team = await control.db.query.teams.findFirst({
+        where: (fields, { eq }) => eq(fields.id, teamId),
+      });
+      const teamRows = await control.db.query.competitionRegistrations.findMany({
+        where: (fields, { eq }) => eq(fields.teamId, teamId),
+      });
+      const payments = await control.db.query.financePayments.findMany({
+        where: (fields, { inArray }) =>
+          inArray(
+            fields.competitionRegistrationId,
+            teamRows.map((row) => row.id),
+          ),
+      });
+      expect({
+        ok: again.ok,
+        code: again.ok ? undefined : errorCodeOf(again.error),
+        status: again.ok ? undefined : (again.error as { status?: number }).status,
+        teamStatus: team?.status,
+        confirmedRows: teamRows.filter((row) => row.status === "confirmed").length,
+        payments: payments.length,
+        proofOnCancelledRows: await hasPaymentProofOnCancelledTeamRegistrations(
+          teamId,
+          competitionId,
+          control.db as never,
+        ),
+      }).toEqual({
+        ok: false,
+        code: "team_register_again_closed_by_payment_proof",
+        status: 409,
+        teamStatus: "forming",
+        confirmedRows: 0,
+        payments: 1,
+        proofOnCancelledRows: true,
+      });
+    });
+
+    it("keeps the team from registering again after its fee is cleared, when its proof landed while the captain withdrew", async () => {
+      const { captainUserId, competitionId, teamId } = await landProofDuringTeamWithdrawal();
+      const { submitTeamRegistration, hasPaymentProofOnCancelledTeamRegistrations } =
+        await import("@/server/teams/team-registration-service");
+      await control.sql`
+      update competitions set fee_amount = null, fee_currency = null where id = ${competitionId}`;
+
+      const again = await settle(
+        submitTeamRegistration(captainUserId, competitionId, teamId, control.db as never),
+      );
+
+      const team = await control.db.query.teams.findFirst({
+        where: (fields, { eq }) => eq(fields.id, teamId),
+      });
+      const teamRows = await control.db.query.competitionRegistrations.findMany({
+        where: (fields, { eq }) => eq(fields.teamId, teamId),
+      });
+      const payments = await control.db.query.financePayments.findMany({
+        where: (fields, { inArray }) =>
+          inArray(
+            fields.competitionRegistrationId,
+            teamRows.map((row) => row.id),
+          ),
+      });
+      expect({
+        ok: again.ok,
+        code: again.ok ? undefined : errorCodeOf(again.error),
+        status: again.ok ? undefined : (again.error as { status?: number }).status,
+        teamStatus: team?.status,
+        confirmedRows: teamRows.filter((row) => row.status === "confirmed").length,
+        payments: payments.length,
+        proofOnCancelledRows: await hasPaymentProofOnCancelledTeamRegistrations(
+          teamId,
+          competitionId,
+          control.db as never,
+        ),
+      }).toEqual({
+        ok: false,
+        code: "team_register_again_closed_by_payment_proof",
+        status: 409,
+        teamStatus: "forming",
+        confirmedRows: 0,
+        payments: 1,
+        proofOnCancelledRows: true,
+      });
     });
   },
 );

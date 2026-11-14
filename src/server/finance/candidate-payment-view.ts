@@ -2,7 +2,7 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/finance/candidate-payment-view");
 
-import { and, eq, gt, inArray } from "drizzle-orm";
+import { and, desc, eq, gt, inArray } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
 import {
   competitionRegistrations,
@@ -82,7 +82,11 @@ export type CandidatePaymentView = {
   canResubmitProof: boolean;
 };
 
-/** The chargeable payment anchoring this registration's group, or null for a free competition. */
+/**
+ * The newest chargeable payment anchored in this registration's group, or null for a free
+ * competition. Newest is the payment whose own registration was made last, so a team that withdrew
+ * and registered again is shown the payment it owes now.
+ */
 const loadGroupPayment = async (registrationId: string, db: Database) => {
   const [self] = await db
     .select({ id: competitionRegistrations.id, teamId: competitionRegistrations.teamId })
@@ -102,9 +106,13 @@ const loadGroupPayment = async (registrationId: string, db: Database) => {
             .where(eq(competitionRegistrations.teamId, self.teamId))
         ).map((row) => row.id);
 
-  const [payment] = await db
+  const [newest] = await db
     .select()
     .from(financePayments)
+    .innerJoin(
+      competitionRegistrations,
+      eq(competitionRegistrations.id, financePayments.competitionRegistrationId),
+    )
     .where(
       and(
         inArray(financePayments.competitionRegistrationId, groupIds),
@@ -113,9 +121,10 @@ const loadGroupPayment = async (registrationId: string, db: Database) => {
         gt(financePayments.grossAmount, 0),
       ),
     )
+    .orderBy(desc(competitionRegistrations.registeredAt), desc(financePayments.createdAt))
     .limit(1);
 
-  return payment ? { payment, groupIds } : null;
+  return newest ? { payment: newest.finance_payments, groupIds } : null;
 };
 
 /**
@@ -139,6 +148,8 @@ export const loadCandidatePaymentView = async (
   // that was named. Scoping to `registrationId` alone would answer correctly for an individual and
   // wrongly for a team: a member could pass any teammate's registration id and be refused on their
   // own team's payment.
+  // The person's newest row in the group decides whether the lane is open, so a row their team
+  // withdrew does not close the lane of the registration that replaced it.
   const [membership] = await db
     .select({ id: competitionRegistrations.id, status: competitionRegistrations.status })
     .from(competitionRegistrations)
@@ -148,6 +159,7 @@ export const loadCandidatePaymentView = async (
         eq(competitionRegistrations.studentId, userId),
       ),
     )
+    .orderBy(desc(competitionRegistrations.registeredAt))
     .limit(1);
 
   if (!membership) return null;
