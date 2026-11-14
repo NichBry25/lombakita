@@ -13,7 +13,7 @@ import {
 import { IN_FLIGHT_PROOF_STATUSES } from "@/lib/finance/payment-model";
 import { foldPaymentEvents } from "@/lib/finance/payment-state";
 
-// THE THREE PAID PREDICATES. They are different questions with different answers, and they are
+// THE PAID PREDICATES. They are different questions with different answers, and they are
 // kept apart here because the rules they drive are kept apart:
 //
 //   CONFIRMED PAID:      money is known to have arrived. Drives the non-refundable-on-candidate-
@@ -25,9 +25,12 @@ import { foldPaymentEvents } from "@/lib/finance/payment-state";
 //                        has not verified it yet is exactly the window in which unpublishing would
 //                        strand them.
 //   PROOF SUBMITTED:     the candidate has asserted they sent money, whatever came of it. Drives
-//                        whether the cancel affordance is OFFERED. Fires earliest of the three and,
-//                        unlike the other two, NEVER GOES BACK TO FALSE. A rejected or voided proof
+//                        whether the cancel affordance is OFFERED. Fires earliest and, unlike the
+//                        others, NEVER GOES BACK TO FALSE. A rejected or voided proof
 //                        still counts, because the platform cannot establish that no money moved.
+//   AWAITING REVIEW:     a proof is sent and the organiser has not decided it yet. Drives the hold
+//                        on extending a published close and on a draft's price. Narrower than
+//                        in flight: a verified transfer is settled and holds nothing back.
 //
 // Collapsing any pair into one "is this paid" helper would pick one of those moments and get the
 // others wrong. In flight but not confirmed is the common case, not an edge case; submitted but not
@@ -348,8 +351,8 @@ export const hasSubmittedPaymentProof = async (
  * it.
  *
  * THE PRICED JOIN IS THE PREDICATE, not the proof row's existence. A proof attached to a zero-gross
- * payment is a receipt for nothing, and counting it would let one stray row block an unpublish and
- * a fee change on a free competition forever, with no surface anywhere to clear it.
+ * payment is a receipt for nothing, and counting it would let one stray row block the unpublish of
+ * a free competition forever, with no surface anywhere to clear it.
  */
 export const hasCompetitionPaymentInFlight = async (
   competitionId: string,
@@ -372,11 +375,33 @@ export const hasCompetitionPaymentInFlight = async (
 };
 
 /**
- * Whether anyone holds a non-cancelled registration on this competition that carries no price.
+ * Whether a bukti transfer awaits the organiser's verification anywhere on this competition.
  *
- * The question a free→paid transition has to ask: pricing a competition that already took free
- * registrations would retroactively attach a fee to people who agreed to none, and the rule that
- * refuses candidate self-cancellation on a priced competition would then strip their right to leave.
+ * Narrower than `hasCompetitionPaymentInFlight`: a verified transfer is settled and holds nothing
+ * back, so only `pending_review` counts. Priced and scoped by `competition_id` for the same reasons.
+ */
+export const hasCompetitionTransferAwaitingReview = async (
+  competitionId: string,
+  db: Database = getDb(),
+): Promise<boolean> => {
+  const [row] = await db
+    .select({ id: financeManualPaymentProofs.id })
+    .from(financeManualPaymentProofs)
+    .innerJoin(financePayments, eq(financePayments.id, financeManualPaymentProofs.paymentId))
+    .where(
+      and(
+        eq(financeManualPaymentProofs.competitionId, competitionId),
+        eq(financeManualPaymentProofs.status, "pending_review"),
+        gt(financePayments.grossAmount, 0),
+      ),
+    )
+    .limit(1);
+
+  return row !== undefined;
+};
+
+/**
+ * Whether anyone holds a non-cancelled registration on this competition that carries no price.
  *
  * DERIVED PER PAYMENT GROUP, not per row, for the reason `resolvePaymentGroupRegistrationIds`
  * exists: a four-member team holds four rows and pays once, so three of them carry no payment of

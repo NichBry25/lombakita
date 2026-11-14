@@ -1,15 +1,18 @@
 // Field-bucket classification for an edit to a published competition.
 //
-// Each changed field lands in one of two buckets:
+// Each changed field lands in one of three buckets:
 //
 //   blocked: the change makes things worse for someone already registered, so the edit is refused
 //            (422 competition_post_publish_blocked) before any DB write.
+//   waitsForTransferReview: the change is allowed once no transfer awaits verification, and until
+//            then the edit is refused (409 competition_close_waits_for_transfer_review).
 //   notify:  the change is allowed, and persisting it fans out a competition.edited notification.
 //
 // A field is blocked by what it is and which way it moved, never by who has registered so far, so
 // the editor can show it locked before the host types and a registration landing during the edit
-// cannot change the answer. The one rule that reads the snapshot is the registration close, which
-// stays put while a transfer awaits verification.
+// cannot change the answer. Two rules also read the clock or money: once the event has begun its
+// start is fixed and its end can only move later, and a later registration close waits while a
+// transfer awaits verification.
 //
 // This module is a PURE function over (oldRow, mergedRow, registration snapshot, now). The callers
 // (the published edit path, the fee path and the competition editor) decide what to do per bucket.
@@ -55,14 +58,16 @@ export type EditClassificationSnapshot = {
   hasActiveTeam: boolean;
   activeTeamSizes: number[];
   hasActiveFree: boolean;
-  // Whether a bukti transfer is submitted and unresolved anywhere on this competition. This is the
-  // PAYMENT IN FLIGHT predicate (server/finance/paid-registration.ts), passed in rather than
-  // queried because this module is pure.
-  hasPaymentInFlight: boolean;
+  // Whether a bukti transfer awaits the organiser's verification anywhere on this competition
+  // (hasCompetitionTransferAwaitingReview in server/finance/paid-registration.ts), passed in
+  // rather than queried because this module is pure.
+  hasTransferAwaitingReview: boolean;
 };
 
 export type EditClassification = {
   blocked: string[];
+  // Allowed changes that must wait until no bukti transfer awaits verification.
+  waitsForTransferReview: string[];
   notify: string[];
 };
 
@@ -81,6 +86,9 @@ const isRaised = (from: number | null, to: number | null): boolean =>
 const isLater = (from: Date | null, to: Date | null): boolean =>
   from !== null && to !== null && to.getTime() > from.getTime();
 
+const hasStarted = (row: ClassifiableCompetition, now: Date): boolean =>
+  row.eventStartAt !== null && row.eventStartAt.getTime() <= now.getTime();
+
 // A larger cutoff closes withdrawal more days before the event, which shortens the right to cancel.
 // Turning withdrawal off altogether is the allowCancellation rule's to refuse.
 const shortensCancellationWindow = (
@@ -98,6 +106,7 @@ export const classifyCompetitionEdit = (
   now: Date = new Date(),
 ): EditClassification => {
   const blocked: string[] = [];
+  const waitsForTransferReview: string[] = [];
   const notify: string[] = [];
 
   if (oldRow.mode !== newRow.mode) blocked.push("mode");
@@ -141,8 +150,7 @@ export const classifyCompetitionEdit = (
   // can no longer be withdrawn. Leaving the date editable would let an organizer push the start
   // into the future purely to reopen withdrawal and cancel everyone.
   if (timeOf(oldRow.eventStartAt) !== timeOf(newRow.eventStartAt)) {
-    const startHasPassed =
-      oldRow.eventStartAt != null && oldRow.eventStartAt.getTime() <= now.getTime();
+    const startHasPassed = hasStarted(oldRow, now);
     if (startHasPassed || !isLater(oldRow.eventStartAt, newRow.eventStartAt)) {
       blocked.push("eventStartAt");
     } else {
@@ -150,24 +158,32 @@ export const classifyCompetitionEdit = (
     }
   }
 
-  // Remaining schedule fields — always notify-worthy when changed.
-  if (timeOf(oldRow.eventEndAt) !== timeOf(newRow.eventEndAt)) notify.push("eventEndAt");
+  // eventEndAt: a later end only helps. An earlier end shortens the submission window, which runs
+  // from the start to the end, so once the event has begun it is BLOCKED. Before the start it is
+  // announced like any other schedule move.
+  if (timeOf(oldRow.eventEndAt) !== timeOf(newRow.eventEndAt)) {
+    if (hasStarted(oldRow, now) && !isLater(oldRow.eventEndAt, newRow.eventEndAt)) {
+      blocked.push("eventEndAt");
+    } else {
+      notify.push("eventEndAt");
+    }
+  }
+  // The registration start is announced whenever it moves.
   if (timeOf(oldRow.registrationStartAt) !== timeOf(newRow.registrationStartAt))
     notify.push("registrationStartAt");
 
   // registrationEndAt: an earlier close takes away time candidates were promised, so it is BLOCKED.
-  // A later close is BLOCKED too while money is in flight. Each payment's deadline is clamped to
-  // this date once, at creation, and is never recomputed afterwards (see
-  // @/lib/finance/payment-window). That is the right design, since a deadline someone was given
-  // must not move underneath them, but an outstanding payment then carries a deadline derived
-  // from a date that no longer exists, and nothing anywhere reconciles the two. Blocking the edit
-  // rather than recomputing the deadline is what keeps both facts true at once.
+  // A later close WAITS while a transfer awaits verification: that payment's deadline was clamped
+  // to the old close at creation and is never recomputed (@/lib/finance/payment-window), so the host
+  // decides the transfer before the close moves past it. A verified transfer is settled and holds
+  // nothing back.
   if (timeOf(oldRow.registrationEndAt) !== timeOf(newRow.registrationEndAt)) {
-    const closesLater = isLater(oldRow.registrationEndAt, newRow.registrationEndAt);
-    if (closesLater && !snapshot.hasPaymentInFlight) {
-      notify.push("registrationEndAt");
-    } else {
+    if (!isLater(oldRow.registrationEndAt, newRow.registrationEndAt)) {
       blocked.push("registrationEndAt");
+    } else if (snapshot.hasTransferAwaitingReview) {
+      waitsForTransferReview.push("registrationEndAt");
+    } else {
+      notify.push("registrationEndAt");
     }
   }
   // Moving the promised results date is exactly what a waiting participant needs to hear about.
@@ -197,5 +213,5 @@ export const classifyCompetitionEdit = (
     }
   }
 
-  return { blocked, notify };
+  return { blocked, waitsForTransferReview, notify };
 };

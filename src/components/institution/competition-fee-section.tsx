@@ -11,7 +11,12 @@ import { errorMessageFor } from "@/lib/errors/error-copy";
 import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
 import { computePlatformFee, type FeeRuleTerms } from "@/lib/finance/fee";
 import { formatRupiah } from "@/lib/finance/payment-display";
-import { PUBLISH_LOCK_REASONS } from "@/lib/competitions/publish-locks";
+import {
+  COMPETITION_CHANGED_DURING_EDIT_REASON,
+  DRAFT_PRICE_HELD_BY_REGISTRATIONS_REASON,
+  DRAFT_PRICE_WAITS_FOR_TRANSFER_REVIEW_REASON,
+  PUBLISH_LOCK_REASONS,
+} from "@/lib/competitions/publish-locks";
 
 type FeeRule = {
   basisPoints: number;
@@ -35,6 +40,9 @@ const SAVE_ERROR_COPY: Partial<Record<string, string>> = {
   forbidden: "Hanya pemilik institusi yang dapat mengatur biaya pendaftaran.",
   competition_invalid_value: "Periksa biaya, mata uang, dan batas waktu pembayaran lalu coba lagi.",
   competition_fee_locked_after_publish: PUBLISH_LOCK_REASONS.feeAmount,
+  competition_fee_blocked_active_registrations: DRAFT_PRICE_HELD_BY_REGISTRATIONS_REASON,
+  competition_fee_waits_for_transfer_review: DRAFT_PRICE_WAITS_FOR_TRANSFER_REVIEW_REASON,
+  competition_changed_during_edit: COMPETITION_CHANGED_DURING_EDIT_REASON,
   competition_institution_not_verified:
     "Institusi harus terverifikasi sebelum dapat memungut biaya pendaftaran. Kompetisi gratis tetap dapat dipublikasikan.",
   payment_instructions_missing:

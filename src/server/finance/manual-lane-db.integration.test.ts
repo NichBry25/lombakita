@@ -3004,10 +3004,11 @@ describe.skipIf(skipWithoutDatabase)(
     });
 
     it("still allows a price CHANGE on an already-priced competition", async () => {
-      // A draft takes any price, a new one over an old one included.
+      // A draft with no registrant takes any price, a new one over an old one included.
       await inRollback(async (tx) => {
         const fixture = await seedFixture(tx);
         await grantOwnership(tx, fixture);
+        await clearFreeRegistrant(tx, fixture);
         await tx
           .update(competitions)
           .set({ feeAmount: 50_000, feeCurrency: "IDR" })
@@ -3052,6 +3053,7 @@ describe.skipIf(skipWithoutDatabase)(
       await inRollback(async (tx) => {
         const fixture = await seedFixture(tx);
         await grantOwnership(tx, fixture);
+        await clearFreeRegistrant(tx, fixture);
         await tx
           .update(competitions)
           .set({ feeAmount: 50_000, feeCurrency: "IDR" })

@@ -71,6 +71,8 @@ import {
   type EditClassificationSnapshot,
 } from "@/server/competitions/edit-classification";
 import {
+  CLOSE_WAITS_FOR_TRANSFER_REVIEW_REASON,
+  COMPETITION_CHANGED_DURING_EDIT_REASON,
   isPublishLockedField,
   PUBLISH_LOCK_REASONS,
   type PublishLockedField,
@@ -151,6 +153,8 @@ const REFUSAL_COPY: Record<RefusalAction, Partial<Record<string, string>>> = {
       "Beberapa bidang tidak dapat diubah setelah kompetisi diterbitkan.",
     competition_post_publish_blocked:
       "Perubahan ini tidak dapat disimpan setelah kompetisi terbit.",
+    competition_close_waits_for_transfer_review: CLOSE_WAITS_FOR_TRANSFER_REVIEW_REASON,
+    competition_changed_during_edit: COMPETITION_CHANGED_DURING_EDIT_REASON,
     competition_publish_validation_failed:
       "Bidang wajib pada kompetisi yang sudah terbit tidak dapat dikosongkan.",
     competition_personal_individual_only:
@@ -262,7 +266,7 @@ const SNAPSHOT_UNSEEN_BY_THE_EDITOR: EditClassificationSnapshot = {
   hasActiveTeam: false,
   activeTeamSizes: [],
   hasActiveFree: false,
-  hasPaymentInFlight: false,
+  hasTransferAwaitingReview: false,
 };
 
 // The form's values in the shape saveMainFields sends them. The price belongs to the fee part, so
@@ -974,6 +978,17 @@ export const InstitutionCompetitionEditShell = ({
     if (!response.ok) {
       const { code, blockedFields } = await extractError(response);
       const message = errorMessageFor(code, REFUSAL_COPY.save, REFUSAL_FALLBACK.save);
+      // A close that waits for a transfer is not a publish lock, so the modal says what to do
+      // instead of naming locked fields and the unpublish route.
+      if (code === "competition_close_waits_for_transfer_review") {
+        openModal({
+          title: "Perubahan belum dapat disimpan",
+          closeable: true,
+          body: <p className="muted-copy">{message}</p>,
+          actions: [{ label: "Mengerti", variant: "primary", autoClose: true, onClick: () => {} }],
+        });
+        return { status: "failed" };
+      }
       // A post-publish blocked or immutable-field edit is surfaced in a modal naming the
       // offending field(s) and why, per the shared-primitive rule.
       if (code === "competition_post_publish_blocked" || code === "competition_field_immutable") {
@@ -1757,13 +1772,27 @@ export const InstitutionCompetitionEditShell = ({
                       max={resultAnnounce || undefined}
                       required
                       className="form-input"
-                      aria-invalid={eventEndError ? true : undefined}
-                      aria-describedby={eventEndError ? "event-end-timeline-error" : undefined}
+                      aria-invalid={
+                        eventEndError || brokenPublishLocks.includes("eventEndAt")
+                          ? true
+                          : undefined
+                      }
+                      aria-describedby={describedByIds(
+                        isPublished ? "event-end-lock" : null,
+                        eventEndError ? "event-end-timeline-error" : null,
+                      )}
                     />
                     {eventEndError ? (
                       <span className="form-error" id="event-end-timeline-error" role="alert">
                         {eventEndError}
                       </span>
+                    ) : null}
+                    {isPublished ? (
+                      <PublishLockLine
+                        id="event-end-lock"
+                        field="eventEndAt"
+                        brokenLocks={brokenPublishLocks}
+                      />
                     ) : null}
                   </label>
                   {/* The hint sits in the grid's second column rather than under the input, so the

@@ -33,6 +33,8 @@ import {
   users,
 } from "@/server/db/schema";
 import { setCompetitionFee } from "@/server/competitions/competition-fee-service";
+import { parseCompetitionPatchInput } from "@/server/competitions/competition-core";
+import { updateCompetitionDraft } from "@/server/competitions/competition-service";
 import { hashToken } from "@/server/teams/team-core";
 import {
   acceptTeamInvitationForUser,
@@ -222,6 +224,52 @@ const withParticipationLockHeld = async <T>(
     acquired,
     holding.then(() => {
       throw new Error("the barrier transaction ended before it took the participation lock");
+    }),
+  ]);
+
+  const inFlight: Promise<unknown>[] = [];
+  const track: TrackRacer = (work) => {
+    const settled = settle(work);
+    inFlight.push(settled);
+    return settled;
+  };
+
+  try {
+    return await body(track);
+  } finally {
+    allowRelease();
+    await holding.catch(() => undefined);
+    await Promise.all(inFlight);
+  }
+};
+
+/**
+ * Holds one competition row changed and uncommitted for the duration of `body`, then commits it.
+ * A racer's plain read still sees the row as it was, and a racer's write queues on the row lock
+ * until the change commits. Racers are awaited in the `finally`, as in the barriers above.
+ */
+const withCompetitionChangeHeld = async <T>(
+  competitionId: string,
+  assignments: string,
+  body: (track: TrackRacer) => Promise<T>,
+): Promise<T> => {
+  let markAcquired!: () => void;
+  const acquired = new Promise<void>((resolve) => (markAcquired = resolve));
+  let allowRelease!: () => void;
+  const released = new Promise<void>((resolve) => (allowRelease = resolve));
+
+  const holding = barrier.sql.begin(async (tx) => {
+    await tx.unsafe(`update competitions set ${assignments}, updated_at = now() where id = $1`, [
+      competitionId,
+    ]);
+    markAcquired();
+    await released;
+  });
+
+  await Promise.race([
+    acquired,
+    holding.then(() => {
+      throw new Error("the barrier transaction ended before it changed the competition row");
     }),
   ]);
 
@@ -442,6 +490,19 @@ const competitionCloseAndFeeOf = async (
     .from(competitions)
     .where(eq(competitions.id, competitionId));
   return { registrationEndAt: row!.registrationEndAt!, feeAmount: row!.feeAmount };
+};
+
+const competitionRowOf = async (competitionId: string) => {
+  const [row] = await control.db
+    .select({
+      status: competitions.status,
+      slug: competitions.slug,
+      maxTeamSize: competitions.maxTeamSize,
+      feeAmount: competitions.feeAmount,
+    })
+    .from(competitions)
+    .where(eq(competitions.id, competitionId));
+  return row!;
 };
 
 const teamStatus = async (teamId: string) => {
@@ -880,5 +941,177 @@ describe.skipIf(skipWithoutDatabase)("a registered free team under real contenti
       code: feeChange.ok ? undefined : errorCodeOf(feeChange.error),
       feeAmount,
     }).toEqual({ ok: false, code: "competition_fee_locked_after_publish", feeAmount: 150_000 });
+  });
+});
+
+describe.skipIf(skipWithoutDatabase)("a competition write racing a change to its row", () => {
+  it("refuses a draft's price change whose write lands after a publish commits", async () => {
+    readyEnqueueSpies();
+    const { competitionId, institutionId } = await seedCompetition({ maxTeamSize: 3, paid: true });
+    await control.db
+      .update(competitions)
+      .set({ status: "draft" })
+      .where(eq(competitions.id, competitionId));
+    const owner = await seedOwner(institutionId);
+    const before = await competitionRowOf(competitionId);
+    const [barrierPid, racerPid] = await Promise.all([
+      backendPidOf(barrier),
+      backendPidOf(racerOne),
+    ]);
+
+    const [outcome] = await withCompetitionChangeHeld(
+      competitionId,
+      "status = 'published'",
+      async (track) => {
+        const run = track(
+          setCompetitionFee(
+            owner.id,
+            competitionId,
+            { feeAmount: null, feeCurrency: null },
+            racerOne.db as never,
+          ),
+        );
+        await awaitBlockedBy(racerPid, barrierPid, "the fee write");
+        return [run] as const;
+      },
+    ).then(async ([run]) => [await run] as const);
+
+    expect({
+      ok: outcome.ok,
+      code: outcome.ok ? undefined : errorCodeOf(outcome.error),
+      row: await competitionRowOf(competitionId),
+    }).toEqual({
+      ok: false,
+      code: "competition_changed_during_edit",
+      row: { ...before, status: "published" },
+    });
+  });
+
+  it("refuses a draft edit whose write lands after a publish commits", async () => {
+    readyEnqueueSpies();
+    const { competitionId, institutionId } = await seedCompetition({ maxTeamSize: 3, paid: false });
+    await control.db
+      .update(competitions)
+      .set({ status: "draft" })
+      .where(eq(competitions.id, competitionId));
+    const owner = await seedOwner(institutionId);
+    const before = await competitionRowOf(competitionId);
+    const [barrierPid, racerPid] = await Promise.all([
+      backendPidOf(barrier),
+      backendPidOf(racerOne),
+    ]);
+
+    const [outcome] = await withCompetitionChangeHeld(
+      competitionId,
+      "status = 'published'",
+      async (track) => {
+        const run = track(
+          updateCompetitionDraft(
+            owner.id,
+            competitionId,
+            parseCompetitionPatchInput({ slug: `${before.slug}-baru` }),
+            racerOne.db as never,
+          ),
+        );
+        await awaitBlockedBy(racerPid, barrierPid, "the draft write");
+        return [run] as const;
+      },
+    ).then(async ([run]) => [await run] as const);
+
+    expect({
+      ok: outcome.ok,
+      code: outcome.ok ? undefined : errorCodeOf(outcome.error),
+      row: await competitionRowOf(competitionId),
+    }).toEqual({
+      ok: false,
+      code: "competition_changed_during_edit",
+      row: { ...before, status: "published" },
+    });
+  });
+
+  it("refuses a published edit whose write lands after another edit of the row commits", async () => {
+    readyEnqueueSpies();
+    const { competitionId, institutionId } = await seedCompetition({ maxTeamSize: 4, paid: false });
+    const owner = await seedOwner(institutionId);
+    const before = await competitionRowOf(competitionId);
+    const [barrierPid, racerPid] = await Promise.all([
+      backendPidOf(barrier),
+      backendPidOf(racerOne),
+    ]);
+
+    const [outcome] = await withCompetitionChangeHeld(
+      competitionId,
+      "max_team_size = 6",
+      async (track) => {
+        const run = track(
+          updateCompetitionDraft(
+            owner.id,
+            competitionId,
+            parseCompetitionPatchInput({ maxTeamSize: 5 }),
+            racerOne.db as never,
+          ),
+        );
+        await awaitBlockedBy(racerPid, barrierPid, "the published write");
+        return [run] as const;
+      },
+    ).then(async ([run]) => [await run] as const);
+
+    expect({
+      ok: outcome.ok,
+      code: outcome.ok ? undefined : errorCodeOf(outcome.error),
+      row: await competitionRowOf(competitionId),
+    }).toEqual({
+      ok: false,
+      code: "competition_changed_during_edit",
+      row: { ...before, maxTeamSize: 6 },
+    });
+  });
+
+  it("refuses a published close move whose write lands after another edit of the row commits, and moves no invite", async () => {
+    readyEnqueueSpies();
+    const { competitionId, institutionId, teamId, captain } = await seedTeam("submitted", {
+      maxTeamSize: 4,
+      paid: false,
+    });
+    const sari = await seedUser("sari");
+    await seedOpenInvitation(teamId, captain.id, sari);
+    const owner = await seedOwner(institutionId);
+    const before = await competitionRowOf(competitionId);
+    const invitesBefore = await openInvitationsOf(teamId);
+    const [barrierPid, racerPid] = await Promise.all([
+      backendPidOf(barrier),
+      backendPidOf(racerOne),
+    ]);
+
+    const [outcome] = await withCompetitionChangeHeld(
+      competitionId,
+      "max_team_size = 6",
+      async (track) => {
+        const run = track(
+          updateCompetitionDraft(
+            owner.id,
+            competitionId,
+            parseCompetitionPatchInput({
+              registrationEndAt: new Date(Date.now() + 17 * DAY_MS).toISOString(),
+            }),
+            racerOne.db as never,
+          ),
+        );
+        await awaitBlockedBy(racerPid, barrierPid, "the published close move");
+        return [run] as const;
+      },
+    ).then(async ([run]) => [await run] as const);
+
+    expect({
+      ok: outcome.ok,
+      code: outcome.ok ? undefined : errorCodeOf(outcome.error),
+      row: await competitionRowOf(competitionId),
+      invites: await openInvitationsOf(teamId),
+    }).toEqual({
+      ok: false,
+      code: "competition_changed_during_edit",
+      row: { ...before, maxTeamSize: 6 },
+      invites: invitesBefore,
+    });
   });
 });

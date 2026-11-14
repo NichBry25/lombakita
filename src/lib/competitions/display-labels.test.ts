@@ -17,6 +17,14 @@ describe("competition display labels", () => {
     expect(getCompetitionCategoryLabel("digitalProduct")).toBe("Digital product");
     expect(getCompetitionFieldLabel("review_notes")).toBe("Review notes");
   });
+
+  it("names in Indonesian every field a published edit can refuse", () => {
+    expect(
+      ["slug", "allowCancellation", "cancellationCutoffDays", "feeCurrency"].map(
+        getCompetitionFieldLabel,
+      ),
+    ).toEqual(["Slug", "Pembatalan oleh peserta", "Batas pembatalan", "Mata uang biaya"]);
+  });
 });
 
 // MANUAL-D50: the eight category names that were still in English before this work. Five arrived in

@@ -59,8 +59,13 @@ import {
 } from "@/server/competitions/competition-access";
 import { isPaidCompetition } from "@/lib/competitions/paid-competition";
 import {
+  CLOSE_WAITS_FOR_TRANSFER_REVIEW_REASON,
+  COMPETITION_CHANGED_DURING_EDIT_REASON,
+} from "@/lib/competitions/publish-locks";
+import {
   hasActiveFreeRegistrations,
   hasCompetitionPaymentInFlight,
+  hasCompetitionTransferAwaitingReview,
 } from "@/server/finance/paid-registration";
 
 assertServerOnly("server/competitions/competition-service");
@@ -481,8 +486,9 @@ const mergeForClassification = (
   return merged;
 };
 
-// Loads the non-cancelled registration snapshot used by the post-publish edit classifier. Team
-// sizes are the per-team count of non-cancelled team-typed rows (each member holds one row).
+// Loads the snapshot handed to the edit classifier. The classifier reads only
+// hasTransferAwaitingReview from it. Team sizes are the per-team count of non-cancelled team-typed
+// rows (each member holds one row).
 export const loadEditClassificationSnapshot = async (
   competitionId: string,
   db: Database,
@@ -517,12 +523,8 @@ export const loadEditClassificationSnapshot = async (
     hasActiveIndividual,
     hasActiveTeam,
     activeTeamSizes: [...teamCounts.values()],
-    // Derived by asking which payment groups carry a priced payment, not by assuming the answer.
-    // This used to read `rows.length > 0` on the premise that every competition was free; a
-    // competition can now be priced, and under that premise a paid registrant counted as a free one
-    // and the free→paid block fired on competitions that had never taken a free registration.
     hasActiveFree: await hasActiveFreeRegistrations(competitionId, db),
-    hasPaymentInFlight: await hasCompetitionPaymentInFlight(competitionId, db),
+    hasTransferAwaitingReview: await hasCompetitionTransferAwaitingReview(competitionId, db),
   };
 };
 
@@ -552,15 +554,25 @@ const closeMovedByPatch = (
   return patch.registrationEndAt;
 };
 
+// Writes a published edit only onto the row it was judged against. Every writer of a competition
+// sets updatedAt, so a row another request changed since this one read it matches nothing. The
+// judged value came through a JavaScript Date, which keeps milliseconds, so the stored value is cut
+// to milliseconds before the comparison.
 const writePublishedCompetitionUpdates = (
   writer: DbOrTx,
   competitionId: string,
+  judgedUpdatedAt: Date,
   updates: Record<string, unknown>,
 ) =>
   writer
     .update(competitions)
     .set(updates)
-    .where(eq(competitions.id, competitionId))
+    .where(
+      and(
+        eq(competitions.id, competitionId),
+        sql`date_trunc('milliseconds', ${competitions.updatedAt}) = ${judgedUpdatedAt.toISOString()}`,
+      ),
+    )
     .returning(PUBLIC_COMPETITION_COLUMNS);
 
 // The team sizes a patch leaves the competition with, normalized to its mode, or null when the
@@ -593,7 +605,8 @@ const resolvePatchedTeamSizes = (
 // Post-publish edit path. Two layers:
 //   outer (locked): IMMUTABLE_AFTER_PUBLISH fields can never change → 422.
 //   inner (classifier): each remaining change is refused or announced, by its field and direction.
-// blocked → refuse; notify → persist + fan out competition.edited.
+// blocked → refuse; waitsForTransferReview → refuse until the transfer is decided;
+// notify → persist + fan out competition.edited.
 const updatePublishedCompetition = async (
   competition: CompetitionRow,
   patch: CompetitionPatchInput,
@@ -698,6 +711,15 @@ const updatePublishedCompetition = async (
     );
   }
 
+  if (classification.waitsForTransferReview.length > 0) {
+    throw new CompetitionError(
+      "competition_close_waits_for_transfer_review",
+      409,
+      CLOSE_WAITS_FOR_TRANSFER_REVIEW_REASON,
+      { fields: classification.waitsForTransferReview },
+    );
+  }
+
   const updates: Record<string, unknown> = { updatedAt: sql`now()` };
   applySimplePatchColumns(updates, patch);
   if (teamSizes !== null) {
@@ -718,10 +740,16 @@ const updatePublishedCompetition = async (
     // so the invites move whenever the competition is free when its close moves.
     const [persisted] =
       movedClose === null
-        ? await writePublishedCompetitionUpdates(db, competition.id, updates)
+        ? await writePublishedCompetitionUpdates(db, competition.id, competition.updatedAt, updates)
         : await db.transaction(async (tx) => {
             await acquireCompetitionParticipationLock(tx, competition.id);
-            const rows = await writePublishedCompetitionUpdates(tx, competition.id, updates);
+            const rows = await writePublishedCompetitionUpdates(
+              tx,
+              competition.id,
+              competition.updatedAt,
+              updates,
+            );
+            if (rows.length === 0) return rows;
             const pricingUnderLock = await loadCompetitionPricing(competition.id, tx);
             if (!isPaidCompetition(pricingUnderLock.feeAmount)) {
               await moveRegisteredTeamInvitationsToClose(tx, competition.id, movedClose, now);
@@ -729,7 +757,11 @@ const updatePublishedCompetition = async (
             return rows;
           });
     if (!persisted) {
-      throw new CompetitionError("competition_not_found", 404, "Competition not found");
+      throw new CompetitionError(
+        "competition_changed_during_edit",
+        409,
+        COMPETITION_CHANGED_DURING_EDIT_REASON,
+      );
     }
     updated = persisted;
   } catch (error) {
@@ -770,7 +802,8 @@ export const updateCompetitionDraft = async (
 ): Promise<CompetitionRow> => {
   const { competition } = await assertCompetitionAccess(actorUserId, competitionId, "member", db);
 
-  // Published competitions are editable in place via the data-aware classifier path.
+  // Published competitions are edited in place through the classifier, which judges each change by
+  // its field and direction.
   if (competition.status === "published") {
     return updatePublishedCompetition(competition, patch, db);
   }
@@ -872,10 +905,14 @@ export const updateCompetitionDraft = async (
     const [row] = await db
       .update(competitions)
       .set(updates)
-      .where(eq(competitions.id, competitionId))
+      .where(and(eq(competitions.id, competitionId), eq(competitions.status, "draft")))
       .returning(PUBLIC_COMPETITION_COLUMNS);
     if (!row) {
-      throw new CompetitionError("competition_not_found", 404, "Competition not found");
+      throw new CompetitionError(
+        "competition_changed_during_edit",
+        409,
+        COMPETITION_CHANGED_DURING_EDIT_REASON,
+      );
     }
     return row;
   } catch (error) {

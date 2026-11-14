@@ -535,4 +535,32 @@ describe("CompetitionFeeSection", () => {
 
     expect(await saveReportedFee()).toEqual({ ok: false, errorMessage: PRICE_REASON });
   });
+
+  it.each([
+    {
+      code: "competition_fee_blocked_active_registrations",
+      message:
+        "Biaya pendaftaran tidak dapat diubah karena kompetisi ini masih memiliki pendaftar aktif. Hubungi tim Lombakita.",
+    },
+    {
+      code: "competition_fee_waits_for_transfer_review",
+      message:
+        "Biaya pendaftaran belum dapat diubah karena masih ada bukti transfer yang menunggu keputusan. Hubungi tim Lombakita.",
+    },
+    {
+      code: "competition_changed_during_edit",
+      message:
+        "Kompetisi ini baru saja diubah atau diterbitkan. Muat ulang halaman lalu coba lagi.",
+    },
+  ])("names why the server refuses a draft's new price ($code)", async ({ code, message }) => {
+    await mountWith(PAID);
+
+    fireEvent.click(acknowledgement());
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { code } }), { status: 409 })),
+    );
+
+    expect(await saveReportedFee()).toEqual({ ok: false, errorMessage: message });
+  });
 });

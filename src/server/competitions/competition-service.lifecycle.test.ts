@@ -24,9 +24,14 @@ const {
   moveRegisteredTeamInvitationsToClose: vi.fn(),
 }));
 
-const { hasCompetitionPaymentInFlightMock, hasActiveFreeRegistrationsMock } = vi.hoisted(() => ({
+const {
+  hasCompetitionPaymentInFlightMock,
+  hasActiveFreeRegistrationsMock,
+  hasCompetitionTransferAwaitingReviewMock,
+} = vi.hoisted(() => ({
   hasCompetitionPaymentInFlightMock: vi.fn().mockResolvedValue(false),
   hasActiveFreeRegistrationsMock: vi.fn().mockResolvedValue(false),
+  hasCompetitionTransferAwaitingReviewMock: vi.fn().mockResolvedValue(false),
 }));
 
 vi.mock("@/server/competitions/competition-access", async () => {
@@ -46,13 +51,14 @@ vi.mock("@/server/competitions/competition-participation-lock", () => ({
 }));
 vi.mock("@/server/teams/registered-team", () => ({ moveRegisteredTeamInvitationsToClose }));
 
-// The DEC-0132 in-flight guard, which unpublishCompetition and the edit classifier both consult.
-// Defaulted to "nothing in flight" so the pre-existing lifecycle assertions keep testing what they
-// were written to test; the guard's own behaviour, that it blocks and that the classifier blocks
-// a fee edit behind it, is proven separately against a live Postgres.
+// The DEC-0132 in-flight guard, which unpublishCompetition consults, and the awaiting-review
+// predicate behind the edit classifier's snapshot. Both default to "nothing pending" so the lifecycle
+// assertions keep testing what they were written to test; the refusals behind them are proven
+// against a live Postgres.
 vi.mock("@/server/finance/paid-registration", () => ({
   hasCompetitionPaymentInFlight: hasCompetitionPaymentInFlightMock,
   hasActiveFreeRegistrations: hasActiveFreeRegistrationsMock,
+  hasCompetitionTransferAwaitingReview: hasCompetitionTransferAwaitingReviewMock,
 }));
 
 // A pass-through spy on the classifier, so the tests below can read the input the SERVICE built and
@@ -195,6 +201,7 @@ beforeEach(() => {
   hasActiveRegistrationsForCompetition.mockResolvedValue(false);
   hasCompetitionPaymentInFlightMock.mockResolvedValue(false);
   hasActiveFreeRegistrationsMock.mockResolvedValue(false);
+  hasCompetitionTransferAwaitingReviewMock.mockResolvedValue(false);
 });
 
 afterEach(() => vi.clearAllMocks());
@@ -605,6 +612,27 @@ describe("updateCompetitionDraft — published edit (F6/F17)", () => {
     });
     expect(setSpy).not.toHaveBeenCalled();
   });
+
+  it("refuses a later close while a transfer awaits verification, with its own code", async () => {
+    hasCompetitionTransferAwaitingReviewMock.mockResolvedValue(true);
+    const competition = baseCompetition();
+    assertCompetitionAccess.mockResolvedValue({ competition, membershipRole: "institution_owner" });
+    const setSpy = vi.fn();
+    const db = {
+      select: publishedEditSelect([]),
+      update: () => updateChain([competition], setSpy),
+    } as unknown as Database;
+    const patch = parseCompetitionPatchInput({
+      registrationEndAt: new Date(Date.now() + 25 * DAY).toISOString(),
+    });
+
+    await expect(updateCompetitionDraft("u_1", "comp_1", patch, db)).rejects.toMatchObject({
+      code: "competition_close_waits_for_transfer_review",
+      httpStatus: 409,
+      details: { fields: ["registrationEndAt"] },
+    });
+    expect(setSpy).not.toHaveBeenCalled();
+  });
 });
 
 describe("updateCompetitionDraft — the invites of registered teams follow a moved close", () => {
@@ -762,7 +790,7 @@ describe("the classifier's fee rules are reachable from the service", () => {
         hasActiveTeam: false,
         activeTeamSizes: [],
         hasActiveFree: true,
-        hasPaymentInFlight: false,
+        hasTransferAwaitingReview: false,
       },
     );
 
@@ -777,7 +805,7 @@ describe("the classifier's fee rules are reachable from the service", () => {
       hasActiveTeam: false,
       activeTeamSizes: [],
       hasActiveFree: false,
-      hasPaymentInFlight: true,
+      hasTransferAwaitingReview: true,
     };
 
     expect(
@@ -804,7 +832,7 @@ describe("the classifier's fee rules are reachable from the service", () => {
         hasActiveTeam: false,
         activeTeamSizes: [],
         hasActiveFree: false,
-        hasPaymentInFlight: true,
+        hasTransferAwaitingReview: true,
       },
     );
 

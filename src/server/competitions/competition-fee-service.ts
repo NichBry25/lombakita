@@ -9,6 +9,7 @@ import { competitions, type CompetitionStatus } from "@/server/db/schema";
 import {
   assertCompetitionAccess,
   assertInstitutionVerified,
+  hasActiveRegistrationsForCompetition,
   type CompetitionRow,
 } from "@/server/competitions/competition-access";
 import { CompetitionError } from "@/server/competitions/competition-core";
@@ -28,7 +29,13 @@ import {
   type CompetitionPricing,
 } from "@/server/competitions/competition-service";
 import { enqueueCompetitionEdited } from "@/server/async/enqueue";
-import { PUBLISH_LOCK_REASONS } from "@/lib/competitions/publish-locks";
+import { hasCompetitionTransferAwaitingReview } from "@/server/finance/paid-registration";
+import {
+  COMPETITION_CHANGED_DURING_EDIT_REASON,
+  DRAFT_PRICE_HELD_BY_REGISTRATIONS_REASON,
+  DRAFT_PRICE_WAITS_FOR_TRANSFER_REVIEW_REASON,
+  PUBLISH_LOCK_REASONS,
+} from "@/lib/competitions/publish-locks";
 
 // THE FEE-SETTING WRITE PATH. The one place a competition's price is written.
 //
@@ -44,13 +51,15 @@ import { PUBLISH_LOCK_REASONS } from "@/lib/competitions/publish-locks";
 //   1. Ownership:      assertCompetitionAccess "admin", which is institution_owner ALONE. Setting
 //                      a price binds the institution to a receivable, so it sits with the party
 //                      that can be bound.
-//   2. Publish lock:   the competition's status, read under the participation lock. A draft takes
-//                      any price. After publish classifyCompetitionEdit refuses a new amount or
-//                      currency, and only the payment window still moves.
-//   3. Charging:       assertInstitutionVerified. Only for a NON-ZERO fee; setting a competition
-//                      back to free is always allowed, including for an institution whose
-//                      verification was just revoked. Revocation must not trap an organiser into
-//                      keeping a price it can no longer honour.
+//   2. Publish lock:   the competition's status, read under the participation lock and compared
+//                      again by the write. After publish classifyCompetitionEdit refuses a new
+//                      amount or currency, and only the payment window still moves. A draft takes
+//                      any price unless it still holds a non-cancelled registration or a transfer
+//                      awaiting verification.
+//   3. Charging:       assertInstitutionVerified. Only for a NON-ZERO fee, so a draft that gate 2
+//                      lets change its price can always go back to free, including for an
+//                      institution whose verification was just revoked. Revocation must not trap
+//                      an organiser into keeping a price it can no longer honour.
 //   4. Payable:        the institution must have published payment instructions. Only for a
 //                      NON-ZERO fee. Enabling a price with nowhere to send the money produces a
 //                      candidate who owes a debt they cannot discharge.
@@ -115,10 +124,10 @@ export const setCompetitionFee = async (
 
   // THE PUBLISH LOCK, decided by the same classifier the ordinary edit path uses.
   //
-  // A draft takes any price: nobody has registered at it, and nobody is told about it. Once the
-  // competition is published the classifier refuses any change to the amount or the currency, and
-  // `paymentWindowDays` is threaded in as the value that will actually be written, so a window
-  // moved at an unchanged price is announced rather than refused.
+  // A draft with nobody registered and no transfer awaiting verification takes any price, and nobody
+  // is told about it. Once the competition is published the classifier refuses any change to the
+  // amount or the currency, and `paymentWindowDays` is threaded in as the value that will actually
+  // be written, so a window moved at an unchanged price is announced rather than refused.
   //
   // ONE TRANSACTION, UNDER THE PARTICIPATION LOCK, from the status read to the write. A candidate
   // registers only on a published competition and takes the same lock to do it, so reading the
@@ -137,31 +146,28 @@ export const setCompetitionFee = async (
       paymentWindowDays: input.paymentWindowDays ?? pricing.paymentWindowDays,
     };
 
-    let announcedFields: string[] = [];
-    if (status !== "draft") {
-      const classification = await classifyPricingChangeAfterPublish(
-        competition,
-        pricing,
-        nextPricing,
-        tx,
+    const classification = await classifyPricingChange(competition, pricing, nextPricing, tx);
+    // Both sides share every field but the price, so a blocked field is the amount or the currency.
+    const priceChanges = classification.blocked.length > 0;
+    if (priceChanges && status !== "draft") {
+      throw new CompetitionError(
+        "competition_fee_locked_after_publish",
+        409,
+        PUBLISH_LOCK_REASONS.feeAmount,
+        { fields: classification.blocked },
       );
-      if (classification.blocked.length > 0) {
-        throw new CompetitionError(
-          "competition_fee_locked_after_publish",
-          409,
-          PUBLISH_LOCK_REASONS.feeAmount,
-          { fields: classification.blocked },
-        );
-      }
-      announcedFields = classification.notify;
     }
+    if (priceChanges) {
+      await assertDraftPriceMayChange(competitionId, classification.blocked, tx);
+    }
+    const announcedFields = status === "draft" ? [] : classification.notify;
 
     const isCharging = feeAmount > 0;
 
     if (!isCharging) {
       // Clearing a fee needs none of the gates below. They exist to stop money being taken; none
       // of them has anything to say about stopping.
-      await writeFee(competitionId, null, null, input.paymentWindowDays, tx);
+      await writeFee(competitionId, null, null, input.paymentWindowDays, status, tx);
       return announcedFields;
     }
 
@@ -212,7 +218,7 @@ export const setCompetitionFee = async (
       feeCurrency: currency,
     });
 
-    await writeFee(competitionId, feeAmount, currency, input.paymentWindowDays, tx);
+    await writeFee(competitionId, feeAmount, currency, input.paymentWindowDays, status, tx);
 
     return announcedFields;
   });
@@ -296,10 +302,10 @@ const loadCompetitionStatus = async (
 };
 
 /**
- * Classifies a price change on a competition that is no longer a draft, with the classifier the
- * ordinary edit path uses. Its blocked list names the amount or the currency when either changed.
+ * Classifies a price change with the classifier the ordinary edit path uses. Its blocked list names
+ * the amount or the currency when either changed.
  */
-const classifyPricingChangeAfterPublish = async (
+const classifyPricingChange = async (
   competition: CompetitionRow,
   pricing: CompetitionPricing,
   nextPricing: CompetitionPricing,
@@ -311,6 +317,35 @@ const classifyPricingChangeAfterPublish = async (
     toClassifiable(competition, nextPricing),
     snapshot,
   );
+};
+
+/**
+ * Refuses a new price on a draft that still holds a non-cancelled registration or a transfer
+ * awaiting verification. An operator's cancellation returns a published competition to draft and
+ * leaves its proofs pending, and a registration still active on a draft would owe a price it never
+ * agreed to.
+ */
+const assertDraftPriceMayChange = async (
+  competitionId: string,
+  changedFields: string[],
+  db: Database,
+): Promise<void> => {
+  if (await hasActiveRegistrationsForCompetition(competitionId, db)) {
+    throw new CompetitionError(
+      "competition_fee_blocked_active_registrations",
+      409,
+      DRAFT_PRICE_HELD_BY_REGISTRATIONS_REASON,
+      { fields: changedFields },
+    );
+  }
+  if (await hasCompetitionTransferAwaitingReview(competitionId, db)) {
+    throw new CompetitionError(
+      "competition_fee_waits_for_transfer_review",
+      409,
+      DRAFT_PRICE_WAITS_FOR_TRANSFER_REVIEW_REASON,
+      { fields: changedFields },
+    );
+  }
 };
 
 /**
@@ -337,11 +372,14 @@ const notifyFeeEdit = async (
   });
 };
 
+// Writes the price only onto the status it was judged under, so a publish that commits after the
+// status read matches no row and the change is refused instead of landing on a published row.
 const writeFee = async (
   competitionId: string,
   feeAmount: number | null,
   feeCurrency: string | null,
   paymentWindowDays: number | undefined,
+  judgedStatus: CompetitionStatus,
   db: Database,
 ): Promise<void> => {
   const [row] = await db
@@ -352,11 +390,15 @@ const writeFee = async (
       ...(paymentWindowDays === undefined ? {} : { paymentWindowDays }),
       updatedAt: sql`now()`,
     })
-    .where(and(eq(competitions.id, competitionId)))
+    .where(and(eq(competitions.id, competitionId), eq(competitions.status, judgedStatus)))
     .returning({ id: competitions.id });
 
   if (!row) {
-    throw new CompetitionError("competition_not_found", 404, "Competition not found");
+    throw new CompetitionError(
+      "competition_changed_during_edit",
+      409,
+      COMPETITION_CHANGED_DURING_EDIT_REASON,
+    );
   }
 };
 

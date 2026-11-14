@@ -515,6 +515,66 @@ describe("InstitutionCompetitionEditShell after publish", () => {
       slugHelp: screen.queryByText("Gunakan huruf kecil, angka, dan tanda hubung.") !== null,
     }).toEqual({ slugDisabled: false, lockLines: 0, slugHelp: true });
   });
+
+  it("holds back an earlier event end once a published competition's event has started", async () => {
+    const now = Date.now();
+    const started = {
+      ...PUBLISHED_TEAM,
+      registrationStartAt: new Date(now - 40 * DAY).toISOString(),
+      registrationEndAt: new Date(now - 30 * DAY).toISOString(),
+      participantConfirmationAt: new Date(now - 25 * DAY).toISOString(),
+      eventStartAt: new Date(now - DAY).toISOString(),
+      eventEndAt: new Date(now + 2 * DAY).toISOString(),
+      resultAnnouncementAt: new Date(now + 10 * DAY).toISOString(),
+    };
+    stubFetchSequence([() => okJson({ competition: started, publishReadiness: READY })]);
+    mount();
+    await screen.findByRole("button", { name: "Simpan" });
+
+    fireEvent.change(screen.getByLabelText(/^Acara berakhir/), {
+      target: { value: toLocalInput(new Date(now + DAY)) },
+    });
+
+    expect({
+      line: document.getElementById("event-end-lock")?.getAttribute("role"),
+      text: document.getElementById("event-end-lock")?.textContent,
+      saveDisabled: saveButton().hasAttribute("disabled"),
+      requests: vi.mocked(fetch).mock.calls.length,
+    }).toEqual({
+      line: "alert",
+      text: "Setelah acara dimulai, tanggal berakhir acara hanya dapat diundur.",
+      saveDisabled: true,
+      requests: 1,
+    });
+  });
+
+  it("names the pending transfer when the server holds a later close", async () => {
+    stubFetchSequence([
+      loadPublishedTeam,
+      () => failedJson({ error: { code: "competition_close_waits_for_transfer_review" } }),
+    ]);
+    mount();
+    await screen.findByRole("button", { name: "Simpan" });
+
+    fireEvent.change(screen.getByLabelText(/Pendaftaran berakhir/), {
+      target: {
+        value: toLocalInput(
+          new Date(new Date(PUBLISHED_TEAM.registrationEndAt).getTime() + 4 * DAY),
+        ),
+      },
+    });
+    fireEvent.click(saveButton());
+    const dialog = await screen.findByRole("dialog");
+
+    expect({
+      title: within(dialog).queryByText("Perubahan belum dapat disimpan") !== null,
+      sentence:
+        within(dialog).queryByText(
+          "Pendaftaran belum dapat diperpanjang karena masih ada bukti transfer yang menunggu verifikasi. Verifikasi atau tolak bukti transfer itu terlebih dahulu, lalu simpan lagi.",
+        ) !== null,
+      unpublishAdvice: screen.queryByText(/batalkan publikasi/),
+    }).toEqual({ title: true, sentence: true, unpublishAdvice: null });
+  });
 });
 
 describe("InstitutionCompetitionEditShell publish readiness", () => {
