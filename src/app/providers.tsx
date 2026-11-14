@@ -11,9 +11,8 @@ import { UIPrimitivesProvider } from "@/components/ui/primitives";
 // `update()` after the second-role verification flow. The provider does not pass an initial
 // session — children call /api/auth/session lazily when they need it.
 //
-// SecondRolePromptModal is mounted globally so it can intercept any post-sign-in surface
-// (after sign-in we now land on `/` rather than the dedicated prompt page). Modal is
-// dismissible per-tab via sessionStorage; can be re-triggered from /profile via a custom event.
+// SecondRolePromptModal is mounted globally and opens only when the profile page's button
+// dispatches SHOW_SECOND_ROLE_PROMPT_EVENT.
 //
 // UIPrimitivesProvider mounts ModalProvider + ToastProvider once at the root.
 // All surfaces consume useModal / useToast from @/components/ui/primitives.

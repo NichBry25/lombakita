@@ -5,7 +5,7 @@ import { signIn } from "next-auth/react";
 import { Button, ButtonLink, SelectField, StepIndicator, usePageTransition } from "@/components/ui";
 import { AssentNotice } from "@/components/legal/assent-notice";
 import { useToast } from "@/components/ui/primitives";
-import { PENDING_PROMPT_KEY } from "@/components/auth/second-role-prompt-modal";
+import { rememberGoogleReturnPath } from "@/components/auth/google-return-path";
 import {
   errorMessageFor,
   ONBOARDING_FIELD_REFUSAL_COPY,
@@ -15,8 +15,9 @@ import {
 // Method-first single-page auth entry. Replaces the earlier two-page login/register
 // toggle. The user first picks a sign-in method; then:
 //   - Google: full redirect; the signIn callback decides everything server-side (existing →
-//     signed in; new → /auth/login?oauth=<carrier> role picker; suspended → /suspended; unverified
-//     same-email → deny notice).
+//     signed in; new → /auth/login?oauth=<carrier> role picker; new with an address Google has
+//     not verified → email-and-code notice; suspended → /suspended; unverified same-email → deny
+//     notice). The page this tab started from is kept for the role picker (google-return-path.ts).
 //   - Email & password: the user enters email + password. We classify the email server-side
 //     (/api/v1/auth/identify) and branch:
 //       • verified  → attempt the password sign-in (path a). Wrong/absent password → generic
@@ -218,6 +219,7 @@ export const AuthEntry = ({
   }, [stage]);
 
   const startGoogle = () => {
+    rememberGoogleReturnPath(callbackUrl);
     // Hands off to Google's consent screen. That is a full document navigation, so the blocking
     // screen stays up until the browser leaves this page.
     beginPageTransition("Menghubungkan ke Google…");
@@ -225,13 +227,6 @@ export const AuthEntry = ({
   };
 
   const finishLogin = (url: string) => {
-    // Mark this sign-in as "fresh" so the global second-role-prompt modal opens once on the
-    // destination page (mirrors the prior login form behaviour).
-    try {
-      window.sessionStorage.setItem(PENDING_PROMPT_KEY, "1");
-    } catch {
-      /* sessionStorage unavailable — modal simply will not auto-open this session */
-    }
     beginPageTransition("Menyiapkan akun Anda…");
     window.location.assign(url);
   };
@@ -245,7 +240,7 @@ export const AuthEntry = ({
     });
 
     // Suspended accounts are blocked in `authorize`; route the distinct signal to the
-    // public /suspended page. No second-role flag is set on this branch.
+    // public /suspended page.
     if (result?.error?.toUpperCase().includes("ACCOUNT_SUSPENDED")) {
       beginPageTransition("Mengalihkan…");
       window.location.assign("/suspended");

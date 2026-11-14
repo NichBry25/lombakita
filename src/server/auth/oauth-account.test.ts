@@ -282,6 +282,40 @@ describe("resolveGoogleOAuthSignIn — signIn-callback outcome", () => {
     expect(outcome).toBe("http://localhost:3000/auth/login?error=oauth_link_denied");
     expect(insertCalled()).toBe(false);
   });
+
+  it("refuses a new Google sign-up whose address Google has not verified, issuing no carrier", async () => {
+    const { db, insertCalled } = makeReadDb([], []);
+    const outcome = await resolveGoogleOAuthSignIn(
+      {
+        providerAccountId: "google-sub-1",
+        email: "new.google@example.test",
+        googleEmailVerified: false,
+        name: null,
+        image: null,
+      },
+      db as never,
+    );
+
+    expect(outcome).toBe("http://localhost:3000/auth/login?error=oauth_email_unverified");
+    expect(outcome).not.toContain("oauth=");
+    expect(insertCalled()).toBe(false);
+  });
+
+  it("still signs in an already linked Google account when Google reports the address unverified", async () => {
+    const { db } = makeReadDb([{ userId: "u1" }], [{ id: "u1", suspendedAt: null }]);
+    const outcome = await resolveGoogleOAuthSignIn(
+      {
+        providerAccountId: "google-sub-1",
+        email: "user@example.com",
+        googleEmailVerified: false,
+        name: null,
+        image: null,
+      },
+      db as never,
+    );
+
+    expect(outcome).toBe(true);
+  });
 });
 
 // Regression coverage for the cross-session takeover incident.
@@ -547,21 +581,20 @@ describe("finalizeOAuthSignup — transactional creation, verification never fro
     ).rejects.toMatchObject({ code: "account_conflict" });
   });
 
-  it("sets candidate verification from the DECLARED ROLE even when Google email_verified is false", async () => {
+  it("refuses to create an account when Google has not verified the address", async () => {
     const { db, captures } = makeFinalizeDb();
-    await finalizeOAuthSignup(
-      { ...googleClaims, emailVerified: false },
-      "candidate",
-      candidateProfileFixture,
-      null,
-      db as never,
-    );
 
-    const u = captures.userInsert;
-    // Role verification is independent of Google: candidateVerifiedAt is still set.
-    expect(u?.candidateVerifiedAt).toBeInstanceOf(Date);
-    // The Auth.js email column tracks Google's flag (false → null), proving the two are distinct.
-    expect(u?.emailVerified).toBeNull();
+    await expect(
+      finalizeOAuthSignup(
+        { ...googleClaims, emailVerified: false },
+        "candidate",
+        candidateProfileFixture,
+        null,
+        db as never,
+      ),
+    ).rejects.toMatchObject({ code: "email_unverified" });
+    expect(db.transaction).not.toHaveBeenCalled();
+    expect(captures.userInsert).toBeNull();
   });
 
   it("grants the recruiter minimal tier on an OAuth recruiter signup (parity with credentials)", async () => {
@@ -634,13 +667,15 @@ describe("finalizeOAuthSignup — transactional creation, verification never fro
 
   it("Step 6.5e (D1) — does NOT claim when Google email_verified is false (verified-email boundary)", async () => {
     const { db } = makeFinalizeDb();
-    await finalizeOAuthSignup(
-      { ...googleClaims, emailVerified: false },
-      "candidate",
-      candidateProfileFixture,
-      null,
-      db as never,
-    );
+    await expect(
+      finalizeOAuthSignup(
+        { ...googleClaims, emailVerified: false },
+        "candidate",
+        candidateProfileFixture,
+        null,
+        db as never,
+      ),
+    ).rejects.toMatchObject({ code: "email_unverified" });
     expect(claimPendingInvitationsForUser).not.toHaveBeenCalled();
   });
 });
@@ -696,6 +731,19 @@ describe("authorizeOAuthFinalize — carrier gate", () => {
         db as never,
       ),
     ).rejects.toMatchObject({ code: "carrier_replayed", message: "oauth_carrier_unavailable" });
+    expect(captures.userInsert).toBeNull();
+  });
+
+  it("refuses an unverified Google carrier with email_unverified and writes nothing", async () => {
+    const { db, captures } = makeFinalizeDb();
+    const carrier = signGoogleIdentityCarrier({ ...googleClaims, emailVerified: false });
+
+    await expect(
+      authorizeOAuthFinalize(
+        { carrier, role: "candidate", ...candidateProfileFixture },
+        db as never,
+      ),
+    ).rejects.toMatchObject({ code: "email_unverified" });
     expect(captures.userInsert).toBeNull();
   });
 

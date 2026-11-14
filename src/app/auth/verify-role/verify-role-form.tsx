@@ -2,7 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import { useSession } from "next-auth/react";
-import { Button, SelectField } from "@/components/ui";
+import { Button, SelectField, usePageTransition } from "@/components/ui";
 import type { VerifiableRole } from "@/server/auth/role-verification";
 import { useToast } from "@/components/ui/primitives";
 import {
@@ -26,6 +26,8 @@ const VERIFY_ROLE_FALLBACK = "Verifikasi gagal. Coba lagi beberapa saat.";
 type VerifyRoleFormProps = {
   role: VerifiableRole;
   expectedUserId: string;
+  // A path on this site that the page has already checked, or null for the dashboard the API names.
+  returnPath: string | null;
 };
 
 // Candidate onboarding option list. Values must match the `candidate_occupation` DB enum exactly.
@@ -44,9 +46,10 @@ const OCCUPATION_OPTIONS = [
 // registration onboarding form — and sends them in the same request, so a recruiter-first account
 // gaining candidate access lands with an onboarding profile written (parity with the credentials-
 // and OAuth-signup candidacy paths). The recruiter path submits with no extra fields.
-export function VerifyRoleForm({ role, expectedUserId }: VerifyRoleFormProps) {
+export function VerifyRoleForm({ role, expectedUserId, returnPath }: VerifyRoleFormProps) {
   const { update } = useSession();
   const { addToast } = useToast();
+  const { begin: beginPageTransition } = usePageTransition();
   const [busy, setBusy] = useState(false);
 
   const [fullName, setFullName] = useState("");
@@ -91,7 +94,8 @@ export function VerifyRoleForm({ role, expectedUserId }: VerifyRoleFormProps) {
       // read a stale session.
       await update();
 
-      window.location.assign(payload.redirectTo);
+      beginPageTransition("Menyiapkan akun Anda…");
+      window.location.assign(returnPath ?? payload.redirectTo);
     } catch {
       addToast({
         type: "error",

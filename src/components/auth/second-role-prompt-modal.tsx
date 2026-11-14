@@ -1,20 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { isSelfServiceRole } from "@/lib/access/roles";
 import { Button, Icon } from "@/components/ui";
 
-// Global event name. Components can dispatch this on `window` to manually re-trigger the modal
-// (e.g. a "Verifikasi peran lain" button on /profile).
+// Global event name. A component dispatches this on `window` to open the modal (the profile
+// page's "Verifikasi sebagai ..." button does).
 export const SHOW_SECOND_ROLE_PROMPT_EVENT = "lombakita:show-second-role-prompt";
-
-// sessionStorage key written by the sign-in form when a credentials sign-in succeeds. The modal
-// only auto-shows when this flag is present, then clears it. This makes the modal appear once
-// after a fresh sign-in and never again on subsequent navigations within the same tab. Set by
-// `src/components/auth/auth-entry.tsx` right before the post-login redirect.
-export const PENDING_PROMPT_KEY = "lombakita:second-role-prompt:pending";
 
 const ROLE_COPY: Record<
   "candidate" | "recruiter",
@@ -23,59 +17,29 @@ const ROLE_COPY: Record<
   candidate: {
     headline: "Verifikasi akun kandidat Anda",
     description:
-      "Akun Anda saat ini hanya terverifikasi sebagai rekruter. Verifikasi sebagai kandidat untuk dapat mengikuti kompetisi.",
+      "Akun Anda saat ini hanya terverifikasi sebagai penyelenggara. Verifikasi sebagai kandidat untuk dapat mengikuti kompetisi.",
     cta: "Verifikasi sebagai kandidat",
   },
   recruiter: {
-    headline: "Verifikasi akun rekruter Anda",
+    headline: "Verifikasi akun penyelenggara Anda",
     description:
-      "Akun Anda saat ini hanya terverifikasi sebagai kandidat. Verifikasi sebagai rekruter untuk dapat memposting peluang.",
-    cta: "Verifikasi sebagai rekruter",
+      "Akun Anda saat ini hanya terverifikasi sebagai kandidat. Verifikasi sebagai penyelenggara untuk dapat memposting peluang.",
+    cta: "Verifikasi sebagai penyelenggara",
   },
 };
 
 const isCandidateOrRecruiter = (s: string): s is "candidate" | "recruiter" =>
   s === "candidate" || s === "recruiter";
 
-// Global modal mounted in the root layout. Two ways it can open:
-//   1. Automatic: only when the sign-in form writes the PENDING_PROMPT_KEY flag right after a
-//      fresh credentials sign-in. Already-logged-in users opening the app or navigating around
-//      do NOT trigger this — they have no pending flag.
-//   2. Manual: when any component dispatches SHOW_SECOND_ROLE_PROMPT_EVENT on window (e.g. the
-//      "Verifikasi sebagai X" button on /profile).
-// Dismissing the modal clears the pending flag so it won't reappear on the next render.
+// Global modal mounted in the root layout. It opens only when a component dispatches
+// SHOW_SECOND_ROLE_PROMPT_EVENT on window, never on its own after a sign-in.
 export function SecondRolePromptModal() {
   const router = useRouter();
   const { data: session, status } = useSession();
-  const [overrideOpen, setOverrideOpen] = useState(false);
-  const [autoOpen, setAutoOpen] = useState(false);
-  // Once we've reacted to the pending flag for this mount, don't react again. Re-reads on
-  // session refresh would otherwise pop the dialog repeatedly.
-  const consumedPendingFlag = useRef(false);
+  const [open, setOpen] = useState(false);
 
-  // Auto-open trigger: read the pending flag once when the session becomes authenticated.
-  // The lint rule discourages setState inside effects, but here we genuinely need to read
-  // browser-only sessionStorage on mount and surface the decision. Server-rendered initial
-  // value is false; the effect upgrades it on the client when the flag is present.
   useEffect(() => {
-    if (status !== "authenticated") return;
-    if (consumedPendingFlag.current) return;
-    try {
-      const pending = window.sessionStorage.getItem(PENDING_PROMPT_KEY);
-      if (pending === "1") {
-        consumedPendingFlag.current = true;
-        window.sessionStorage.removeItem(PENDING_PROMPT_KEY);
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setAutoOpen(true);
-      }
-    } catch {
-      /* sessionStorage may be unavailable in private mode — ignore */
-    }
-  }, [status]);
-
-  // Manual trigger via window event (used by the /profile button).
-  useEffect(() => {
-    const handler = () => setOverrideOpen(true);
+    const handler = () => setOpen(true);
     window.addEventListener(SHOW_SECOND_ROLE_PROMPT_EVENT, handler);
     return () => window.removeEventListener(SHOW_SECOND_ROLE_PROMPT_EVENT, handler);
   }, []);
@@ -92,7 +56,6 @@ export function SecondRolePromptModal() {
   // Only single-verified-role accounts see the prompt. Dual-role and zero-role accounts skip.
   if (verifiedRoleCandidates.length !== 1) return null;
 
-  const open = autoOpen || overrideOpen;
   if (!open) return null;
 
   const verifiedRole = verifiedRoleCandidates[0];
@@ -100,8 +63,7 @@ export function SecondRolePromptModal() {
     verifiedRole === "candidate" ? "recruiter" : "candidate";
 
   const onDismiss = () => {
-    setAutoOpen(false);
-    setOverrideOpen(false);
+    setOpen(false);
   };
 
   const onVerify = () => {

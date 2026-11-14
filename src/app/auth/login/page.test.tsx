@@ -19,12 +19,17 @@ vi.mock("@/server/auth/oauth-identity-carrier", () => ({
 }));
 vi.mock("@/server/invitations/invite-resolution", () => ({ resolveClaimInviteEmailByToken }));
 vi.mock("@/server/db/client", () => ({ getDb: () => ({}) }));
+vi.mock("@/config/env.server", () => ({ serverEnv: { authUrl: "https://lombakita.local" } }));
 
 import LoginPage from "@/app/auth/login/page";
 
-const callbackUrlPassedFor = async (searchParams: Record<string, string>) => {
+const authEntryPropsFor = async (searchParams: Record<string, string>) => {
   renderToStaticMarkup(await LoginPage({ searchParams: Promise.resolve(searchParams) }));
-  const lastProps = AuthEntry.mock.calls.at(-1)?.[0];
+  return AuthEntry.mock.calls.at(-1)?.[0];
+};
+
+const callbackUrlPassedFor = async (searchParams: Record<string, string>) => {
+  const lastProps = await authEntryPropsFor(searchParams);
   return lastProps?.callbackUrl;
 };
 
@@ -66,5 +71,39 @@ describe("the sign-in page return address", () => {
     const callbackUrl = await callbackUrlPassedFor({ invite: "tok", callbackUrl: "//example.com" });
 
     expect(callbackUrl).toBe("/inbox");
+  });
+
+  it("keeps the path of an absolute return address on this site", async () => {
+    // The shape next-auth hands back after a cancelled Google attempt.
+    const callbackUrl = await callbackUrlPassedFor({
+      callbackUrl: "https://lombakita.local/competitions/acme/lomba-1",
+      error: "Callback",
+    });
+
+    expect(callbackUrl).toBe("/competitions/acme/lomba-1");
+  });
+
+  it("drops an absolute return address on another site", async () => {
+    const callbackUrl = await callbackUrlPassedFor({
+      callbackUrl: "https://example.com/competitions/acme/lomba-1",
+    });
+
+    expect(callbackUrl).toBeUndefined();
+  });
+
+  it("drops a return address longer than 512 characters", async () => {
+    const callbackUrl = await callbackUrlPassedFor({ callbackUrl: "/" + "a".repeat(512) });
+
+    expect(callbackUrl).toBeUndefined();
+  });
+});
+
+describe("the sign-in page refusal notices", () => {
+  it("tells a person Google could not verify to sign up by email and code", async () => {
+    const props = await authEntryPropsFor({ error: "oauth_email_unverified" });
+
+    expect(props?.initialErrorMessage).toBe(
+      "Google belum memverifikasi email ini, sehingga akun tidak dapat dibuat dengan Google. Daftar dengan email dan password, lalu masukkan kode verifikasi yang kami kirim ke email Anda.",
+    );
   });
 });

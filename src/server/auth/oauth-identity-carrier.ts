@@ -40,9 +40,8 @@ export type GoogleIdentityClaims = {
   providerAccountId: string;
   // Normalized (lowercased/trimmed) Google account email.
   email: string;
-  // Google's own email_verified flag. Consumed ONLY for the safe-link decision and to set the
-  // Auth.js users.emailVerified column at creation — NEVER written as a role-verification
-  // timestamp (candidate_verified_at / recruiter_verified_at).
+  // Google's own email_verified flag. A sign-up whose flag is false is refused, and the flag is
+  // never written as a role-verification timestamp (candidate_verified_at / recruiter_verified_at).
   emailVerified: boolean;
   name: string | null;
   image: string | null;

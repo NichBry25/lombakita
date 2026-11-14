@@ -59,6 +59,10 @@ export const OAUTH_LINK_DENIED_ERROR = "oauth_link_denied";
 // non-leaking notice for this `?error` value.
 export const OAUTH_SESSION_MISMATCH_ERROR = "oauth_session_mismatch";
 
+// The refusal of a brand-new Google user whose address Google has not verified. The login page
+// tells the person to sign up by email and code instead.
+export const OAUTH_EMAIL_UNVERIFIED_ERROR = "oauth_email_unverified";
+
 // Controlled Google sign-in decision.
 //
 // next-auth v4's signIn callback fires BEFORE the adapter's createUser/linkAccount
@@ -164,7 +168,8 @@ export class OAuthFinalizeError extends Error {
       | "account_conflict"
       | "carrier_replayed"
       | "invalid_candidate_profile"
-      | "invalid_recruiter_verification",
+      | "invalid_recruiter_verification"
+      | "email_unverified",
     message: string,
   ) {
     super(message);
@@ -179,8 +184,8 @@ type FinalizeResult = { id: string; email: string; role: SignupRole };
 // Creates users + accounts(google) + username + profile shell + role verification + recruiter tier
 // in ONE transaction, reusing the shared credentials-signup primitives (deriveSignupRoleColumns,
 // generateUniqueUsernameForName) so role/tier/username semantics are identical to a credentials
-// signup. Verification is sourced from the DECLARED role only; Google's email_verified is used
-// solely to set the Auth.js `users.emailVerified` column (account-email confirmation), never as a
+// signup. Verification is sourced from the DECLARED role only. An address Google has not verified
+// is refused before anything is written, and Google's email_verified is never written as a
 // candidate/recruiter verification timestamp.
 //
 // The accounts row is inserted directly (not via the adapter linkAccount) because the post-creation
@@ -202,6 +207,11 @@ export const finalizeOAuthSignup = async (
   recruiterVerification: RecruiterVerificationInput | null,
   db: Database = getDb(),
 ): Promise<FinalizeResult> => {
+  // An address Google has not verified may belong to someone else, and the account would hold it.
+  if (!claims.emailVerified) {
+    throw new OAuthFinalizeError("email_unverified", "Google has not verified this email address");
+  }
+
   const email = normalizeEmail(claims.email);
 
   try {
@@ -271,9 +281,9 @@ export const finalizeOAuthSignup = async (
           name: claims.name,
           image: claims.image,
           username,
-          // Auth.js account-email confirmation column. Google verified the address (we only reach
-          // finalize for a new user; email_verified is carried for completeness). This is NOT a
-          // role-verification timestamp.
+          // Auth.js account-email confirmation column, NOT a role-verification timestamp. It reads the
+          // claim instead of assuming the refusal above, so the column never says verified for an address
+          // Google did not verify.
           emailVerified: claims.emailVerified ? now : null,
           ...roleColumns,
         })
@@ -318,9 +328,8 @@ export const finalizeOAuthSignup = async (
       // Claim-at-signup for a brand-new Google user, gated on POSITIVE email
       // verification (6.5e-D1). Claim fires ONLY when Google asserts `email_verified` — the same
       // verified-email-ownership boundary the credentials path enforces (an unverified email never
-      // claims). When Google returns email_verified=false the account is created with
-      // `users.emailVerified` null (line above) and no invite is attached. Runs inside the same
-      // transaction that finalizes the account (no half-claimed state).
+      // claims). The refusal above stops an unverified address first, so this condition is the second
+      // gate. Runs inside the same transaction that finalizes the account (no half-claimed state).
       if (claims.emailVerified) {
         await claimPendingInvitationsForUser(userId, email, tx, now);
       }
@@ -436,6 +445,7 @@ const toRedirect = (path: string): string => {
 const SUSPENDED_REDIRECT = "/suspended";
 const LINK_DENIED_REDIRECT = `/auth/login?error=${OAUTH_LINK_DENIED_ERROR}`;
 const SESSION_MISMATCH_REDIRECT = `/auth/login?error=${OAUTH_SESSION_MISMATCH_ERROR}`;
+const EMAIL_UNVERIFIED_REDIRECT = `/auth/login?error=${OAUTH_EMAIL_UNVERIFIED_ERROR}`;
 // The brand-new-Google-user role picker now lives on the single method-first
 // `/auth/login` page (the `/auth/register` route was merged into it). `/auth/login?oauth=<carrier>`
 // renders the OAuth role picker server-side after verifying the carrier.
@@ -500,7 +510,8 @@ export type GoogleOAuthSignInParams = {
 // Full signIn-callback outcome for a Google sign-in: `true` to let next-auth proceed
 // (establish the session for an existing linked account or safe-link an existing same-email
 // account), or a redirect string that ABORTS the flow before any DB write (suspended → /suspended,
-// fail-closed deny → login notice, brand-new user → role picker carrying the signed identity).
+// fail-closed deny → login notice, brand-new user whose address Google has not verified → the
+// email-and-code notice, any other brand-new user → role picker carrying the signed identity).
 //
 // Cross-session takeover guard: if a JWT session is already present in the browser, returning
 // `true` for the OAuth flow lets next-auth's callback-handler.js silently link the new
@@ -564,6 +575,13 @@ export const resolveGoogleOAuthSignIn = async (
           providerAccountId: params.providerAccountId,
         });
         return toRedirect(SESSION_MISMATCH_REDIRECT);
+      }
+      // Same reason as the refusal in finalizeOAuthSignup. No carrier is issued, so no role picker opens.
+      if (!params.googleEmailVerified) {
+        logger.warn("oauth.signin.new_user_email_unverified", {
+          providerAccountId: params.providerAccountId,
+        });
+        return toRedirect(EMAIL_UNVERIFIED_REDIRECT);
       }
       const carrier = signGoogleIdentityCarrier({
         provider: "google",

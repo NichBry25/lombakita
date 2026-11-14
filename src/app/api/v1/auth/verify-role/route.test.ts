@@ -289,4 +289,20 @@ describe("POST /api/v1/auth/verify-role", () => {
       expect(markRoleAsVerifiedMock).not.toHaveBeenCalled();
     },
   );
+
+  it("refuses the candidate role to an operational account", async () => {
+    for (const role of ["platform_ops", "finance_ops", "reviewer_or_judge"] as const) {
+      getServerSessionMock.mockResolvedValue(buildSession({ role, verifiedRoles: [] }));
+
+      const response = await POST(
+        buildRequest(
+          { role: "candidate", ...candidateProfileFields },
+          { [SESSION_USER_HEADER]: "u_1" },
+        ),
+      );
+
+      expect(response.status).toBe(403);
+    }
+    expect(markRoleAsVerifiedMock).not.toHaveBeenCalled();
+  });
 });

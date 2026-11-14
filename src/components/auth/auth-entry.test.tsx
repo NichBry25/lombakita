@@ -2,7 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { signIn } from "next-auth/react";
+import { signIn, type SignInResponse } from "next-auth/react";
 import { UIPrimitivesProvider } from "@/components/ui/primitives";
 import { PageTransitionProvider } from "@/components/ui/page-transition";
 import { AuthEntry } from "./auth-entry";
@@ -297,5 +297,34 @@ describe("the email sign-up return address and end stage", () => {
     expect(screen.getByLabelText("Password").getAttribute("aria-describedby")).toBe(
       "auth-password-help",
     );
+  });
+});
+
+describe("after a sign-in", () => {
+  it("leaves no flag for the role pop-up after a sign-in", async () => {
+    window.sessionStorage.clear();
+    const signedInUrl = "http://localhost:3000/competitions/acme/lomba-1";
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url === IDENTIFY_URL) {
+        return jsonResponse(200, { state: "verified" });
+      }
+      return answerByUrl(url);
+    });
+    vi.mocked(signIn).mockResolvedValueOnce({
+      ok: true,
+      url: signedInUrl,
+      status: 200,
+      error: undefined,
+    } as unknown as SignInResponse);
+    const assign = vi.fn();
+    vi.stubGlobal("location", { ...window.location, assign });
+    renderEntry(RETURN_PATH);
+    fireEvent.click(screen.getByRole("button", { name: /Lanjut dengan email/ }));
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: EMAIL } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: PASSWORD } });
+    fireEvent.click(screen.getByRole("button", { name: "Lanjut" }));
+
+    await waitFor(() => expect(assign).toHaveBeenCalledWith(signedInUrl));
+    expect(window.sessionStorage.getItem("lombakita:second-role-prompt:pending")).toBeNull();
   });
 });

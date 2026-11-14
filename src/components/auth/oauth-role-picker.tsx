@@ -6,6 +6,8 @@ import { Button, SelectField, StepIndicator, usePageTransition } from "@/compone
 import { useToast } from "@/components/ui/primitives";
 import { AuthPageFrame } from "@/components/auth/auth-page-frame";
 import { AssentNotice } from "@/components/legal/assent-notice";
+import { readGoogleReturnPath } from "@/components/auth/google-return-path";
+import { GOOGLE_EMAIL_UNVERIFIED_MESSAGE } from "@/lib/errors/error-copy";
 
 // Minimal-proof OAuth role picker. Reached after a brand-new Google user is routed to
 // /auth/login?oauth=<carrier> — the role picker lives on the single login page. The
@@ -36,6 +38,9 @@ const OCCUPATION_OPTIONS = [
 
 const mapFinalizeError = (error: string | null | undefined): string => {
   const normalized = error?.toUpperCase() ?? "";
+  if (normalized.includes("EMAIL_UNVERIFIED")) {
+    return GOOGLE_EMAIL_UNVERIFIED_MESSAGE;
+  }
   // Single-use carrier. A replayed carrier (already redeemed) and a fail-closed
   // "cannot confirm single-use" both mean the same user action: start Google sign-in again.
   if (normalized.includes("REPLAYED") || normalized.includes("UNAVAILABLE")) {
@@ -90,7 +95,7 @@ export const OAuthRolePicker = ({ carrier, email, name }: OAuthRolePickerProps) 
         carrier,
         role,
         ...(extraFields ?? {}),
-        callbackUrl: "/",
+        callbackUrl: readGoogleReturnPath(),
         redirect: false,
       });
 

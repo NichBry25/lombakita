@@ -5,6 +5,7 @@ export function RegistrationButton({
   ctaState,
   registrationPath,
   signInPath,
+  candidateRoleOfferPath,
   isCandidate,
   isSignedIn,
   isCancelled,
@@ -12,6 +13,7 @@ export function RegistrationButton({
   ctaState: PublicCompetitionDetail["ctaState"];
   registrationPath: string;
   signInPath: string;
+  candidateRoleOfferPath: string | null;
   isCandidate: boolean;
   isSignedIn: boolean;
   isCancelled: boolean;
@@ -34,6 +36,15 @@ export function RegistrationButton({
   if (ctaState === "open" && isCandidate) {
     return (
       <ButtonLink href={registrationPath} variant="primary" size="lg" fullWidth>
+        Daftar kompetisi
+        <Icon name="arrow-right" size="md" />
+      </ButtonLink>
+    );
+  }
+
+  if (ctaState === "open" && !isCandidate && candidateRoleOfferPath) {
+    return (
+      <ButtonLink href={candidateRoleOfferPath} variant="primary" size="lg" fullWidth>
         Daftar kompetisi
         <Icon name="arrow-right" size="md" />
       </ButtonLink>

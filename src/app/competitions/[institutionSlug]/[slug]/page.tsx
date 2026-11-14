@@ -32,6 +32,7 @@ import {
 import { loadInstitutionVerificationSummaryBySlug } from "@/server/institution-workspace/institution-service";
 import { RegisterStickyBar } from "./register-sticky-bar";
 import { RegistrationButton } from "./registration-button";
+import { candidateRoleOfferPath } from "./candidate-role-offer-path";
 import { SaveButton } from "./save-button";
 import { DetailActions } from "./detail-actions";
 import { OrganizerContactLink } from "./organizer-contact-link";
@@ -327,6 +328,11 @@ export default async function CompetitionDetailPage({
   const registrationPath = `/competitions/${institutionSlug}/${slug}/registration`;
   const competitionPath = `/competitions/${institutionSlug}/${slug}`;
   const signInPath = `/auth/login?callbackUrl=${encodeURIComponent(competitionPath)}`;
+  const roleOfferPath = candidateRoleOfferPath(
+    session?.user?.role,
+    session?.user?.verifiedRoles,
+    competitionPath,
+  );
   const showTeamSize =
     competition.mode !== "individual" &&
     (competition.minTeamSize !== null || competition.maxTeamSize !== null);
@@ -722,6 +728,7 @@ export default async function CompetitionDetailPage({
                 ctaState={competition.ctaState}
                 registrationPath={registrationPath}
                 signInPath={signInPath}
+                candidateRoleOfferPath={roleOfferPath}
                 isCandidate={isCandidate}
                 isSignedIn={Boolean(session?.user)}
                 isCancelled={competition.cancelledAt !== null}
@@ -747,7 +754,7 @@ export default async function CompetitionDetailPage({
                 <Link href={signInPath}>Masuk</Link> sebagai kandidat untuk mendaftar.
               </p>
             ) : null}
-            {session?.user && !isCandidate ? (
+            {session?.user && !isCandidate && roleOfferPath === null ? (
               <p className="detail-rail-note">Hanya akun kandidat yang dapat mendaftar.</p>
             ) : null}
 
@@ -781,6 +788,7 @@ export default async function CompetitionDetailPage({
             ctaState={competition.ctaState}
             registrationPath={registrationPath}
             signInPath={signInPath}
+            candidateRoleOfferPath={roleOfferPath}
             isCandidate={isCandidate}
             isSignedIn={Boolean(session?.user)}
             isCancelled={competition.cancelledAt !== null}

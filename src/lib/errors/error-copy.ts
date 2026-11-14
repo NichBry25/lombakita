@@ -16,6 +16,10 @@ const SHARED_ERROR_COPY: Partial<Record<string, string>> = {
 
 export const NETWORK_ERROR_MESSAGE = "Gagal mengirim permintaan karena gangguan koneksi.";
 
+// Shown wherever a Google sign-up is refused because Google has not verified the address.
+export const GOOGLE_EMAIL_UNVERIFIED_MESSAGE =
+  "Google belum memverifikasi email ini, sehingga akun tidak dapat dibuat dengan Google. Daftar dengan email dan password, lalu masukkan kode verifikasi yang kami kirim ke email Anda.";
+
 // A key "<code>.<field>" holds the sentence for a refusal about one field.
 export const ONBOARDING_FIELD_REFUSAL_COPY: Partial<Record<string, string>> = {
   "candidate_profile_invalid_value.fullName": "Isi nama lengkap (minimal 2 karakter).",
