@@ -5,10 +5,11 @@ assertServerOnly("server/competitions/competition-fee-service");
 import { and, eq, sql } from "drizzle-orm";
 import { acquireCompetitionParticipationLock } from "@/server/competitions/competition-participation-lock";
 import { getDb, type Database } from "@/server/db/client";
-import { competitions } from "@/server/db/schema";
+import { competitions, type CompetitionStatus } from "@/server/db/schema";
 import {
   assertCompetitionAccess,
   assertInstitutionVerified,
+  type CompetitionRow,
 } from "@/server/competitions/competition-access";
 import { CompetitionError } from "@/server/competitions/competition-core";
 import { isMinorUnitAmount, isSupportedCurrency } from "@/lib/finance/money";
@@ -18,7 +19,7 @@ import { requirePaymentInstructions } from "@/server/institutions/payment-instru
 import { financeFeeDisclosureAcknowledgements } from "@/server/db/schema";
 import {
   classifyCompetitionEdit,
-  type EditClassificationSnapshot,
+  type EditClassification,
 } from "@/server/competitions/edit-classification";
 import {
   loadCompetitionPricing,
@@ -27,6 +28,7 @@ import {
   type CompetitionPricing,
 } from "@/server/competitions/competition-service";
 import { enqueueCompetitionEdited } from "@/server/async/enqueue";
+import { PUBLISH_LOCK_REASONS } from "@/lib/competitions/publish-locks";
 
 // THE FEE-SETTING WRITE PATH. The one place a competition's price is written.
 //
@@ -42,8 +44,9 @@ import { enqueueCompetitionEdited } from "@/server/async/enqueue";
 //   1. Ownership:      assertCompetitionAccess "admin", which is institution_owner ALONE. Setting
 //                      a price binds the institution to a receivable, so it sits with the party
 //                      that can be bound.
-//   2. Edit matrix:    classifyCompetitionEdit. Carries BOTH the payment-in-flight block and the
-//                      free-entrants block; see the note below on why they are not restated here.
+//   2. Publish lock:   the competition's status, read under the participation lock. A draft takes
+//                      any price. After publish classifyCompetitionEdit refuses a new amount or
+//                      currency, and only the payment window still moves.
 //   3. Charging:       assertInstitutionVerified. Only for a NON-ZERO fee; setting a competition
 //                      back to free is always allowed, including for an institution whose
 //                      verification was just revoked. Revocation must not trap an organiser into
@@ -55,12 +58,10 @@ import { enqueueCompetitionEdited } from "@/server/async/enqueue";
 //   6. Disclosed:      the organiser must have acknowledged the platform's rate, and the
 //                      acknowledgement is RECORDED. Only for a NON-ZERO fee.
 //
-// THE EDIT MATRIX IS NOT RE-IMPLEMENTED HERE. The in-flight and free-entrants rules were previously
-// written out a second time in this function, alongside the copies in `classifyCompetitionEdit`
-// that the ordinary edit path uses. Two implementations of one rule are two things to keep in
-// agreement, and the failure mode is silent: they diverge, and which one you get depends on which
-// surface the organiser happened to use. The classifier is the single statement of the matrix and
-// both write paths in this file call it.
+// THE EDIT MATRIX IS NOT RE-IMPLEMENTED HERE. The classifier is the single statement of what a
+// published competition may change, the ordinary edit path asks it too, and both write paths in
+// this file call it. Two statements of one rule drift apart silently, and which one applied
+// would depend on which surface the organiser happened to use.
 
 export type SetCompetitionFeeInput = {
   // Integer smallest unit (@/lib/finance/money). 0 or null both mean free.
@@ -112,27 +113,23 @@ export const setCompetitionFee = async (
     );
   }
 
-  // THE EDIT MATRIX, evaluated by the same function the ordinary edit path uses.
+  // THE PUBLISH LOCK, decided by the same classifier the ordinary edit path uses.
   //
-  // Everything the matrix knows about a price change arrives through here: the payment-in-flight
-  // block, the free→paid block, and the notify classification. `paymentWindowDays` is threaded in
-  // as the value that will actually be written, so an unchanged window classifies as unchanged
-  // rather than as an edit nobody made.
-  // ONE TRANSACTION, UNDER THE PARTICIPATION LOCK, from the classification to the write.
+  // A draft takes any price: nobody has registered at it, and nobody is told about it. Once the
+  // competition is published the classifier refuses any change to the amount or the currency, and
+  // `paymentWindowDays` is threaded in as the value that will actually be written, so a window
+  // moved at an unchanged price is announced rather than refused.
   //
-  // The blocks this decision rests on COUNT ROWS ("are there active free registrants", "is a
-  // bukti transfer in flight") and the rows they count do not exist yet, so a compare-and-set has
-  // nothing to serialize on (Rule 25). Read outside a lock, the classifier can see zero free
-  // registrants while a registration transaction is mid-flight, and the price lands on a
-  // competition that took a free entrant a moment later: a fee retroactively attached to someone
-  // who agreed to none, which is precisely what the free→paid block exists to prevent.
-  //
-  // The advisory lock is the same one every other path that reasons about the participation set
-  // takes: registration, team registration, participation changes, results, unpublish, and the
-  // ops cancellation hatch. This was the one that did not.
+  // ONE TRANSACTION, UNDER THE PARTICIPATION LOCK, from the status read to the write. A candidate
+  // registers only on a published competition and takes the same lock to do it, so reading the
+  // status under the lock means no one registers at the old price and then owes a new one. The
+  // advisory lock is the same one every other path that reasons about the participation set takes:
+  // registration, team registration, participation changes, results, unpublish, and the ops
+  // cancellation hatch.
   const notify = await db.transaction(async (tx) => {
     await acquireCompetitionParticipationLock(tx, competitionId);
 
+    const status = await loadCompetitionStatus(competitionId, tx);
     const pricing = await loadCompetitionPricing(competitionId, tx);
     const nextPricing: CompetitionPricing = {
       feeAmount,
@@ -140,15 +137,23 @@ export const setCompetitionFee = async (
       paymentWindowDays: input.paymentWindowDays ?? pricing.paymentWindowDays,
     };
 
-    const snapshot = await loadEditClassificationSnapshot(competitionId, tx);
-    const classification = classifyCompetitionEdit(
-      toClassifiable(competition, pricing),
-      toClassifiable(competition, nextPricing),
-      snapshot,
-    );
-
-    if (classification.blocked.length > 0) {
-      throw toBlockedFeeEditError(classification.blocked, snapshot);
+    let announcedFields: string[] = [];
+    if (status !== "draft") {
+      const classification = await classifyPricingChangeAfterPublish(
+        competition,
+        pricing,
+        nextPricing,
+        tx,
+      );
+      if (classification.blocked.length > 0) {
+        throw new CompetitionError(
+          "competition_fee_locked_after_publish",
+          409,
+          PUBLISH_LOCK_REASONS.feeAmount,
+          { fields: classification.blocked },
+        );
+      }
+      announcedFields = classification.notify;
     }
 
     const isCharging = feeAmount > 0;
@@ -157,7 +162,7 @@ export const setCompetitionFee = async (
       // Clearing a fee needs none of the gates below. They exist to stop money being taken; none
       // of them has anything to say about stopping.
       await writeFee(competitionId, null, null, input.paymentWindowDays, tx);
-      return classification.notify;
+      return announcedFields;
     }
 
     const currency = input.feeCurrency;
@@ -209,7 +214,7 @@ export const setCompetitionFee = async (
 
     await writeFee(competitionId, feeAmount, currency, input.paymentWindowDays, tx);
 
-    return classification.notify;
+    return announcedFields;
   });
 
   // AFTER COMMIT, matching every other path in this lane: a notification for a price change that
@@ -270,31 +275,41 @@ export const setCompetitionPaymentWindow = async (
 };
 
 /**
- * Turns the classifier's blocked-field list into the refusal an organiser can act on.
- *
- * The classifier reports WHICH fields are blocked but not why, because it is pure and the reason
- * lives in the snapshot it was handed. Both causes block the same fields, so the snapshot is what
- * separates them, and telling an organiser "someone is mid-payment" when the real cause is "you
- * already have free registrants" sends them to wait for something that will never resolve.
+ * The competition's status, read inside the price change's transaction after the participation
+ * lock, so it is the status a registration taking the same lock also sees.
  */
-const toBlockedFeeEditError = (
-  blocked: string[],
-  snapshot: EditClassificationSnapshot,
-): CompetitionError => {
-  if (snapshot.hasPaymentInFlight) {
-    return new CompetitionError(
-      "competition_fee_change_blocked_payment_in_flight",
-      409,
-      "Biaya tidak dapat diubah selama masih ada bukti transfer yang menunggu verifikasi",
-      { fields: blocked },
-    );
+const loadCompetitionStatus = async (
+  competitionId: string,
+  db: Database,
+): Promise<CompetitionStatus> => {
+  const [row] = await db
+    .select({ status: competitions.status })
+    .from(competitions)
+    .where(eq(competitions.id, competitionId))
+    .limit(1);
+
+  if (!row) {
+    throw new CompetitionError("competition_not_found", 404, "Competition not found");
   }
 
-  return new CompetitionError(
-    "competition_fee_blocked_free_registrations",
-    409,
-    "Biaya tidak dapat ditetapkan karena sudah ada pendaftar yang mendaftar tanpa biaya",
-    { fields: blocked },
+  return row.status;
+};
+
+/**
+ * Classifies a price change on a competition that is no longer a draft, with the classifier the
+ * ordinary edit path uses. Its blocked list names the amount or the currency when either changed.
+ */
+const classifyPricingChangeAfterPublish = async (
+  competition: CompetitionRow,
+  pricing: CompetitionPricing,
+  nextPricing: CompetitionPricing,
+  db: Database,
+): Promise<EditClassification> => {
+  const snapshot = await loadEditClassificationSnapshot(competition.id, db);
+  return classifyCompetitionEdit(
+    toClassifiable(competition, pricing),
+    toClassifiable(competition, nextPricing),
+    snapshot,
   );
 };
 

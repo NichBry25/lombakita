@@ -563,10 +563,37 @@ const writePublishedCompetitionUpdates = (
     .where(eq(competitions.id, competitionId))
     .returning(PUBLIC_COMPETITION_COLUMNS);
 
+// The team sizes a patch leaves the competition with, normalized to its mode, or null when the
+// patch touches neither the mode nor a size. Catches what the patch parse cannot see, such as a
+// team minimum patched alone on a team-mode row, and refuses a team minimum below the floor rather
+// than raising it.
+const resolvePatchedTeamSizes = (
+  patch: CompetitionPatchInput,
+  competition: CompetitionRow,
+): { minTeamSize: number; maxTeamSize: number } | null => {
+  const effectiveMode = patch.mode !== undefined ? patch.mode : competition.mode;
+  const patchTouchesSizeOrMode =
+    patch.mode !== undefined || patch.minTeamSize !== undefined || patch.maxTeamSize !== undefined;
+  if (!effectiveMode || !patchTouchesSizeOrMode) return null;
+  const effectiveMin =
+    patch.minTeamSize !== undefined ? patch.minTeamSize : competition.minTeamSize;
+  const effectiveMax =
+    patch.maxTeamSize !== undefined ? patch.maxTeamSize : competition.maxTeamSize;
+  if (effectiveMode === "team" && effectiveMin !== null && effectiveMin < TEAM_MODE_MIN_SIZE) {
+    throw new CompetitionError(
+      "competition_invalid_value",
+      400,
+      `team mode requires minTeamSize >= ${TEAM_MODE_MIN_SIZE}`,
+      { fields: ["minTeamSize"] },
+    );
+  }
+  return resolveTeamSizesForMode(effectiveMode, effectiveMin, effectiveMax);
+};
+
 // Post-publish edit path. Two layers:
 //   outer (locked): IMMUTABLE_AFTER_PUBLISH fields can never change → 422.
-//   inner (data-aware): classify the remaining changes against existing registrations.
-// blocked → refuse; notify → persist + fan out competition.edited; trivial → persist silently.
+//   inner (classifier): each remaining change is refused or announced, by its field and direction.
+// blocked → refuse; notify → persist + fan out competition.edited.
 const updatePublishedCompetition = async (
   competition: CompetitionRow,
   patch: CompetitionPatchInput,
@@ -591,6 +618,11 @@ const updatePublishedCompetition = async (
   const pricing = await loadCompetitionPricing(competition.id, db);
   const movedClose = closeMovedByPatch(patch, competition);
   const merged = mergeForClassification(competition, patch, pricing);
+  const teamSizes = resolvePatchedTeamSizes(patch, competition);
+  if (teamSizes !== null) {
+    merged.minTeamSize = teamSizes.minTeamSize;
+    merged.maxTeamSize = teamSizes.maxTeamSize;
+  }
   validateCancellationPolicy(merged.allowCancellation, merged.cancellationCutoffDays);
   validateMinimumParticipation({
     minimumParticipantEntries: competition.minimumParticipantEntries,
@@ -661,13 +693,17 @@ const updatePublishedCompetition = async (
     throw new CompetitionError(
       "competition_post_publish_blocked",
       422,
-      `Cannot apply edit: ${classification.blocked.join(", ")} would invalidate existing registrations`,
+      `Cannot apply edit: ${classification.blocked.join(", ")} cannot move this way after publish`,
       { fields: classification.blocked, blockedFields: classification.blocked },
     );
   }
 
   const updates: Record<string, unknown> = { updatedAt: sql`now()` };
   applySimplePatchColumns(updates, patch);
+  if (teamSizes !== null) {
+    updates.minTeamSize = teamSizes.minTeamSize;
+    updates.maxTeamSize = teamSizes.maxTeamSize;
+  }
 
   if (Object.keys(updates).length === 1) {
     return competition;
@@ -821,30 +857,10 @@ export const updateCompetitionDraft = async (
         : competition.resultAnnouncementAt,
   });
 
-  // Normalize team sizes to the effective mode whenever the patch touches mode or a size
-  // field. Resolve effective mode/sizes from the patch where present, falling back to the
-  // existing row. This catches cross-field cases parse-time validation cannot see (e.g. patching
-  // only minTeamSize while the row already has mode=team) and keeps individual/both fixed values
-  // consistent. An explicit sub-floor team min is rejected here rather than silently raised.
-  const effectiveMode = patch.mode !== undefined ? patch.mode : competition.mode;
-  const patchTouchesSizeOrMode =
-    patch.mode !== undefined || patch.minTeamSize !== undefined || patch.maxTeamSize !== undefined;
-  if (effectiveMode && patchTouchesSizeOrMode) {
-    const effectiveMin =
-      patch.minTeamSize !== undefined ? patch.minTeamSize : competition.minTeamSize;
-    const effectiveMax =
-      patch.maxTeamSize !== undefined ? patch.maxTeamSize : competition.maxTeamSize;
-    if (effectiveMode === "team" && effectiveMin !== null && effectiveMin < TEAM_MODE_MIN_SIZE) {
-      throw new CompetitionError(
-        "competition_invalid_value",
-        400,
-        `team mode requires minTeamSize >= ${TEAM_MODE_MIN_SIZE}`,
-        { fields: ["minTeamSize"] },
-      );
-    }
-    const resolved = resolveTeamSizesForMode(effectiveMode, effectiveMin, effectiveMax);
-    updates.minTeamSize = resolved.minTeamSize;
-    updates.maxTeamSize = resolved.maxTeamSize;
+  const teamSizes = resolvePatchedTeamSizes(patch, competition);
+  if (teamSizes !== null) {
+    updates.minTeamSize = teamSizes.minTeamSize;
+    updates.maxTeamSize = teamSizes.maxTeamSize;
   }
 
   // Nothing besides the timestamp — no-op fast path.

@@ -123,6 +123,8 @@ export async function GET(_request: Request, context: RouteContext): Promise<Res
 
     return NextResponse.json({
       pricing,
+      // After publish the price is fixed, so the form shows it read-only and moves only the window.
+      priceLocked: competition.status !== "draft",
       feeRule:
         rule === null
           ? null

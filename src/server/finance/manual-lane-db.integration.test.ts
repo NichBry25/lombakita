@@ -2746,9 +2746,7 @@ describe.skipIf(skipWithoutDatabase)(
         await expect(priceIt(tx, tenant)).rejects.toMatchObject({ code: "forbidden" });
         expect((await readFee(tx, tenant.competitionId)).feeAmount).toBeNull();
 
-        // The paired positive, so the refusal above cannot be passing for an unrelated reason. The
-        // seeded registration is withdrawn first: pricing a competition that already took free
-        // entrants is refused on its own grounds, and that refusal would mask the role result.
+        // The paired positive, so the refusal above cannot be passing for an unrelated reason.
         await tx
           .update(competitionRegistrations)
           .set({ status: "cancelled", cancellationReason: "withdrew" })
@@ -2795,7 +2793,7 @@ describe.skipIf(skipWithoutDatabase)(
       );
     };
 
-    /** The fixture registers a candidate for free; pricing is blocked while one exists. */
+    /** Withdraws the free registration the fixture seeds. */
     const clearFreeRegistrant = async (tx: Tx, tenant: Tenant): Promise<void> => {
       await tx
         .update(competitionRegistrations)
@@ -2984,21 +2982,20 @@ describe.skipIf(skipWithoutDatabase)(
       });
     });
 
-    it("REFUSES to price a competition that already took a free registration", async () => {
-      // Candidate self-cancellation is refused on a priced competition, so pricing one retroactively
-      // strips the right to leave from somebody who was never asked to pay and has nothing to
-      // withdraw. They would be locked into an event they joined for free.
+    it("REFUSES to price a published competition that already took a free registration, and writes nothing", async () => {
+      // A candidate who registered for free would owe a price they never agreed to.
       await inRollback(async (tx) => {
         const fixture = await seedFixture(tx);
         await grantOwnership(tx, fixture);
+        await tx
+          .update(competitions)
+          .set({ status: "published" })
+          .where(eq(competitions.id, fixture.competitionId));
 
         await expect(priceIt(tx, fixture)).rejects.toMatchObject({
-          code: "competition_fee_blocked_free_registrations",
+          code: "competition_fee_locked_after_publish",
         });
 
-        // Refused AND nothing written, the assertion that makes this order-sensitive rather than
-        // merely present. Moving the guard below the write would leave the refusal intact and this
-        // expectation failing.
         expect(await readFee(tx, fixture.competitionId)).toEqual({
           feeAmount: null,
           feeCurrency: null,
@@ -3007,8 +3004,7 @@ describe.skipIf(skipWithoutDatabase)(
     });
 
     it("still allows a price CHANGE on an already-priced competition", async () => {
-      // The block is scoped to the free → paid transition, which is the whole of the harm. An
-      // already-priced competition changing its price moves nobody across that boundary.
+      // A draft takes any price, a new one over an old one included.
       await inRollback(async (tx) => {
         const fixture = await seedFixture(tx);
         await grantOwnership(tx, fixture);
@@ -3074,54 +3070,43 @@ describe.skipIf(skipWithoutDatabase)(
       });
     });
 
-    it("REFUSES a price change while a bukti transfer is outstanding, and writes nothing", async () => {
+    it("REFUSES a price change on a published competition while a bukti transfer is outstanding, and writes nothing", async () => {
       await inRollback(async (tx) => {
         const fixture = await seedFixture(tx);
         await grantOwnership(tx, fixture);
         await tx
           .update(competitions)
-          .set({ feeAmount: 50_000, feeCurrency: "IDR" })
+          .set({ feeAmount: 50_000, feeCurrency: "IDR", status: "published" })
           .where(eq(competitions.id, fixture.competitionId));
 
         const paymentId = await seedManualPayment(tx, fixture);
         await seedProof(tx, fixture, paymentId);
 
         await expect(priceIt(tx, fixture, 90_000)).rejects.toMatchObject({
-          code: "competition_fee_change_blocked_payment_in_flight",
+          code: "competition_fee_locked_after_publish",
         });
 
         expect((await readFee(tx, fixture.competitionId)).feeAmount).toBe(50_000);
       });
     });
 
-    it("REFUSES to CLEAR a fee while a bukti transfer is outstanding, and writes nothing", async () => {
-      // THE UNPROTECTED DIRECTION, and the one place the classifier's POSITION is load-bearing rather
-      // than merely correct.
-      //
-      // The matrix blocks a feeAmount change whenever money is in flight, whatever the direction,
-      // so paid→free is blocked too. But the clear path writes OUTSIDE any transaction, unlike the
-      // priced path. Move the classifier below the write there and the fee is genuinely gone, with no
-      // rollback to undo it: a candidate has transferred real rupiah against a price the competition
-      // no longer has, and the organiser has no record of what they were charged.
-      //
-      // Class B, so post-state is the correct detector here, which is exactly why the priced path
-      // needed a different one. Same guard, two call paths, two classes.
+    it("REFUSES to CLEAR the fee of a published competition while a bukti transfer is outstanding, and writes nothing", async () => {
+      // A candidate has transferred real rupiah against this price, so it must stay on record.
       await inRollback(async (tx) => {
         const fixture = await seedFixture(tx);
         await grantOwnership(tx, fixture);
         await tx
           .update(competitions)
-          .set({ feeAmount: 50_000, feeCurrency: "IDR" })
+          .set({ feeAmount: 50_000, feeCurrency: "IDR", status: "published" })
           .where(eq(competitions.id, fixture.competitionId));
 
         const paymentId = await seedManualPayment(tx, fixture);
         await seedProof(tx, fixture, paymentId);
 
         await expect(priceIt(tx, fixture, 0)).rejects.toMatchObject({
-          code: "competition_fee_change_blocked_payment_in_flight",
+          code: "competition_fee_locked_after_publish",
         });
 
-        // The fee is still there. Under a moved classifier this reads null.
         expect(await readFee(tx, fixture.competitionId)).toEqual({
           feeAmount: 50_000,
           feeCurrency: "IDR",
@@ -3129,34 +3114,19 @@ describe.skipIf(skipWithoutDatabase)(
       });
     });
 
-    it("tells a MATRIX-BLOCKED organiser nothing about the platform's pricing configuration", async () => {
-      // THE CLASS A DETECTOR for the classifier's position, and the reason a post-state green on the
-      // priced path is uninformative rather than reassuring.
-      //
-      // The transaction makes a moved WRITE harmless. It does not make the moved REFUSAL harmless.
-      // The gate order exists, in the service's own words, "so nothing about the platform's pricing
-      // configuration leaks to someone who is not allowed to charge at all". Move the classifier
-      // below the write and gates 3 through 6 run first, so an organiser who is blocked outright
-      // learns whether Lombakita has a fee rule configured, whether their institution is verified for
-      // charging, and whether their instructions are published. None of that is answerable to someone
-      // the matrix has already refused.
-      //
-      // The fixture is blocked AND unpriceable at once, so the two orderings give different answers.
+    it("tells a PUBLISH-LOCKED organiser nothing about the platform's pricing configuration", async () => {
+      // The publish lock is read before the charging gates, so an organiser it refuses never learns
+      // whether a fee rule is configured. The fixture is locked AND unpriceable at once, so the two
+      // orders give different answers.
       await inRollback(async (tx) => {
         const fixture = await seedFixture(tx);
         await grantOwnership(tx, fixture);
         await tx
           .update(competitions)
-          .set({ feeAmount: 50_000, feeCurrency: "IDR" })
+          .set({ feeAmount: 50_000, feeCurrency: "IDR", status: "published" })
           .where(eq(competitions.id, fixture.competitionId));
 
-        // Blocked by the matrix: a bukti transfer is outstanding.
-        const paymentId = await seedManualPayment(tx, fixture);
-        await seedProof(tx, fixture, paymentId);
-
-        // AND unpriceable: the only fee rule is retired out of force. Retired rather than deleted
-        // because `finance_payments.fee_rule_id` references it, the payment that blocks the matrix
-        // is itself what makes the row undeletable.
+        // Unpriceable: the only fee rule is retired out of force.
         await tx
           .update(financeFeeRules)
           .set({
@@ -3166,9 +3136,7 @@ describe.skipIf(skipWithoutDatabase)(
           .where(eq(financeFeeRules.id, fixture.feeRuleId));
 
         await expect(priceIt(tx, fixture, 90_000)).rejects.toMatchObject({
-          // The matrix refusal, not `fee_rule_not_in_force`. Under a moved classifier this is the
-          // latter, which answers a question the caller was never entitled to ask.
-          code: "competition_fee_change_blocked_payment_in_flight",
+          code: "competition_fee_locked_after_publish",
         });
       });
     });

@@ -154,6 +154,40 @@ describe("GET …/competitions/[competitionId]/fee", () => {
     expect(body.pricing).toEqual(PRICING);
     expect(body.feeRule).toBeNull();
   });
+
+  it("tells the form that a published competition's price is locked", async () => {
+    requireAuthenticatedSession.mockResolvedValue(ORGANISER);
+    assertCompetitionAccess.mockResolvedValue({
+      competition: { institutionId: "inst_1", status: "published" },
+    });
+    loadCompetitionPricing.mockResolvedValue(PRICING);
+    resolveFeeRule.mockResolvedValue(null);
+
+    const response = await GET(feeReadRequest(), context);
+    const body = (await response.json()) as { priceLocked: unknown };
+
+    expect({ status: response.status, priceLocked: body.priceLocked }).toEqual({
+      status: 200,
+      priceLocked: true,
+    });
+  });
+
+  it("tells the form that a draft's price is open", async () => {
+    requireAuthenticatedSession.mockResolvedValue(ORGANISER);
+    assertCompetitionAccess.mockResolvedValue({
+      competition: { institutionId: "inst_1", status: "draft" },
+    });
+    loadCompetitionPricing.mockResolvedValue(PRICING);
+    resolveFeeRule.mockResolvedValue(null);
+
+    const response = await GET(feeReadRequest(), context);
+    const body = (await response.json()) as { priceLocked: unknown };
+
+    expect({ status: response.status, priceLocked: body.priceLocked }).toEqual({
+      status: 200,
+      priceLocked: false,
+    });
+  });
 });
 
 describe("PUT …/competitions/[competitionId]/fee", () => {
@@ -250,15 +284,23 @@ describe("PUT …/competitions/[competitionId]/fee", () => {
     requireAuthenticatedSession.mockResolvedValue(ORGANISER);
     setCompetitionFee.mockRejectedValue(
       new CompetitionError(
-        "competition_fee_change_blocked_payment_in_flight",
+        "competition_fee_locked_after_publish",
         409,
-        "Tidak dapat mengubah biaya saat bukti transfer belum ditinjau",
+        "Biaya pendaftaran tidak dapat diubah setelah kompetisi terbit.",
       ),
     );
 
     const response = await PUT(feeRequest(PRICED), context);
 
-    expect(response.status).toBe(409);
+    expect({ status: response.status, body: await response.json() }).toEqual({
+      status: 409,
+      body: {
+        error: {
+          code: "competition_fee_locked_after_publish",
+          message: "Biaya pendaftaran tidak dapat diubah setelah kompetisi terbit.",
+        },
+      },
+    });
   });
 
   it("WRITES NOTHING for an unauthenticated caller", async () => {

@@ -357,8 +357,6 @@ describe("updateCompetitionDraft — published edit (F6/F17)", () => {
     { field: "participantConfirmationAt", stored: null, changed: "2027-01-01T12:00:00.000Z" },
     { field: "participantConfirmationAt", stored: "2027-01-01T12:00:00.000Z", changed: null },
     { field: "mode", stored: "both", changed: "individual" },
-    { field: "minTeamSize", stored: 1, changed: 2 },
-    { field: "maxTeamSize", stored: 4, changed: 5 },
     { field: "minimumParticipantEntries", stored: 0, changed: 1 },
   ])(
     "refuses immutable $field from $stored to $changed before writing",
@@ -503,7 +501,7 @@ describe("updateCompetitionDraft — published edit (F6/F17)", () => {
     );
   });
 
-  it("persists a trivial-only edit and does NOT enqueue", async () => {
+  it("persists a description edit and announces it", async () => {
     const updated = baseCompetition({ status: "published", description: "Deskripsi baru" });
     assertCompetitionAccess.mockResolvedValue({
       competition: baseCompetition({ status: "published" }),
@@ -515,7 +513,10 @@ describe("updateCompetitionDraft — published edit (F6/F17)", () => {
     } as unknown as Database;
 
     await updateCompetitionDraft("u_1", "comp_1", { description: "Deskripsi baru" }, db);
-    expect(enqueueCompetitionEdited).not.toHaveBeenCalled();
+    expect(enqueueCompetitionEdited).toHaveBeenCalledOnce();
+    expect(enqueueCompetitionEdited).toHaveBeenCalledWith(
+      expect.objectContaining({ competitionId: "comp_1", changedFields: ["description"] }),
+    );
   });
 
   it("returns 422 competition_field_immutable when an immutable field changes (outer layer)", async () => {
@@ -547,6 +548,62 @@ describe("updateCompetitionDraft — published edit (F6/F17)", () => {
       code: "competition_field_immutable",
       details: { fields: ["minimumParticipantEntries"] },
     });
+  });
+
+  it("refuses raising the team minimum of a published team competition before writing", async () => {
+    const competition = baseCompetition({ mode: "team", minTeamSize: 3, maxTeamSize: 4 });
+    assertCompetitionAccess.mockResolvedValue({ competition, membershipRole: "institution_owner" });
+    const setSpy = vi.fn();
+    const db = {
+      select: publishedEditSelect([]),
+      update: () => updateChain([competition], setSpy),
+    } as unknown as Database;
+    const patch = parseCompetitionPatchInput({ minTeamSize: 4 });
+
+    await expect(updateCompetitionDraft("u_1", "comp_1", patch, db)).rejects.toMatchObject({
+      code: "competition_post_publish_blocked",
+      httpStatus: 422,
+      details: { blockedFields: ["minTeamSize"] },
+    });
+    expect(setSpy).not.toHaveBeenCalled();
+  });
+
+  it("saves and announces a raised team maximum of a published competition", async () => {
+    const competition = baseCompetition();
+    const returned = { ...competition, maxTeamSize: 6 };
+    assertCompetitionAccess.mockResolvedValue({ competition, membershipRole: "institution_owner" });
+    const setSpy = vi.fn();
+    const db = {
+      select: publishedEditSelect([]),
+      update: () => updateChain([returned], setSpy),
+    } as unknown as Database;
+    const patch = parseCompetitionPatchInput({ maxTeamSize: 6 });
+
+    await expect(updateCompetitionDraft("u_1", "comp_1", patch, db)).resolves.toEqual(returned);
+    expect(setSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ minTeamSize: 1, maxTeamSize: 6 }),
+    );
+    expect(enqueueCompetitionEdited).toHaveBeenCalledWith(
+      expect.objectContaining({ competitionId: "comp_1", changedFields: ["maxTeamSize"] }),
+    );
+  });
+
+  it("refuses a team minimum below the team floor on a published competition", async () => {
+    const competition = baseCompetition({ mode: "team", minTeamSize: 3, maxTeamSize: 4 });
+    assertCompetitionAccess.mockResolvedValue({ competition, membershipRole: "institution_owner" });
+    const setSpy = vi.fn();
+    const db = {
+      select: publishedEditSelect([]),
+      update: () => updateChain([competition], setSpy),
+    } as unknown as Database;
+    const patch = parseCompetitionPatchInput({ minTeamSize: 1 });
+
+    await expect(updateCompetitionDraft("u_1", "comp_1", patch, db)).rejects.toMatchObject({
+      code: "competition_invalid_value",
+      httpStatus: 400,
+      details: { fields: ["minTeamSize"] },
+    });
+    expect(setSpy).not.toHaveBeenCalled();
   });
 });
 

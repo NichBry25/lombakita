@@ -73,11 +73,8 @@ type CompetitionErrorCode =
   // DEC-0132: money is in flight, so withdrawing would cancel a registration someone has already
   // paid for. Escape hatch is the platform_ops cancellation route.
   | "competition_unpublish_blocked_payment_in_flight"
-  // DEC-0132's sibling at the write: a price cannot move while a transfer against it is unresolved.
-  | "competition_fee_change_blocked_payment_in_flight"
-  // A competition that already took registrations for free cannot acquire a price: pricing it would
-  // retroactively remove the right to self-cancel from candidates who never paid anything.
-  | "competition_fee_blocked_free_registrations"
+  // Publishing fixes the price: its amount and currency change only while the competition is a draft.
+  | "competition_fee_locked_after_publish"
   // The organiser must be shown, and confirm, what the platform charges before a price goes live.
   // The confirmation is recorded; this refusal is what makes it unskippable.
   | "competition_fee_disclosure_required"
@@ -102,8 +99,8 @@ export type PublishValidationFailure = {
 export type CompetitionErrorDetails = {
   fields?: string[];
   failures?: PublishValidationFailure[];
-  // The post-publish edit fields whose change would invalidate existing
-  // registrations. Surfaced so the editor can name the offending field(s) in a modal.
+  // The fields a post-publish edit may not change in the requested direction. Surfaced so
+  // the editor can name the offending field(s) in a modal.
   blockedFields?: string[];
 };
 
@@ -740,22 +737,11 @@ export const parseCompetitionPatchInput = (
   return fields;
 };
 
-// Hard-immutable fields on a published competition.
-//
-// A published competition is editable in place (the update service routes it through the
-// data-aware edit classifier, which decides per field whether a change is refused, notifies
-// participants, or is silent). These three fields sit OUTSIDE that classifier: they are the
-// participant contract participants registered under and can never change while published.
-// The update service enforces this as the outer layer (422 competition_field_immutable) before
-// the classifier runs. Draft competitions edit all fields freely.
-//
-//   mode             (registrations are anchored to the mode contract)
-//   minTeamSize      (team registration sizing locked in at publish)
-//   maxTeamSize      (team registration sizing locked in at publish)
+// Fields a published competition never changes, refused (422 competition_field_immutable) before
+// the edit classifier runs. The classifier decides every other published edit field by field and
+// direction, and blocks mode as well. Draft competitions edit all fields freely.
 export const IMMUTABLE_AFTER_PUBLISH: readonly string[] = [
   "mode",
-  "minTeamSize",
-  "maxTeamSize",
   "minimumParticipantEntries",
   "participantConfirmationAt",
 ];

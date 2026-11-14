@@ -32,9 +32,7 @@ import {
   teams,
   users,
 } from "@/server/db/schema";
-import { parseCompetitionPatchInput } from "@/server/competitions/competition-core";
 import { setCompetitionFee } from "@/server/competitions/competition-fee-service";
-import { updateCompetitionDraft } from "@/server/competitions/competition-service";
 import { hashToken } from "@/server/teams/team-core";
 import {
   acceptTeamInvitationForUser,
@@ -420,14 +418,6 @@ const invitationStatus = async (invitationId: string) => {
     .from(teamInvitations)
     .where(eq(teamInvitations.id, invitationId));
   return row!.status;
-};
-
-const invitationExpiryOf = async (invitationId: string): Promise<number> => {
-  const [row] = await control.db
-    .select({ expiresAt: teamInvitations.expiresAt })
-    .from(teamInvitations)
-    .where(eq(teamInvitations.id, invitationId));
-  return row!.expiresAt.getTime();
 };
 
 const openInvitationsOf = async (teamId: string) =>
@@ -854,23 +844,17 @@ describe.skipIf(skipWithoutDatabase)("a registered free team under real contenti
     expect(await invitationStatus(sariInvite.id)).toBe("accepted");
   });
 
-  it("a close edit waiting behind a fee being cleared moves the open invites of the now free competition's registered teams", async () => {
+  it("refuses a fee change that waited on the participation lock while the competition was published", async () => {
     readyEnqueueSpies();
-    const { competitionId, institutionId, teamId, captain } = await seedTeam("submitted", {
-      maxTeamSize: 3,
-      paid: true,
-    });
+    const { competitionId, institutionId } = await seedCompetition({ maxTeamSize: 3, paid: true });
+    await control.db
+      .update(competitions)
+      .set({ status: "draft" })
+      .where(eq(competitions.id, competitionId));
     const owner = await seedOwner(institutionId);
-    const sari = await seedUser("sari");
-    const sariInvite = await seedOpenInvitation(teamId, captain.id, sari);
-    const newClose = new Date(Date.now() + 18 * DAY_MS);
-    const [barrierPid, feePid, editPid] = await Promise.all([
-      backendPidOf(barrier),
-      backendPidOf(racerOne),
-      backendPidOf(racerTwo),
-    ]);
+    const [barrierPid, feePid] = await Promise.all([backendPidOf(barrier), backendPidOf(racerOne)]);
 
-    const [feeChange, closeEdit] = await withParticipationLockHeld(competitionId, async (track) => {
+    const [feeChange] = await withParticipationLockHeld(competitionId, async (track) => {
       const feeRun = track(
         setCompetitionFee(
           owner.id,
@@ -881,25 +865,20 @@ describe.skipIf(skipWithoutDatabase)("a registered free team under real contenti
       );
       await awaitBlockedBy(feePid, barrierPid, "the fee change");
 
-      // The edit has read the fee as paid before it queued.
-      const editRun = track(
-        updateCompetitionDraft(
-          owner.id,
-          competitionId,
-          parseCompetitionPatchInput({ registrationEndAt: newClose.toISOString() }),
-          racerTwo.db as never,
-        ),
-      );
-      await awaitBlockedBy(editPid, barrierPid, "the close edit");
+      // A publish takes no participation lock, so it commits while the fee change waits.
+      await control.db
+        .update(competitions)
+        .set({ status: "published" })
+        .where(eq(competitions.id, competitionId));
 
-      return [feeRun, editRun] as const;
-    }).then(async ([feeRun, editRun]) => [await feeRun, await editRun] as const);
+      return [feeRun] as const;
+    }).then(async ([feeRun]) => [await feeRun] as const);
 
-    expect(feeChange.ok, "the fee change threw").toBe(true);
-    expect(closeEdit.ok, "the close edit threw").toBe(true);
-    const competition = await competitionCloseAndFeeOf(competitionId);
-    expect(competition.feeAmount).toBeNull();
-    expect(competition.registrationEndAt.getTime()).toBe(newClose.getTime());
-    expect(await invitationExpiryOf(sariInvite.id)).toBe(newClose.getTime());
+    const { feeAmount } = await competitionCloseAndFeeOf(competitionId);
+    expect({
+      ok: feeChange.ok,
+      code: feeChange.ok ? undefined : errorCodeOf(feeChange.error),
+      feeAmount,
+    }).toEqual({ ok: false, code: "competition_fee_locked_after_publish", feeAmount: 150_000 });
   });
 });

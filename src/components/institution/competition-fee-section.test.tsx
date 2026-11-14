@@ -102,6 +102,10 @@ const FREE = {
   feeRule: RULE,
 };
 
+const PRICE_REASON = "Biaya pendaftaran tidak dapat diubah setelah kompetisi terbit.";
+const LOCKED_PAID = { ...PAID, priceLocked: true };
+const LOCKED_FREE = { ...FREE, priceLocked: true };
+
 const feeReports = () => reportPart.mock.calls.filter(([key]) => key === "fee");
 
 const lastReportedFeePart = (): CompetitionEditorPart => {
@@ -435,5 +439,100 @@ describe("CompetitionFeeSection", () => {
     await mountRefused("competition_not_found", 404);
 
     expect(screen.getByRole("alert").textContent).toBe(LOAD_FAILURE_MESSAGE);
+  });
+
+  it("shows the owner of a published competition the price read-only and the window editable, with the reason", async () => {
+    await mountWith(LOCKED_PAID);
+
+    expect({
+      amount: document.querySelector("p.data-text")?.textContent,
+      windowDays: (screen.getByLabelText("Batas waktu pembayaran (hari)") as HTMLInputElement)
+        .value,
+      paidToggle: screen.queryByRole("checkbox", { name: "Pendaftaran berbayar" }),
+      consent: screen.queryByRole("checkbox", { name: /menyetujui/ }),
+      reason: screen.getByRole("status").textContent,
+      isDirty: lastReportedFeePart().isDirty,
+    }).toEqual({
+      amount: formatRupiah(150_000, "IDR"),
+      windowDays: "3",
+      paidToggle: null,
+      consent: null,
+      reason: PRICE_REASON,
+      isDirty: false,
+    });
+  });
+
+  it("moves only the window for the owner of a published competition and then reports no change", async () => {
+    await mountWith(LOCKED_PAID);
+
+    fireEvent.change(screen.getByLabelText("Batas waktu pembayaran (hari)"), {
+      target: { value: "5" },
+    });
+    expect(lastReportedFeePart().isDirty).toBe(true);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) =>
+        init?.method === "PATCH"
+          ? ({ ok: true, json: async () => ({ ok: true }) } as Response)
+          : ({
+              ok: true,
+              json: async () => ({
+                pricing: { ...PAID.pricing, paymentWindowDays: 5 },
+                feeRule: RULE,
+                priceLocked: true,
+              }),
+            } as Response),
+      ),
+    );
+
+    expect(await saveReportedFee()).toEqual({ ok: true });
+    expect(patchCalls()).toHaveLength(1);
+    const init = patchCalls()[0]?.[1] as RequestInit;
+    expect(JSON.parse(init.body as string)).toEqual({ paymentWindowDays: 5 });
+    expect(new Headers(init.headers).get("X-Expected-User-Id")).toBe("org_1");
+    expect(putCalls()).toEqual([]);
+    expect(lastReportedFeePart().isDirty).toBe(false);
+  });
+
+  it("shows the owner of a free published competition that the fee stays free", async () => {
+    await mountWith(LOCKED_FREE);
+
+    expect({
+      free: screen.queryByText("Pendaftaran gratis.") !== null,
+      windowField: screen.queryByLabelText("Batas waktu pembayaran (hari)"),
+      reason: screen.getByRole("status").textContent,
+      isDirty: lastReportedFeePart().isDirty,
+    }).toEqual({ free: true, windowField: null, reason: PRICE_REASON, isDirty: false });
+  });
+
+  it("shows a staff member of a free published competition that the fee stays free", async () => {
+    await mountWith(LOCKED_FREE, false);
+
+    expect({
+      free: screen.queryByText("Pendaftaran gratis.") !== null,
+      windowField: screen.queryByLabelText("Batas waktu pembayaran (hari)"),
+      reason: screen.getByRole("status").textContent,
+      isDirty: lastReportedFeePart().isDirty,
+    }).toEqual({ free: true, windowField: null, reason: PRICE_REASON, isDirty: false });
+  });
+
+  it("names the publish lock when the server refuses a new price", async () => {
+    await mountWith(PAID);
+
+    fireEvent.click(acknowledgement());
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(
+            JSON.stringify({ error: { code: "competition_fee_locked_after_publish" } }),
+            { status: 409 },
+          ),
+        ),
+    );
+
+    expect(await saveReportedFee()).toEqual({ ok: false, errorMessage: PRICE_REASON });
   });
 });

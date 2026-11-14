@@ -348,6 +348,175 @@ describe("InstitutionCompetitionEditShell save body", () => {
   );
 });
 
+describe("InstitutionCompetitionEditShell after publish", () => {
+  const PUBLISHED_TEAM = {
+    ...COMPETITION,
+    status: "published",
+    mode: "team",
+    minTeamSize: 3,
+    maxTeamSize: 4,
+    allowCancellation: true,
+    cancellationCutoffDays: 3,
+  };
+  const loadPublishedTeam = () => okJson({ competition: PUBLISHED_TEAM, publishReadiness: READY });
+  const SLUG_REASON =
+    "Slug tidak dapat diubah setelah kompetisi terbit, agar tautan yang sudah dibagikan tetap berfungsi.";
+  const MIN_REASON = "Setelah kompetisi terbit, minimum anggota tim hanya dapat diturunkan.";
+  const CLOSE_REASON = "Setelah kompetisi terbit, pendaftaran hanya dapat diperpanjang.";
+  const START_REASON =
+    "Setelah kompetisi terbit, tanggal mulai acara hanya dapat diundur, selama acara belum dimulai.";
+  const CANCEL_REASON = "Setelah kompetisi terbit, izin pembatalan tidak dapat dicabut.";
+  const CUTOFF_REASON = "Setelah kompetisi terbit, batas pembatalan hanya dapat dikurangi.";
+  const toLocalInput = (date: Date): string => {
+    const local = new Date(date);
+    local.setMinutes(local.getMinutes() - local.getTimezoneOffset());
+    return local.toISOString().slice(0, 16);
+  };
+
+  it("shows the slug of a published competition locked, with its reason", async () => {
+    stubFetchSequence([loadPublishedTeam]);
+    mount();
+    await screen.findByRole("button", { name: "Simpan" });
+    const slugInput = screen.getByLabelText(/^Slug/) as HTMLInputElement;
+
+    expect({
+      disabled: slugInput.disabled,
+      describedBy: slugInput.getAttribute("aria-describedby"),
+      reason: document.getElementById("slug-lock")?.textContent,
+    }).toEqual({ disabled: true, describedBy: "slug-lock", reason: SLUG_REASON });
+  });
+
+  it("holds back a raised team minimum of a published competition and says why", async () => {
+    stubFetchSequence([loadPublishedTeam]);
+    mount();
+    await screen.findByRole("button", { name: "Simpan" });
+
+    fireEvent.change(screen.getByLabelText(/^Min\. anggota tim/), { target: { value: "4" } });
+    fireEvent.submit(document.querySelector(".competition-edit-form")!);
+    await waitFor(() => expect(screen.getAllByText(MIN_REASON)).toHaveLength(2));
+
+    expect({
+      line: document.getElementById("min-team-size-lock")?.getAttribute("role"),
+      saveDisabled: saveButton().hasAttribute("disabled"),
+      requests: vi.mocked(fetch).mock.calls.length,
+    }).toEqual({ line: "alert", saveDisabled: true, requests: 1 });
+  });
+
+  it("sends a lowered team minimum and a raised team maximum of a published competition", async () => {
+    stubFetchSequence([
+      loadPublishedTeam,
+      () => okJson({ competition: PUBLISHED_TEAM }),
+      loadPublishedTeam,
+    ]);
+    mount();
+    await screen.findByRole("button", { name: "Simpan" });
+
+    fireEvent.change(screen.getByLabelText(/^Min\. anggota tim/), { target: { value: "2" } });
+    fireEvent.change(screen.getByLabelText(/^Maks\. anggota tim/), { target: { value: "6" } });
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledTimes(3));
+
+    const patchCall = vi.mocked(fetch).mock.calls.find(([, init]) => init?.method === "PATCH");
+    const body = JSON.parse(patchCall![1]!.body as string);
+    expect(body).toEqual({ minTeamSize: 2, maxTeamSize: 6 });
+  });
+
+  it("holds back an earlier registration close of a published competition and says why", async () => {
+    stubFetchSequence([loadPublishedTeam]);
+    mount();
+    await screen.findByRole("button", { name: "Simpan" });
+
+    fireEvent.change(screen.getByLabelText(/Pendaftaran berakhir/), {
+      target: {
+        value: toLocalInput(
+          new Date(new Date(PUBLISHED_TEAM.registrationEndAt).getTime() - 4 * DAY),
+        ),
+      },
+    });
+
+    expect({
+      line: document.getElementById("registration-end-lock")?.getAttribute("role"),
+      text: document.getElementById("registration-end-lock")?.textContent,
+      saveDisabled: saveButton().hasAttribute("disabled"),
+      requests: vi.mocked(fetch).mock.calls.length,
+    }).toEqual({ line: "alert", text: CLOSE_REASON, saveDisabled: true, requests: 1 });
+  });
+
+  it("holds back an earlier event start of a published competition and says why", async () => {
+    stubFetchSequence([loadPublishedTeam]);
+    mount();
+    await screen.findByRole("button", { name: "Simpan" });
+
+    fireEvent.change(screen.getByLabelText(/^Acara mulai/), {
+      target: {
+        value: toLocalInput(new Date(new Date(PUBLISHED_TEAM.eventStartAt).getTime() - 5 * DAY)),
+      },
+    });
+
+    expect({
+      line: document.getElementById("event-start-lock")?.getAttribute("role"),
+      text: document.getElementById("event-start-lock")?.textContent,
+      saveDisabled: saveButton().hasAttribute("disabled"),
+      requests: vi.mocked(fetch).mock.calls.length,
+    }).toEqual({ line: "alert", text: START_REASON, saveDisabled: true, requests: 1 });
+  });
+
+  it("locks the right to cancel of a published competition that allows it, and holds back a larger cutoff", async () => {
+    stubFetchSequence([loadPublishedTeam]);
+    mount();
+    await screen.findByRole("button", { name: "Simpan" });
+
+    const checkboxDisabled = (
+      screen.getByRole("checkbox", {
+        name: "Izinkan peserta membatalkan pendaftaran sendiri",
+      }) as HTMLInputElement
+    ).disabled;
+    const cancelReason = document.getElementById("allow-cancellation-lock")?.textContent;
+
+    fireEvent.change(screen.getByLabelText(/^Batas pembatalan/), { target: { value: "5" } });
+    const cutoffReason = document.getElementById("cancellation-cutoff-lock")?.textContent;
+    const raisedLine = document.getElementById("cancellation-cutoff-lock")?.getAttribute("role");
+    const raisedSaveDisabled = saveButton().hasAttribute("disabled");
+
+    fireEvent.change(screen.getByLabelText(/^Batas pembatalan/), { target: { value: "1" } });
+    const loweredLine = document.getElementById("cancellation-cutoff-lock")?.getAttribute("role");
+    const loweredSaveDisabled = saveButton().hasAttribute("disabled");
+
+    expect({
+      checkboxDisabled,
+      cancelReason,
+      cutoffReason,
+      raisedLine,
+      raisedSaveDisabled,
+      loweredLine,
+      loweredSaveDisabled,
+    }).toEqual({
+      checkboxDisabled: true,
+      cancelReason: CANCEL_REASON,
+      cutoffReason: CUTOFF_REASON,
+      raisedLine: "alert",
+      raisedSaveDisabled: true,
+      loweredLine: null,
+      loweredSaveDisabled: false,
+    });
+  });
+
+  it("shows no publish lock on a draft", async () => {
+    stubFetchSequence([
+      () =>
+        okJson({ competition: { ...PUBLISHED_TEAM, status: "draft" }, publishReadiness: READY }),
+    ]);
+    mount();
+    await screen.findByRole("button", { name: "Simpan" });
+
+    expect({
+      slugDisabled: (screen.getByLabelText(/^Slug/) as HTMLInputElement).disabled,
+      lockLines: document.querySelectorAll('[id$="-lock"]').length,
+      slugHelp: screen.queryByText("Gunakan huruf kecil, angka, dan tanda hubung.") !== null,
+    }).toEqual({ slugDisabled: false, lockLines: 0, slugHelp: true });
+  });
+});
+
 describe("InstitutionCompetitionEditShell publish readiness", () => {
   it("drops a server refusal it could not refresh, and takes it back when a later read succeeds", async () => {
     const calls = stubFetchSequence([
@@ -2094,8 +2263,8 @@ describe("InstitutionCompetitionEditShell steps", () => {
       expect(titleInput().value).toBe("Lomba Contoh Baru");
     });
 
-    it("reloads after a part-only save so the back control follows the saved slug", async () => {
-      const renamed = { ...PUBLISHED, title: "Lomba Contoh Baru", slug: "lomba-baru" };
+    it("reloads after a part-only save so the page shows the saved title", async () => {
+      const renamed = { ...PUBLISHED, title: "Lomba Contoh Baru" };
       const patchHasGone = () => calls.some(({ key }) => key === `PATCH ${COMPETITION_URL}`);
       const calls = stubFetchRoutes({
         ...partRoutes(PUBLISHED),
@@ -2116,7 +2285,6 @@ describe("InstitutionCompetitionEditShell steps", () => {
 
       await screen.findByRole("button", { name: "Simpan" });
       fireEvent.change(screen.getByLabelText(/^Judul/), { target: { value: "Lomba Contoh Baru" } });
-      fireEvent.change(screen.getByLabelText(/^Slug/), { target: { value: "lomba-baru" } });
       fireEvent.click(await screen.findByRole("checkbox", { name: FIRST_TAG }));
       fireEvent.click(saveButton());
 
@@ -2136,11 +2304,11 @@ describe("InstitutionCompetitionEditShell steps", () => {
       fireEvent.click(screen.getByRole("button", { name: "Kembali ke aksi status" }));
 
       expect(mockPush).toHaveBeenCalledWith(
-        "/institution/institusi-contoh/competitions/lomba-baru",
+        "/institution/institusi-contoh/competitions/lomba-contoh-2026",
       );
     });
 
-    it("keeps the back control on the saved slug when a part fails after the main fields saved", async () => {
+    it("asks before leaving when a part fails after the main fields saved", async () => {
       stubFetchRoutes({
         ...partRoutes(PUBLISHED),
         [`PUT ${COMPETITION_URL}/tags`]: [() => refusedWith("competition_tags_invalid_value")],
@@ -2149,7 +2317,7 @@ describe("InstitutionCompetitionEditShell steps", () => {
       render(shellWithPartsAt(1));
 
       await screen.findByRole("button", { name: "Simpan" });
-      fireEvent.change(screen.getByLabelText(/^Slug/), { target: { value: "lomba-baru" } });
+      fireEvent.change(screen.getByLabelText(/^Judul/), { target: { value: "Lomba Contoh Baru" } });
       fireEvent.click(await screen.findByRole("checkbox", { name: FIRST_TAG }));
       fireEvent.click(saveButton());
 
@@ -2161,7 +2329,7 @@ describe("InstitutionCompetitionEditShell steps", () => {
       fireEvent.click(within(dialog).getByRole("button", { name: "Tinggalkan" }));
 
       expect(mockPush).toHaveBeenCalledWith(
-        "/institution/institusi-contoh/competitions/lomba-baru",
+        "/institution/institusi-contoh/competitions/lomba-contoh-2026",
       );
     });
 

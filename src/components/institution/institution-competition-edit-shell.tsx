@@ -65,6 +65,16 @@ import {
 } from "@/components/institution/competition-publish-messages";
 import type { CompetitionPublishReadiness } from "@/server/competitions/competition-publish-readiness";
 import { getCompetitionStatusLabel } from "@/lib/competitions/status-labels";
+import {
+  classifyCompetitionEdit,
+  type ClassifiableCompetition,
+  type EditClassificationSnapshot,
+} from "@/server/competitions/edit-classification";
+import {
+  isPublishLockedField,
+  PUBLISH_LOCK_REASONS,
+  type PublishLockedField,
+} from "@/lib/competitions/publish-locks";
 import type { CompetitionCategory } from "@/server/db/schema";
 
 type Category = CompetitionCategory;
@@ -140,7 +150,7 @@ const REFUSAL_COPY: Record<RefusalAction, Partial<Record<string, string>>> = {
     competition_field_immutable:
       "Beberapa bidang tidak dapat diubah setelah kompetisi diterbitkan.",
     competition_post_publish_blocked:
-      "Perubahan ini akan membatalkan pendaftaran yang sudah ada, jadi tidak dapat disimpan.",
+      "Perubahan ini tidak dapat disimpan setelah kompetisi terbit.",
     competition_publish_validation_failed:
       "Bidang wajib pada kompetisi yang sudah terbit tidak dapat dikosongkan.",
     competition_personal_individual_only:
@@ -238,6 +248,86 @@ const snapshotEquals = (a: FormSnapshot, b: FormSnapshot): boolean =>
   a.participantConfirmation === b.participantConfirmation &&
   a.allowCancellation === b.allowCancellation &&
   a.cutoffDays === b.cutoffDays;
+
+const dateFromInput = (value: string): Date | null => {
+  const iso = fromDateTimeInput(value);
+  return iso === null ? null : new Date(iso);
+};
+
+// The editor sees neither registrations nor money. The classifier's publish locks read neither,
+// and a later close while a transfer awaits verification is refused by the server alone.
+const SNAPSHOT_UNSEEN_BY_THE_EDITOR: EditClassificationSnapshot = {
+  nonCancelledCount: 0,
+  hasActiveIndividual: false,
+  hasActiveTeam: false,
+  activeTeamSizes: [],
+  hasActiveFree: false,
+  hasPaymentInFlight: false,
+};
+
+// The form's values in the shape saveMainFields sends them. The price belongs to the fee part, so
+// both sides of a comparison carry none and it never reads as changed here.
+const toClassifiableForm = (values: FormSnapshot): ClassifiableCompetition => ({
+  title: values.title,
+  slug: values.slug,
+  description: values.description,
+  category: values.category === "" ? null : (values.category as Category),
+  mode: values.mode === "" ? null : (values.mode as CompetitionMode),
+  minTeamSize: intOrNull(values.minTeamSize),
+  maxTeamSize: intOrNull(values.maxTeamSize),
+  registrationStartAt: dateFromInput(values.regStart),
+  registrationEndAt: dateFromInput(values.regEnd),
+  eventStartAt: dateFromInput(values.evtStart),
+  eventEndAt: dateFromInput(values.evtEnd),
+  resultAnnouncementAt: dateFromInput(values.resultAnnounce),
+  allowCancellation: values.allowCancellation,
+  cancellationCutoffDays: values.allowCancellation ? cutoffOrNull(values.cutoffDays) : null,
+  feeAmount: null,
+  feeCurrency: null,
+  paymentWindowDays: 0,
+});
+
+// The fields of a published competition's main form that the server would refuse, judged by the
+// server's own classifier against the values last loaded.
+const findBrokenPublishLocks = (
+  saved: FormSnapshot,
+  current: FormSnapshot,
+): PublishLockedField[] => {
+  const classification = classifyCompetitionEdit(
+    toClassifiableForm(saved),
+    toClassifiableForm(current),
+    SNAPSHOT_UNSEEN_BY_THE_EDITOR,
+  );
+  return classification.blocked.filter(isPublishLockedField);
+};
+
+// The ids of the lines that describe a field, or no attribute when there are none.
+const describedByIds = (...ids: Array<string | null>): string | undefined => {
+  const present = ids.filter((id): id is string => id !== null);
+  return present.length > 0 ? present.join(" ") : undefined;
+};
+
+// The line under a field that publishing locks or lets move one way only. It becomes the field's
+// error while the value on screen is one the server would refuse, keyed apart so the new alert is
+// announced.
+const PublishLockLine = ({
+  id,
+  field,
+  brokenLocks,
+}: {
+  id: string;
+  field: PublishLockedField;
+  brokenLocks: PublishLockedField[];
+}) =>
+  brokenLocks.includes(field) ? (
+    <span key="error" className="form-error" id={id} role="alert">
+      {PUBLISH_LOCK_REASONS[field]}
+    </span>
+  ) : (
+    <span key="help" className="form-help" id={id}>
+      {PUBLISH_LOCK_REASONS[field]}
+    </span>
+  );
 
 const describePartSaveFailure = (key: CompetitionEditorPartKey, reason: string): string =>
   `${COMPETITION_EDITOR_PART_LABELS[key]} belum tersimpan. ${reason}`;
@@ -573,6 +663,12 @@ export const InstitutionCompetitionEditShell = ({
   const eventEndError = getTimelineFieldError(timelineErrors, "eventEndAt");
   const resultAnnouncementError = getTimelineFieldError(timelineErrors, "resultAnnouncementAt");
   const timelineIsInvalid = timelineErrors.length > 0;
+  // What the server would refuse on a published competition, judged before anything is sent.
+  const brokenPublishLocks: PublishLockedField[] =
+    competition?.status === "published" && savedSnapshot !== null
+      ? findBrokenPublishLocks(savedSnapshot, currentSnapshot())
+      : [];
+  const publishLockIsBroken = brokenPublishLocks.length > 0;
   const clientPublishIsBlocked =
     hasUnsavedChanges ||
     missingPublishFields.length > 0 ||
@@ -744,7 +840,7 @@ export const InstitutionCompetitionEditShell = ({
       addToast({
         type: "info",
         message:
-          "Kompetisi ini sudah terbit. Perubahan yang memengaruhi peserta akan mengirim notifikasi. Perubahan yang membatalkan pendaftaran yang ada akan ditolak.",
+          "Kompetisi ini sudah terbit. Perubahan yang memengaruhi peserta akan mengirim notifikasi. Bidang yang terkunci menyebutkan alasannya di bawahnya.",
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -813,6 +909,11 @@ export const InstitutionCompetitionEditShell = ({
       });
       return { status: "failed" };
     }
+    const firstBrokenLock = brokenPublishLocks[0];
+    if (firstBrokenLock !== undefined) {
+      addToast({ type: "error", message: PUBLISH_LOCK_REASONS[firstBrokenLock] });
+      return { status: "failed" };
+    }
     if (isPublished && !isDirty) return { status: "unchanged" };
 
     const sentSnapshot = currentSnapshot();
@@ -823,11 +924,11 @@ export const InstitutionCompetitionEditShell = ({
       category: category === "" ? null : category,
       ...(!isPublished && {
         mode: mode === "" ? null : mode,
-        minTeamSize: intOrNull(minTeamSize),
-        maxTeamSize: intOrNull(maxTeamSize),
         minimumParticipantEntries: minimumEntriesOrDefault(minimumEntries),
         participantConfirmationAt: fromDateTimeInput(participantConfirmation),
       }),
+      minTeamSize: intOrNull(minTeamSize),
+      maxTeamSize: intOrNull(maxTeamSize),
       registrationStartAt: fromDateTimeInput(regStart),
       registrationEndAt: fromDateTimeInput(regEnd),
       eventStartAt: fromDateTimeInput(evtStart),
@@ -843,6 +944,8 @@ export const InstitutionCompetitionEditShell = ({
         slug: slug === savedSnapshot.slug,
         description: description === savedSnapshot.description,
         category: category === savedSnapshot.category,
+        minTeamSize: minTeamSize === savedSnapshot.minTeamSize,
+        maxTeamSize: maxTeamSize === savedSnapshot.maxTeamSize,
         registrationStartAt: regStart === savedSnapshot.regStart,
         registrationEndAt: regEnd === savedSnapshot.regEnd,
         eventStartAt: evtStart === savedSnapshot.evtStart,
@@ -886,7 +989,7 @@ export const InstitutionCompetitionEditShell = ({
               <p className="muted-copy">
                 {code === "competition_field_immutable"
                   ? "Bidang berikut tidak dapat diubah setelah kompetisi diterbitkan:"
-                  : "Perubahan berikut akan membatalkan pendaftaran yang sudah ada, jadi tidak dapat disimpan:"}
+                  : "Perubahan berikut tidak dapat disimpan setelah kompetisi terbit:"}
               </p>
               <ul>
                 {fields.map((f) => (
@@ -1171,9 +1274,21 @@ export const InstitutionCompetitionEditShell = ({
 
   const isDraft = competition.status === "draft";
   const isEditable = competition.status === "draft" || competition.status === "published";
-  // Mode and team sizes are immutable once published; enforce at the field (disabled), with
-  // the server 422 as a backstop.
+  // Publishing locks some fields and lets others move one way only. Each says so in a line under
+  // it, and a value the server would refuse holds Simpan back (brokenPublishLocks).
   const isPublished = competition.status === "published";
+  const modeLockReason = PUBLISH_LOCK_REASONS.mode;
+  const registrationEndFloor = isPublished ? savedSnapshot?.regEnd : regStart;
+  const eventStartFloor = isPublished ? savedSnapshot?.evtStart : participantConfirmation || regEnd;
+  const savedMinTeamSize =
+    isPublished && savedSnapshot ? intOrNull(savedSnapshot.minTeamSize) : null;
+  const savedMaxTeamSize =
+    isPublished && savedSnapshot ? intOrNull(savedSnapshot.maxTeamSize) : null;
+  const showsMinTeamSizeLock = isPublished && mode === "team";
+  const showsMaxTeamSizeLock = isPublished && mode !== "individual";
+  const cancellationRightIsLocked = isPublished && savedSnapshot?.allowCancellation === true;
+  const savedCutoffDays =
+    cancellationRightIsLocked && savedSnapshot ? cutoffOrNull(savedSnapshot.cutoffDays) : null;
   const showsStep = (blockStep: CompetitionStep) => activeStep === null || activeStep === blockStep;
   const showsContactEditor =
     contactEditor !== undefined &&
@@ -1200,9 +1315,15 @@ export const InstitutionCompetitionEditShell = ({
         type="text"
         value={slug}
         onChange={(e) => setSlug(e.target.value)}
+        disabled={isPublished}
         className="form-input"
+        aria-describedby={isPublished ? "slug-lock" : undefined}
       />
-      <span className="form-help">Gunakan huruf kecil, angka, dan tanda hubung.</span>
+      {isPublished ? (
+        <PublishLockLine id="slug-lock" field="slug" brokenLocks={brokenPublishLocks} />
+      ) : (
+        <span className="form-help">Gunakan huruf kecil, angka, dan tanda hubung.</span>
+      )}
     </label>
   );
   const descriptionField = (
@@ -1450,11 +1571,7 @@ export const InstitutionCompetitionEditShell = ({
                     <h2>Mode dan ukuran tim</h2>
                   </div>
                 </div>
-                {isPublished ? (
-                  <p className="form-help">
-                    Format peserta dan ukuran tim tidak dapat diubah setelah kompetisi terbit.
-                  </p>
-                ) : null}
+                {isPublished ? <p className="form-help">{modeLockReason}</p> : null}
                 <div className="form-field">
                   <span className="form-label form-label-required" id="competition-mode-label">
                     Mode
@@ -1501,11 +1618,20 @@ export const InstitutionCompetitionEditShell = ({
                       value={minTeamSize}
                       onChange={(e) => setMinTeamSize(e.target.value)}
                       min={mode === "team" ? 2 : 1}
+                      max={savedMinTeamSize ?? undefined}
                       // Min is fixed for individual (1) and both (1); only team allows editing min.
-                      // Immutable once published.
-                      disabled={isPublished || mode === "individual" || mode === "both"}
+                      disabled={mode === "individual" || mode === "both"}
                       className="form-input"
+                      aria-invalid={brokenPublishLocks.includes("minTeamSize") ? true : undefined}
+                      aria-describedby={showsMinTeamSizeLock ? "min-team-size-lock" : undefined}
                     />
+                    {showsMinTeamSizeLock ? (
+                      <PublishLockLine
+                        id="min-team-size-lock"
+                        field="minTeamSize"
+                        brokenLocks={brokenPublishLocks}
+                      />
+                    ) : null}
                   </label>
                   <label className="form-field">
                     <span className="form-label">Maks. anggota tim</span>
@@ -1513,12 +1639,20 @@ export const InstitutionCompetitionEditShell = ({
                       type="number"
                       value={maxTeamSize}
                       onChange={(e) => setMaxTeamSize(e.target.value)}
-                      min={1}
+                      min={savedMaxTeamSize ?? 1}
                       // Max is fixed for individual (1); team and both allow editing max.
-                      // Immutable once published.
-                      disabled={isPublished || mode === "individual"}
+                      disabled={mode === "individual"}
                       className="form-input"
+                      aria-invalid={brokenPublishLocks.includes("maxTeamSize") ? true : undefined}
+                      aria-describedby={showsMaxTeamSizeLock ? "max-team-size-lock" : undefined}
                     />
+                    {showsMaxTeamSizeLock ? (
+                      <PublishLockLine
+                        id="max-team-size-lock"
+                        field="maxTeamSize"
+                        brokenLocks={brokenPublishLocks}
+                      />
+                    ) : null}
                   </label>
                 </div>
               </section>
@@ -1549,14 +1683,19 @@ export const InstitutionCompetitionEditShell = ({
                       type="datetime-local"
                       value={regEnd}
                       onChange={(e) => setRegEnd(e.target.value)}
-                      min={regStart || undefined}
+                      min={registrationEndFloor || undefined}
                       max={participantConfirmation || evtStart || undefined}
                       required
                       className="form-input"
-                      aria-invalid={registrationEndError ? true : undefined}
-                      aria-describedby={
-                        registrationEndError ? "registration-end-timeline-error" : undefined
+                      aria-invalid={
+                        registrationEndError || brokenPublishLocks.includes("registrationEndAt")
+                          ? true
+                          : undefined
                       }
+                      aria-describedby={describedByIds(
+                        isPublished ? "registration-end-lock" : null,
+                        registrationEndError ? "registration-end-timeline-error" : null,
+                      )}
                     />
                     {registrationEndError ? (
                       <span
@@ -1567,6 +1706,13 @@ export const InstitutionCompetitionEditShell = ({
                         {registrationEndError}
                       </span>
                     ) : null}
+                    {isPublished ? (
+                      <PublishLockLine
+                        id="registration-end-lock"
+                        field="registrationEndAt"
+                        brokenLocks={brokenPublishLocks}
+                      />
+                    ) : null}
                   </label>
                   <label className="form-field">
                     <span className="form-label form-label-required">Acara mulai</span>
@@ -1574,17 +1720,31 @@ export const InstitutionCompetitionEditShell = ({
                       type="datetime-local"
                       value={evtStart}
                       onChange={(e) => setEvtStart(e.target.value)}
-                      min={participantConfirmation || regEnd || undefined}
+                      min={eventStartFloor || undefined}
                       max={evtEnd || undefined}
                       required
                       className="form-input"
-                      aria-invalid={eventStartError ? true : undefined}
-                      aria-describedby={eventStartError ? "event-start-timeline-error" : undefined}
+                      aria-invalid={
+                        eventStartError || brokenPublishLocks.includes("eventStartAt")
+                          ? true
+                          : undefined
+                      }
+                      aria-describedby={describedByIds(
+                        isPublished ? "event-start-lock" : null,
+                        eventStartError ? "event-start-timeline-error" : null,
+                      )}
                     />
                     {eventStartError ? (
                       <span className="form-error" id="event-start-timeline-error" role="alert">
                         {eventStartError}
                       </span>
+                    ) : null}
+                    {isPublished ? (
+                      <PublishLockLine
+                        id="event-start-lock"
+                        field="eventStartAt"
+                        brokenLocks={brokenPublishLocks}
+                      />
                     ) : null}
                   </label>
                   <label className="form-field">
@@ -1682,9 +1842,18 @@ export const InstitutionCompetitionEditShell = ({
                 <CheckboxField
                   checked={allowCancellation}
                   onChange={(e) => setAllowCancellation(e.target.checked)}
+                  disabled={cancellationRightIsLocked}
+                  aria-describedby={
+                    cancellationRightIsLocked ? "allow-cancellation-lock" : undefined
+                  }
                 >
                   Izinkan peserta membatalkan pendaftaran sendiri
                 </CheckboxField>
+                {cancellationRightIsLocked ? (
+                  <p className="form-help" id="allow-cancellation-lock">
+                    {PUBLISH_LOCK_REASONS.allowCancellation}
+                  </p>
+                ) : null}
                 <label className="form-field">
                   <span className="form-label">Batas pembatalan (hari sebelum acara mulai)</span>
                   <input
@@ -1692,9 +1861,23 @@ export const InstitutionCompetitionEditShell = ({
                     value={cutoffDays}
                     onChange={(e) => setCutoffDays(e.target.value)}
                     min={0}
+                    max={savedCutoffDays ?? undefined}
                     disabled={!allowCancellation}
                     className="form-input"
+                    aria-invalid={
+                      brokenPublishLocks.includes("cancellationCutoffDays") ? true : undefined
+                    }
+                    aria-describedby={
+                      cancellationRightIsLocked ? "cancellation-cutoff-lock" : undefined
+                    }
                   />
+                  {cancellationRightIsLocked ? (
+                    <PublishLockLine
+                      id="cancellation-cutoff-lock"
+                      field="cancellationCutoffDays"
+                      brokenLocks={brokenPublishLocks}
+                    />
+                  ) : null}
                 </label>
               </fieldset>
             ) : null}
@@ -1726,7 +1909,7 @@ export const InstitutionCompetitionEditShell = ({
                 type="button"
                 onClick={() => onSaveSection()}
                 loading={isSubmitting}
-                disabled={isSubmitting || timelineIsInvalid}
+                disabled={isSubmitting || timelineIsInvalid || publishLockIsBroken}
                 leadingIcon={<Icon name="save" />}
               >
                 Simpan

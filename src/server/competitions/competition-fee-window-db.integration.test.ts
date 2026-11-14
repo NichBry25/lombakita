@@ -123,7 +123,11 @@ const seedMember = async (
   return userId;
 };
 
-const seedCompetition = async (tx: Tx, pricing: Pricing): Promise<Fixture> => {
+const seedCompetition = async (
+  tx: Tx,
+  pricing: Pricing,
+  status: "draft" | "published" = "draft",
+): Promise<Fixture> => {
   const id = uniqueSuffix();
 
   const [institution] = await tx
@@ -147,7 +151,7 @@ const seedCompetition = async (tx: Tx, pricing: Pricing): Promise<Fixture> => {
       title: `Fee Window Fixture ${id}`,
       description: "",
       mode: "individual",
-      status: "draft",
+      status,
       feeAmount: pricing.feeAmount,
       feeCurrency: pricing.feeCurrency,
       paymentWindowDays: pricing.paymentWindowDays,
@@ -372,6 +376,38 @@ describe.skipIf(skipWithoutDatabase)("the payment window change, against a real 
       expect(status).toBe(403);
       expect((await readStoredPricing(tx, fixture.competitionId)).feeAmount).toBe(150_000);
       expect(await countConsentRows(tx, fixture.competitionId)).toBe(consentRowsBefore);
+    });
+  });
+
+  it("refuses the owner a new price on a published competition with the reason, and writes nothing", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedCompetition(tx, PAID, "published");
+      const consentRowsBefore = await countConsentRows(tx, fixture.competitionId);
+
+      const response = await putFeeViaRoute(tx, fixture.ownerUserId, fixture.competitionId, {
+        feeAmount: 200_000,
+        feeCurrency: "IDR",
+        feeDisclosureAcknowledged: true,
+      });
+
+      expect({
+        response,
+        pricing: await readStoredPricing(tx, fixture.competitionId),
+        consentRows: await countConsentRows(tx, fixture.competitionId),
+      }).toEqual({
+        response: {
+          status: 409,
+          body: {
+            error: {
+              code: "competition_fee_locked_after_publish",
+              message: "Biaya pendaftaran tidak dapat diubah setelah kompetisi terbit.",
+              details: { fields: ["feeAmount"] },
+            },
+          },
+        },
+        pricing: PAID,
+        consentRows: consentRowsBefore,
+      });
     });
   });
 });
