@@ -9,6 +9,7 @@ import { enqueueRegistrationConfirmed, enqueueRegistrationCancelled } from "@/se
 import {
   competitionRegistrations,
   competitions,
+  financePayments,
   teamInvitations,
   teamMemberships,
   teams,
@@ -570,6 +571,38 @@ export const revertSubmittedTeamToForming = async (
   };
 };
 
+// Locks the registration row the team's current payment is anchored on and returns its id, or null
+// for a team that owes no payment. The proof upload and the payment's expiry lock this same row
+// before they read or write, and the proof read takes the id returned here, so it cannot run before
+// the lock. A team's confirmed rows carry one payment at most: the team registers again only after
+// every earlier row was cancelled, and a teammate who joins later pays nothing.
+const lockTeamPaymentAnchorRow = async (
+  tx: TransactionClient,
+  teamId: string,
+): Promise<string | null> => {
+  const [anchor] = await tx
+    .select({ id: competitionRegistrations.id })
+    .from(competitionRegistrations)
+    .innerJoin(
+      financePayments,
+      eq(financePayments.competitionRegistrationId, competitionRegistrations.id),
+    )
+    .where(
+      and(
+        eq(competitionRegistrations.teamId, teamId),
+        eq(competitionRegistrations.status, "confirmed"),
+      ),
+    )
+    .limit(1);
+
+  if (!anchor) return null;
+
+  await tx.execute(
+    sql`select id from competition_registrations where id = ${anchor.id} for update`,
+  );
+  return anchor.id;
+};
+
 // Captain reverts a submitted team back to forming by cancelling every team-typed
 // registration row. The same candidate-cancellation policy as the individual path applies:
 // reason required, the paid block conditional on a submitted bukti transfer, institution allow
@@ -658,6 +691,22 @@ export const cancelTeamRegistration = async (
       throw new TeamError("team_competition_not_found", "Competition not found");
     }
     assertTeamCancellationWindowOpen(lockedCompetition, mutationAt);
+
+    // Read again under the payment's row lock. The read above runs before this transaction, so a
+    // proof sent after it would land on a registration this withdrawal cancels. Here, a proof whose
+    // upload holds the row is committed before this read, and an upload that waits behind this
+    // withdrawal finds the registration cancelled.
+    const lockedAnchorRegistrationId = await lockTeamPaymentAnchorRow(tx, teamId);
+
+    if (
+      lockedAnchorRegistrationId !== null &&
+      (await hasSubmittedPaymentProof(lockedAnchorRegistrationId, tx))
+    ) {
+      throw new TeamError(
+        "cancellation_not_supported_for_paid",
+        "Pendaftaran tidak dapat dibatalkan setelah bukti transfer dikirim",
+      );
+    }
 
     return revertSubmittedTeamToForming(tx, teamId, competitionId, cancellationReason, mutationAt);
   });

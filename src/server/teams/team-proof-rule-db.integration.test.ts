@@ -27,8 +27,10 @@ import { acceptTeamInvitationForUser, removeTeamMember } from "@/server/teams/te
 import {
   cancelTeamRegistration,
   hasFormingTeamSentPaymentProof,
+  revertSubmittedTeamToForming,
   submitTeamRegistration,
 } from "@/server/teams/team-registration-service";
+import { TEAM_BELOW_MINIMUM_CANCELLATION_REASON } from "@/server/teams/team-close-check-service";
 import {
   processPaymentOutcomeJob,
   type PaymentOutcomeJob,
@@ -514,6 +516,132 @@ describe.skipIf(skipWithoutDatabase)("registering a team again after a payment p
       );
 
       expect(individual.status).toBe("confirmed");
+    });
+  });
+
+  it("keeps a team from registering again when its registration was cancelled after its proof was sent", async () => {
+    await inRollback(async (tx) => {
+      const seed = await seedPricedTeam(tx, "team");
+      const first = await submitTeamRegistration(
+        seed.captainUserId,
+        seed.competitionId,
+        seed.teamId,
+        tx as never,
+        T0,
+      );
+      const captainRow = first.registrations.find((row) => row.studentId === seed.captainUserId);
+      const firstPaymentId = await paymentIdAnchoredOn(tx, captainRow!.id);
+      await sendProof(tx, firstPaymentId, seed.captainUserId, seed.competitionId);
+      await revertSubmittedTeamToForming(
+        tx as never,
+        seed.teamId,
+        seed.competitionId,
+        TEAM_BELOW_MINIMUM_CANCELLATION_REASON,
+        WITHDRAWN_AT,
+      );
+
+      const refusal = await refusalOf(
+        submitTeamRegistration(
+          seed.captainUserId,
+          seed.competitionId,
+          seed.teamId,
+          tx as never,
+          REGISTERED_AGAIN_AT,
+        ),
+      );
+
+      const rows = await teamRowsOf(tx, seed.teamId);
+      const anchoredPayments = await tx
+        .select({ id: financePayments.id })
+        .from(financePayments)
+        .where(
+          inArray(
+            financePayments.competitionRegistrationId,
+            rows.map((row) => row.id),
+          ),
+        );
+      expect({
+        refusal,
+        teamStatus: await teamStatusOf(tx, seed.teamId),
+        confirmedRows: rows.filter((row) => row.status === "confirmed").length,
+        paymentIds: anchoredPayments.map((payment) => payment.id),
+        proofOnCancelledRows: await hasFormingTeamSentPaymentProof(
+          seed.teamId,
+          seed.competitionId,
+          tx as never,
+        ),
+      }).toEqual({
+        refusal: { code: "team_register_again_closed_by_payment_proof", status: 409 },
+        teamStatus: "forming",
+        confirmedRows: 0,
+        paymentIds: [firstPaymentId],
+        proofOnCancelledRows: true,
+      });
+    });
+  });
+
+  it("keeps a team from registering again after its fee is cleared, when its registration was cancelled after its proof was sent", async () => {
+    await inRollback(async (tx) => {
+      const seed = await seedPricedTeam(tx, "team");
+      const first = await submitTeamRegistration(
+        seed.captainUserId,
+        seed.competitionId,
+        seed.teamId,
+        tx as never,
+        T0,
+      );
+      const captainRow = first.registrations.find((row) => row.studentId === seed.captainUserId);
+      const firstPaymentId = await paymentIdAnchoredOn(tx, captainRow!.id);
+      await sendProof(tx, firstPaymentId, seed.captainUserId, seed.competitionId);
+      await revertSubmittedTeamToForming(
+        tx as never,
+        seed.teamId,
+        seed.competitionId,
+        TEAM_BELOW_MINIMUM_CANCELLATION_REASON,
+        WITHDRAWN_AT,
+      );
+      await tx
+        .update(competitions)
+        .set({ feeAmount: null, feeCurrency: null })
+        .where(eq(competitions.id, seed.competitionId));
+
+      const refusal = await refusalOf(
+        submitTeamRegistration(
+          seed.captainUserId,
+          seed.competitionId,
+          seed.teamId,
+          tx as never,
+          REGISTERED_AGAIN_AT,
+        ),
+      );
+
+      const rows = await teamRowsOf(tx, seed.teamId);
+      const anchoredPayments = await tx
+        .select({ id: financePayments.id })
+        .from(financePayments)
+        .where(
+          inArray(
+            financePayments.competitionRegistrationId,
+            rows.map((row) => row.id),
+          ),
+        );
+      expect({
+        refusal,
+        teamStatus: await teamStatusOf(tx, seed.teamId),
+        confirmedRows: rows.filter((row) => row.status === "confirmed").length,
+        paymentIds: anchoredPayments.map((payment) => payment.id),
+        proofOnCancelledRows: await hasFormingTeamSentPaymentProof(
+          seed.teamId,
+          seed.competitionId,
+          tx as never,
+        ),
+      }).toEqual({
+        refusal: { code: "team_register_again_closed_by_payment_proof", status: 409 },
+        teamStatus: "forming",
+        confirmedRows: 0,
+        paymentIds: [firstPaymentId],
+        proofOnCancelledRows: true,
+      });
     });
   });
 });
