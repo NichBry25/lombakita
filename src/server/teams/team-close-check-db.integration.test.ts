@@ -1866,6 +1866,37 @@ describe.skipIf(skipWithoutDatabase)("the captain's reminder and the members' no
     });
   });
 
+  it("delivers the reminder when the database session is not in UTC", async () => {
+    await inRollback(async (tx) => {
+      // A session outside UTC must not change the close the reminder carries.
+      await tx.execute(sql`set local time zone 'Asia/Jakarta'`);
+      const competition = await seedCompetition(tx, {
+        minTeamSize: 3,
+        maxTeamSize: 3,
+        registrationEndAt: new Date(Date.now() + 23 * HOUR_MS),
+      });
+      const { rina, teamId } = await registerThroughRealRegistration(tx, competition, ["sari"]);
+      await tx.execute(
+        sql`update competitions set registration_end_at = date_trunc('milliseconds', now()) + interval '23 hours' where id = ${competition.competitionId}`,
+      );
+
+      await runTeamCloseCheckJob();
+      const markedClose = String(
+        callsForTeam(enqueueSpies.enqueueTeamJoinReminder, teamId)[0]?.markedClose,
+      );
+      await expect(
+        processTeamJoinReminderJob(reminderJob(teamId, competition.competitionId, markedClose)),
+      ).resolves.toBeUndefined();
+      const closeAsRead = await closeOf(tx, competition.competitionId);
+
+      expect({
+        inbox: (await notificationsOf(tx, rina.id)).length,
+        sends: noticeSpies.sendTeamCloseNoticeEmail.mock.calls.length,
+        markedCloseIsUtc: markedClose === exactUtcText(closeAsRead),
+      }).toEqual({ inbox: 1, sends: 1, markedCloseIsUtc: true });
+    });
+  });
+
   it("tells a remaining member why the team's registration was cancelled", async () => {
     await inRollback(async (tx) => {
       const competition = await seedCompetition(tx, {
