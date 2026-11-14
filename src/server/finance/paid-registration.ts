@@ -2,7 +2,7 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/finance/paid-registration");
 
-import { and, eq, gt, inArray, ne } from "drizzle-orm";
+import { and, eq, gt, inArray, ne, sql } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
 import {
   competitionRegistrations,
@@ -95,6 +95,64 @@ export const findTeamPaymentGroupAnchor = async (
     .limit(1);
 
   return row?.id ?? null;
+};
+
+/**
+ * Locks one registration row FOR UPDATE inside the caller's transaction and returns its status, or
+ * null when no such row exists. A payment's writers serialize on the row the payment is anchored
+ * on, and this takes that lock.
+ */
+export const lockRegistrationRow = async (
+  registrationId: string,
+  tx: Database,
+): Promise<{ status: string } | null> => {
+  const rows = await tx.execute(
+    sql`select status from competition_registrations where id = ${registrationId} for update`,
+  );
+  const [row] = [...rows] as { status: string }[];
+  return row ?? null;
+};
+
+/**
+ * Locks the registration row that the current payment of this registration's payment group is
+ * anchored on, and returns its id, or null when no confirmed row of the group carries a payment. A
+ * proof cannot land on a payment whose anchor row is cancelled, because the upload refuses it, so
+ * null needs no lock.
+ *
+ * The proof upload and the payment's expiry lock this same row before they read or write. A cancel
+ * that takes it first and reads the proof after it sees every proof committed before it, and an
+ * upload that waits behind it reads the row as the cancel left it. The caller's proof read takes
+ * the id returned here, so it cannot run before the lock.
+ *
+ * A group's confirmed rows carry one payment at most: a team registers again only after every
+ * earlier row was cancelled, and a teammate who joins later pays nothing.
+ */
+export const lockPaymentGroupAnchorRow = async (
+  registrationId: string,
+  tx: Database,
+): Promise<string | null> => {
+  const groupIds = await resolvePaymentGroupRegistrationIds(registrationId, tx);
+  if (groupIds.length === 0) return null;
+
+  const [anchor] = await tx
+    .select({ id: competitionRegistrations.id })
+    .from(competitionRegistrations)
+    .innerJoin(
+      financePayments,
+      eq(financePayments.competitionRegistrationId, competitionRegistrations.id),
+    )
+    .where(
+      and(
+        inArray(competitionRegistrations.id, groupIds),
+        eq(competitionRegistrations.status, "confirmed"),
+      ),
+    )
+    .limit(1);
+
+  if (!anchor) return null;
+
+  await lockRegistrationRow(anchor.id, tx);
+  return anchor.id;
 };
 
 /**

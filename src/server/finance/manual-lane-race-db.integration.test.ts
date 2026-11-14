@@ -24,6 +24,9 @@
 // the failure names the missing lock. Moving the lock below the check it is supposed to protect is
 // caught differently: both operations commit and the assertion on the surviving state goes red.
 // Both directions are exercised deliberately; neither is inferred.
+// In the team withdrawal describe, and for a candidate's own cancel of an individual registration,
+// the cancel's row update parks on the row the lock would take, so a cancel whose lock call is
+// deleted passes the poll there and the red is on the surviving state.
 
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { TEST_DATABASE_URL, skipWithoutDatabase } from "@/server/testing/database-url";
@@ -354,8 +357,13 @@ const seedCommittedFixture = async (): Promise<RaceFixture> => {
   };
 };
 
-/** A forming team of two on a published, priced team competition that allows withdrawal, COMMITTED. */
-const seedCommittedPricedTeam = async (): Promise<{
+/**
+ * A forming team of two on a published, priced competition that allows withdrawal, COMMITTED. The
+ * competition takes teams only unless the caller asks for one that also takes individuals.
+ */
+const seedCommittedPricedTeam = async (
+  mode: "team" | "both" = "team",
+): Promise<{
   captainUserId: string;
   memberUserId: string;
   institutionId: string;
@@ -416,7 +424,7 @@ const seedCommittedPricedTeam = async (): Promise<{
       slug: `${MARKER}-comp-${id}`,
       title: `Race team ${id}`,
       status: "published",
-      mode: "team",
+      mode,
       minTeamSize: 2,
       maxTeamSize: 4,
       registrationStartAt: new Date(now - DAY_MS),
@@ -1031,6 +1039,41 @@ describe.skipIf(skipWithoutDatabase)(
 
     type TeamFixture = Awaited<ReturnType<typeof registerCommittedTeam>>;
 
+    const registerCommittedTeamAgain = async (): Promise<TeamFixture> => {
+      const { submitTeamRegistration, cancelTeamRegistration } =
+        await import("@/server/teams/team-registration-service");
+      const { captainUserId, competitionId, teamId } = await seedCommittedPricedTeam();
+
+      await submitTeamRegistration(captainUserId, competitionId, teamId, control.db as never);
+      await cancelTeamRegistration(
+        captainUserId,
+        competitionId,
+        teamId,
+        "berubah rencana",
+        control.db as never,
+      );
+      const registeredAgain = await submitTeamRegistration(
+        captainUserId,
+        competitionId,
+        teamId,
+        control.db as never,
+      );
+      const captainRow = registeredAgain.registrations.find(
+        (row) => row.studentId === captainUserId,
+      );
+      const payment = await control.db.query.financePayments.findFirst({
+        where: (fields, { eq }) => eq(fields.competitionRegistrationId, captainRow!.id),
+      });
+
+      return {
+        captainUserId,
+        competitionId,
+        teamId,
+        anchorRegistrationId: captainRow!.id,
+        paymentId: payment!.id,
+      };
+    };
+
     const runWithdrawal = async (connection: Connection, fixture: TeamFixture) => {
       const { cancelTeamRegistration } = await import("@/server/teams/team-registration-service");
       return cancelTeamRegistration(
@@ -1155,6 +1198,311 @@ describe.skipIf(skipWithoutDatabase)(
         confirmedRows: 0,
         proofStatuses: [],
       });
+    });
+
+    it("PROOF FIRST AFTER REGISTERING AGAIN: the upload on the new payment lands, and the withdrawal queued behind it is refused", async () => {
+      const fixture = await registerCommittedTeamAgain();
+
+      const [barrierPid, uploadPid, withdrawalPid] = await Promise.all([
+        backendPidOf(barrier),
+        backendPidOf(racerOne),
+        backendPidOf(racerTwo),
+      ]);
+
+      const [uploadResult, withdrawalResult] = await withRowHeld(
+        "competition_registrations",
+        fixture.anchorRegistrationId,
+        async (track) => {
+          const uploadRun = track(runUpload(racerOne, fixture));
+          await awaitBlockedBy(uploadPid, barrierPid, "submitManualPaymentProof");
+
+          const withdrawalRun = track(runWithdrawal(racerTwo, fixture));
+          await awaitBlockedBy(withdrawalPid, barrierPid, "the team withdrawal");
+
+          return [uploadRun, withdrawalRun] as const;
+        },
+      ).then(async ([uploadRun, withdrawalRun]) => [await uploadRun, await withdrawalRun] as const);
+
+      const after = await readTeamAfterRace(fixture);
+      expect({
+        uploadOk: uploadResult.ok,
+        withdrawalOk: withdrawalResult.ok,
+        withdrawalCode: withdrawalResult.ok ? undefined : errorCodeOf(withdrawalResult.error),
+        withdrawalStatus: withdrawalResult.ok
+          ? undefined
+          : (withdrawalResult.error as { status?: number }).status,
+        ...after,
+      }).toEqual({
+        uploadOk: true,
+        withdrawalOk: false,
+        withdrawalCode: "cancellation_not_supported_for_paid",
+        withdrawalStatus: 422,
+        teamStatus: "submitted",
+        confirmedRows: 2,
+        proofStatuses: ["pending_review"],
+      });
+    });
+  },
+);
+
+describe.skipIf(skipWithoutDatabase)(
+  "a proof upload and a candidate's own cancel, under real contention",
+  () => {
+    type CancelFixture = {
+      cancellerUserId: string;
+      payerUserId: string;
+      competitionId: string;
+      registrationId: string;
+      anchorRegistrationId: string;
+      paymentId: string;
+    };
+
+    const registerCommittedIndividual = async (): Promise<CancelFixture> => {
+      const { createIndividualRegistration } =
+        await import("@/server/registrations/registration-service");
+      const { memberUserId, competitionId } = await seedCommittedPricedTeam("both");
+
+      const registration = await createIndividualRegistration(
+        memberUserId,
+        competitionId,
+        control.db as never,
+      );
+      const payment = await control.db.query.financePayments.findFirst({
+        where: (fields, { eq }) => eq(fields.competitionRegistrationId, registration.id),
+      });
+
+      return {
+        cancellerUserId: memberUserId,
+        payerUserId: memberUserId,
+        competitionId,
+        registrationId: registration.id,
+        anchorRegistrationId: registration.id,
+        paymentId: payment!.id,
+      };
+    };
+
+    const registerCommittedTeamMember = async (): Promise<CancelFixture> => {
+      const { submitTeamRegistration } = await import("@/server/teams/team-registration-service");
+      const { captainUserId, memberUserId, competitionId, teamId } =
+        await seedCommittedPricedTeam();
+
+      const registered = await submitTeamRegistration(
+        captainUserId,
+        competitionId,
+        teamId,
+        control.db as never,
+      );
+      const captainRow = registered.registrations.find((row) => row.studentId === captainUserId);
+      const memberRow = registered.registrations.find((row) => row.studentId === memberUserId);
+      const payment = await control.db.query.financePayments.findFirst({
+        where: (fields, { eq }) => eq(fields.competitionRegistrationId, captainRow!.id),
+      });
+
+      return {
+        cancellerUserId: memberUserId,
+        payerUserId: captainUserId,
+        competitionId,
+        registrationId: memberRow!.id,
+        anchorRegistrationId: captainRow!.id,
+        paymentId: payment!.id,
+      };
+    };
+
+    const runCancel = async (connection: Connection, fixture: CancelFixture) => {
+      const { cancelRegistration } = await import("@/server/registrations/registration-service");
+      return cancelRegistration(
+        fixture.cancellerUserId,
+        fixture.competitionId,
+        fixture.registrationId,
+        "berubah rencana",
+        connection.db as never,
+      );
+    };
+
+    const runUpload = async (connection: Connection, fixture: CancelFixture) => {
+      const { submitManualPaymentProof } =
+        await import("@/server/finance/manual-payment-proof-service");
+      return submitManualPaymentProof(
+        {
+          paymentId: fixture.paymentId,
+          submittedByUserId: fixture.payerUserId,
+          r2Key: `payment-proofs/${fixture.competitionId}/${fixture.paymentId}/bukti.jpg`,
+          originalFileName: "bukti.jpg",
+        },
+        connection.db as never,
+      );
+    };
+
+    const readAfterRace = async (fixture: CancelFixture) => {
+      const ownRow = await registrationRow(fixture.registrationId);
+      const anchorRow = await registrationRow(fixture.anchorRegistrationId);
+      const proofs = await proofRowsFor(fixture.paymentId);
+      return {
+        registrationStatus: ownRow.status,
+        anchorStatus: anchorRow.status,
+        proofStatuses: proofs.map((proof) => proof.status),
+      };
+    };
+
+    it("PROOF FIRST: the upload lands, and the candidate's cancel queued behind it is refused", async () => {
+      const fixture = await registerCommittedIndividual();
+
+      const [barrierPid, uploadPid, cancelPid] = await Promise.all([
+        backendPidOf(barrier),
+        backendPidOf(racerOne),
+        backendPidOf(racerTwo),
+      ]);
+
+      const [uploadResult, cancelResult] = await withRowHeld(
+        "competition_registrations",
+        fixture.anchorRegistrationId,
+        async (track) => {
+          const uploadRun = track(runUpload(racerOne, fixture));
+          await awaitBlockedBy(uploadPid, barrierPid, "submitManualPaymentProof");
+
+          const cancelRun = track(runCancel(racerTwo, fixture));
+          await awaitBlockedBy(cancelPid, barrierPid, "the candidate's cancel");
+
+          return [uploadRun, cancelRun] as const;
+        },
+      ).then(async ([uploadRun, cancelRun]) => [await uploadRun, await cancelRun] as const);
+
+      const after = await readAfterRace(fixture);
+      expect({
+        uploadOk: uploadResult.ok,
+        cancelOk: cancelResult.ok,
+        cancelCode: cancelResult.ok ? undefined : errorCodeOf(cancelResult.error),
+        cancelStatus: cancelResult.ok
+          ? undefined
+          : (cancelResult.error as { status?: number }).status,
+        ...after,
+      }).toEqual({
+        uploadOk: true,
+        cancelOk: false,
+        cancelCode: "cancellation_not_supported_for_paid",
+        cancelStatus: 422,
+        registrationStatus: "confirmed",
+        anchorStatus: "confirmed",
+        proofStatuses: ["pending_review"],
+      });
+    });
+
+    it("CANCEL FIRST: the candidate's registration is cancelled, and the upload queued behind it is refused", async () => {
+      const fixture = await registerCommittedIndividual();
+
+      const [barrierPid, cancelPid, uploadPid] = await Promise.all([
+        backendPidOf(barrier),
+        backendPidOf(racerOne),
+        backendPidOf(racerTwo),
+      ]);
+
+      const [cancelResult, uploadResult] = await withRowHeld(
+        "competition_registrations",
+        fixture.anchorRegistrationId,
+        async (track) => {
+          const cancelRun = track(runCancel(racerOne, fixture));
+          await awaitBlockedBy(cancelPid, barrierPid, "the candidate's cancel");
+
+          const uploadRun = track(runUpload(racerTwo, fixture));
+          await awaitBlockedBy(uploadPid, barrierPid, "submitManualPaymentProof");
+
+          return [cancelRun, uploadRun] as const;
+        },
+      ).then(async ([cancelRun, uploadRun]) => [await cancelRun, await uploadRun] as const);
+
+      const after = await readAfterRace(fixture);
+      expect({
+        cancelOk: cancelResult.ok,
+        uploadOk: uploadResult.ok,
+        uploadCode: uploadResult.ok ? undefined : errorCodeOf(uploadResult.error),
+        uploadStatus: uploadResult.ok
+          ? undefined
+          : (uploadResult.error as { status?: number }).status,
+        ...after,
+      }).toEqual({
+        cancelOk: true,
+        uploadOk: false,
+        uploadCode: "manual_proof_registration_cancelled",
+        uploadStatus: 409,
+        registrationStatus: "cancelled",
+        anchorStatus: "cancelled",
+        proofStatuses: [],
+      });
+    });
+
+    it("PROOF FIRST ON A TEAM ROW: the captain's upload lands, and a member's own cancel queued behind it is refused", async () => {
+      const fixture = await registerCommittedTeamMember();
+
+      const [barrierPid, uploadPid, cancelPid] = await Promise.all([
+        backendPidOf(barrier),
+        backendPidOf(racerOne),
+        backendPidOf(racerTwo),
+      ]);
+
+      const [uploadResult, cancelResult] = await withRowHeld(
+        "competition_registrations",
+        fixture.anchorRegistrationId,
+        async (track) => {
+          const uploadRun = track(runUpload(racerOne, fixture));
+          await awaitBlockedBy(uploadPid, barrierPid, "submitManualPaymentProof");
+
+          const cancelRun = track(runCancel(racerTwo, fixture));
+          await awaitBlockedBy(cancelPid, barrierPid, "the member's own cancel");
+
+          return [uploadRun, cancelRun] as const;
+        },
+      ).then(async ([uploadRun, cancelRun]) => [await uploadRun, await cancelRun] as const);
+
+      const after = await readAfterRace(fixture);
+      expect({
+        uploadOk: uploadResult.ok,
+        cancelOk: cancelResult.ok,
+        cancelCode: cancelResult.ok ? undefined : errorCodeOf(cancelResult.error),
+        cancelStatus: cancelResult.ok
+          ? undefined
+          : (cancelResult.error as { status?: number }).status,
+        ...after,
+      }).toEqual({
+        uploadOk: true,
+        cancelOk: false,
+        cancelCode: "cancellation_not_supported_for_paid",
+        cancelStatus: 422,
+        registrationStatus: "confirmed",
+        anchorStatus: "confirmed",
+        proofStatuses: ["pending_review"],
+      });
+    });
+
+    it("without a payment, a candidate's own cancel goes through as before", async () => {
+      const { createIndividualRegistration, cancelRegistration } =
+        await import("@/server/registrations/registration-service");
+      const { memberUserId, competitionId } = await seedCommittedPricedTeam("both");
+      await control.sql`
+      update competitions set fee_amount = null, fee_currency = null where id = ${competitionId}`;
+
+      const registration = await createIndividualRegistration(
+        memberUserId,
+        competitionId,
+        control.db as never,
+      );
+      const cancelled = await settle(
+        cancelRegistration(
+          memberUserId,
+          competitionId,
+          registration.id,
+          "berubah rencana",
+          control.db as never,
+        ),
+      );
+
+      const payments = await control.sql<{ count: string }[]>`
+        select count(*) as count from finance_payments
+        where competition_registration_id = ${registration.id}`;
+      expect({
+        cancelOk: cancelled.ok,
+        registrationStatus: (await registrationRow(registration.id)).status,
+        payments: Number(payments[0]!.count),
+      }).toEqual({ cancelOk: true, registrationStatus: "cancelled", payments: 0 });
     });
   },
 );

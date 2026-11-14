@@ -5150,8 +5150,8 @@ describe.skipIf(skipWithoutDatabase)(
     //
     // Both cancel guards sit before their write and outside its transaction, so the natural way to
     // get them wrong (running them after the transaction commits) is detectable by post-state: the
-    // registration is already cancelled when the refusal is thrown. That is the assertion here. The
-    // team cancel also reads the proof again inside its transaction, under the payment's row lock,
+    // registration is already cancelled when the refusal is thrown. That is the assertion here.
+    // Each cancel also reads the proof again inside its transaction, under the payment's row lock,
     // so its guard shows here only when both reads run after the commit.
     //
     // The existing service tests cannot make it. They run against a queued fake, so moving the guard

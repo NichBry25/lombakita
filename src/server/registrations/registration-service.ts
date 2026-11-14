@@ -14,7 +14,10 @@ import { logger } from "@/lib/logger";
 import { enqueueRegistrationConfirmed, enqueueRegistrationCancelled } from "@/server/async/enqueue";
 import { isParticipantCancellationClosedByConfirmation } from "@/lib/competitions/competition-participation";
 import { acquireCompetitionParticipationLock } from "@/server/competitions/competition-participation-lock";
-import { hasSubmittedPaymentProof } from "@/server/finance/paid-registration";
+import {
+  hasSubmittedPaymentProof,
+  lockPaymentGroupAnchorRow,
+} from "@/server/finance/paid-registration";
 import {
   createRegistrationPayment,
   loadRegistrationPricing,
@@ -465,6 +468,22 @@ export const cancelRegistration = async (
       throw new RegistrationError("competition_not_found", "Competition not found");
     }
     assertParticipantCancellationWindowOpen(lockedCompetition, mutationAt);
+
+    // Read again under the payment's row lock. The read above runs before this transaction, so a
+    // proof sent after it would land on a registration this cancel ends. Here, a proof whose upload
+    // holds the row is committed before this read, and an upload that waits behind this cancel
+    // reads the row as this cancel left it.
+    const lockedAnchorRegistrationId = await lockPaymentGroupAnchorRow(registrationId, tx);
+
+    if (
+      lockedAnchorRegistrationId !== null &&
+      (await hasSubmittedPaymentProof(lockedAnchorRegistrationId, tx))
+    ) {
+      throw new RegistrationError(
+        "cancellation_not_supported_for_paid",
+        "Pendaftaran tidak dapat dibatalkan setelah bukti transfer dikirim",
+      );
+    }
 
     const [row] = await tx
       .update(competitionRegistrations)

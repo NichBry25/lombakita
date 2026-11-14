@@ -19,6 +19,7 @@ import { appendPaymentEvent } from "@/server/finance/payment-service";
 import { foldPaymentEvents } from "@/lib/finance/payment-state";
 import { recordFeeAccrual, recordFeeAccrualReversal } from "@/server/finance/fee-accrual-service";
 import { mintManualPaymentEventKey } from "@/server/finance/idempotency-key";
+import { lockRegistrationRow } from "@/server/finance/paid-registration";
 import {
   deleteObject,
   generatePresignedGetUrl,
@@ -250,11 +251,7 @@ const requireOpenManualLane = async (tx: Database, paymentId: string): Promise<O
     );
   }
 
-  const registrationRows = await tx.execute(
-    sql`select status from competition_registrations
-        where id = ${payment.registrationId} for update`,
-  );
-  const [registration] = [...registrationRows] as { status: string }[];
+  const registration = await lockRegistrationRow(payment.registrationId, tx);
 
   if (!registration) {
     throw new ManualProofError(
