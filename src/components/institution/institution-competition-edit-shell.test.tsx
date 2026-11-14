@@ -575,6 +575,37 @@ describe("InstitutionCompetitionEditShell after publish", () => {
       unpublishAdvice: screen.queryByText(/batalkan publikasi/),
     }).toEqual({ title: true, sentence: true, unpublishAdvice: null });
   });
+
+  it("tells the host to reload when the competition changed during the edit", async () => {
+    stubFetchSequence([
+      loadPublishedTeam,
+      () => failedJson({ error: { code: "competition_changed_during_edit" } }),
+    ]);
+    mount();
+    await screen.findByRole("button", { name: "Simpan" });
+
+    fireEvent.change(screen.getByLabelText(/Pendaftaran berakhir/), {
+      target: {
+        value: toLocalInput(
+          new Date(new Date(PUBLISHED_TEAM.registrationEndAt).getTime() + 4 * DAY),
+        ),
+      },
+    });
+    fireEvent.click(saveButton());
+    const toast = await screen.findByText(
+      "Kompetisi ini baru saja diubah atau diterbitkan. Muat ulang halaman lalu coba lagi.",
+    );
+
+    expect({
+      toast: toast.textContent,
+      fallback: screen.queryByText("Perubahan gagal disimpan. Coba lagi."),
+      dialog: screen.queryByRole("dialog"),
+    }).toEqual({
+      toast: "Kompetisi ini baru saja diubah atau diterbitkan. Muat ulang halaman lalu coba lagi.",
+      fallback: null,
+      dialog: null,
+    });
+  });
 });
 
 describe("InstitutionCompetitionEditShell publish readiness", () => {

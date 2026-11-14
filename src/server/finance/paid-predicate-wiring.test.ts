@@ -164,9 +164,11 @@ describe("the fee-setting write path enforces the edit matrix THROUGH the classi
   it("keeps no private copy of either matrix rule", () => {
     const source = read(FEE_SERVICE);
 
-    // A local re-check is how one path ends up permitting what the shared rule refuses. Both of
-    // these predicates belong to the classifier's snapshot now, and calling either directly here
-    // would be the duplication returning.
+    // The draft hold (assertDraftPriceMayChange) asks two questions of its own: is a registration
+    // that is not cancelled left, and does a transfer await review. The two predicates below answer
+    // other questions: the in-flight one also counts verified transfers, and the free-entrants one
+    // sees only free registrants. Calling either here would hold or release a draft's price on a
+    // rule this path does not have.
     expect(source).not.toContain("hasCompetitionPaymentInFlight(");
     expect(source).not.toContain("hasActiveFreeRegistrations(");
   });

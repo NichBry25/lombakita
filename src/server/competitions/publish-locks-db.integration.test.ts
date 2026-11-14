@@ -616,6 +616,59 @@ describe.skipIf(skipWithoutDatabase)(
         });
       });
     });
+
+    it("extends the close when the only transfer under review is on a zero-gross payment, and announces it", async () => {
+      await inRollback(async (tx) => {
+        const seed = await seedCompetition(tx, { status: "published", paid: true });
+        const { registrationId } = await seedTransferAwaitingReview(tx, seed);
+        await tx
+          .update(financePayments)
+          .set({ grossAmount: 0, institutionNetAmount: 0 })
+          .where(eq(financePayments.competitionRegistrationId, registrationId));
+        const before = await readStored(tx, seed.competitionId);
+
+        const refusal = await refusalOf(
+          editVia(tx, seed, {
+            registrationEndAt: isoShiftedBy(seed.registrationEndAt, 4 * DAY_MS),
+          }),
+        );
+
+        expect({
+          refusal,
+          stored: await readStored(tx, seed.competitionId),
+          announced: announcedFields(),
+        }).toEqual({
+          refusal: null,
+          stored: { ...before, registrationEndAt: seed.registrationEndAt.getTime() + 4 * DAY_MS },
+          announced: [["registrationEndAt"]],
+        });
+      });
+    });
+
+    it("extends the close when a transfer awaits review on another competition, and announces it", async () => {
+      await inRollback(async (tx) => {
+        const seed = await seedCompetition(tx, { status: "published", paid: true });
+        const other = await seedCompetition(tx, { status: "published", paid: true });
+        await seedTransferAwaitingReview(tx, other);
+        const before = await readStored(tx, seed.competitionId);
+
+        const refusal = await refusalOf(
+          editVia(tx, seed, {
+            registrationEndAt: isoShiftedBy(seed.registrationEndAt, 4 * DAY_MS),
+          }),
+        );
+
+        expect({
+          refusal,
+          stored: await readStored(tx, seed.competitionId),
+          announced: announcedFields(),
+        }).toEqual({
+          refusal: null,
+          stored: { ...before, registrationEndAt: seed.registrationEndAt.getTime() + 4 * DAY_MS },
+          announced: [["registrationEndAt"]],
+        });
+      });
+    });
   },
 );
 
