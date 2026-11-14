@@ -34,11 +34,15 @@ import {
 } from "@/server/db/schema";
 import { setCompetitionFee } from "@/server/competitions/competition-fee-service";
 import { parseCompetitionPatchInput } from "@/server/competitions/competition-core";
-import { updateCompetitionDraft } from "@/server/competitions/competition-service";
+import {
+  unpublishCompetition,
+  updateCompetitionDraft,
+} from "@/server/competitions/competition-service";
 import { hashToken } from "@/server/teams/team-core";
 import {
   acceptTeamInvitationForUser,
   cancelTeamInvitationByToken,
+  createTeam,
   declineTeamInvitationForUser,
   inviteTeamMember,
 } from "@/server/teams/team-service";
@@ -48,6 +52,8 @@ const enqueueSpies = vi.hoisted(() => ({
   enqueueTeamInvitationDispatch: vi.fn(),
   enqueueRegistrationConfirmed: vi.fn(),
   enqueueCompetitionEdited: vi.fn(),
+  enqueueCompetitionCancelled: vi.fn(),
+  enqueueCompetitionSearchSync: vi.fn(),
 }));
 
 vi.mock("@/server/async/enqueue", async (importOriginal) => {
@@ -513,6 +519,17 @@ const teamStatus = async (teamId: string) => {
   return row!.status;
 };
 
+const teamStatusesCaptainedBy = async (
+  competitionId: string,
+  captainId: string,
+): Promise<string[]> => {
+  const rows = await control.db
+    .select({ status: teams.status })
+    .from(teams)
+    .where(and(eq(teams.competitionId, competitionId), eq(teams.captainId, captainId)));
+  return rows.map((row) => row.status).sort();
+};
+
 const activeMemberIds = async (teamId: string): Promise<string[]> => {
   const rows = await control.db
     .select({ userId: teamMemberships.userId })
@@ -626,6 +643,8 @@ afterEach(async () => {
   enqueueSpies.enqueueTeamInvitationDispatch.mockReset();
   enqueueSpies.enqueueRegistrationConfirmed.mockReset();
   enqueueSpies.enqueueCompetitionEdited.mockReset();
+  enqueueSpies.enqueueCompetitionCancelled.mockReset();
+  enqueueSpies.enqueueCompetitionSearchSync.mockReset();
 });
 
 afterAll(async () => {
@@ -659,6 +678,8 @@ const readyEnqueueSpies = () => {
   enqueueSpies.enqueueTeamInvitationDispatch.mockResolvedValue({});
   enqueueSpies.enqueueRegistrationConfirmed.mockResolvedValue({});
   enqueueSpies.enqueueCompetitionEdited.mockResolvedValue({});
+  enqueueSpies.enqueueCompetitionCancelled.mockResolvedValue({});
+  enqueueSpies.enqueueCompetitionSearchSync.mockResolvedValue({});
 };
 
 describe.skipIf(skipWithoutDatabase)("a registered free team under real contention", () => {
@@ -1112,6 +1133,50 @@ describe.skipIf(skipWithoutDatabase)("a competition write racing a change to its
       code: "competition_changed_during_edit",
       row: { ...before, maxTeamSize: 6 },
       invites: invitesBefore,
+    });
+  });
+});
+
+describe.skipIf(skipWithoutDatabase)("a team created while the host unpublishes", () => {
+  it("waits for the unpublish and is refused, so no team is left on the unpublished competition", async () => {
+    readyEnqueueSpies();
+    const { competitionId, institutionId, teamId } = await seedTeam("forming");
+    const owner = await seedOwner(institutionId);
+    const dewi = await seedUser("dewi");
+    const [barrierPid, unpublishPid, createPid] = await Promise.all([
+      backendPidOf(barrier),
+      backendPidOf(racerOne),
+      backendPidOf(racerTwo),
+    ]);
+
+    const [unpublish, create] = await withParticipationLockHeld(competitionId, async (track) => {
+      const unpublishRun = track(
+        unpublishCompetition(owner.id, competitionId, racerOne.db as never),
+      );
+      await awaitBlockedBy(unpublishPid, barrierPid, "the unpublish");
+
+      const createRun = track(
+        createTeam(dewi.id, competitionId, { name: `Tim ${nextSeedId()}` }, racerTwo.db as never),
+      );
+      await awaitBlockedBy(createPid, barrierPid, "the team creation");
+
+      return [unpublishRun, createRun] as const;
+    }).then(async ([unpublishRun, createRun]) => [await unpublishRun, await createRun] as const);
+
+    expect({
+      unpublishOk: unpublish.ok,
+      createOk: create.ok,
+      createCode: create.ok ? undefined : errorCodeOf(create.error),
+      createStatus: create.ok ? undefined : (create.error as { status?: number }).status,
+      createdTeams: await teamStatusesCaptainedBy(competitionId, dewi.id),
+      seededTeam: await teamStatus(teamId),
+    }).toEqual({
+      unpublishOk: true,
+      createOk: false,
+      createCode: "team_competition_not_published",
+      createStatus: 422,
+      createdTeams: [],
+      seededTeam: "cancelled",
     });
   });
 });

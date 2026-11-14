@@ -204,6 +204,13 @@ describe("createTeam invariants", () => {
     const { db: db2 } = makeDb([[baseCompetition({ mode: "both" })], []]);
     db2.transaction = vi.fn().mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => {
       const tx = {
+        select: vi.fn(() => ({
+          from: () => ({
+            where: () => ({
+              limit: vi.fn().mockResolvedValue([baseCompetition({ mode: "both" })]),
+            }),
+          }),
+        })),
         insert: vi.fn().mockImplementation(() => ({
           values: vi.fn().mockReturnValue({
             returning: vi.fn().mockResolvedValue([baseTeam()]),

@@ -50,6 +50,16 @@ vi.mock("@/server/competitions/competition-participation-lock", () => ({
   acquireCompetitionParticipationLock: vi.fn(),
 }));
 vi.mock("@/server/teams/registered-team", () => ({ moveRegisteredTeamInvitationsToClose }));
+const { disbandEveryTeamOfCompetition, markCompetitionRegistrationsPublicationClosed } = vi.hoisted(
+  () => ({
+    disbandEveryTeamOfCompetition: vi.fn().mockResolvedValue(undefined),
+    markCompetitionRegistrationsPublicationClosed: vi.fn().mockResolvedValue(undefined),
+  }),
+);
+vi.mock("@/server/teams/team-service", () => ({ disbandEveryTeamOfCompetition }));
+vi.mock("@/server/registrations/registration-service", () => ({
+  markCompetitionRegistrationsPublicationClosed,
+}));
 
 // The DEC-0132 in-flight guard, which unpublishCompetition consults, and the awaiting-review
 // predicate behind the edit classifier's snapshot. Both default to "nothing pending" so the lifecycle
@@ -874,6 +884,16 @@ describe("unpublishCompetition — cascade", () => {
     expect(enqueueCompetitionSearchSync).toHaveBeenCalledWith(
       expect.objectContaining({ competitionId: "comp_1", action: "remove" }),
     );
+    expect(markCompetitionRegistrationsPublicationClosed).toHaveBeenCalledWith(
+      "comp_1",
+      expect.any(Date),
+      expect.anything(),
+    );
+    expect(disbandEveryTeamOfCompetition).toHaveBeenCalledWith(
+      "comp_1",
+      expect.any(Date),
+      expect.anything(),
+    );
   });
 
   it("rejects unpublishing a non-published competition with 422", async () => {
@@ -950,6 +970,8 @@ describe("unpublishCompetition — cascade", () => {
     });
     // The transaction rolls back before either mutation.
     expect(enqueueCompetitionCancelled).not.toHaveBeenCalled();
+    expect(markCompetitionRegistrationsPublicationClosed).not.toHaveBeenCalled();
+    expect(disbandEveryTeamOfCompetition).not.toHaveBeenCalled();
   });
 
   // Inverted deliberately: an earlier cut of this rule reopened withdrawal once the event was

@@ -1033,8 +1033,8 @@ describe.skipIf(skipWithoutDatabase)("accepting an invite of a registered free t
 
       const answer = await acceptViaRoute(tx, sari.id, sariInvite.id);
 
-      expect(answer.status).toBe(422);
-      expect(errorCodeOf(answer)).toBe("team_competition_not_published");
+      expect(answer.status).toBe(410);
+      expect(errorCodeOf(answer)).toBe("team_invite_not_actionable");
       expect(await activeMemberIds(tx, teamId)).not.toContain(sari.id);
       expect(await registrationsOf(tx, competitionId, [sari.id])).toHaveLength(0);
     });
@@ -1170,7 +1170,7 @@ describe.skipIf(skipWithoutDatabase)("accepting an invite of a registered free t
         tx as unknown as Database,
       );
 
-      expect(await teamStatusOf(tx, teamId)).toBe("submitted");
+      expect(await teamStatusOf(tx, teamId)).toBe("cancelled");
 
       const accept = await acceptViaRoute(tx, sari.id, sariInvite.id);
       const invite = await inviteViaRoute(tx, rina.id, teamId, dewi.username);
@@ -1179,13 +1179,13 @@ describe.skipIf(skipWithoutDatabase)("accepting an invite of a registered free t
         { status: accept.status, code: errorCodeOf(accept) },
         { status: invite.status, code: errorCodeOf(invite) },
       ]).toEqual([
-        { status: 409, code: "team_not_forming" },
+        { status: 410, code: "team_invite_not_actionable" },
         { status: 409, code: "team_not_forming" },
       ]);
       expect(await activeMemberIds(tx, teamId)).not.toContain(sari.id);
       expect(await registrationsOf(tx, competitionId, [sari.id])).toHaveLength(0);
       expect(await invitationsToEmail(tx, teamId, dewi.email)).toHaveLength(0);
-      expect((await invitationOf(tx, sariInvite.id)).status).toBe("pending");
+      expect((await invitationOf(tx, sariInvite.id)).status).toBe("cancelled");
     });
   });
 

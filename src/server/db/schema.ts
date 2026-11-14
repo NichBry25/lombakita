@@ -1150,7 +1150,7 @@ export type CompetitionRegistrationReviewStatus =
 // in the migration: UNIQUE (student_id, competition_id) WHERE status != 'cancelled'. Cancelled
 // rows are kept as history and sit outside the index, so registering again inserts a new row.
 // A cancelled individual row that a payment proof was sent for still blocks registering again
-// as an individual, in the service (DEC-0174).
+// as an individual, in the service (DEC-0174), until an unpublish closes its publication.
 //
 // `team_id` joins a registration row to a `teams` row when registration_type='team'.
 // The DB CHECK `competition_registrations_type_team_id_chk` enforces co-presence: a 'team' row
@@ -1180,6 +1180,9 @@ export const competitionRegistrations = pgTable(
       .notNull(),
     cancelledAt: timestamp("cancelled_at", { mode: "date", withTimezone: true }),
     cancellationReason: text("cancellation_reason"),
+    // Set when an unpublish ends the publication this row was made in. Such a row refuses nothing
+    // once the competition is published again.
+    publicationClosedAt: timestamp("publication_closed_at", { mode: "date", withTimezone: true }),
     // Institution-internal review — not candidate-visible.
     internalReviewStatus: competitionRegistrationReviewStatusEnum("internal_review_status")
       .notNull()
@@ -1403,7 +1406,10 @@ export const teams = pgTable(
     updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
-    uniqueIndex("teams_competition_id_name_unique_idx").on(table.competitionId, table.name),
+    // A cancelled team keeps its row and gives up its name.
+    uniqueIndex("teams_competition_id_name_unique_idx")
+      .on(table.competitionId, table.name)
+      .where(sql`${table.status} <> 'cancelled'`),
     index("teams_competition_id_idx").on(table.competitionId),
     index("teams_captain_id_idx").on(table.captainId),
     // Redundant on its own, since `id` is already the primary key, and required by Postgres so that

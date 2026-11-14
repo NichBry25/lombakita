@@ -48,6 +48,16 @@ vi.mock("@/server/finance/manual-payment-proof-service", () => ({
   ManualProofError,
   voidManualPaymentProof,
 }));
+const { disbandEveryTeamOfCompetition, markCompetitionRegistrationsPublicationClosed } = vi.hoisted(
+  () => ({
+    disbandEveryTeamOfCompetition: vi.fn().mockResolvedValue(undefined),
+    markCompetitionRegistrationsPublicationClosed: vi.fn().mockResolvedValue(undefined),
+  }),
+);
+vi.mock("@/server/teams/team-service", () => ({ disbandEveryTeamOfCompetition }));
+vi.mock("@/server/registrations/registration-service", () => ({
+  markCompetitionRegistrationsPublicationClosed,
+}));
 
 import { cancelCompetitionAsOps, voidPaymentProofAsOps } from "./ops-payment-service";
 import type { Database } from "@/server/db/client";
@@ -164,6 +174,8 @@ describe("cancelCompetitionAsOps operator integrity", () => {
     ).rejects.toMatchObject({ code: "ops_competition_not_found", status: 404 });
     expect(tx.update).not.toHaveBeenCalled();
     expect(inserted).toHaveLength(0);
+    expect(markCompetitionRegistrationsPublicationClosed).not.toHaveBeenCalled();
+    expect(disbandEveryTeamOfCompetition).not.toHaveBeenCalled();
   });
 
   it("validates an empty reason before any database work", async () => {
@@ -186,6 +198,12 @@ describe("cancelCompetitionAsOps operator integrity", () => {
       eventType: "platform_ops_competition_cancelled",
       reason: "reason",
     });
+    expect(markCompetitionRegistrationsPublicationClosed).toHaveBeenCalledWith(
+      "comp_1",
+      NOW,
+      expect.anything(),
+    );
+    expect(disbandEveryTeamOfCompetition).toHaveBeenCalledWith("comp_1", NOW, expect.anything());
   });
 });
 

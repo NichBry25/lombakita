@@ -43,6 +43,8 @@ import { hasCompetitionStarted } from "@/lib/competitions/competition-withdrawal
 import { isParticipantCancellationClosedByConfirmation } from "@/lib/competitions/competition-participation";
 import { acquireCompetitionParticipationLock } from "@/server/competitions/competition-participation-lock";
 import { moveRegisteredTeamInvitationsToClose } from "@/server/teams/registered-team";
+import { disbandEveryTeamOfCompetition } from "@/server/teams/team-service";
+import { markCompetitionRegistrationsPublicationClosed } from "@/server/registrations/registration-service";
 import {
   assertActorIsTrustedRecruiter,
   assertCompetitionAccess,
@@ -1097,8 +1099,9 @@ export type UnpublishCompetitionResult = {
   cancelledCount: number;
 };
 
-// Unpublish-as-cancellation. Transitions a published competition back to draft AND cancels
-// every non-cancelled registration in one transaction (DEC-0070: rows are never hard-deleted,
+// Unpublish-as-cancellation. Transitions a published competition back to draft, cancels every
+// non-cancelled registration, marks every registration as made in a publication that has ended and
+// disbands every team, in one transaction (rows are never hard-deleted,
 // status='cancelled' is terminal). publishedAt is preserved (DEC-0030). After commit, fans out the
 // competition.cancelled dual-channel notice (recipients re-derived at job-run from the institution
 // cancellation reason) and removes the competition from the search index. The competition row
@@ -1219,6 +1222,9 @@ export const unpublishCompetition = async (
         ),
       )
       .returning({ id: competitionRegistrations.id });
+
+    await markCompetitionRegistrationsPublicationClosed(competitionId, mutationAt, tx);
+    await disbandEveryTeamOfCompetition(competitionId, mutationAt, tx);
 
     return {
       competition: statusRow,

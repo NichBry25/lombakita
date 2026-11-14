@@ -2,7 +2,7 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/teams/team-service");
 
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { logger } from "@/lib/logger";
 import { getDb, type Database } from "@/server/db/client";
 import {
@@ -236,6 +236,15 @@ export const createTeam = async (
 
   try {
     return await db.transaction(async (tx) => {
+      // Rule 25: read again under the lock an unpublish takes, so a team cannot land on a
+      // competition unpublished a moment before.
+      await acquireCompetitionParticipationLock(tx, competitionId);
+      const lockedCompetition = await loadCompetitionForTeams(
+        competitionId,
+        tx as unknown as Database,
+      );
+      assertCompetitionTeamPlayable(lockedCompetition, now);
+
       const [team] = await tx
         .insert(teams)
         .values({
@@ -327,6 +336,47 @@ export const updateTeam = async (
   }
 };
 
+// A disbanded team keeps its row as a record: its open invitations are cancelled, its active
+// memberships removed and its status set to cancelled.
+const disbandTeams = async (tx: DbOrTx, teamIds: string[], now: Date): Promise<void> => {
+  await tx
+    .update(teamInvitations)
+    .set({ status: "cancelled" })
+    .where(
+      and(
+        inArray(teamInvitations.teamId, teamIds),
+        inArray(teamInvitations.status, ["pending", "pending_claim"]),
+      ),
+    );
+
+  await tx
+    .update(teamMemberships)
+    .set({ status: "removed" })
+    .where(and(inArray(teamMemberships.teamId, teamIds), eq(teamMemberships.status, "active")));
+
+  await tx
+    .update(teams)
+    .set({ status: "cancelled", updatedAt: now })
+    .where(inArray(teams.id, teamIds));
+};
+
+// Disbands every team of the competition that is not already cancelled. Called inside an
+// unpublish's transaction, after its registrations are cancelled.
+export const disbandEveryTeamOfCompetition = async (
+  competitionId: string,
+  now: Date,
+  tx: DbOrTx,
+): Promise<void> => {
+  const openTeams = await tx
+    .select({ id: teams.id })
+    .from(teams)
+    .where(and(eq(teams.competitionId, competitionId), ne(teams.status, "cancelled")));
+  if (openTeams.length === 0) return;
+
+  const teamIds = openTeams.map((team) => team.id);
+  await disbandTeams(tx, teamIds, now);
+};
+
 // Captain disbands the team. Atomically: cancels every pending invitation, marks every active
 // membership row as removed, and flips the team status to cancelled. The team row remains as a
 // historical artefact (FK targets stay valid for any future audit).
@@ -343,22 +393,7 @@ export const disbandTeam = async (
   assertTeamForming(team);
 
   await db.transaction(async (tx) => {
-    await tx
-      .update(teamInvitations)
-      .set({ status: "cancelled" })
-      .where(
-        and(
-          eq(teamInvitations.teamId, teamId),
-          inArray(teamInvitations.status, ["pending", "pending_claim"]),
-        ),
-      );
-
-    await tx
-      .update(teamMemberships)
-      .set({ status: "removed" })
-      .where(and(eq(teamMemberships.teamId, teamId), eq(teamMemberships.status, "active")));
-
-    await tx.update(teams).set({ status: "cancelled", updatedAt: now }).where(eq(teams.id, teamId));
+    await disbandTeams(tx, [teamId], now);
   });
 
   logger.info("team.disbanded", { teamId });

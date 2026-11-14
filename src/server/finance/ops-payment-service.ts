@@ -22,6 +22,8 @@ import {
 import { assertOperatorIsNotPayer } from "@/server/finance/operator-payer-conflict";
 import { INSTITUTION_CANCELLATION_REASON } from "@/server/competitions/competition-lifecycle";
 import { acquireCompetitionParticipationLock } from "@/server/competitions/competition-participation-lock";
+import { disbandEveryTeamOfCompetition } from "@/server/teams/team-service";
+import { markCompetitionRegistrationsPublicationClosed } from "@/server/registrations/registration-service";
 import { enqueueCompetitionCancelled, enqueueCompetitionSearchSync } from "@/server/async/enqueue";
 import { logger } from "@/lib/logger";
 import {
@@ -85,7 +87,8 @@ export type OpsCancelCompetitionResult = {
  * Performs the unpublish-as-cancellation an organiser is blocked from, past the DEC-0132 in-flight
  * guard. The SAME terminal outcome as `unpublishCompetition`, made by an accountable operator:
  * the competition returns to draft, every non-cancelled registration is cancelled, the search index
- * drops it and the participants are told.
+ * drops it, every registration is marked as made in a publication that has ended, every team is
+ * disbanded and the participants are told.
  *
  * Taking the competition down is the point. Cancelling only the registrations would leave the
  * competition live and publicly registerable while everyone already in it had been removed, so a
@@ -176,6 +179,9 @@ export const cancelCompetitionAsOps = async (
         ),
       )
       .returning({ id: competitionRegistrations.id });
+
+    await markCompetitionRegistrationsPublicationClosed(competitionId, now, tx);
+    await disbandEveryTeamOfCompetition(competitionId, now, tx);
 
     await recordOperatorAuditEntry(tx, actor, {
       // A competition is not a user, and the audit table's target_present_chk requires a user or an

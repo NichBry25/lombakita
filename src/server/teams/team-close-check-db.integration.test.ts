@@ -1623,7 +1623,7 @@ describe.skipIf(skipWithoutDatabase)("the captain's reminder and the members' no
         inbox: await notificationsOf(tx, rina.id),
         sends: noticeSpies.sendTeamCloseNoticeEmail.mock.calls.length,
       }).toEqual({ inbox: [], sends: 0 });
-      expect(await teamStatusOf(tx, teamId)).toBe("submitted");
+      expect(await teamStatusOf(tx, teamId)).toBe("cancelled");
     });
   });
 

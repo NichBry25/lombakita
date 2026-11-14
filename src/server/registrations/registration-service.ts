@@ -38,9 +38,9 @@ const REGISTRATION_COLUMNS = {
 } as const;
 
 // Pure read for downstream steps (4.5 dashboard, 4.6 submission intake).
-// Returns the candidate's most recent registration row for this competition (any status), or
-// null when no row exists. Callers must scope `studentId` to the authenticated session — this
-// helper performs no authorization of its own.
+// Returns the candidate's most recent registration row for this competition (any status) in its
+// current publication, or null when there is none. Callers must scope `studentId` to the
+// authenticated session. This helper performs no authorization of its own.
 export const getStudentRegistration = async (
   studentId: string,
   competitionId: string,
@@ -53,6 +53,7 @@ export const getStudentRegistration = async (
       and(
         eq(competitionRegistrations.studentId, studentId),
         eq(competitionRegistrations.competitionId, competitionId),
+        isNull(competitionRegistrations.publicationClosedAt),
       ),
     )
     .orderBy(desc(competitionRegistrations.registeredAt))
@@ -121,8 +122,9 @@ const findActiveRegistration = async (
 };
 
 // A cancelled individual registration that a payment proof was sent for keeps blocking a new one
-// (DEC-0174: the proof, not the competition's price). The page asks the same question with this
-// reader, so the card never offers what the server refuses.
+// (DEC-0174: the proof, not the competition's price) within its publication. A row whose
+// publication an unpublish closed blocks nothing. The page asks the same question with this reader,
+// so the card never offers what the server refuses.
 export const hasPaymentProofOnCancelledIndividualRegistrations = async (
   studentId: string,
   competitionId: string,
@@ -137,6 +139,7 @@ export const hasPaymentProofOnCancelledIndividualRegistrations = async (
         eq(competitionRegistrations.competitionId, competitionId),
         eq(competitionRegistrations.status, "cancelled"),
         eq(competitionRegistrations.registrationType, "individual"),
+        isNull(competitionRegistrations.publicationClosedAt),
       ),
     );
 
@@ -146,6 +149,25 @@ export const hasPaymentProofOnCancelledIndividualRegistrations = async (
     }
   }
   return false;
+};
+
+// Marks every registration of the competition, cancelled or not, as made in a publication that has
+// ended. Called inside an unpublish's transaction, under the competition's participation lock, so
+// every row written later belongs to a later publication.
+export const markCompetitionRegistrationsPublicationClosed = async (
+  competitionId: string,
+  closedAt: Date,
+  tx: DbOrTx,
+): Promise<void> => {
+  await tx
+    .update(competitionRegistrations)
+    .set({ publicationClosedAt: closedAt })
+    .where(
+      and(
+        eq(competitionRegistrations.competitionId, competitionId),
+        isNull(competitionRegistrations.publicationClosedAt),
+      ),
+    );
 };
 
 const assertNoPaymentProofOnCancelledIndividualRegistrations = async (
