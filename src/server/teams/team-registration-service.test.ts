@@ -33,6 +33,12 @@ vi.mock("@/server/finance/paid-registration", () => ({
   findTeamPaymentGroupAnchor,
   lockPaymentGroupAnchorRow,
 }));
+vi.mock("@/server/competitions/competition-access", async () => {
+  const actual = await vi.importActual<typeof import("@/server/competitions/competition-access")>(
+    "@/server/competitions/competition-access",
+  );
+  return { ...actual, isCompetitionHost: vi.fn().mockResolvedValue(false) };
+});
 
 import { cancelTeamRegistration, submitTeamRegistration } from "./team-registration-service";
 

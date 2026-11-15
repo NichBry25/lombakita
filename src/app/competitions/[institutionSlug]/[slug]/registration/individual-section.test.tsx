@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { UIPrimitivesProvider } from "@/components/ui/primitives";
 import { IndividualRegistrationSection } from "./individual-section";
+import { sessionFetch } from "@/lib/session/session-fetch";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }) }));
 vi.mock("@/lib/session/session-fetch", async (importOriginal) => {
@@ -113,5 +114,36 @@ describe("the cancelled registration card", () => {
       ).toBeTruthy(),
     );
     await waitFor(() => expect(screen.getByRole("button", { name: "Daftar" })).toBeTruthy());
+  });
+});
+
+describe("the register button's refusals", () => {
+  it("says why an owner or staff member of the competition's institution cannot register", async () => {
+    vi.mocked(sessionFetch).mockResolvedValueOnce({
+      ok: false,
+      json: async () => ({ error: { code: "registration_host_of_competition" } }),
+    } as unknown as Response);
+    render(
+      <UIPrimitivesProvider>
+        <IndividualRegistrationSection
+          competitionId="comp-1"
+          ctaState="open"
+          initialRegistration={null}
+          expectedUserId="user-1"
+          modeLabel="Daftar"
+          cancellationClosedByPaymentProof={false}
+          registrationWithheld={false}
+          registerAgainClosedByPaymentProof={false}
+        />
+      </UIPrimitivesProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Daftar" }));
+
+    expect(
+      await screen.findByText(
+        "Anda pemilik atau staf penyelenggara kompetisi ini, jadi tidak dapat ikut mendaftar.",
+      ),
+    ).toBeTruthy();
   });
 });

@@ -30,6 +30,7 @@ import {
   listPublicReviews,
 } from "@/server/competitions/competition-reviews-service";
 import { loadInstitutionVerificationSummaryBySlug } from "@/server/institution-workspace/institution-service";
+import { isCompetitionHost } from "@/server/competitions/competition-access";
 import { RegisterStickyBar } from "./register-sticky-bar";
 import { RegistrationButton } from "./registration-button";
 import { candidateRoleOfferPath } from "./candidate-role-offer-path";
@@ -39,6 +40,7 @@ import { OrganizerContactLink } from "./organizer-contact-link";
 import { CompetitionReviewForm } from "./competition-review-form";
 import { formatTeamSizeText } from "./team-size-utils";
 import { isPaidCompetition } from "@/lib/competitions/paid-competition";
+import { COMPETITION_HOST_CANNOT_JOIN_MESSAGE } from "@/lib/errors/error-copy";
 
 // The fee and its currency are read TOGETHER. `fee_amount` is an integer count of the currency's
 // smallest unit (@/lib/finance/money), so the number alone does not say what it means. The same
@@ -315,6 +317,10 @@ export default async function CompetitionDetailPage({
   ]);
 
   if (!competition) notFound();
+
+  const isHostOfCompetition = session?.user
+    ? await isCompetitionHost(session.user.id, competition.id)
+    : false;
 
   const isCandidate = sessionHasRole(
     session?.user?.role,
@@ -635,7 +641,7 @@ export default async function CompetitionDetailPage({
                 expectedUserId={session!.user.id}
                 initialReview={myReview ? { rating: myReview.rating, body: myReview.body } : null}
               />
-            ) : isCandidate ? (
+            ) : isCandidate && !isHostOfCompetition ? (
               <p className="muted-copy">Daftar dan ikuti kompetisi ini untuk memberi ulasan.</p>
             ) : !session?.user ? (
               <p className="detail-rail-note">
@@ -724,15 +730,19 @@ export default async function CompetitionDetailPage({
           </div>
           <div className="detail-rail-actions">
             <div className="detail-primary-actions" id="register-actions">
-              <RegistrationButton
-                ctaState={competition.ctaState}
-                registrationPath={registrationPath}
-                signInPath={signInPath}
-                candidateRoleOfferPath={roleOfferPath}
-                isCandidate={isCandidate}
-                isSignedIn={Boolean(session?.user)}
-                isCancelled={competition.cancelledAt !== null}
-              />
+              {isHostOfCompetition ? (
+                <p className="detail-rail-note">{COMPETITION_HOST_CANNOT_JOIN_MESSAGE}</p>
+              ) : (
+                <RegistrationButton
+                  ctaState={competition.ctaState}
+                  registrationPath={registrationPath}
+                  signInPath={signInPath}
+                  candidateRoleOfferPath={roleOfferPath}
+                  isCandidate={isCandidate}
+                  isSignedIn={Boolean(session?.user)}
+                  isCancelled={competition.cancelledAt !== null}
+                />
+              )}
               {isCandidate ? (
                 <SaveButton
                   competitionId={competition.id}
@@ -754,7 +764,7 @@ export default async function CompetitionDetailPage({
                 <Link href={signInPath}>Masuk</Link> sebagai kandidat untuk mendaftar.
               </p>
             ) : null}
-            {session?.user && !isCandidate && roleOfferPath === null ? (
+            {session?.user && !isHostOfCompetition && !isCandidate && roleOfferPath === null ? (
               <p className="detail-rail-note">Hanya akun kandidat yang dapat mendaftar.</p>
             ) : null}
 
@@ -783,17 +793,19 @@ export default async function CompetitionDetailPage({
             </>
           ) : null}
         </aside>
-        <RegisterStickyBar targetId="register-actions">
-          <RegistrationButton
-            ctaState={competition.ctaState}
-            registrationPath={registrationPath}
-            signInPath={signInPath}
-            candidateRoleOfferPath={roleOfferPath}
-            isCandidate={isCandidate}
-            isSignedIn={Boolean(session?.user)}
-            isCancelled={competition.cancelledAt !== null}
-          />
-        </RegisterStickyBar>
+        {!isHostOfCompetition ? (
+          <RegisterStickyBar targetId="register-actions">
+            <RegistrationButton
+              ctaState={competition.ctaState}
+              registrationPath={registrationPath}
+              signInPath={signInPath}
+              candidateRoleOfferPath={roleOfferPath}
+              isCandidate={isCandidate}
+              isSignedIn={Boolean(session?.user)}
+              isCancelled={competition.cancelledAt !== null}
+            />
+          </RegisterStickyBar>
+        ) : null}
       </div>
 
       <CompetitionRail

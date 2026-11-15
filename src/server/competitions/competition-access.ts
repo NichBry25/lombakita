@@ -194,6 +194,23 @@ export const assertCompetitionRead = async (
   return { competition, membershipRole: role };
 };
 
+/**
+ * Whether this account is an active owner or staff member of the institution that runs this
+ * competition: the accounts assertCompetitionAccess admits to manage it. They run the competition,
+ * so they cannot take part in it. False for a competition that does not exist or is deleted.
+ */
+export const isCompetitionHost = async (
+  userId: string,
+  competitionId: string,
+  db: Database = getDb(),
+): Promise<boolean> => {
+  const competition = await loadCompetitionById(competitionId, db);
+  if (!competition) return false;
+
+  const role = await findActiveMembershipRole(userId, competition.institutionId, db);
+  return role !== null && MEMBER_ROLES.includes(role);
+};
+
 // Recruiter trust gate for publishing. The acting account must hold the Trusted Recruiter tier
 // (`elevated`); sandboxed recruiters (`minimal`) may draft but not publish. Reads the tier from
 // the DB (not the JWT) so a fresh platform-ops approval takes effect on the next request.

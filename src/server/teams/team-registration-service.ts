@@ -23,6 +23,7 @@ import { MAX_CANCELLATION_REASON_LENGTH } from "@/server/registrations/registrat
 import { isParticipantCancellationClosedByConfirmation } from "@/lib/competitions/competition-participation";
 import { isPaidCompetition } from "@/lib/competitions/paid-competition";
 import { acquireCompetitionParticipationLock } from "@/server/competitions/competition-participation-lock";
+import { isCompetitionHost } from "@/server/competitions/competition-access";
 import {
   findTeamPaymentGroupAnchor,
   hasSubmittedPaymentProof,
@@ -294,6 +295,23 @@ const assertCaptainAccess = (
   }
 };
 
+// A member who became an owner or staff member of the competition's institution after joining keeps
+// the seat, and the team cannot register while they hold it.
+const assertNoCompetitionHostOnTeam = async (
+  tx: DbOrTx,
+  userIds: readonly string[],
+  competitionId: string,
+): Promise<void> => {
+  for (const userId of userIds) {
+    if (await isCompetitionHost(userId, competitionId, tx)) {
+      throw new TeamError(
+        "team_member_host_of_competition",
+        "A member of this team is an owner or staff member of the competition's institution",
+      );
+    }
+  }
+};
+
 // Captain submits the team for the given competition. Pre-transaction guards run in
 // the order documented in the implementation prompt. The actual writes happen inside a single
 // transaction with a TOCTOU backstop on the team status update.
@@ -421,6 +439,7 @@ export const submitTeamRegistration = async (
 
       await assertFormingTeamSentNoPaymentProof(teamId, competitionId, tx);
       await assertCaptainHoldsNoTransferOnClosedPublication(callerUserId, competitionId, tx);
+      await assertNoCompetitionHostOnTeam(tx, registrationUserIds, competitionId);
 
       const insertedRows = await tx
         .insert(competitionRegistrations)

@@ -40,4 +40,33 @@ describe("the inbox actions of a team invitation", () => {
     const [requestedUrl] = fetchMock.mock.calls[0] as unknown[];
     expect(requestedUrl).toBe("/api/v1/me/invitations/team/inv-1/accept");
   });
+
+  it("says why an owner or staff member of the competition's institution cannot accept a team invite", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ error: { code: "team_host_of_competition" } }), {
+            status: 403,
+            headers: { "content-type": "application/json" },
+          }),
+      ),
+    );
+    render(
+      <UIPrimitivesProvider>
+        <InboxInviteActions kind="team" invitationId="inv-1" expectedUserId="user-1" />
+      </UIPrimitivesProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Terima" }));
+    await screen.findByText("Terima undangan?");
+    const confirmButtons = screen.getAllByRole("button", { name: "Terima" });
+    fireEvent.click(confirmButtons[confirmButtons.length - 1]!);
+
+    expect(
+      await screen.findByText(
+        "Anda pemilik atau staf penyelenggara kompetisi ini, jadi tidak dapat ikut mendaftar.",
+      ),
+    ).toBeTruthy();
+  });
 });

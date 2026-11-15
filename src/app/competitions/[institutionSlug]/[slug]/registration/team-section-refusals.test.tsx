@@ -47,6 +47,18 @@ const renderTeam = (viewerId: string) =>
     </UIPrimitivesProvider>,
   );
 
+const stubRefusal = (code: string, status: number) =>
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(
+      async () =>
+        new Response(JSON.stringify({ error: { code, message: "refused" } }), {
+          status,
+          headers: { "content-type": "application/json" },
+        }),
+    ),
+  );
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -86,5 +98,68 @@ describe("the team section's refusals", () => {
       await screen.findByText("Hanya kapten yang dapat mendaftarkan atau membubarkan tim."),
     ).toBeTruthy();
     expect(document.body.textContent).not.toContain("user-cap");
+  });
+
+  it("says why the captain cannot invite an owner or staff member of the competition's institution", async () => {
+    renderTeam(CAPTAIN);
+    stubRefusal("team_invitee_host_of_competition", 422);
+
+    fireEvent.change(screen.getByPlaceholderText("Username atau Email"), {
+      target: { value: "pemilik" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Undang" }));
+
+    expect(
+      await screen.findByText(
+        "Orang ini pemilik atau staf penyelenggara kompetisi ini, jadi tidak dapat diundang ke tim.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("says why the captain cannot register a team holding an owner or staff member of the competition's institution", async () => {
+    renderTeam(CAPTAIN);
+    stubRefusal("team_member_host_of_competition", 422);
+
+    fireEvent.click(screen.getByRole("button", { name: "Daftarkan tim" }));
+
+    expect(
+      await screen.findByText(
+        "Tim ini memiliki anggota yang merupakan pemilik atau staf penyelenggara kompetisi ini, jadi tim belum dapat didaftarkan.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("says why an owner or staff member of the competition's institution cannot create a team", async () => {
+    render(
+      <UIPrimitivesProvider>
+        <CompetitionTeamSection
+          competitionId="comp-1"
+          competitionMode="team"
+          minTeamSize={2}
+          maxTeamSize={4}
+          registrationOpen
+          expectedUserId="user-host"
+          initialTeam={null}
+          initialMembers={[]}
+          initialPendingInvitations={[]}
+          registrationWithheld={false}
+          cancellationClosedByPaymentProof={false}
+          isFreeCompetition={false}
+          openInvitationCount={0}
+          registrationClosesAt={null}
+          registerAgainClosedByPaymentProof={false}
+        />
+      </UIPrimitivesProvider>,
+    );
+    stubRefusal("team_host_of_competition", 403);
+
+    fireEvent.change(screen.getByPlaceholderText("Nama tim"), { target: { value: "Tim Uji" } });
+    fireEvent.click(screen.getByRole("button", { name: "Buat tim" }));
+
+    expect(
+      await screen.findByText(
+        "Anda pemilik atau staf penyelenggara kompetisi ini, jadi tidak dapat ikut mendaftar.",
+      ),
+    ).toBeTruthy();
   });
 });

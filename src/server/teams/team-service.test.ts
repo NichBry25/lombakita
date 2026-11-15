@@ -18,6 +18,12 @@ vi.mock("@/server/async/enqueue", () => ({
 vi.mock("@/server/competitions/competition-participation-lock", () => ({
   acquireCompetitionParticipationLock: vi.fn(),
 }));
+vi.mock("@/server/competitions/competition-access", async () => {
+  const actual = await vi.importActual<typeof import("@/server/competitions/competition-access")>(
+    "@/server/competitions/competition-access",
+  );
+  return { ...actual, isCompetitionHost: vi.fn().mockResolvedValue(false) };
+});
 
 import {
   acceptTeamInvitationForUser,

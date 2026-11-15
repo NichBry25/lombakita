@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui";
-import { errorMessageFor } from "@/lib/errors/error-copy";
+import { COMPETITION_HOST_CANNOT_JOIN_MESSAGE, errorMessageFor } from "@/lib/errors/error-copy";
 import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
 import { useModal, useToast } from "@/components/ui/primitives";
 
@@ -42,6 +42,7 @@ const INVITE_ERROR_COPY: Partial<Record<string, string>> = {
   team_state_conflict: "Status tim baru saja berubah. Muat ulang halaman lalu coba lagi.",
   team_invite_candidate_required:
     "Undangan tim hanya bisa diterima oleh akun kandidat. Verifikasi akun kandidat Anda terlebih dahulu.",
+  team_host_of_competition: COMPETITION_HOST_CANNOT_JOIN_MESSAGE,
   team_candidate_already_member: "Anda sudah tergabung dalam tim untuk kompetisi ini.",
   forbidden: "Akun ini tidak dapat menerima undangan.",
 };

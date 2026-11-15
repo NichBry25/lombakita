@@ -14,6 +14,7 @@ import { logger } from "@/lib/logger";
 import { enqueueRegistrationConfirmed, enqueueRegistrationCancelled } from "@/server/async/enqueue";
 import { isParticipantCancellationClosedByConfirmation } from "@/lib/competitions/competition-participation";
 import { acquireCompetitionParticipationLock } from "@/server/competitions/competition-participation-lock";
+import { isCompetitionHost } from "@/server/competitions/competition-access";
 import {
   hasSubmittedPaymentProof,
   hasTransferInFlightOnClosedPublication,
@@ -283,6 +284,7 @@ const assertParticipantCancellationWindowOpen = (
 //   (f) no registration that is not cancelled, no cancelled individual one that a payment proof
 //       was sent for, and no transfer the candidate paid that was in flight when its publication
 //       closed and has not been voided since
+//   (g) the candidate is not an owner or staff member of the competition's institution
 // The route layer already enforces (auth + role=candidate). This helper does not re-check role
 // because it requires `studentId` as input — callers must pass session.user.id.
 export const createIndividualRegistration = async (
@@ -345,6 +347,12 @@ export const createIndividualRegistration = async (
       assertCompetitionAcceptsIndividualRegistration(lockedCompetition, mutationAt);
       await assertNoPaymentProofOnCancelledIndividualRegistrations(studentId, competitionId, tx);
       await assertNoTransferInFlightOnClosedPublication(studentId, competitionId, tx);
+      if (await isCompetitionHost(studentId, competitionId, tx)) {
+        throw new RegistrationError(
+          "registration_host_of_competition",
+          "The owner and staff of the competition's institution cannot register for it",
+        );
+      }
 
       const [row] = await tx
         .insert(competitionRegistrations)
