@@ -37,15 +37,15 @@ function SkeletonPage({ label, className, children }: PageSkeletonProps & { chil
 function SkeletonHeading({ withActions = false }: { withActions?: boolean }) {
   return (
     <header className="page-heading">
-      <div className="page-heading-main">
+      <div className="page-heading-title-row">
         <Skeleton variant="title" />
-        <Skeleton width="wide" />
+        {withActions ? (
+          <div className="page-heading-icon-action">
+            <Skeleton variant="button" />
+          </div>
+        ) : null}
       </div>
-      {withActions ? (
-        <div className="page-heading-actions">
-          <Skeleton variant="button" />
-        </div>
-      ) : null}
+      <Skeleton width="wide" />
     </header>
   );
 }

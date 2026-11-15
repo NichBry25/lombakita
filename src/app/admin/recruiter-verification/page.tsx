@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useModal, useToast } from "@/components/ui/primitives";
 import {
   Button,
+  Card,
   CheckboxField,
   EmptyState,
   Feedback,
@@ -322,14 +323,18 @@ export default function RecruiterVerificationQueuePage() {
       />
 
       {items.length === 0 ? (
-        <EmptyState title="Antrean kosong" description="Tidak ada permohonan yang menunggu." />
+        <EmptyState
+          kind="queue-clear"
+          title="Antrean sudah bersih"
+          description="Tidak ada permohonan yang menunggu."
+        />
       ) : (
         <ul className="stack-md">
           {items.map((item) => {
             const isRejected = item.submission.status === "rejected";
             const attempt = attemptLabel(item.submission.resubmissionCount);
             return (
-              <li key={item.submission.id} className="content-section surface-card card-padding">
+              <Card as="li" key={item.submission.id} className="content-section">
                 <div className="section-heading">
                   <div>
                     <h2>{item.submission.fullName}</h2>
@@ -442,7 +447,7 @@ export default function RecruiterVerificationQueuePage() {
                     </>
                   )}
                 </div>
-              </li>
+              </Card>
             );
           })}
         </ul>

@@ -15,7 +15,11 @@ export default async function AdminFeeRulesPage() {
       <PageHeader
         title="Aturan biaya platform"
         description="Tarif komisi platform, berlaku per tanggal. Aturan tidak pernah diubah. Tarif baru dicatat sebagai aturan baru yang menggantikan aturan lama sejak tanggal berlakunya."
-        actions={<span className="status-badge data-text">{rules.length} aturan</span>}
+        titleMark={
+          rules.length > 0 ? (
+            <span className="status-badge data-text">{rules.length} aturan</span>
+          ) : null
+        }
       />
 
       <section className="admin-section" aria-labelledby="fee-rule-create-heading">
@@ -32,7 +36,8 @@ export default async function AdminFeeRulesPage() {
 
         {rules.length === 0 && (
           <EmptyState
-            icon="settings"
+            kind="nothing-yet"
+            size="compact"
             title="Belum ada aturan biaya"
             description="Pendaftaran berbayar tidak bisa diaktifkan sampai satu aturan berlaku."
           />

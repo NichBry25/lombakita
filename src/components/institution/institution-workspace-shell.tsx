@@ -173,7 +173,7 @@ export const InstitutionWorkspaceShell = () => {
           variant="plain"
           size="back"
           icon="arrow-left"
-          label="Dasbor penyelenggara"
+          label="Kembali ke Dasbor penyelenggara"
           onClick={() => router.push("/recruiter-dashboard")}
         />
         <div className="form-action-bar-end">

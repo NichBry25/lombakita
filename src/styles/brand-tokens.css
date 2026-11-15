@@ -72,6 +72,24 @@
    */
   --color-hover-surface: #e4ede4;
 
+  /* Card kit: the Panel fill, the Fakta circle and the pressed fill of a link card. */
+  --color-panel: #f1eada;
+  --color-fact-circle: var(--brand-mist);
+  --color-link-card-pressed: var(--brand-mist);
+
+  /* Step line segments: done, current and not reached. */
+  --color-step-done: var(--brand-palm);
+  --color-step-current: var(--brand-terracotta);
+  --color-step-todo: #d8d0bc;
+
+  /* Empty state icon circles by kind: calm, good news and error. */
+  --color-empty-calm: var(--brand-mist);
+  --color-empty-calm-icon: var(--brand-palm);
+  --color-empty-good: #edf7d0;
+  --color-empty-good-icon: var(--brand-palm);
+  --color-empty-error: var(--brand-blush);
+  --color-empty-error-icon: var(--brand-terracotta);
+
   /*
    * The offset block behind the featured competition card and the hub action card. It is a large
    * filled area sitting on the page, so unlike the tangerine frame beside it, it has to follow the
@@ -246,6 +264,18 @@
   --color-highlight-ink: #0e332d;
 
   --color-hover-surface: #1c4a42;
+  --color-panel: #0f2c27;
+  --color-fact-circle: #1a4a41;
+  --color-link-card-pressed: #1a4a41;
+  --color-step-done: var(--brand-lime);
+  --color-step-current: var(--brand-tangerine);
+  --color-step-todo: var(--color-line);
+  --color-empty-calm: #1a4a41;
+  --color-empty-calm-icon: var(--color-ink);
+  --color-empty-good: #1c3a22;
+  --color-empty-good-icon: #c3e27a;
+  --color-empty-error: #3b2417;
+  --color-empty-error-icon: var(--brand-peach);
   --surface-offset-block: #6b4128;
   --wave-crest: #563322;
 
@@ -325,8 +355,11 @@
   --text-button-lg: 1rem;
   --text-brand: 1.375rem;
   --text-footer-title: 1.5rem;
-  --text-empty-title: 1.75rem;
   --text-brand-mobile: 1.25rem;
+  --text-bagian: 1.5rem;
+  --text-heading-sm: 1.25rem;
+  --text-link-card-title: 1.125rem;
+  --text-empty-sentence: 0.9375rem;
 
   --leading-tight: 1.05;
   --leading-heading: 1.18;
@@ -359,6 +392,14 @@
   --radius-control: 999px;
   --radius-input: 14px;
   --radius-card: 18px;
+  --radius-kartu: 1.25rem;
+  --radius-panel: 1rem;
+  --link-card-min-height: 4.5rem;
+  --link-card-ring-width: 1.5px;
+  --detail-label-width: 8.75rem;
+  --detail-stacked-min: 10rem;
+  --content-empty: 30rem;
+  --step-row-height: 1.375rem;
   --radius-feature: 24px;
   --radius-pill: 999px;
   --radius-circle: 50%;

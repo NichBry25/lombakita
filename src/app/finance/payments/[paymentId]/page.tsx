@@ -42,6 +42,7 @@ export default async function FinanceDisputePaymentDetailPage({ params }: Props)
         description={detail.competitionTitle}
         title={detail.payerDisplayName}
         backHref="/finance/payments"
+        backName="Sengketa pembayaran"
       />
 
       <Feedback tone="info">
@@ -123,7 +124,7 @@ export default async function FinanceDisputePaymentDetailPage({ params }: Props)
           <ol className="record-list">
             {detail.history.map((attempt) => (
               <li key={attempt.attemptNumber}>
-                <Card variant="inset" className="stack-sm">
+                <Card className="stack-sm">
                   <div className="section-heading">
                     <div>
                       <h3>{`Percobaan ke-${attempt.attemptNumber + 1}`}</h3>

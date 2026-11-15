@@ -88,7 +88,7 @@ export const CompetitionEligibilityEditor = ({
   useCompetitionEditorPart("eligibility", isDirty, saveNote);
 
   return (
-    <section className="content-section surface-card card-padding stack-md">
+    <section className="content-section stack-md">
       <div className="stack-xs">
         <h2 className="section-title">Kelayakan</h2>
         <p className="form-help">

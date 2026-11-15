@@ -1,6 +1,15 @@
-import Link from "next/link";
+import type { ReactNode } from "react";
 import { SecondRoleBanner } from "@/components/auth/second-role-banner";
-import { ButtonLink, EmptyState, Icon, IconButtonLink, PageHeader } from "@/components/ui";
+import {
+  ButtonLink,
+  Card,
+  EmptyState,
+  Icon,
+  IconButtonLink,
+  LinkCard,
+  PageHeader,
+  PageSection,
+} from "@/components/ui";
 import { LocalDate } from "@/components/ui/local-date";
 import { formatDisplayToken } from "@/lib/text/capitalize";
 import { requireRolePage } from "@/server/auth/page-guard";
@@ -8,15 +17,72 @@ import { getUnverifiedRoles } from "@/server/auth/role-verification";
 import {
   listCandidateIndividualRegistrations,
   listCandidateTeamRegistrations,
+  type IndividualRegistrationSummary,
 } from "@/server/candidate-registrations/candidate-registration-service";
 import { deriveUpcomingDeadlines } from "@/server/candidate-registrations/deadline-utils";
 import { listSavedCompetitions } from "@/server/saved-competitions/saved-competition-service";
+import { isSubmissionWindowOpen } from "@/server/submissions/submission-core";
 
 const getCandidateRegistrationStatusLabel = (status: string): string => {
   if (status === "confirmed") return "Terdaftar";
   if (status === "cancelled") return "Dibatalkan";
   return formatDisplayToken(status);
 };
+
+const getRegistrationPillStatus = (registrationStatus: string): string | undefined => {
+  if (registrationStatus === "confirmed") return "open";
+  if (registrationStatus === "cancelled") return "closed";
+  return undefined;
+};
+
+const getNextUpcomingDate = (reg: IndividualRegistrationSummary): Date | null => {
+  const now = new Date();
+  if (reg.registrationEndAt && reg.registrationEndAt > now) return reg.registrationEndAt;
+  if (reg.eventStartAt && reg.eventStartAt > now) return reg.eventStartAt;
+  return null;
+};
+
+// A cancelled registration blocks every submission operation on the server, so it is never open.
+const isSubmissionOpenFor = (reg: IndividualRegistrationSummary): boolean =>
+  reg.registrationStatus !== "cancelled" && isSubmissionWindowOpen(reg);
+
+function RegistrationRow({
+  reg,
+  metaLine,
+}: {
+  reg: IndividualRegistrationSummary;
+  metaLine: ReactNode;
+}) {
+  const submissionIsOpen = isSubmissionOpenFor(reg);
+
+  return (
+    <LinkCard
+      as="li"
+      href={`/competitions/${reg.institutionSlug}/${reg.competitionSlug}/registration/`}
+      title={reg.competitionTitle}
+      trailing={
+        <>
+          <span
+            className="status-badge"
+            data-status={getRegistrationPillStatus(reg.registrationStatus)}
+          >
+            {getCandidateRegistrationStatusLabel(reg.registrationStatus)}
+          </span>
+          <ButtonLink
+            href={`/candidate-dashboard/registrations/${reg.id}`}
+            variant="link"
+            size="sm"
+            leadingIcon={<Icon name={submissionIsOpen ? "upload" : "eye"} size="sm" />}
+          >
+            {submissionIsOpen ? "Kirim karya" : "Lihat karya"}
+          </ButtonLink>
+        </>
+      }
+    >
+      <span className="record-meta">{metaLine}</span>
+    </LinkCard>
+  );
+}
 
 export default async function CandidateDashboardPage() {
   const session = await requireRolePage("candidate", {
@@ -36,18 +102,31 @@ export default async function CandidateDashboardPage() {
 
   const upcomingDeadlines = deriveUpcomingDeadlines([...individualRegs, ...teamRegs]);
 
+  // The link to the competitions list appears once, under the first section that is empty.
+  const emptySectionsFromTop = [
+    upcomingDeadlines.length === 0 ? "deadlines" : null,
+    individualRegs.length === 0 ? "individual" : null,
+    teamRegs.length === 0 ? "team" : null,
+    savedResult.data.length === 0 ? "saved" : null,
+  ].filter((section) => section !== null);
+  const sectionWithExploreLink = emptySectionsFromTop[0];
+  const exploreAction = { label: "Jelajahi kompetisi", href: "/competitions" };
+
   return (
     <main className="page-shell app-page candidate-dashboard">
       <PageHeader
         title="Dasbor kandidat"
-        actions={
-          <IconButtonLink
-            href="/candidate-dashboard/profile"
-            icon="settings"
-            variant="outline"
-            label="Pengaturan"
-          />
-        }
+        action={{
+          kind: "icon",
+          control: (
+            <IconButtonLink
+              href="/candidate-dashboard/profile"
+              icon="settings"
+              variant="outline"
+              label="Pengaturan"
+            />
+          ),
+        }}
       />
 
       {showRecruiterBanner ? (
@@ -78,17 +157,14 @@ export default async function CandidateDashboardPage() {
         </div>
       </section>
 
-      <section className="content-section">
-        <div className="section-heading">
-          <div>
-            <h2>Tenggat mendatang</h2>
-          </div>
-        </div>
+      <PageSection title="Tenggat mendatang">
         {upcomingDeadlines.length === 0 ? (
           <EmptyState
-            icon="calendar"
+            kind="nothing-yet"
+            size="compact"
             title="Tidak ada tenggat mendatang"
             description="Daftar kompetisi untuk melihat tenggatnya di sini."
+            action={sectionWithExploreLink === "deadlines" ? exploreAction : undefined}
           />
         ) : (
           <ul className="record-list">
@@ -111,217 +187,125 @@ export default async function CandidateDashboardPage() {
             ))}
           </ul>
         )}
-      </section>
+      </PageSection>
 
-      <section className="content-section">
-        <div className="section-heading">
-          <div>
-            <h2>Pendaftaran individu</h2>
-          </div>
-        </div>
+      <PageSection title="Pendaftaran individu">
         {individualRegs.length === 0 ? (
           <EmptyState
-            icon="user"
+            kind="nothing-yet"
+            size="compact"
             title="Belum ada pendaftaran individu"
             description="Kompetisi yang kamu daftarkan sendiri akan muncul di sini."
+            action={sectionWithExploreLink === "individual" ? exploreAction : undefined}
           />
         ) : (
           <ul className="record-list">
             {individualRegs.map((reg) => {
-              const deadline =
-                reg.registrationEndAt && reg.registrationEndAt > new Date()
-                  ? reg.registrationEndAt
-                  : reg.eventStartAt && reg.eventStartAt > new Date()
-                    ? reg.eventStartAt
-                    : null;
+              const deadline = getNextUpcomingDate(reg);
               return (
-                <li key={reg.id} className="record-row">
-                  <div className="record-row-main">
-                    <Link
-                      href={`/competitions/${reg.institutionSlug}/${reg.competitionSlug}`}
-                      className="record-row-title"
-                    >
-                      {reg.competitionTitle}
-                    </Link>
-                    <span className="record-meta">
-                      {deadline ? (
-                        <LocalDate value={deadline} format="dayMonth" />
-                      ) : (
-                        "Tanpa tenggat aktif"
-                      )}
-                    </span>
-                  </div>
-                  <div className="record-actions">
-                    <span
-                      className="status-badge"
-                      data-status={
-                        reg.registrationStatus === "confirmed"
-                          ? "open"
-                          : reg.registrationStatus === "cancelled"
-                            ? "closed"
-                            : undefined
-                      }
-                    >
-                      {getCandidateRegistrationStatusLabel(reg.registrationStatus)}
-                    </span>
-                    <ButtonLink
-                      variant="link"
-                      size="sm"
-                      href={`/competitions/${reg.institutionSlug}/${reg.competitionSlug}/registration/`}
-                    >
-                      Detail
-                    </ButtonLink>
-                    <ButtonLink
-                      variant="outline"
-                      size="sm"
-                      href={`/candidate-dashboard/registrations/${reg.id}`}
-                    >
-                      Submission
-                    </ButtonLink>
-                  </div>
-                </li>
+                <RegistrationRow
+                  key={reg.id}
+                  reg={reg}
+                  metaLine={
+                    deadline ? (
+                      <LocalDate value={deadline} format="dayMonth" />
+                    ) : (
+                      "Tanpa tenggat aktif"
+                    )
+                  }
+                />
               );
             })}
           </ul>
         )}
-      </section>
+      </PageSection>
 
-      <section className="content-section">
-        <div className="section-heading">
-          <div>
-            <h2>Pendaftaran tim</h2>
-          </div>
-        </div>
+      <PageSection title="Pendaftaran tim">
         {teamRegs.length === 0 ? (
           <EmptyState
-            icon="users"
+            kind="nothing-yet"
+            size="compact"
             title="Belum ada pendaftaran tim"
             description="Tim yang kamu pimpin atau ikuti akan muncul di sini."
+            action={sectionWithExploreLink === "team" ? exploreAction : undefined}
           />
         ) : (
           <ul className="record-list">
             {teamRegs.map((reg) => {
-              const deadline =
-                reg.registrationEndAt && reg.registrationEndAt > new Date()
-                  ? reg.registrationEndAt
-                  : reg.eventStartAt && reg.eventStartAt > new Date()
-                    ? reg.eventStartAt
-                    : null;
+              const deadline = getNextUpcomingDate(reg);
               return (
-                <li key={reg.id} className="record-row">
-                  <div className="record-row-main">
-                    <Link
-                      href={`/competitions/${reg.institutionSlug}/${reg.competitionSlug}`}
-                      className="record-row-title"
-                    >
-                      {reg.competitionTitle}
-                    </Link>
-                    <span className="record-meta">
+                <RegistrationRow
+                  key={reg.id}
+                  reg={reg}
+                  metaLine={
+                    <>
                       {reg.teamName} · {reg.isCaptain ? "Kapten" : "Anggota"}
                       {deadline ? (
                         <>
                           {" "}
                           · <LocalDate value={deadline} format="dayMonth" />
                         </>
-                      ) : (
-                        ""
-                      )}
-                    </span>
-                  </div>
-                  <div className="record-actions">
-                    <span
-                      className="status-badge"
-                      data-status={
-                        reg.registrationStatus === "confirmed"
-                          ? "open"
-                          : reg.registrationStatus === "cancelled"
-                            ? "closed"
-                            : undefined
-                      }
-                    >
-                      {getCandidateRegistrationStatusLabel(reg.registrationStatus)}
-                    </span>
-                    <ButtonLink
-                      variant="link"
-                      size="sm"
-                      href={`/competitions/${reg.institutionSlug}/${reg.competitionSlug}/registration/`}
-                    >
-                      Detail
-                    </ButtonLink>
-                    <ButtonLink
-                      variant="outline"
-                      size="sm"
-                      href={`/candidate-dashboard/registrations/${reg.id}`}
-                    >
-                      Submission
-                    </ButtonLink>
-                  </div>
-                </li>
+                      ) : null}
+                    </>
+                  }
+                />
               );
             })}
           </ul>
         )}
-      </section>
+      </PageSection>
 
-      <section className="candidate-callout inset-panel card-padding-lg">
-        <span className="detail-info-icon">
-          <Icon name="trophy" size="lg" />
-        </span>
-        <div className="stack-xs">
-          <h2>Hasil yang telah dipublikasikan</h2>
-          <p>Lihat keputusan penyelenggara untuk pendaftaran yang kamu ikuti.</p>
-        </div>
-        <ButtonLink href="/candidate-dashboard/results" variant="outline" size="sm">
-          Lihat semua hasil
-        </ButtonLink>
-      </section>
+      <LinkCard href="/candidate-dashboard/results" title="Hasil yang telah dipublikasikan">
+        <p className="record-meta">
+          Lihat keputusan penyelenggara untuk pendaftaran yang kamu ikuti.
+        </p>
+      </LinkCard>
 
-      <section className="content-section">
-        <div className="section-heading">
-          <div>
-            <h2>Tersimpan</h2>
-          </div>
-          <ButtonLink href="/saved" variant="link" size="sm">
-            Lihat semua
-          </ButtonLink>
-        </div>
+      <PageSection
+        title="Tersimpan"
+        action={
+          savedResult.data.length > 0 ? (
+            <ButtonLink href="/saved" variant="link" size="sm">
+              Lihat semua
+            </ButtonLink>
+          ) : null
+        }
+      >
         {savedResult.data.length === 0 ? (
           <EmptyState
-            icon="bookmark"
+            kind="nothing-yet"
+            size="compact"
             title="Belum ada kompetisi yang disimpan"
             description="Simpan peluang dari halaman detail untuk membacanya kembali di sini."
+            action={sectionWithExploreLink === "saved" ? exploreAction : undefined}
           />
         ) : (
           <ul className="record-list">
-            {savedResult.data.map((item) => (
-              <li
-                key={item.competitionId}
-                className="record-row"
-                data-unavailable={item.savedStatus === "unavailable" ? "true" : undefined}
-              >
-                <div className="record-row-main">
-                  {item.savedStatus === "available" ? (
-                    <Link
-                      href={`/competitions/${item.institutionSlug}/${item.slug}`}
-                      className="record-row-title"
-                    >
-                      {item.title}
-                    </Link>
-                  ) : (
-                    <span className="record-row-title">{item.title}</span>
-                  )}
+            {savedResult.data.map((item) =>
+              item.savedStatus === "available" ? (
+                <LinkCard
+                  key={item.competitionId}
+                  as="li"
+                  href={`/competitions/${item.institutionSlug}/${item.slug}`}
+                  title={item.title}
+                >
                   <span className="record-meta">{item.institutionName}</span>
-                </div>
-                {item.savedStatus === "unavailable" ? (
+                </LinkCard>
+              ) : (
+                <Card as="li" key={item.competitionId} className="candidate-saved-unavailable">
+                  <div className="ui-link-card-main">
+                    <span className="candidate-saved-unavailable-title">{item.title}</span>
+                    <span className="record-meta">{item.institutionName}</span>
+                  </div>
                   <span className="status-badge" data-status="closed">
                     Tidak tersedia
                   </span>
-                ) : null}
-              </li>
-            ))}
+                </Card>
+              ),
+            )}
           </ul>
         )}
-      </section>
+      </PageSection>
     </main>
   );
 }

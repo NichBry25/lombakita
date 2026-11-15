@@ -181,33 +181,61 @@ svg {
   gap: var(--space-8);
 }
 
+/* Page header, in order: back arrow, title with its mark, description, text action. */
 .page-heading {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.page-heading > .ui-icon-button[data-size="back"] {
+  justify-self: start;
+  margin: calc(-1 * var(--border-strong)) var(--space-0) var(--border-strong)
+    calc(-1 * var(--space-3));
+}
+
+.page-heading-title-row {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
   gap: var(--space-5);
 }
 
-.page-heading-main {
-  display: grid;
+.page-heading h1 {
   max-width: var(--content-prose);
-  gap: var(--space-2);
-}
-
-.page-heading-main h1 {
   font-size: var(--text-page-title);
 }
 
-.page-heading-main > p:last-child {
+/* The mark stays with the title's last word, so a wrapped title never strands it on its own line. */
+.page-heading-last-word {
+  white-space: nowrap;
+}
+
+.page-heading-mark {
+  display: inline-flex;
+  gap: var(--space-2);
+  margin-inline-start: var(--space-3);
+  vertical-align: middle;
+  transform: translateY(calc(-1 * var(--border-strong)));
+}
+
+.page-heading-description {
+  max-width: var(--content-prose);
   margin: var(--space-0);
   color: var(--color-ink-soft);
   font-size: var(--text-lead);
 }
 
-.page-heading-actions {
+.page-heading-icon-action {
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
+  flex: none;
+}
+
+/* The link row starts directly under the description or the title, and the first content sits
+   24 px below it, so the negative margin takes 8 px off the grid gap on each side. */
+.page-heading-text-action {
+  display: flex;
+  justify-content: flex-start;
+  margin-block: calc(-1 * var(--space-2));
 }
 
 .content-section {
@@ -531,37 +559,263 @@ svg {
   text-shadow: 0 0 var(--space-3) var(--overlay-highlight);
 }
 
-/* Opaque reading surfaces */
-.surface-card,
-.glass-card,
-.raised-card,
-.inset-panel {
+/* Card kit. One box holds one thing and nothing sits inside another box. A shadow means that a
+   surface floats, so no card has one. */
+.ui-card {
+  box-sizing: border-box;
+  padding: var(--space-6);
   border: var(--border-thin) solid var(--color-line);
-  border-radius: var(--radius-card);
-}
-
-.surface-card,
-.glass-card {
+  border-radius: var(--radius-kartu);
   background: var(--color-surface);
-  box-shadow: var(--shadow-sm);
 }
 
-.raised-card {
-  background: var(--color-raised);
-  box-shadow: var(--shadow-md);
+.ui-panel {
+  box-sizing: border-box;
+  padding: var(--space-6);
+  border-radius: var(--radius-panel);
+  background: var(--color-panel);
 }
 
-.inset-panel {
-  background: var(--color-inset);
-  box-shadow: none;
+/* Kartu tautan. The title link is stretched over the card by its ::after, and the trailing group
+   sits above that layer, so a secondary action takes its own press and its own hover. */
+.ui-link-card {
+  position: relative;
+  display: flex;
+  min-height: var(--link-card-min-height);
+  box-sizing: border-box;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border: var(--border-thin) solid var(--color-line);
+  border-radius: var(--radius-kartu);
+  background: var(--color-surface);
+  list-style: none;
+  transition: background-color var(--duration-fast) var(--ease-primary);
 }
 
-.card-padding {
-  padding: var(--space-5);
+.ui-link-card:has(.ui-link-card-title:hover) {
+  box-shadow: 0 0 0 var(--link-card-ring-width) var(--color-ink);
 }
 
-.card-padding-lg {
-  padding: var(--space-7);
+.ui-link-card:has(.ui-link-card-title:active) {
+  background: var(--color-link-card-pressed);
+}
+
+.ui-link-card:has(.ui-link-card-title:focus-visible) {
+  outline: var(--focus-width) solid var(--focus-color);
+  outline-offset: var(--focus-offset);
+}
+
+.ui-link-card-main {
+  display: grid;
+  min-width: 0;
+  flex: 1 1 auto;
+  gap: var(--space-1);
+}
+
+.ui-link-card-title {
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-size: var(--text-link-card-title);
+  line-height: 1.3;
+  text-decoration: none;
+}
+
+.ui-link-card-title:focus-visible {
+  outline: none;
+}
+
+.ui-link-card-title::after {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  content: "";
+}
+
+.ui-link-card-trailing {
+  position: relative;
+  z-index: var(--z-content);
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-4);
+}
+
+.ui-link-card-chevron {
+  width: var(--space-5);
+  height: var(--space-5);
+  flex: none;
+  color: var(--color-ink);
+}
+
+.ui-link-card .record-meta,
+.ui-link-card p {
+  margin: var(--space-0);
+  color: var(--color-ink-soft);
+  font-size: var(--text-body);
+}
+
+.record-list:has(> .ui-link-card, > .ui-card) {
+  gap: var(--space-4);
+}
+
+.candidate-saved-unavailable {
+  display: flex;
+  min-height: var(--link-card-min-height);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  color: var(--color-disabled-text);
+}
+
+.candidate-saved-unavailable-title {
+  font-family: var(--font-display);
+  font-size: var(--text-link-card-title);
+  line-height: 1.3;
+}
+
+/* Candidate dashboard: 40 px from the title row to the summary row and 48 px between parts. */
+.candidate-dashboard {
+  gap: var(--space-12);
+}
+
+.candidate-dashboard > .page-heading {
+  margin-block-end: calc(-1 * var(--space-2));
+}
+
+@media (max-width: 640px) {
+  .candidate-dashboard {
+    gap: var(--space-14);
+  }
+
+  .candidate-dashboard > .page-heading {
+    margin-block-end: calc(-1 * (var(--space-14) - var(--space-12)));
+  }
+}
+
+/* Rincian. */
+.ui-detail-list {
+  display: grid;
+  gap: var(--space-2-5);
+  margin: var(--space-0);
+}
+
+.ui-detail-row {
+  display: grid;
+  grid-template-columns: var(--detail-label-width) minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: baseline;
+}
+
+.ui-detail-row dt {
+  color: var(--color-ink-soft);
+  font-size: var(--text-body-sm);
+  font-weight: 400;
+}
+
+.ui-detail-row dd {
+  margin: var(--space-0);
+  color: var(--color-ink);
+  font-size: var(--text-button-lg);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.ui-detail-list[data-layout="stacked"] {
+  grid-template-columns: repeat(auto-fit, minmax(var(--detail-stacked-min), 1fr));
+  gap: var(--space-4);
+}
+
+.ui-detail-list[data-layout="stacked"] .ui-detail-row {
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-1);
+}
+
+/* Fakta. */
+.ui-fact {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.ui-fact-circle {
+  display: grid;
+  width: var(--icon-chip);
+  height: var(--icon-chip);
+  flex: none;
+  place-items: center;
+  border-radius: var(--radius-circle);
+  background: var(--color-fact-circle);
+  color: var(--color-ink);
+}
+
+.ui-fact-circle > .ui-icon {
+  width: var(--space-5);
+  height: var(--space-5);
+}
+
+.ui-fact-text {
+  display: grid;
+}
+
+.ui-fact-label {
+  color: var(--color-ink-soft);
+  font-size: var(--text-body-sm);
+}
+
+.ui-fact-value {
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-size: var(--text-heading-sm);
+  line-height: 1.3;
+}
+
+/* Bagian. A heading row, 16 px under it, and no box. The container sets the space between
+   sections: 40 px on a form page, 48 px on the candidate dashboard. */
+.ui-page-section {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.ui-page-section-heading {
+  display: flex;
+  min-height: var(--touch-target);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.ui-page-section-heading h2 {
+  margin: var(--space-0);
+  font-size: var(--text-bagian);
+  line-height: 1.25;
+}
+
+@media (max-width: 640px) {
+  .ui-card,
+  .ui-panel {
+    padding: var(--space-4);
+  }
+
+  .ui-card,
+  .ui-link-card {
+    border-radius: var(--radius-panel);
+  }
+
+  /* On a phone the pill and the secondary link drop to their own line under the title. */
+  .ui-link-card {
+    flex-wrap: wrap;
+  }
+
+  .ui-link-card-trailing {
+    order: 3;
+    flex-basis: 100%;
+    justify-content: space-between;
+  }
 }
 
 /* Selective glass chrome, each with fallback fill, edge, blur enhancement, and shadow. */
@@ -1322,23 +1576,75 @@ svg {
   border-bottom: 0;
 }
 
+/* Empty state: text on the page. It has no frame, no fill and no padding of its own, and the page
+   sets the space around it. */
 .empty-state {
   display: grid;
-  width: min(100%, var(--content-narrow));
-  justify-items: center;
-  gap: var(--space-3);
-  margin-inline: auto;
-  padding: var(--space-10) var(--space-6);
-  border: var(--border-thin) dashed var(--color-line);
-  border-radius: var(--radius-card);
-  background: var(--color-inset);
+  width: min(100%, var(--content-empty));
+  justify-items: start;
   color: var(--color-ink-soft);
-  text-align: center;
 }
 
-.empty-state h2,
-.empty-state h3 {
-  font-size: var(--text-empty-title);
+.empty-state[data-size="standard"] {
+  justify-items: center;
+  margin-inline: auto;
+  text-align: center;
+  text-wrap: balance;
+}
+
+.empty-state-title {
+  margin: var(--space-0);
+  color: var(--color-ink);
+}
+
+.empty-state[data-size="standard"] .empty-state-title {
+  margin-block-start: var(--space-4);
+  font-family: var(--font-display);
+  font-size: var(--text-heading-sm);
+  line-height: 1.3;
+}
+
+.empty-state[data-size="compact"] .empty-state-title {
+  font-size: var(--text-button-lg);
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.empty-state-sentence {
+  margin: var(--space-0);
+  color: var(--color-ink-soft);
+}
+
+.empty-state[data-size="standard"] .empty-state-sentence {
+  margin-block-start: var(--space-2);
+  font-size: var(--text-button-lg);
+  line-height: 1.5;
+}
+
+.empty-state[data-size="compact"] .empty-state-sentence {
+  margin-block-start: var(--space-1);
+  font-size: var(--text-empty-sentence);
+  line-height: 1.45;
+  text-wrap: pretty;
+}
+
+.empty-state[data-size="standard"] > .ui-button {
+  margin-block-start: var(--space-6);
+}
+
+.empty-state[data-size="compact"] > .ui-button {
+  margin-block-start: var(--space-1);
+}
+
+@media (max-width: 640px) {
+  .empty-state[data-size="standard"] {
+    width: 100%;
+    margin-block-start: calc(var(--space-12) - var(--space-8));
+  }
+
+  .empty-state[data-size="standard"] > .ui-button {
+    width: 100%;
+  }
 }
 
 /* Skeletons */
@@ -1479,26 +1785,50 @@ svg {
   gap: var(--space-2);
 }
 
+/* The row keeps its 22 px height with the 48 px arrow in it: the arrow's margin takes the extra
+   height back, and the 12 px at the left puts its icon on the column edge. */
+.step-indicator-row {
+  display: flex;
+  align-items: center;
+}
+
+.step-indicator-row > .ui-icon-button {
+  margin: calc((var(--step-row-height) - var(--control-height-md)) / 2) var(--space-0)
+    calc((var(--step-row-height) - var(--control-height-md)) / 2) calc(-1 * var(--space-3));
+}
+
 .step-indicator-text {
   color: var(--color-ink-soft);
   font-size: var(--text-body-sm);
 }
 
+.step-indicator-text strong {
+  color: var(--color-ink);
+  font-weight: 600;
+}
+
+/* The negative margin keeps the bar's layout height at 4 px, so the line above it and the content
+   below it sit where the layout puts them whatever the segment height. */
 .step-indicator-bar {
   display: grid;
   grid-auto-columns: minmax(0, 1fr);
   grid-auto-flow: column;
   gap: var(--space-1);
+  margin-block: calc(-1 * var(--border-thin));
 }
 
 .step-indicator-segment {
-  height: var(--space-1);
-  border-radius: var(--radius-pill);
-  background: var(--color-line);
+  height: var(--space-1-5);
+  border-radius: calc(var(--space-1-5) / 2);
+  background: var(--color-step-todo);
 }
 
-.step-indicator-segment[data-reached="true"] {
-  background: var(--color-accent);
+.step-indicator-segment[data-state="done"] {
+  background: var(--color-step-done);
+}
+
+.step-indicator-segment[data-state="current"] {
+  background: var(--color-step-current);
 }
 
 .primitive-showcase {
@@ -3412,12 +3742,27 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
 
 .empty-state-icon {
   display: grid;
-  width: calc(var(--touch-target) + var(--space-4));
-  height: calc(var(--touch-target) + var(--space-4));
+  width: var(--control-height-md);
+  height: var(--control-height-md);
   place-items: center;
-  border-radius: var(--blob-radius-a);
-  background: var(--color-accent-bg);
-  color: var(--color-accent);
+  border-radius: var(--radius-circle);
+  background: var(--color-empty-calm);
+  color: var(--color-empty-calm-icon);
+}
+
+.empty-state-icon > .ui-icon {
+  width: var(--space-6);
+  height: var(--space-6);
+}
+
+.empty-state[data-kind="queue-clear"] .empty-state-icon {
+  background: var(--color-empty-good);
+  color: var(--color-empty-good-icon);
+}
+
+.empty-state[data-kind="not-found"] .empty-state-icon {
+  background: var(--color-empty-error);
+  color: var(--color-empty-error-icon);
 }
 
 .pagination {
@@ -3620,27 +3965,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   line-height: var(--leading-heading);
 }
 
-.detail-information-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--grid-gap);
-}
-
-.detail-information-grid section {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: start;
-}
-
-.detail-information-grid h2 {
-  font-size: var(--text-card-title);
-}
-
-.detail-information-grid p {
-  margin: var(--space-0);
-  color: var(--color-ink-soft);
-}
-
 .detail-info-icon {
   display: grid;
   width: var(--touch-target);
@@ -3795,7 +4119,9 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: var(--space-3);
+  padding: var(--space-5);
   border: var(--border-thin) solid var(--color-info-border);
+  border-radius: var(--radius-card);
   background: var(--color-info-surface);
 }
 
@@ -4501,19 +4827,6 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
   text-align: center;
 }
 
-.candidate-callout {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--space-4);
-}
-
-.record-row[data-unavailable="true"] {
-  border-color: var(--color-disabled-border);
-  background: var(--color-disabled-surface);
-  color: var(--color-disabled-text);
-}
-
 .saved-grid,
 .inbox-list {
   display: grid;
@@ -4540,17 +4853,6 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
 
 .record-note-error {
   color: var(--color-error-text);
-}
-
-.inbox-unread-count {
-  display: inline-flex;
-  min-height: var(--control-height-sm);
-  align-items: center;
-  padding-inline: var(--space-3);
-  border-radius: var(--radius-pill);
-  background: var(--color-accent-bg);
-  color: var(--color-accent);
-  font-size: var(--text-meta);
 }
 
 .inbox-card {
@@ -5211,14 +5513,14 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
 
 .pf-editor {
   display: grid;
-  gap: var(--space-6);
+  gap: var(--space-10);
 }
 
 .pf-editor-list {
   display: grid;
-  gap: var(--space-2);
-  /* No bottom margin: the parent `.content-section` grid already applies `gap: var(--space-5)`
-     between this list and the add-form below it. A margin here would stack on top of that gap. */
+  gap: var(--space-4);
+  /* No bottom margin: the parent section grid already applies its gap between this list and the
+     add entry below it. A margin here would stack on top of that gap. */
   margin: var(--space-0);
   padding: var(--space-0);
   list-style: none;
@@ -5232,14 +5534,25 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
   display: none;
 }
 
-.pf-editor-item {
+/* An entry's Panel: a 44 px header row with the entry's number and its delete, then the entry. */
+.pf-entry-panel {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.pf-entry-panel-header {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-3) var(--space-4);
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-input);
-  background: var(--color-surface);
+  min-height: var(--touch-target);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.pf-entry-panel-heading {
+  margin: var(--space-0);
+  color: var(--color-ink);
+  font-size: var(--text-button-lg);
+  font-weight: 600;
 }
 
 .pf-editor-item-main {
@@ -5431,10 +5744,6 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
 .pf-editor-form {
   display: grid;
   gap: var(--space-4);
-  padding: var(--space-5);
-  border: 1px solid var(--color-line-soft);
-  border-radius: var(--radius-card);
-  background: var(--color-inset);
 }
 
 .pf-editor-inline {
@@ -5637,31 +5946,10 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
 
 .management-competition-list {
   display: grid;
-  gap: var(--space-3);
+  gap: var(--space-4);
   margin: var(--space-0);
   padding: var(--space-0);
   list-style: none;
-}
-
-.management-competition-card {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: var(--space-4);
-  padding: var(--space-4);
-  border: var(--border-thin) solid var(--color-line-soft);
-  border-radius: var(--radius-input);
-  background: var(--color-inset);
-}
-
-.management-competition-mark {
-  display: inline-grid;
-  width: var(--touch-target);
-  height: var(--touch-target);
-  place-items: center;
-  border-radius: var(--blob-radius-a);
-  background: var(--color-brand-surface);
-  color: var(--brand-lime);
 }
 
 .management-detail-grid {
@@ -6501,7 +6789,6 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
   .footer-inner,
   .primitive-columns,
   .primitive-surface-grid,
-  .detail-information-grid,
   .competition-grid,
   .institution-card-grid,
   .summary-grid,
@@ -6521,16 +6808,6 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
 
   .institution-invite-form {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .management-competition-card {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-
-  .management-competition-card > .status-badge,
-  .management-competition-card > .ui-button {
-    grid-column: 2;
-    justify-self: start;
   }
 
   .admin-nav {
@@ -6662,7 +6939,6 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
     padding: var(--space-8) var(--page-padding-mobile) var(--space-12);
   }
 
-  .page-heading,
   .section-heading,
   .record-row {
     align-items: flex-start;
@@ -6679,13 +6955,8 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
     flex-wrap: wrap;
   }
 
-  .page-heading-actions,
   .record-actions {
     width: 100%;
-  }
-
-  .page-heading-actions .ui-button {
-    flex: 1 1 auto;
   }
 
   .system-state-card {
@@ -6779,10 +7050,6 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
     text-align: center;
   }
 
-  .detail-information-grid section {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
   .auth-page {
     gap: var(--space-4);
     padding: var(--space-4) var(--page-padding-mobile) var(--space-8);
@@ -6799,18 +7066,12 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
 
   .auth-form-actions,
   .second-role-banner-actions,
-  .candidate-callout,
   .team-member-row,
   .team-roster-header {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .candidate-callout {
-    display: flex;
-  }
-
-  .candidate-callout .ui-button,
   .team-primary-actions .ui-button,
   .team-inline-form .ui-button,
   .page-secondary-actions .ui-button {

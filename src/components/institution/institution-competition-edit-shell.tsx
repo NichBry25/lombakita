@@ -13,7 +13,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   Button,
-  ButtonLink,
   CheckboxField,
   EmptyState,
   FormActionBar,
@@ -108,6 +107,7 @@ type Competition = {
   participantConfirmationAt: string | null;
   allowCancellation: boolean;
   cancellationCutoffDays: number | null;
+  cancelledAt?: string | null;
 };
 
 type PublishValidationFailure = {
@@ -1286,14 +1286,14 @@ export const InstitutionCompetitionEditShell = ({
     return (
       <main className="page-shell app-page competition-form-page">
         <EmptyState
-          icon="trophy"
+          kind="not-found"
+          titleIsPageHeading
           title="Kompetisi tidak ditemukan"
           description="Formulir kompetisi tidak dapat dimuat."
-          action={
-            <ButtonLink href={`/institution/${institutionSlug}/competitions`} variant="outline">
-              Kembali ke daftar
-            </ButtonLink>
-          }
+          action={{
+            label: "Kembali ke daftar",
+            href: `/institution/${institutionSlug}/competitions`,
+          }}
         />
       </main>
     );
@@ -1304,6 +1304,7 @@ export const InstitutionCompetitionEditShell = ({
   // Publishing locks some fields and lets others move one way only. Each says so in a line under
   // it, and a value the server would refuse holds Simpan back (brokenPublishLocks).
   const isPublished = competition.status === "published";
+  const isCancelled = Boolean(competition.cancelledAt);
   const modeLockReason = PUBLISH_LOCK_REASONS.mode;
   const registrationEndFloor = isPublished ? savedSnapshot?.regEnd : regStart;
   const eventStartFloor = isPublished ? savedSnapshot?.evtStart : participantConfirmation || regEnd;
@@ -1529,6 +1530,12 @@ export const InstitutionCompetitionEditShell = ({
   ));
 
   const isDraftStep = activeStep !== null && isDraft;
+  // The draft steps show no status: the step line already says the competition is being set up.
+  const publishedStatusPill = isDraftStep ? null : (
+    <span className="status-badge" data-status={isCancelled ? "cancelled" : "open"}>
+      {isCancelled ? "Dibatalkan" : getCompetitionStatusLabel(competition.status)}
+    </span>
+  );
   const stepPartsNode =
     activeStep === null ? children : activeStep === 5 ? null : stepChildren?.[activeStep];
   const editorPartsNode = showsContactEditor ? (
@@ -1542,20 +1549,14 @@ export const InstitutionCompetitionEditShell = ({
 
   return (
     <main className="page-shell app-page competition-form-page">
-      <PageHeader
-        title={competition.title}
-        actions={
-          <span className="status-badge" data-status={isPublished ? "open" : "awaiting"}>
-            {getCompetitionStatusLabel(competition.status)}
-          </span>
-        }
-      />
+      <PageHeader title={competition.title} titleMark={publishedStatusPill} />
       {activeStep !== null && isPublished ? sectionNav : null}
       {isDraftStep ? (
         <StepIndicator
-          current={activeStep}
-          total={COMPETITION_STEP_COUNT}
-          label={COMPETITION_STEP_TITLES[activeStep]}
+          currentStep={activeStep}
+          totalSteps={COMPETITION_STEP_COUNT}
+          stepName={COMPETITION_STEP_TITLES[activeStep]}
+          onBackToPreviousStep={activeStep > 1 ? handleBack : undefined}
         />
       ) : null}
 
@@ -1931,7 +1932,7 @@ export const InstitutionCompetitionEditShell = ({
             icon="arrow-left"
             variant="plain"
             size="back"
-            label="Kembali ke aksi status"
+            label={`Kembali ke ${competition.title}`}
             onClick={handleBack}
           />
           {isEditable ? (
@@ -1967,7 +1968,7 @@ export const InstitutionCompetitionEditShell = ({
             variant="plain"
             size="back"
             icon="arrow-left"
-            label={activeStep === 1 ? "Kembali ke daftar kompetisi" : "Kembali"}
+            label={activeStep === 1 ? "Kembali ke Kompetisi" : "Kembali"}
             onClick={handleBack}
           />
           <div className="form-action-bar-end">

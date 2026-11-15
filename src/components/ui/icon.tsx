@@ -12,7 +12,9 @@ export type IconName =
   | "check"
   | "check-circle"
   | "chevron-down"
+  | "chevron-right"
   | "close"
+  | "compass"
   | "copy"
   | "door-open"
   | "download"
@@ -30,8 +32,10 @@ export type IconName =
   | "plus"
   | "save"
   | "search"
+  | "search-x"
   | "settings"
   | "share"
+  | "sprout"
   | "sun"
   | "trash"
   | "trophy"
@@ -105,11 +109,20 @@ function IconPaths({ name }: { name: IconName }) {
       );
     case "chevron-down":
       return <path d="m6 9 6 6 6-6" />;
+    case "chevron-right":
+      return <path d="m9 18 6-6-6-6" />;
     case "close":
       return (
         <>
           <path d="m6 6 12 12" />
           <path d="m18 6-12 12" />
+        </>
+      );
+    case "compass":
+      return (
+        <>
+          <circle cx="12" cy="12" r="10" />
+          <path d="m16.24 7.76-1.804 5.411a2 2 0 0 1-1.265 1.265L7.76 16.24l1.804-5.411a2 2 0 0 1 1.265-1.265z" />
         </>
       );
     // The two-offset-sheets glyph every platform uses for copy. `share` was standing in for it and
@@ -230,6 +243,24 @@ function IconPaths({ name }: { name: IconName }) {
         <>
           <circle cx="11" cy="11" r="7" />
           <path d="m20 20-4-4" />
+        </>
+      );
+    case "search-x":
+      return (
+        <>
+          <path d="m13.5 8.5-5 5" />
+          <path d="m8.5 8.5 5 5" />
+          <circle cx="11" cy="11" r="8" />
+          <path d="m21 21-4.3-4.3" />
+        </>
+      );
+    case "sprout":
+      return (
+        <>
+          <path d="M7 20h10" />
+          <path d="M10 20c5.5-2.5.8-6.4 3-10" />
+          <path d="M9.5 9.4c1.1.8 1.8 2.2 2.3 3.7-2 .4-3.5.4-4.8-.3-1.2-.6-2.3-1.9-3-4.2 2.8-.5 4.4 0 5.5.8z" />
+          <path d="M14.1 6a7 7 0 0 0-1.1 4c1.9-.1 3.3-.6 4.3-1.4 1-1 1.6-2.3 1.7-4.6-2.7.1-4 1-4.9 2z" />
         </>
       );
     case "settings":

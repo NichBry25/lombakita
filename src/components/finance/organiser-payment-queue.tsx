@@ -6,6 +6,7 @@ import {
   Button,
   Card,
   CheckboxField,
+  DetailList,
   EmptyState,
   Feedback,
   FormField,
@@ -187,7 +188,7 @@ export function OrganiserPaymentQueue({ institutionSlug, competitionId, proofs }
   if (proofs.length === 0) {
     return (
       <EmptyState
-        icon="inbox"
+        kind="nothing-yet"
         title="Belum ada bukti transfer"
         description="Bukti transfer akan muncul di sini setelah peserta mengunggahnya."
       />
@@ -203,7 +204,7 @@ export function OrganiserPaymentQueue({ institutionSlug, competitionId, proofs }
 
         return (
           <li key={proof.proofId}>
-            <Card variant="surface" className="stack-md">
+            <Card className="stack-md">
               <div className="section-heading">
                 <div>
                   <h2>{proof.payerDisplayName}</h2>
@@ -213,42 +214,48 @@ export function OrganiserPaymentQueue({ institutionSlug, competitionId, proofs }
                 </span>
               </div>
 
-              <dl className="detail-grid">
-                <div>
-                  <dt>Jumlah</dt>
-                  <dd className="data-text">{formatRupiah(proof.grossAmount, proof.currency)}</dd>
-                </div>
-                <div>
-                  <dt>Dikirim</dt>
-                  <dd>
-                    <LocalDate value={proof.submittedAt} format="financeDateTime" />
-                  </dd>
-                </div>
-                {proof.dueAt ? (
-                  <div>
-                    <dt>Batas waktu</dt>
-                    <dd>
-                      <LocalDate value={proof.dueAt} format="financeDateTime" />
-                    </dd>
-                  </div>
-                ) : null}
-                <div>
-                  <dt>Berkas</dt>
-                  <dd>
-                    <Button
-                      type="button"
-                      variant="link"
-                      size="sm"
-                      leadingIcon={<Icon name="eye" size="sm" />}
-                      loading={viewing}
-                      onClick={() => void openProofFile(proof.proofId)}
-                    >
-                      {proof.originalFileName}
-                    </Button>{" "}
-                    · {formatFileSize(proof.fileSizeBytes)}
-                  </dd>
-                </div>
-              </dl>
+              <DetailList
+                rows={[
+                  {
+                    label: "Jumlah",
+                    value: (
+                      <span className="data-text">
+                        {formatRupiah(proof.grossAmount, proof.currency)}
+                      </span>
+                    ),
+                  },
+                  {
+                    label: "Dikirim",
+                    value: <LocalDate value={proof.submittedAt} format="financeDateTime" />,
+                  },
+                  ...(proof.dueAt
+                    ? [
+                        {
+                          label: "Batas waktu",
+                          value: <LocalDate value={proof.dueAt} format="financeDateTime" />,
+                        },
+                      ]
+                    : []),
+                  {
+                    label: "Berkas",
+                    value: (
+                      <>
+                        <Button
+                          type="button"
+                          variant="link"
+                          size="sm"
+                          leadingIcon={<Icon name="eye" size="sm" />}
+                          loading={viewing}
+                          onClick={() => void openProofFile(proof.proofId)}
+                        >
+                          {proof.originalFileName}
+                        </Button>{" "}
+                        · {formatFileSize(proof.fileSizeBytes)}
+                      </>
+                    ),
+                  },
+                ]}
+              />
 
               {proof.priorAttempts > 0 ? (
                 <Feedback tone="neutral">

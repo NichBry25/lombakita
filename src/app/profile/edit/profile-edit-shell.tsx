@@ -93,6 +93,8 @@ function FieldInput({
 export function ProfileEditShell({ profile, expectedUserId }: Props) {
   const router = useRouter();
   const { addToast } = useToast();
+  // The profile page titles itself with the saved display name, or the handle when there is none.
+  const profilePageName = fieldValue(profile.displayName) || `@${profile.username}`;
 
   const [username, setUsername] = useState(profile.username);
   const [displayName, setDisplayName] = useState(fieldValue(profile.displayName));
@@ -202,7 +204,7 @@ export function ProfileEditShell({ profile, expectedUserId }: Props) {
           variant="plain"
           size="back"
           icon="arrow-left"
-          label="Kembali ke profil"
+          label={`Kembali ke ${profilePageName}`}
           onClick={() => router.push("/profile")}
         />
         <div className="form-action-bar-end">

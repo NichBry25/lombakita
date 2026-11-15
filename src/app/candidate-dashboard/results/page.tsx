@@ -14,11 +14,15 @@ export default async function CandidateResultsPage() {
 
   return (
     <main className="page-shell app-page candidate-results-page">
-      <PageHeader title="Hasil kompetisi" backHref="/candidate-dashboard" backLabel="Dasbor" />
+      <PageHeader
+        title="Hasil kompetisi"
+        backHref="/candidate-dashboard"
+        backName="Dasbor kandidat"
+      />
 
       {results.length === 0 ? (
         <EmptyState
-          icon="trophy"
+          kind="nothing-yet"
           title="Belum ada hasil yang dipublikasikan"
           description="Keputusan final akan terlihat setelah penyelenggara mempublikasikannya."
         />

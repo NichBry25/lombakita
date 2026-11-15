@@ -32,13 +32,17 @@ export default async function AdminFeaturedPage() {
       <PageHeader
         title="Kompetisi unggulan"
         description="Atur kompetisi yang tampil lebih dulu di halaman kompetisi."
-        actions={<span className="status-badge data-text">{rows.length} terbit</span>}
+        titleMark={
+          rows.length > 0 ? (
+            <span className="status-badge data-text">{rows.length} terbit</span>
+          ) : null
+        }
       />
 
       {rows.length === 0 && (
         <EmptyState
-          icon="trophy"
-          title="Tidak ada kompetisi diterbitkan"
+          kind="nothing-yet"
+          title="Belum ada kompetisi yang terbit"
           description="Kompetisi bisa dipilih setelah statusnya Terbit."
         />
       )}

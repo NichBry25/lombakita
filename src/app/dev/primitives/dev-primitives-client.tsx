@@ -248,7 +248,7 @@ export function DevPrimitivesClient() {
         </div>
         <div className="primitive-skeleton-grid">
           <SkeletonCard />
-          <div className="surface-card card-padding stack-md">
+          <Card className="stack-md">
             <div className="cluster">
               <Skeleton variant="avatar" />
               <div className="primitive-skeleton-copy stack-xs">
@@ -257,7 +257,7 @@ export function DevPrimitivesClient() {
               </div>
             </div>
             <Skeleton variant="media" />
-          </div>
+          </Card>
         </div>
       </section>
     </div>

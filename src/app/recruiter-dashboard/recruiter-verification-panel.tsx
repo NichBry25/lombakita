@@ -2,7 +2,7 @@
 
 import { ChangeEvent, FormEvent, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Feedback, FormInput, FormLabel, Icon, IconButton } from "@/components/ui";
+import { Button, Card, Feedback, FormInput, FormLabel, Icon, IconButton } from "@/components/ui";
 import { useModal, useToast } from "@/components/ui/primitives";
 import { LocalDate } from "@/components/ui/local-date";
 import { errorMessageFor } from "@/lib/errors/error-copy";
@@ -558,7 +558,7 @@ export function RecruiterVerificationPanel({
 
   if (submission?.status === "draft") {
     return (
-      <section className="content-section surface-card card-padding recruiter-tier-card">
+      <Card as="section" className="content-section">
         <div className="section-heading">
           <div>
             <h2>Lengkapi permohonan</h2>
@@ -582,7 +582,7 @@ export function RecruiterVerificationPanel({
         </p>
         {renderDocumentSection()}
         {renderAffiliationForm("Kirim untuk ditinjau")}
-      </section>
+      </Card>
     );
   }
 
@@ -609,7 +609,7 @@ export function RecruiterVerificationPanel({
 
   if (submission?.status === "rejected") {
     return (
-      <section className="content-section surface-card card-padding recruiter-tier-card">
+      <Card as="section" className="content-section">
         <div className="section-heading">
           <div>
             <h2>Perbaiki dan ajukan ulang</h2>
@@ -626,12 +626,12 @@ export function RecruiterVerificationPanel({
         </p>
         {renderDocumentSection()}
         {renderAffiliationForm("Ajukan ulang untuk ditinjau")}
-      </section>
+      </Card>
     );
   }
 
   return (
-    <section className="content-section surface-card card-padding recruiter-tier-card">
+    <Card as="section" className="content-section">
       <div className="section-heading">
         <div>
           <h2>Jadi penyelenggara terverifikasi</h2>
@@ -644,6 +644,6 @@ export function RecruiterVerificationPanel({
       </p>
 
       {renderAffiliationForm("Kirim untuk ditinjau")}
-    </section>
+    </Card>
   );
 }

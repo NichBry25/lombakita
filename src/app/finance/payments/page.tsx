@@ -33,8 +33,10 @@ export default async function FinanceDisputePaymentsPage() {
       <PageHeader
         title="Sengketa pembayaran"
         description="Riwayat bukti transfer lintas lembaga. Hanya untuk dibaca."
-        actions={
-          <span className="status-badge data-text">{`${payments.length} bukti transfer`}</span>
+        titleMark={
+          payments.length > 0 ? (
+            <span className="status-badge data-text">{`${payments.length} bukti transfer`}</span>
+          ) : null
         }
       />
 
@@ -46,7 +48,7 @@ export default async function FinanceDisputePaymentsPage() {
 
       {payments.length === 0 ? (
         <EmptyState
-          icon="inbox"
+          kind="nothing-yet"
           title="Belum ada bukti transfer"
           description="Bukti transfer akan muncul di sini setelah peserta mengunggahnya."
         />

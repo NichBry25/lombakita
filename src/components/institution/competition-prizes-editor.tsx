@@ -8,6 +8,7 @@ import {
   FormLabel,
   FormTextarea,
   IconButton,
+  Panel,
 } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import {
@@ -172,7 +173,7 @@ export const CompetitionPrizesEditor = ({
   useCompetitionEditorPart("prizes", isDirty, savePrizes);
 
   return (
-    <section className="content-section surface-card card-padding stack-md">
+    <section className="content-section stack-md">
       <div className="stack-xs">
         <h2 className="section-title">Hadiah</h2>
         <p className="form-help">
@@ -188,7 +189,7 @@ export const CompetitionPrizesEditor = ({
       ) : (
         <div className="stack-md">
           {rows.map((row, index) => (
-            <div key={index} className="surface-card card-padding stack-sm">
+            <Panel key={index} className="stack-sm">
               <div className="form-field">
                 <FormLabel htmlFor={`prize-rank-${index}`} optional>
                   Tingkat (mis. Juara 1)
@@ -255,7 +256,7 @@ export const CompetitionPrizesEditor = ({
                 className="remove-row-button"
                 onClick={() => setRows((prev) => prev.filter((_, i) => i !== index))}
               />
-            </div>
+            </Panel>
           ))}
 
           <div className="cluster">

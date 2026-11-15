@@ -326,7 +326,7 @@ export function FeeRuleForm() {
           variant="plain"
           size="back"
           icon="arrow-left"
-          label="Kembali ke Platform Operations"
+          label="Kembali ke Panel Platform Operations"
           onClick={() => router.push("/admin")}
         />
         <div className="form-action-bar-end">

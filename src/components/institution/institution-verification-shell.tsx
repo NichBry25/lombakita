@@ -401,7 +401,8 @@ export const InstitutionVerificationShell = ({
         )}
         {!loadingHistory && submissions.length === 0 && (
           <EmptyState
-            icon="check"
+            kind="nothing-yet"
+            size="compact"
             title="Belum ada pengajuan"
             description={
               // A verified institution with no submission was verified directly by the platform
@@ -460,7 +461,7 @@ export const InstitutionVerificationShell = ({
           variant="plain"
           size="back"
           icon="arrow-left"
-          label="Panel institusi"
+          label="Kembali"
           onClick={() => router.push(`/institution/${institutionSlug}`)}
         />
         {canSubmit && !loadingHistory ? (

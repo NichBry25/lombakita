@@ -206,7 +206,7 @@ export function PaymentInstructionsSection({
 
   if (isLoading) {
     return (
-      <section className="content-section surface-card card-padding">
+      <section className="content-section">
         <div className="stack-md" aria-label="Memuat informasi pembayaran">
           <Skeleton variant="title" />
           <Skeleton variant="media" />
@@ -219,7 +219,7 @@ export function PaymentInstructionsSection({
   const bankDetailsRequired = form.qrisR2Key === null;
 
   return (
-    <section className="content-section surface-card card-padding">
+    <section className="content-section">
       <div className="section-heading">
         <div>
           <h2>Informasi pembayaran</h2>

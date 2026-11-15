@@ -1075,7 +1075,7 @@ describe("InstitutionCompetitionEditShell steps", () => {
 
     const next = await screen.findByRole("button", { name: "Lanjut" });
     const saveAndExit = screen.getByRole("button", { name: "Simpan dan keluar" });
-    const backLabel = step === 1 ? "Kembali ke daftar kompetisi" : "Kembali";
+    const backLabel = step === 1 ? "Kembali ke Kompetisi" : "Kembali";
     expect(screen.getByRole("button", { name: backLabel })).toBeTruthy();
     expect(next.getAttribute("data-variant")).toBe("primary");
     expect(saveAndExit.getAttribute("data-variant")).toBe("outline");
@@ -1145,7 +1145,7 @@ describe("InstitutionCompetitionEditShell steps", () => {
       expect(shown, `child of step ${childStep}`).toBe(childStep === 2);
     }
     expect(screen.queryByText(ALL_CHILDREN_TEXT)).toBeNull();
-    expect(screen.getByRole("button", { name: "Kembali ke aksi status" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Kembali ke Lomba Contoh 2026" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Terbitkan" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Lanjut" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Simpan dan keluar" })).toBeNull();
@@ -1553,7 +1553,7 @@ describe("InstitutionCompetitionEditShell steps", () => {
     await screen.findByRole("button", { name: "Simpan" });
     for (const section of [1, 2, 3, 4] as const) {
       view.rerender(shellAt(section));
-      fireEvent.click(screen.getByRole("button", { name: "Kembali ke aksi status" }));
+      fireEvent.click(screen.getByRole("button", { name: "Kembali ke Lomba Contoh 2026" }));
       expect(mockPush).toHaveBeenLastCalledWith(
         "/institution/institusi-contoh/competitions/lomba-contoh-2026",
       );
@@ -2488,12 +2488,12 @@ describe("InstitutionCompetitionEditShell steps", () => {
 
       expect(await screen.findByText("Perubahan tersimpan.")).toBeTruthy();
       expect(
-        await screen.findByRole("heading", { level: 1, name: "Lomba Contoh Baru" }),
+        await screen.findByRole("heading", { level: 1, name: /^Lomba Contoh Baru/ }),
       ).toBeTruthy();
       await waitFor(() =>
         expect(readinessNote()?.textContent).not.toContain("Simpan perubahan sebelum menerbitkan"),
       );
-      fireEvent.click(screen.getByRole("button", { name: "Kembali ke aksi status" }));
+      fireEvent.click(screen.getByRole("button", { name: /^Kembali ke Lomba Contoh/ }));
 
       expect(mockPush).toHaveBeenCalledWith(
         "/institution/institusi-contoh/competitions/lomba-contoh-2026",
@@ -2516,7 +2516,7 @@ describe("InstitutionCompetitionEditShell steps", () => {
       expect(
         await screen.findByText("Tag belum tersimpan. Pilih tag dari daftar yang tersedia."),
       ).toBeTruthy();
-      fireEvent.click(screen.getByRole("button", { name: "Kembali ke aksi status" }));
+      fireEvent.click(screen.getByRole("button", { name: /^Kembali ke Lomba Contoh/ }));
       const dialog = await screen.findByRole("dialog");
       fireEvent.click(within(dialog).getByRole("button", { name: "Tinggalkan" }));
 
@@ -2656,7 +2656,7 @@ describe("InstitutionCompetitionEditShell steps", () => {
       await waitFor(() =>
         expect(readinessNote()?.textContent).not.toContain("Simpan perubahan sebelum menerbitkan"),
       );
-      fireEvent.click(screen.getByRole("button", { name: "Kembali ke aksi status" }));
+      fireEvent.click(screen.getByRole("button", { name: /^Kembali ke Lomba Contoh/ }));
 
       expect(screen.queryByRole("dialog")).toBeNull();
     });

@@ -2,7 +2,7 @@
 
 import { ChangeEvent, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Card, Feedback, FormLabel, Icon } from "@/components/ui";
+import { Button, Feedback, FormLabel, Icon, Panel } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import { LocalDate } from "@/components/ui/local-date";
 import { AssentNotice } from "@/components/legal/assent-notice";
@@ -239,7 +239,7 @@ export function CandidatePaymentPanel({
   });
 
   return (
-    <section className="content-section surface-card card-padding" aria-labelledby={headingId}>
+    <section className="content-section" aria-labelledby={headingId}>
       <div className="section-heading">
         <h2 id={headingId}>Pembayaran</h2>
         {/* THE PILL IS ABOUT TIME WHENEVER TIME IS RUNNING. A countdown is the one fact on this
@@ -370,7 +370,7 @@ function PaymentInstructions({
     instructions.accountHolderName !== null;
 
   return (
-    <Card variant="inset" id={id} className="stack-sm">
+    <Panel id={id} className="stack-sm">
       <h3 className="section-title">Tujuan transfer</h3>
 
       {hasBankDetails ? (
@@ -406,7 +406,7 @@ function PaymentInstructions({
       {instructions.instructionsNote ? (
         <p className="muted-copy">{instructions.instructionsNote}</p>
       ) : null}
-    </Card>
+    </Panel>
   );
 }
 

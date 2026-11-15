@@ -145,7 +145,7 @@ export const CandidateProfileEditor = ({ expectedUserId, initial }: Props) => {
           variant="plain"
           size="back"
           icon="arrow-left"
-          label="Kembali ke dasbor"
+          label="Kembali ke Dasbor kandidat"
           onClick={() => router.push("/candidate-dashboard")}
         />
         <div className="form-action-bar-end">

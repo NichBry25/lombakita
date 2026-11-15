@@ -276,11 +276,7 @@ export const InstitutionTeamShell = ({
 
   return (
     <main className="page-shell app-page institution-team-page">
-      <PageHeader
-        title="Tim institusi"
-        backHref={`/institution/${institutionSlug}`}
-        backLabel="Kembali"
-      />
+      <PageHeader title="Tim institusi" backHref={`/institution/${institutionSlug}`} />
 
       <section className="content-section">
         <div className="section-heading">
@@ -296,7 +292,8 @@ export const InstitutionTeamShell = ({
           </div>
         ) : members.length === 0 ? (
           <EmptyState
-            icon="users"
+            kind="nothing-yet"
+            size="compact"
             title="Belum ada anggota aktif"
             description="Undang pengelola pada formulir di bawah untuk menambah anggota."
           />
@@ -369,7 +366,7 @@ export const InstitutionTeamShell = ({
         )}
       </section>
 
-      <section className="content-section surface-card card-padding">
+      <section className="content-section">
         <div className="section-heading">
           <div>
             <h2>Tambah pengelola</h2>
@@ -425,7 +422,8 @@ export const InstitutionTeamShell = ({
           </div>
         ) : invitations.length === 0 ? (
           <EmptyState
-            icon="inbox"
+            kind="nothing-yet"
+            size="compact"
             title="Tidak ada undangan tertunda"
             description="Undangan yang dikirim akan muncul di sini sampai dijawab atau dibatalkan."
           />

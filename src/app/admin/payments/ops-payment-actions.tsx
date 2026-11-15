@@ -7,6 +7,7 @@ import {
   Card,
   EmptyState,
   Feedback,
+  PageSection,
   FormField,
   FormLabel,
   FormTextarea,
@@ -223,19 +224,19 @@ export function OpsPaymentActions({
 
   return (
     <>
-      <section className="content-section">
-        <h2>Kompetisi tertahan</h2>
+      <PageSection title="Kompetisi tertahan">
         {competitions.length === 0 ? (
           <EmptyState
-            icon="check"
+            kind="queue-clear"
+            size="compact"
             title="Tidak ada pembayaran yang tertahan"
-            description="Setiap kompetisi berbayar dapat ditarik penyelenggaranya sendiri saat ini."
+            description="Pembayaran yang perlu ditinjau akan muncul di sini."
           />
         ) : (
           <ul className="record-list">
             {competitions.map((competition) => (
               <li key={competition.competitionId}>
-                <Card variant="surface" className="stack-md">
+                <div className="stack-md">
                   <div className="section-heading">
                     <div>
                       <p>{competition.institutionSlug}</p>
@@ -255,7 +256,7 @@ export function OpsPaymentActions({
                   <ul className="record-list">
                     {competition.proofs.map((proof) => (
                       <li key={proof.proofId}>
-                        <Card variant="inset" className="stack-sm">
+                        <Card className="stack-sm">
                           <div className="section-heading">
                             <div>
                               <h4>{proof.payerDisplayName}</h4>
@@ -332,12 +333,12 @@ export function OpsPaymentActions({
                       {`Kompetisi ini berstatus ${getCompetitionStatusLabel(competition.status)}, bukan Terbit, sehingga tidak ada penarikan yang perlu diambil alih.`}
                     </Feedback>
                   )}
-                </Card>
+                </div>
               </li>
             ))}
           </ul>
         )}
-      </section>
+      </PageSection>
 
       {/* THE SECOND LIST, AND THE ONLY ROUTE TO IT. These proofs hold no competition open, so they
           never appear above, but their payers cannot resubmit, cannot cancel, and have no
@@ -353,7 +354,7 @@ export function OpsPaymentActions({
           <ul className="record-list">
             {barredProofs.map((proof) => (
               <li key={proof.proofId}>
-                <Card variant="surface" className="stack-sm">
+                <Card className="stack-sm">
                   <div className="section-heading">
                     <div>
                       <p>{proof.institutionSlug}</p>

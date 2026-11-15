@@ -313,7 +313,7 @@ describe("Step 8 — Empty states", () => {
 describe("Step 11 — Link hrefs", () => {
   afterEach(() => vi.clearAllMocks());
 
-  it("individual registration row: competition link and registration subpage link are correct", async () => {
+  it("individual registration row: the row opens the registration page and the link action opens the submission page", async () => {
     setupValidCandidate();
     mockListIndividual.mockResolvedValue([confirmedIndReg]);
     mockListTeam.mockResolvedValue([]);
@@ -321,11 +321,12 @@ describe("Step 11 — Link hrefs", () => {
 
     const html = renderToStaticMarkup(await CandidateDashboardPage());
 
-    expect(html).toContain('href="/competitions/ui/hackathon-2026"');
     expect(html).toContain('href="/competitions/ui/hackathon-2026/registration/"');
+    expect(html).toContain('href="/candidate-dashboard/registrations/reg_i1"');
+    expect(html).not.toContain('href="/competitions/ui/hackathon-2026"');
   });
 
-  it("team registration row: competition link and registration subpage link are correct", async () => {
+  it("team registration row: the row opens the registration page and the link action opens the submission page", async () => {
     setupValidCandidate();
     mockListIndividual.mockResolvedValue([]);
     mockListTeam.mockResolvedValue([captainTeamReg]);
@@ -333,8 +334,61 @@ describe("Step 11 — Link hrefs", () => {
 
     const html = renderToStaticMarkup(await CandidateDashboardPage());
 
-    expect(html).toContain('href="/competitions/itb/battle-of-minds"');
     expect(html).toContain('href="/competitions/itb/battle-of-minds/registration/"');
+    expect(html).toContain('href="/candidate-dashboard/registrations/reg_t1"');
+    expect(html).not.toContain('href="/competitions/itb/battle-of-minds"');
+  });
+
+  describe("submission link action", () => {
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const openWindow = {
+      eventStartAt: new Date(Date.now() - DAY_MS),
+      eventEndAt: new Date(Date.now() + DAY_MS),
+    };
+
+    it("says Kirim karya while the submission window is open", async () => {
+      setupValidCandidate();
+      mockListIndividual.mockResolvedValue([{ ...confirmedIndReg, ...openWindow }]);
+      mockListTeam.mockResolvedValue([]);
+      mockListSaved.mockResolvedValue(emptySaved);
+
+      const html = renderToStaticMarkup(await CandidateDashboardPage());
+
+      expect(html).toContain("Kirim karya");
+      expect(html).not.toContain("Lihat karya");
+    });
+
+    it("says Lihat karya once the submission window has closed", async () => {
+      setupValidCandidate();
+      mockListIndividual.mockResolvedValue([
+        {
+          ...confirmedIndReg,
+          eventStartAt: new Date(Date.now() - 3 * DAY_MS),
+          eventEndAt: new Date(Date.now() - DAY_MS),
+        },
+      ]);
+      mockListTeam.mockResolvedValue([]);
+      mockListSaved.mockResolvedValue(emptySaved);
+
+      const html = renderToStaticMarkup(await CandidateDashboardPage());
+
+      expect(html).toContain("Lihat karya");
+      expect(html).not.toContain("Kirim karya");
+    });
+
+    it("says Lihat karya for a cancelled registration even inside the window", async () => {
+      setupValidCandidate();
+      mockListIndividual.mockResolvedValue([
+        { ...confirmedIndReg, ...openWindow, registrationStatus: "cancelled" as const },
+      ]);
+      mockListTeam.mockResolvedValue([]);
+      mockListSaved.mockResolvedValue(emptySaved);
+
+      const html = renderToStaticMarkup(await CandidateDashboardPage());
+
+      expect(html).toContain("Lihat karya");
+      expect(html).not.toContain("Kirim karya");
+    });
   });
 
   it("available saved competition renders as a link to its competition page", async () => {

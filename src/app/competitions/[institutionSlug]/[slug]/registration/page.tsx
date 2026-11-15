@@ -38,7 +38,6 @@ export default async function CompetitionRegistrationPage({
           title="Hanya kandidat yang dapat mendaftar"
           description="Akun kandidat yang terverifikasi diperlukan untuk memulai pendaftaran kompetisi."
           backHref={detailPath}
-          backLabel="Detail"
         />
         <p className="feedback" data-tone="warning">
           Akun Anda bukan akun kandidat. Masuk dengan akun kandidat untuk mendaftar ke kompetisi
@@ -121,15 +120,9 @@ export default async function CompetitionRegistrationPage({
     <main className="page-shell app-page registration-page">
       <PageHeader
         title="Daftarkan diri"
-        description={
-          competition.mode === "both"
-            ? "Kompetisi ini menerima pendaftaran individu maupun tim."
-            : competition.mode === "team"
-              ? "Kompetisi ini wajib didaftarkan sebagai tim."
-              : "Kompetisi ini menerima pendaftaran individu."
-        }
+        description={competition.title}
         backHref={detailPath}
-        backLabel={competition.title}
+        backName={competition.title}
       />
 
       {!registrationOpen && (

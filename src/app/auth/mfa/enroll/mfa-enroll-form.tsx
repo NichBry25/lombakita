@@ -160,7 +160,7 @@ export function MfaEnrollForm({
   if (stage === "recovery-codes") {
     return (
       <div className="stack-md">
-        <StepIndicator current={2} total={2} label="Simpan kode pemulihan" />
+        <StepIndicator currentStep={2} totalSteps={2} stepName="Simpan kode pemulihan" />
         {/* The QR is scanned and gone by this point, so the heading belongs to this stage rather
             than the page. A page-level "Pindai kode QR" would sit above a screen asking the
             operator to save ten recovery codes. */}
@@ -207,7 +207,7 @@ export function MfaEnrollForm({
 
   return (
     <form onSubmit={onSubmitCode} className="auth-form stack-md">
-      <StepIndicator current={1} total={2} label="Hubungkan aplikasi" />
+      <StepIndicator currentStep={1} totalSteps={2} stepName="Hubungkan aplikasi" />
       <header className="auth-entry-header">
         <h1>Aktifkan 2FA</h1>
       </header>

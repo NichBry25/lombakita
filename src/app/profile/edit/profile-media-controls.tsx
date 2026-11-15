@@ -179,7 +179,7 @@ export function ResumeSection({
   };
 
   return (
-    <section className="content-section surface-card card-padding">
+    <section className="content-section">
       <div className="section-heading">
         <div>
           <h2>Resume</h2>

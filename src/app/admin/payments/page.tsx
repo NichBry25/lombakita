@@ -40,13 +40,17 @@ export default async function AdminBlockedPaymentsPage() {
     <main className="page-shell app-page admin-page">
       <PageHeader
         title="Pembayaran tertahan"
-        actions={
-          <>
-            <span className="status-badge data-text">{`${proofCount} bukti transfer`}</span>
-            {barredProofs.length > 0 ? (
-              <span className="status-badge data-text">{`${barredProofs.length} peserta terhalang`}</span>
-            ) : null}
-          </>
+        titleMark={
+          proofCount > 0 || barredProofs.length > 0 ? (
+            <>
+              {proofCount > 0 ? (
+                <span className="status-badge data-text">{`${proofCount} bukti transfer`}</span>
+              ) : null}
+              {barredProofs.length > 0 ? (
+                <span className="status-badge data-text">{`${barredProofs.length} peserta terhalang`}</span>
+              ) : null}
+            </>
+          ) : null
         }
       />
 

@@ -247,7 +247,11 @@ export default function AdminVerificationPage() {
       <PageHeader
         title="Antrean verifikasi dokumen"
         description="Tinjau bukti institusi yang masih menunggu keputusan Platform Operations."
-        actions={<span className="status-badge data-text">{items.length} menunggu</span>}
+        titleMark={
+          items.length > 0 ? (
+            <span className="status-badge data-text">{items.length} menunggu</span>
+          ) : null
+        }
       />
 
       {loading && (
@@ -260,7 +264,7 @@ export default function AdminVerificationPage() {
 
       {!loading && items.length === 0 && (
         <EmptyState
-          icon="check"
+          kind="queue-clear"
           title="Antrean sudah bersih"
           description="Tidak ada pengajuan dokumen yang menunggu tinjauan."
         />

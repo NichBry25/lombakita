@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Icon, IconButtonLink, LinkPendingSlot } from "@/components/ui";
+import { Fact, Icon, IconButtonLink, LinkPendingSlot } from "@/components/ui";
 import { LocalDate } from "@/components/ui/local-date";
 import { INDEXABLE_ROBOTS } from "@/config/indexable-routes";
 import { sessionHasRole } from "@/lib/access/roles";
@@ -613,17 +613,11 @@ export default async function CompetitionDetailPage({
           ) : null}
 
           {showTeamSize ? (
-            <div className="detail-information-grid">
-              <section className="surface-card card-padding stack-md">
-                <span className="detail-info-icon" aria-hidden="true">
-                  <Icon name="users" size="lg" />
-                </span>
-                <div className="stack-xs">
-                  <h2>Ukuran tim</h2>
-                  <p>{formatTeamSizeText(competition.minTeamSize, competition.maxTeamSize)}</p>
-                </div>
-              </section>
-            </div>
+            <Fact
+              icon="users"
+              label="Ukuran tim"
+              value={formatTeamSizeText(competition.minTeamSize, competition.maxTeamSize)}
+            />
           ) : null}
 
           {competition.eligibilityNote ? (
@@ -680,7 +674,7 @@ export default async function CompetitionDetailPage({
           </section>
 
           <section
-            className="inset-panel card-padding detail-verification-panel"
+            className="detail-verification-panel"
             data-verified={organizerIsVerified ? "true" : "false"}
             aria-labelledby="organizer-verification-title"
           >

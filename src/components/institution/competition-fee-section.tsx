@@ -2,12 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
-  Card,
   CheckboxField,
   Feedback,
   FormInput,
   FormLabel,
   FormLabelText,
+  Panel,
   Skeleton,
 } from "@/components/ui";
 import {
@@ -114,7 +114,7 @@ const FeeSectionNotice = ({ code }: { code: string | null }) => {
   const tone = code === "forbidden" ? "info" : "error";
   const message = errorMessageFor(code, LOAD_ERROR_COPY, LOAD_FAILURE_MESSAGE);
   return (
-    <section className="content-section surface-card card-padding">
+    <section className="content-section">
       <div className="section-heading">
         <div>
           <h2>Biaya pendaftaran</h2>
@@ -139,7 +139,7 @@ function WindowOnlyFeeFields({
 }) {
   const feeAmount = pricing.feeAmount ?? 0;
   return (
-    <section className="content-section surface-card card-padding">
+    <section className="content-section">
       <div className="section-heading">
         <div>
           <h2>Biaya pendaftaran</h2>
@@ -355,7 +355,7 @@ function OwnerFeeForm({
 
   if (state === null) {
     return (
-      <section className="content-section surface-card card-padding">
+      <section className="content-section">
         <div className="stack-md" aria-label="Memuat biaya pendaftaran">
           <Skeleton variant="title" />
           <Skeleton variant="media" />
@@ -376,7 +376,7 @@ function OwnerFeeForm({
   }
 
   return (
-    <section className="content-section surface-card card-padding">
+    <section className="content-section">
       <div className="section-heading">
         <div>
           <h2>Biaya pendaftaran</h2>
@@ -446,7 +446,7 @@ function OwnerFeeForm({
                 Masukkan biaya pendaftaran untuk melihat rincian potongan layanan.
               </Feedback>
             ) : (
-              <Card variant="inset" className="stack-sm">
+              <Panel className="stack-sm">
                 <FormLabelText as="p">Rincian per pendaftaran</FormLabelText>
                 <dl className="detail-grid">
                   <div>
@@ -470,7 +470,7 @@ function OwnerFeeForm({
                   Dana peserta masuk langsung ke rekening lembaga Anda. Biaya layanan dicatat
                   sebagai tagihan Lombakita kepada lembaga, bukan dipotong dari transfer peserta.
                 </p>
-              </Card>
+              </Panel>
             )}
 
             {/* WITHHELD, not disabled, when there are no figures. A disabled checkbox under an
@@ -564,7 +564,7 @@ function StaffFeeForm({
 
   if (state === null) {
     return (
-      <section className="content-section surface-card card-padding">
+      <section className="content-section">
         <div className="stack-md" aria-label="Memuat biaya pendaftaran">
           <Skeleton variant="title" />
           <Skeleton variant="media" />

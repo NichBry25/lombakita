@@ -242,7 +242,7 @@ export const InstitutionUpgradeShell = ({
           variant="plain"
           size="back"
           icon="arrow-left"
-          label="Panel institusi"
+          label="Kembali"
           onClick={() => router.push(`/institution/${institutionSlug}`)}
         />
         <div className="form-action-bar-end">

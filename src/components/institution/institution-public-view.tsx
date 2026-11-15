@@ -1,4 +1,4 @@
-import { Feedback, Icon } from "@/components/ui";
+import { EmptyState, Feedback, Icon } from "@/components/ui";
 import {
   CompetitionCard,
   type CompetitionCardItem,
@@ -126,13 +126,12 @@ export function InstitutionPublicView({
           </div>
         </div>
         {competitions.length === 0 ? (
-          <div className="empty-state">
-            <span className="empty-state-icon" aria-hidden="true">
-              <Icon name="trophy" size="xl" />
-            </span>
-            <h3>Belum ada kompetisi yang terbit</h3>
-            <p>Kompetisi dari penyelenggara ini akan tampil di sini setelah dipublikasikan.</p>
-          </div>
+          <EmptyState
+            kind="nothing-yet"
+            size="compact"
+            title="Belum ada kompetisi yang terbit"
+            description="Kompetisi dari penyelenggara ini akan tampil di sini setelah dipublikasikan."
+          />
         ) : (
           <div className="competition-grid competition-grid--roomy">
             {competitions.map((competition) => (

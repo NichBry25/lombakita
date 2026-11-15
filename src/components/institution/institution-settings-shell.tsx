@@ -338,13 +338,13 @@ export const InstitutionSettingsShell = ({
     <main className="page-shell app-page institution-form-page">
       <PageHeader
         title="Pengaturan institusi"
-        actions={
+        titleMark={
           institutionType ? (
             <span className="status-badge">
               {INSTITUTION_TYPE_LABELS[institutionType as InstitutionType] ??
                 formatDisplayToken(institutionType)}
             </span>
-          ) : undefined
+          ) : null
         }
       />
 
@@ -412,7 +412,7 @@ export const InstitutionSettingsShell = ({
       </section>
 
       {isProfileLoading ? (
-        <section className="content-section surface-card card-padding">
+        <section className="content-section">
           <div className="stack-md" aria-label="Memuat profil penyelenggara">
             <Skeleton variant="title" />
             <Skeleton variant="media" />
@@ -420,7 +420,7 @@ export const InstitutionSettingsShell = ({
           </div>
         </section>
       ) : hasProfile ? (
-        <section className="content-section surface-card card-padding">
+        <section className="content-section">
           <div className="section-heading">
             <div>
               <h2>Profil penyelenggara</h2>
@@ -543,7 +543,7 @@ export const InstitutionSettingsShell = ({
           variant="plain"
           size="back"
           icon="arrow-left"
-          label="Panel institusi"
+          label="Kembali"
           onClick={() => router.push(`/institution/${activeSlug}`)}
         />
         {!isLoading ? (

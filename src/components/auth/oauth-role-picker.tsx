@@ -189,7 +189,7 @@ export const OAuthRolePicker = ({ carrier, email, name }: OAuthRolePickerProps) 
 
         {stage === "choose" ? (
           <>
-            <StepIndicator current={1} total={2} label="Peran" />
+            <StepIndicator currentStep={1} totalSteps={2} stepName="Peran" />
             <div className="auth-role-list" role="radiogroup" aria-label="Peran">
               <ChoiceCard
                 title="Daftar sebagai kandidat"
@@ -220,7 +220,7 @@ export const OAuthRolePicker = ({ carrier, email, name }: OAuthRolePickerProps) 
 
         {stage === "candidateOnboarding" ? (
           <form onSubmit={onSubmitCandidateOnboarding} className="auth-form">
-            <StepIndicator current={2} total={2} label="Profil" />
+            <StepIndicator currentStep={2} totalSteps={2} stepName="Profil" />
             <p>Lengkapi data kandidat Anda. Data ini bisa diubah nanti di dasbor Anda.</p>
 
             <div className="form-field">
@@ -303,7 +303,7 @@ export const OAuthRolePicker = ({ carrier, email, name }: OAuthRolePickerProps) 
 
         {stage === "recruiterOnboarding" ? (
           <form onSubmit={onSubmitRecruiterOnboarding} className="auth-form">
-            <StepIndicator current={2} total={2} label="Profil" />
+            <StepIndicator currentStep={2} totalSteps={2} stepName="Profil" />
             <p>
               Lengkapi data penyelenggara Anda. Akun akan menunggu peninjauan sebelum dapat
               menerbitkan kompetisi.

@@ -866,7 +866,7 @@ export const AuthEntry = ({
 
       {method === "credentials" && stage === "signup" ? (
         <div className="auth-stage-panel">
-          <StepIndicator current={2} total={3} label="Peran" />
+          <StepIndicator currentStep={2} totalSteps={3} stepName="Peran" />
           {!verificationEnabled ? (
             <Feedback tone="warning">
               Pendaftaran email sedang tidak tersedia. Coba lagi nanti.
@@ -923,7 +923,7 @@ export const AuthEntry = ({
 
       {method === "credentials" && stage === "candidateOnboarding" ? (
         <form onSubmit={onSubmitCandidateOnboarding} className="auth-form">
-          <StepIndicator current={3} total={3} label="Profil" />
+          <StepIndicator currentStep={3} totalSteps={3} stepName="Profil" />
           <p>Lengkapi data kandidat Anda. Data ini bisa diubah nanti di dasbor Anda.</p>
 
           <div className="form-field">
@@ -997,7 +997,7 @@ export const AuthEntry = ({
 
       {method === "credentials" && stage === "recruiterOnboarding" ? (
         <form onSubmit={onSubmitRecruiterOnboarding} className="auth-form">
-          <StepIndicator current={3} total={3} label="Profil" />
+          <StepIndicator currentStep={3} totalSteps={3} stepName="Profil" />
           <p>
             Lengkapi data penyelenggara Anda. Setelah mendaftar, akun Anda dapat membuat draf
             kompetisi, tetapi baru bisa mempublikasikannya setelah tim kami menyetujui Anda sebagai{" "}

@@ -3,7 +3,7 @@ import { AccessError } from "@/server/auth/access-core";
 import { requireRolePage } from "@/server/auth/page-guard";
 import { requireAdminInstitutionBySlug } from "@/server/institution-members/member-service";
 import { getDb } from "@/server/db/client";
-import { Card, EmptyState, Feedback, PageHeader } from "@/components/ui";
+import { EmptyState, Feedback, PageHeader, Panel } from "@/components/ui";
 import { loadInstitutionFeeStatement } from "@/server/finance/fee-statement";
 import { formatBasisPoints } from "@/lib/finance/fee-display";
 import { LocalDate } from "@/components/ui/local-date";
@@ -92,7 +92,8 @@ export default async function InstitutionFeeStatementPage({ params }: Props) {
         <h2>Rincian</h2>
         {statement.lines.length === 0 ? (
           <EmptyState
-            icon="check"
+            kind="nothing-yet"
+            size="compact"
             title="Belum ada biaya layanan"
             description="Biaya layanan tercatat saat Anda memverifikasi pembayaran peserta pertama."
           />
@@ -151,7 +152,8 @@ export default async function InstitutionFeeStatementPage({ params }: Props) {
         </p>
         {statement.acknowledgements.length === 0 ? (
           <EmptyState
-            icon="info"
+            kind="nothing-yet"
+            size="compact"
             title="Belum ada persetujuan tarif"
             description="Persetujuan tercatat saat Anda mengaktifkan pendaftaran berbayar pada sebuah kompetisi."
           />
@@ -159,7 +161,7 @@ export default async function InstitutionFeeStatementPage({ params }: Props) {
           <ul className="record-list">
             {statement.acknowledgements.map((ack) => (
               <li key={ack.competitionId}>
-                <Card variant="inset" className="stack-sm">
+                <Panel className="stack-sm">
                   <h3>{ack.competitionTitle}</h3>
                   <dl className="detail-grid">
                     <div>
@@ -177,7 +179,7 @@ export default async function InstitutionFeeStatementPage({ params }: Props) {
                       </dd>
                     </div>
                   </dl>
-                </Card>
+                </Panel>
               </li>
             ))}
           </ul>

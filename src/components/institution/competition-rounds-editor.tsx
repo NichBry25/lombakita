@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Feedback, FormInput, FormLabel, FormTextarea, IconButton } from "@/components/ui";
+import { Feedback, FormInput, FormLabel, FormTextarea, IconButton, Panel } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import {
   describePartLoadFailure,
@@ -177,7 +177,7 @@ export const CompetitionRoundsEditor = ({
   useCompetitionEditorPart("rounds", isDirty, saveRounds);
 
   return (
-    <section className="content-section surface-card card-padding stack-md">
+    <section className="content-section stack-md">
       <div className="stack-xs">
         <h2 className="section-title">Tahapan &amp; linimasa</h2>
         <p className="form-help">
@@ -193,7 +193,7 @@ export const CompetitionRoundsEditor = ({
       ) : (
         <div className="stack-md">
           {rows.map((row, index) => (
-            <div key={index} className="surface-card card-padding stack-sm">
+            <Panel key={index} className="stack-sm">
               <div className="form-field">
                 <FormLabel htmlFor={`round-title-${index}`} required>
                   Nama tahapan
@@ -257,7 +257,7 @@ export const CompetitionRoundsEditor = ({
                 className="remove-row-button"
                 onClick={() => setRows((prev) => prev.filter((_, i) => i !== index))}
               />
-            </div>
+            </Panel>
           ))}
 
           <div className="cluster">

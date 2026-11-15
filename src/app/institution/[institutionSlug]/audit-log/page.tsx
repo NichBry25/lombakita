@@ -71,12 +71,11 @@ export default async function AuditLogPage({ params, searchParams }: Props) {
         title="Log audit"
         description={`Riwayat perubahan penting untuk ${institutionSlug}, diurutkan dari yang terbaru.`}
         backHref={`/institution/${institutionSlug}`}
-        backLabel="Kembali"
       />
 
       {events.length === 0 ? (
         <EmptyState
-          icon="inbox"
+          kind="nothing-yet"
           title="Belum ada entri audit"
           description="Tindakan administratif dan perubahan penting akan muncul di sini."
         />

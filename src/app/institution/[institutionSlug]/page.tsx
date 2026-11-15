@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ButtonLink, Icon, PageHeader } from "@/components/ui";
+import { Icon, PageHeader } from "@/components/ui";
 import { InstitutionPublicView } from "@/components/institution/institution-public-view";
 import { isInstitutionAdminBySlug } from "@/server/institution-members/member-service";
 import { getCurrentSession } from "@/server/auth/session";
@@ -217,19 +217,17 @@ export default async function InstitutionHubPage({
     <main className="page-shell app-page institution-hub-page">
       <PageHeader
         title={verificationSummary?.displayName || slug}
-        description="Kelola profil institusi, kompetisi, dan anggota."
         backHref="/recruiter-dashboard"
-        backLabel="Dasbor"
-        actions={
-          isPersonal ? null : (
-            <ButtonLink
-              href={`${base}?tampilan=${PUBLIC_VIEW_PARAM}`}
-              variant="primary"
-              leadingIcon={<Icon name="eye" size="sm" aria-hidden="true" />}
-            >
-              Lihat halaman publik
-            </ButtonLink>
-          )
+        backName="Dasbor penyelenggara"
+        action={
+          isPersonal
+            ? undefined
+            : {
+                kind: "text",
+                href: `${base}?tampilan=${PUBLIC_VIEW_PARAM}`,
+                label: "Lihat halaman publik",
+                icon: "eye",
+              }
         }
       />
       {chargingReadiness && !chargingReadiness.ready ? (

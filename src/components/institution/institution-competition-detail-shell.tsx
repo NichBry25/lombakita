@@ -358,14 +358,14 @@ export const InstitutionCompetitionDetailShell = ({
     return (
       <main className="page-shell app-page competition-management-page">
         <EmptyState
-          icon="trophy"
+          kind="not-found"
+          titleIsPageHeading
           title="Kompetisi tidak ditemukan"
           description="Data kompetisi tidak dapat dimuat."
-          action={
-            <ButtonLink href={`/institution/${institutionSlug}/competitions`} variant="outline">
-              Kembali ke daftar
-            </ButtonLink>
-          }
+          action={{
+            label: "Kembali ke daftar",
+            href: `/institution/${institutionSlug}/competitions`,
+          }}
         />
       </main>
     );
@@ -403,8 +403,8 @@ export const InstitutionCompetitionDetailShell = ({
       <PageHeader
         title={competition.title}
         backHref={`/institution/${institutionSlug}/competitions`}
-        backLabel="Kompetisi"
-        actions={
+        backName="Kompetisi"
+        titleMark={
           <span
             className="status-badge"
             data-status={isCancelled ? "cancelled" : isPublished ? "open" : "awaiting"}

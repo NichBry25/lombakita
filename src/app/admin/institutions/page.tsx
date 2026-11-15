@@ -313,7 +313,9 @@ export default function AdminInstitutionsPage() {
       <PageHeader
         title="Verifikasi institusi"
         description="Kelola transisi status dan jejak audit institusi terdaftar."
-        actions={<span className="status-badge data-text">{total} institusi</span>}
+        titleMark={
+          total > 0 ? <span className="status-badge data-text">{total} institusi</span> : null
+        }
       />
 
       {/* Filter */}
@@ -345,11 +347,26 @@ export default function AdminInstitutionsPage() {
         </div>
       )}
 
-      {!loading && rows.length === 0 && (
+      {!loading && rows.length === 0 && statusFilter === "" && (
         <EmptyState
-          icon="building"
-          title="Tidak ada institusi ditemukan"
+          kind="nothing-yet"
+          title="Belum ada institusi"
           description="Ubah filter status untuk melihat kelompok institusi lainnya."
+        />
+      )}
+
+      {!loading && rows.length === 0 && statusFilter !== "" && (
+        <EmptyState
+          kind="no-match"
+          title="Belum ada institusi yang cocok"
+          description="Ubah filter status untuk melihat kelompok institusi lainnya."
+          action={{
+            label: "Bersihkan filter",
+            onSelect: () => {
+              setStatusFilter("");
+              setPage(1);
+            },
+          }}
         />
       )}
 

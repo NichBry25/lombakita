@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { ButtonLink, Icon, Pagination } from "@/components/ui";
+import { EmptyState, Pagination } from "@/components/ui";
 import { CompetitionCard } from "@/components/competitions/competition-card";
 import { INDEXABLE_ROBOTS } from "@/config/indexable-routes";
 import { listPublicCompetitions } from "@/server/competitions/competition-public-service";
@@ -85,23 +85,19 @@ export default async function PublicCompetitionsPage({
           <div className="glass-chrome filter-toolbar">
             <div>
               <h2 id="competition-results-title" className="filter-result-title">
-                {meta.total} kompetisi ditemukan
+                <span role="status">{meta.total} kompetisi ditemukan</span>
               </h2>
             </div>
             <CompetitionFilterBar params={params} />
           </div>
 
           {competitions.length === 0 ? (
-            <div className="empty-state">
-              <span className="empty-state-icon" aria-hidden="true">
-                <Icon name="search" size="xl" />
-              </span>
-              <h2>Belum ada hasil yang cocok</h2>
-              <p>Coba kata kunci yang lebih luas atau kembalikan kategori ke semua kompetisi.</p>
-              <ButtonLink href="/competitions" variant="outline">
-                Bersihkan filter
-              </ButtonLink>
-            </div>
+            <EmptyState
+              kind="no-match"
+              title="Belum ada hasil yang cocok"
+              description="Coba kata kunci yang lebih luas atau kembalikan kategori ke semua kompetisi."
+              action={{ label: "Bersihkan filter", href: "/competitions" }}
+            />
           ) : (
             <div className="competition-grid">
               {competitions.map((competition) => (

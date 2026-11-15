@@ -92,6 +92,7 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
   const type = resolveParam(sp.type, "all");
   const page = parseInt(resolveParam(sp.page, "1"), 10);
   const limit = 20;
+  const hasActiveFilter = status !== "all" || type !== "all";
 
   const result = await listCompetitionParticipants(
     institutionId,
@@ -159,7 +160,7 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
         title={`Peserta ${truncateText(competitionTitle, 38)}`}
         description={`Tinjau pendaftaran, submission, dan hasil untuk ${competitionTitle}.`}
         backHref={`/institution/${institutionSlug}/competitions/${competitionSlug}`}
-        backLabel="Kembali"
+        backName={competitionTitle}
       />
 
       {/* Shown only on a PAID competition. A free one has no bukti transfer and never will, so the
@@ -242,11 +243,24 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
         maxBatchSize={MAX_BATCH_REGISTRATIONS}
       />
 
-      {result.participants.length === 0 ? (
+      {/* The one node that is already on the page when the filter changes, so a screen reader hears
+          the new count. The empty state appears together with its text and is never announced. */}
+      <p className="sr-only" role="status">
+        {`${result.pagination.totalCount} peserta`}
+      </p>
+
+      {result.participants.length === 0 && !hasActiveFilter ? (
         <EmptyState
-          icon="users"
-          title="Tidak ada peserta"
-          description="Coba ubah filter, atau kembali lagi setelah pendaftaran dimulai."
+          kind="nothing-yet"
+          title="Belum ada peserta"
+          description="Peserta akan muncul di sini setelah ada yang mendaftar."
+        />
+      ) : result.participants.length === 0 ? (
+        <EmptyState
+          kind="no-match"
+          title="Belum ada peserta yang cocok"
+          description="Coba ubah filter status atau tipe untuk melihat peserta lain."
+          action={{ label: "Bersihkan filter", href: path }}
         />
       ) : (
         <div className="table-scroll">

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireRolePage } from "@/server/auth/page-guard";
 import { listSavedCompetitions } from "@/server/saved-competitions/saved-competition-service";
-import { ButtonLink, EmptyState, Icon, PageHeader, Pagination } from "@/components/ui";
+import { EmptyState, Icon, PageHeader, Pagination } from "@/components/ui";
 import { LocalDate } from "@/components/ui/local-date";
 
 export default async function SavedCompetitionsPage({
@@ -22,14 +22,10 @@ export default async function SavedCompetitionsPage({
 
       {result.data.length === 0 ? (
         <EmptyState
-          icon="bookmark"
+          kind="nothing-yet"
           title="Belum ada kompetisi tersimpan"
           description="Gunakan tombol simpan di halaman detail kompetisi untuk mengisi daftar ini."
-          action={
-            <ButtonLink href="/competitions" variant="outline">
-              Jelajahi kompetisi
-            </ButtonLink>
-          }
+          action={{ label: "Jelajahi kompetisi", href: "/competitions" }}
         />
       ) : (
         <ul className="saved-grid">

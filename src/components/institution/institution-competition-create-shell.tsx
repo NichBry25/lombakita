@@ -147,9 +147,9 @@ export const InstitutionCompetitionCreateShell = ({
     <main className="page-shell app-page competition-form-page">
       <PageHeader title="Buat kompetisi" />
       <StepIndicator
-        current={1}
-        total={COMPETITION_STEP_COUNT}
-        label={COMPETITION_STEP_TITLES[1]}
+        currentStep={1}
+        totalSteps={COMPETITION_STEP_COUNT}
+        stepName={COMPETITION_STEP_TITLES[1]}
       />
 
       <form
@@ -211,7 +211,7 @@ export const InstitutionCompetitionCreateShell = ({
           variant="plain"
           size="back"
           icon="arrow-left"
-          label="Kembali ke daftar kompetisi"
+          label="Kembali ke Kompetisi"
           onClick={() => router.push(backHref)}
         />
         <div className="form-action-bar-end">

@@ -151,7 +151,7 @@ export const CompetitionContactEditor = ({
   useCompetitionEditorPart("contact", isDirty, saveContact);
 
   return (
-    <section className="content-section surface-card card-padding stack-md">
+    <section className="content-section stack-md">
       <div className="stack-xs">
         <h2 className="section-title">Kontak untuk peserta</h2>
         <p className="form-help">

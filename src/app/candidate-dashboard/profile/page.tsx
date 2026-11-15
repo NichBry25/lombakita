@@ -17,7 +17,7 @@ export default async function CandidateProfilePage() {
         title="Data kandidat"
         description="Perbarui data yang kamu isi saat mendaftar sebagai kandidat."
         backHref="/candidate-dashboard"
-        backLabel="Dasbor"
+        backName="Dasbor kandidat"
       />
 
       {profile ? (

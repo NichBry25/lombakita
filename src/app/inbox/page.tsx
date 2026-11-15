@@ -9,7 +9,7 @@ import {
 import { MarkReadButton } from "./mark-read-button";
 import { DeleteNotificationButton } from "./delete-notification-button";
 import { InboxInviteActions } from "./invite-actions";
-import { ButtonLink, EmptyState, PageHeader } from "@/components/ui";
+import { EmptyState, PageHeader } from "@/components/ui";
 import { getInstitutionRoleLabel } from "@/lib/access/role-labels";
 import { LocalDate } from "@/components/ui/local-date";
 
@@ -35,19 +35,18 @@ export default async function InboxPage() {
     <main className="page-shell app-page inbox-page">
       <PageHeader
         title="Kotak masuk"
-        actions={<span className="inbox-unread-count data-text">{unreadCount} belum dibaca</span>}
+        titleMark={
+          unreadCount > 0 ? (
+            <span className="status-badge data-text">{unreadCount} belum dibaca</span>
+          ) : null
+        }
       />
 
       {items.length === 0 ? (
         <EmptyState
-          icon="inbox"
+          kind="nothing-yet"
           title="Kotak masuk masih tenang"
           description="Notifikasi, undangan institusi, dan undangan tim akan muncul di sini."
-          action={
-            <ButtonLink href="/" variant="outline">
-              Kembali
-            </ButtonLink>
-          }
         />
       ) : (
         <ul className="inbox-list">
