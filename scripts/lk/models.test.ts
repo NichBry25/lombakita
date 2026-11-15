@@ -279,6 +279,15 @@ describe("reading the table", () => {
     expect(() => readModels(path)).toThrow(message);
   });
 
+  it("reads a row for each of the design-read, review-depth and review-security jobs", () => {
+    const text = `${fixtureText}| design-read | any | Standard |\n| review-depth | any | Heavy |\n| review-security | any | Light |\n`;
+    const table = readModels(writeTable(text));
+    expect(table.jobs).toHaveLength(9);
+    expect(resolveJob(table, "design-read", "2").class).toBe("Standard");
+    expect(resolveJob(table, "review-depth", "2").class).toBe("Heavy");
+    expect(resolveJob(table, "review-security", "2").class).toBe("Light");
+  });
+
   it("refuses a file that cannot be read", () => {
     expect(() => readModels(join(workspace, "absent.md"))).toThrow(/cannot read the model table/);
   });
