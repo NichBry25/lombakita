@@ -14,6 +14,28 @@ const DATE_FORMATS = {
   numericDate: { options: {}, withTime: false },
   numericDateTime: { options: {}, withTime: true },
   shortDate: { options: { day: "numeric", month: "short", year: "numeric" }, withTime: false },
+  shortDateTime: {
+    options: {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    },
+    withTime: true,
+  },
+  // The audit log keeps seconds so that events inside one minute stay in order.
+  shortDateTimeSeconds: {
+    options: {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    },
+    withTime: true,
+  },
   longDate: { options: { day: "numeric", month: "long", year: "numeric" }, withTime: false },
   longDateTime: {
     options: { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" },

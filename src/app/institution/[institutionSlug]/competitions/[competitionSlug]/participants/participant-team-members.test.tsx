@@ -24,7 +24,7 @@ describe("the organiser's team cell", () => {
       />,
     );
 
-    expect(markup).toContain("Tim Uji (1 anggota)");
+    expect(markup).not.toContain("1 anggota");
     expect(markup).toContain("Budi Santoso (Kapten)");
     expect(markup).toContain("dewi_lomba (belum bergabung)");
   });

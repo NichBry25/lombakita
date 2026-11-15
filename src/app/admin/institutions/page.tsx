@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import {
   Button,
   EmptyState,
@@ -12,6 +12,11 @@ import {
   Pagination,
   SelectField,
   Skeleton,
+  Table,
+  TableClamp,
+  TableExpandToggle,
+  type TableColumn,
+  type TableRowData,
 } from "@/components/ui";
 import { useModal, useModalTask, useToast, type ModalOutcome } from "@/components/ui/primitives";
 import { LocalDate } from "@/components/ui/local-date";
@@ -72,6 +77,63 @@ const AVAILABLE_TRANSITIONS: Record<VerificationStatus, ValidTransition[]> = {
   verified: [{ label: "Cabut verifikasi", targetStatus: "rejected", needsReason: true }],
   rejected: [{ label: "Tinjau ulang", targetStatus: "under_review" }],
 };
+
+const INSTITUTION_COLUMNS: readonly TableColumn[] = [
+  { key: "name", header: "Nama", kind: "name" },
+  { key: "adminEmail", header: "Admin email", kind: "text" },
+  { key: "status", header: "Status", kind: "long" },
+  { key: "createdAt", header: "Terdaftar", kind: "date" },
+  { key: "actions", header: "Tindakan", kind: "control", hideHeader: true },
+  { key: "audit", header: "Riwayat status", kind: "control", hideHeader: true },
+];
+
+const STATUS_HISTORY_COLUMNS: readonly TableColumn[] = [
+  { key: "from", header: "Dari", kind: "text" },
+  { key: "to", header: "Ke", kind: "text" },
+  { key: "reason", header: "Alasan", kind: "wrap" },
+  { key: "actor", header: "Aktor", kind: "text" },
+  { key: "at", header: "Waktu", kind: "date" },
+];
+
+const verificationStatusTone = (status: VerificationStatus): string | undefined => {
+  if (status === "verified") return "open";
+  if (status === "rejected") return "closing";
+  if (status === "pending_verification") return "awaiting";
+  return undefined;
+};
+
+// The verification status history of one institution, oldest first, flat inside the band of its row.
+function StatusHistory({
+  institutionName,
+  entries,
+}: {
+  institutionName: string;
+  entries: AuditEntry[];
+}) {
+  if (entries.length === 0) {
+    return <em className="record-meta">Belum ada log audit.</em>;
+  }
+
+  const historyRows: TableRowData[] = entries.map((entry) => ({
+    key: entry.id,
+    cells: {
+      from: INSTITUTION_VERIFICATION_STATUS_LABELS[entry.fromStatus],
+      to: INSTITUTION_VERIFICATION_STATUS_LABELS[entry.toStatus],
+      reason: entry.reason,
+      actor: entry.actorUserId,
+      at: <LocalDate value={entry.createdAt} format="shortDateTime" />,
+    },
+  }));
+
+  return (
+    <Table
+      flat
+      label={`Riwayat status ${institutionName}`}
+      columns={STATUS_HISTORY_COLUMNS}
+      rows={historyRows}
+    />
+  );
+}
 
 const REJECT_INSTITUTION_FORM_ID = "reject-institution-form";
 
@@ -274,36 +336,101 @@ export default function AdminInstitutionsPage() {
     });
   };
 
-  const toggleAudit = async (rowId: string, institutionId: string) => {
-    const row = rows.find((r) => r.id === rowId);
-    if (!row) return;
-    setPendingRowAction(`audit:${rowId}`);
+  const updateRow = (rowId: string, patch: Partial<InstitutionRow>) => {
+    setRows((prev) => prev.map((r) => (r.id === rowId ? { ...r, ...patch } : r)));
+  };
 
-    if (row.auditExpanded && row.auditLog) {
-      setRows((prev) => prev.map((r) => (r.id === rowId ? { ...r, auditExpanded: false } : r)));
-      return;
-    }
-
+  // A history that cannot be read opens as an empty one, as the page has always done.
+  const fetchAuditEntries = async (institutionId: string): Promise<AuditEntry[]> => {
     try {
       const auditRes = await fetch(`/api/admin/institutions/${institutionId}/audit`);
-      if (auditRes.ok) {
-        const auditData: { entries: AuditEntry[] } = await auditRes.json();
-        setRows((prev) =>
-          prev.map((r) =>
-            r.id === rowId ? { ...r, auditExpanded: true, auditLog: auditData.entries } : r,
-          ),
-        );
-      } else {
-        setRows((prev) =>
-          prev.map((r) => (r.id === rowId ? { ...r, auditExpanded: true, auditLog: [] } : r)),
-        );
-      }
+      if (!auditRes.ok) return [];
+      const auditData: { entries: AuditEntry[] } = await auditRes.json();
+      return auditData.entries;
     } catch {
-      setRows((prev) =>
-        prev.map((r) => (r.id === rowId ? { ...r, auditExpanded: true, auditLog: [] } : r)),
-      );
+      return [];
     }
   };
+
+  const openAudit = async (rowId: string) => {
+    setPendingRowAction(`audit:${rowId}`);
+    const entries = await fetchAuditEntries(rowId);
+    updateRow(rowId, { auditExpanded: true, auditLog: entries });
+    setPendingRowAction(null);
+  };
+
+  const onAuditOpenChange = (rowId: string, isOpen: boolean) => {
+    if (isOpen) {
+      void openAudit(rowId);
+      return;
+    }
+    updateRow(rowId, { auditExpanded: false });
+  };
+
+  const buildInstitutionRow = (row: InstitutionRow): TableRowData => {
+    const transitions = AVAILABLE_TRANSITIONS[row.verificationStatus] ?? [];
+
+    return {
+      key: row.id,
+      open: row.auditExpanded === true,
+      onOpenChange: (isOpen) => onAuditOpenChange(row.id, isOpen),
+      cells: {
+        name: (
+          <>
+            {row.displayName}
+            <span className="ui-table-sub data-text">{row.slug}</span>
+          </>
+        ),
+        adminEmail: row.adminEmail,
+        status: (
+          <>
+            <span
+              className="status-badge"
+              data-status={verificationStatusTone(row.verificationStatus)}
+            >
+              {INSTITUTION_VERIFICATION_STATUS_LABELS[row.verificationStatus]}
+            </span>
+            {row.rejectionReason ? (
+              <div className="admin-rejection-reason">
+                <TableClamp>{row.rejectionReason}</TableClamp>
+              </div>
+            ) : null}
+          </>
+        ),
+        createdAt: <LocalDate value={row.createdAt} format="shortDate" />,
+        actions: (
+          <div className="table-actions">
+            {transitions.map((t) => (
+              <Button
+                key={t.targetStatus}
+                variant={t.targetStatus === "rejected" ? "outline" : "primary"}
+                size="sm"
+                loading={pendingRowAction === `transition:${row.id}:${t.targetStatus}`}
+                disabled={actionLoading}
+                onClick={() => {
+                  if (t.needsReason) {
+                    openRejectModal(row.id, row.displayName, row.verificationStatus);
+                  } else {
+                    void handleTransition(row.id, t.targetStatus);
+                  }
+                }}
+              >
+                {t.label}
+              </Button>
+            ))}
+          </div>
+        ),
+        audit: (
+          <TableExpandToggle loading={pendingRowAction === `audit:${row.id}`}>
+            Lihat log
+          </TableExpandToggle>
+        ),
+      },
+      band: <StatusHistory institutionName={row.displayName} entries={row.auditLog ?? []} />,
+    };
+  };
+
+  const institutionRows = rows.map(buildInstitutionRow);
 
   const totalPages = Math.ceil(total / 20);
 
@@ -370,139 +497,7 @@ export default function AdminInstitutionsPage() {
       )}
 
       {!loading && rows.length > 0 && (
-        <div className="table-scroll">
-          <table className="data-table admin-institutions-table">
-            <thead>
-              <tr>
-                <th>Nama</th>
-                <th>Admin email</th>
-                <th>Status</th>
-                <th>Terdaftar</th>
-                <th>Aksi</th>
-                <th>Audit</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => {
-                const transitions = AVAILABLE_TRANSITIONS[row.verificationStatus] ?? [];
-                return (
-                  <React.Fragment key={row.id}>
-                    <tr>
-                      <td>
-                        <strong>{row.displayName}</strong>
-                        <br />
-                        <span className="record-meta data-text">{row.slug}</span>
-                      </td>
-                      <td>{row.adminEmail ?? <em>–</em>}</td>
-                      <td>
-                        <span
-                          className="status-badge"
-                          data-status={
-                            row.verificationStatus === "verified"
-                              ? "open"
-                              : row.verificationStatus === "rejected"
-                                ? "closing"
-                                : row.verificationStatus === "pending_verification"
-                                  ? "awaiting"
-                                  : undefined
-                          }
-                        >
-                          {INSTITUTION_VERIFICATION_STATUS_LABELS[row.verificationStatus]}
-                        </span>
-                        {row.rejectionReason && (
-                          <div className="admin-rejection-reason">{row.rejectionReason}</div>
-                        )}
-                      </td>
-                      <td className="data-text">
-                        <LocalDate value={row.createdAt} format="numericDate" />
-                      </td>
-                      <td>
-                        {transitions.length === 0 ? (
-                          <em>–</em>
-                        ) : (
-                          <div className="table-actions">
-                            {transitions.map((t) => (
-                              <Button
-                                key={t.targetStatus}
-                                variant={t.targetStatus === "rejected" ? "outline" : "primary"}
-                                size="sm"
-                                loading={
-                                  pendingRowAction === `transition:${row.id}:${t.targetStatus}`
-                                }
-                                disabled={actionLoading}
-                                onClick={() => {
-                                  if (t.needsReason) {
-                                    openRejectModal(
-                                      row.id,
-                                      row.displayName,
-                                      row.verificationStatus,
-                                    );
-                                  } else {
-                                    void handleTransition(row.id, t.targetStatus);
-                                  }
-                                }}
-                              >
-                                {t.label}
-                              </Button>
-                            ))}
-                          </div>
-                        )}
-                      </td>
-                      <td>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          loading={pendingRowAction === `audit:${row.id}`}
-                          onClick={() => void toggleAudit(row.id, row.id)}
-                        >
-                          {row.auditExpanded ? "Sembunyikan" : "Lihat log"}
-                        </Button>
-                      </td>
-                    </tr>
-                    {row.auditExpanded && (
-                      <tr className="admin-audit-row">
-                        <td colSpan={6}>
-                          {!row.auditLog || row.auditLog.length === 0 ? (
-                            <em className="record-meta">Belum ada log audit.</em>
-                          ) : (
-                            <table className="data-table admin-audit-table">
-                              <thead>
-                                <tr>
-                                  <th>Dari</th>
-                                  <th>Ke</th>
-                                  <th>Alasan</th>
-                                  <th>Aktor</th>
-                                  <th>Waktu</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {row.auditLog.map((entry) => (
-                                  <tr key={entry.id}>
-                                    <td>
-                                      {INSTITUTION_VERIFICATION_STATUS_LABELS[entry.fromStatus]}
-                                    </td>
-                                    <td>
-                                      {INSTITUTION_VERIFICATION_STATUS_LABELS[entry.toStatus]}
-                                    </td>
-                                    <td>{entry.reason ?? "–"}</td>
-                                    <td className="data-text">{entry.actorUserId ?? "–"}</td>
-                                    <td className="data-text">
-                                      <LocalDate value={entry.createdAt} format="numericDateTime" />
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          )}
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <Table label="Institusi" columns={INSTITUTION_COLUMNS} rows={institutionRows} stacked />
       )}
 
       {/* Pagination */}

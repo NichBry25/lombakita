@@ -1,17 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   Button,
-  CountPill,
   EmptyState,
   Feedback,
   FormInput,
   FormLabel,
   IconButton,
+  MenuButton,
   PageHeader,
   SelectField,
   Skeleton,
+  Table,
+  type TableColumn,
+  type TableRowData,
 } from "@/components/ui";
 import { useModal, useToast, type ModalOutcome } from "@/components/ui/primitives";
 import { LocalDate } from "@/components/ui/local-date";
@@ -77,6 +80,34 @@ const TEAM_FALLBACK: Record<RefusalAction, string> = {
   remove: "Anggota gagal dihapus. Coba lagi.",
   invite: "Undangan gagal dikirim. Coba lagi.",
   cancel: "Undangan gagal dibatalkan. Coba lagi.",
+};
+
+const MEMBER_COLUMNS: readonly TableColumn[] = [
+  { key: "name", header: "Nama", kind: "name" },
+  { key: "email", header: "Email", kind: "text" },
+  { key: "role", header: "Peran", kind: "text" },
+  { key: "joinedAt", header: "Bergabung", kind: "date" },
+  { key: "actions", header: "Tindakan", kind: "control", hideHeader: true },
+];
+
+const INVITATION_COLUMNS: readonly TableColumn[] = [
+  { key: "email", header: "Email", kind: "name" },
+  { key: "role", header: "Peran", kind: "text" },
+  { key: "expiresAt", header: "Kedaluwarsa", kind: "date" },
+  { key: "actions", header: "Tindakan", kind: "control", hideHeader: true },
+];
+
+// A long address may break after the "@", so a pop-up title that names it wraps there.
+const withBreakAfterAt = (email: string): ReactNode => {
+  const atIndex = email.indexOf("@");
+  if (atIndex === -1) return email;
+  return (
+    <>
+      {email.slice(0, atIndex + 1)}
+      <wbr />
+      {email.slice(atIndex + 1)}
+    </>
+  );
 };
 
 const membersUrl = (institutionSlug: string) =>
@@ -246,28 +277,105 @@ export const InstitutionTeamShell = ({
     void loadInvitations();
   };
 
-  const cancelInvitation = async (invitationId: string) => {
-    setPendingAction(`${invitationId}:cancel`);
-
+  // The confirm pop-up shows the waiting and the failure, so this reports an outcome.
+  const cancelInvitation = async (invitationId: string): Promise<ModalOutcome> => {
     const response = await fetch(
       `${invitationsUrl(institutionSlug)}/${encodeURIComponent(invitationId)}/cancel`,
       { method: "PATCH", credentials: "include" },
     );
 
-    setPendingAction(null);
-
     if (!response.ok) {
       const code = await readErrorCode(response);
-      addToast({
-        type: "error",
-        message: errorMessageFor(code, TEAM_ERROR_COPY, TEAM_FALLBACK.cancel),
-      });
-      return;
+      return { ok: false, message: errorMessageFor(code, TEAM_ERROR_COPY, TEAM_FALLBACK.cancel) };
     }
 
     addToast({ type: "success", message: "Undangan dibatalkan." });
     void loadInvitations();
+    return { ok: true };
   };
+
+  const confirmCancelInvitation = (invitation: Invitation) => {
+    openModal({
+      title: <>Batalkan undangan untuk {withBreakAfterAt(invitation.invitedEmail)}?</>,
+      body: "Undangan ini tidak berlaku lagi. Anda bisa mengirim undangan baru kapan saja.",
+      alert: true,
+      actions: [
+        { label: "Kembali" },
+        {
+          label: "Batalkan undangan",
+          variant: "primary",
+          onClick: () => cancelInvitation(invitation.id),
+        },
+      ],
+    });
+  };
+
+  const buildMemberRow = (member: Member): TableRowData => {
+    const displayName = member.name ?? member.email;
+    const isSelf = member.userId === actorUserId;
+    const isActing = pendingAction?.startsWith(`${member.membershipId}:`) ?? false;
+    const isChangingRole = pendingAction?.startsWith(`${member.membershipId}:role:`) ?? false;
+    const otherRoles = ROLE_OPTIONS.filter((role) => role !== member.role);
+
+    return {
+      key: member.membershipId,
+      cells: {
+        name: (
+          <>
+            {member.name ?? "—"}
+            {isSelf ? <span className="record-meta"> (Anda)</span> : null}
+          </>
+        ),
+        email: member.email,
+        role: getInstitutionRoleLabel(member.role),
+        joinedAt: <LocalDate value={member.joinedAt} format="shortDate" />,
+        actions: isSelf ? null : (
+          <div className="table-actions">
+            <MenuButton
+              icon="edit"
+              label={`Ubah peran ${displayName}`}
+              tooltip="Ubah peran"
+              loading={isChangingRole}
+              disabled={isActing}
+              items={otherRoles.map((role) => ({
+                key: role,
+                label: `Jadikan ${getInstitutionRoleLabel(role).toLowerCase()}`,
+                onSelect: () => void onRoleChange(member.membershipId, role),
+              }))}
+            />
+            <IconButton
+              icon="trash"
+              label={`Hapus anggota ${displayName}`}
+              variant="outline"
+              disabled={isActing}
+              onClick={() => confirmRemoveMember(member)}
+            />
+          </div>
+        ),
+      },
+    };
+  };
+
+  const buildInvitationRow = (invitation: Invitation): TableRowData => ({
+    key: invitation.id,
+    cells: {
+      email: invitation.invitedEmail,
+      role: getInstitutionRoleLabel(invitation.invitedRole),
+      expiresAt: <LocalDate value={invitation.expiresAt} format="shortDate" />,
+      actions: (
+        <IconButton
+          icon="trash"
+          label={`Batalkan undangan untuk ${invitation.invitedEmail}`}
+          variant="outline"
+          disabled={pendingAction !== null}
+          onClick={() => confirmCancelInvitation(invitation)}
+        />
+      ),
+    },
+  });
+
+  const memberRows = members.map(buildMemberRow);
+  const invitationRows = invitations.map(buildInvitationRow);
 
   return (
     <main className="page-shell app-page institution-team-page">
@@ -278,7 +386,6 @@ export const InstitutionTeamShell = ({
           <div>
             <h2>Daftar akses institusi</h2>
           </div>
-          <CountPill count={members.length} />
         </div>
         {isLoadingMembers ? (
           <div className="stack-sm" aria-label="Memuat anggota">
@@ -293,70 +400,12 @@ export const InstitutionTeamShell = ({
             description="Undang pengelola pada formulir di bawah untuk menambah anggota."
           />
         ) : (
-          <div className="table-scroll">
-            <table className="data-table institution-members-table">
-              <thead>
-                <tr>
-                  <th>Nama</th>
-                  <th>Email</th>
-                  <th>Peran</th>
-                  <th>Bergabung</th>
-                  <th>
-                    <span className="sr-only">Tindakan</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {members.map((member) => {
-                  const isSelf = member.userId === actorUserId;
-                  const isActing = pendingAction?.startsWith(`${member.membershipId}:`) ?? false;
-                  const otherRoles = ROLE_OPTIONS.filter((role) => role !== member.role);
-
-                  return (
-                    <tr key={member.membershipId}>
-                      <td>
-                        {member.name ?? "—"}
-                        {isSelf ? <span className="record-meta"> (Anda)</span> : null}
-                      </td>
-                      <td>{member.email}</td>
-                      <td>
-                        <span className="status-badge">{getInstitutionRoleLabel(member.role)}</span>
-                      </td>
-                      <td className="data-text">
-                        <LocalDate value={member.joinedAt} format="shortDate" />
-                      </td>
-                      <td>
-                        {isSelf ? null : (
-                          <div className="table-actions">
-                            {otherRoles.map((role) => (
-                              <Button
-                                key={role}
-                                variant="outline"
-                                size="sm"
-                                loading={pendingAction === `${member.membershipId}:role:${role}`}
-                                disabled={isActing}
-                                onClick={() => void onRoleChange(member.membershipId, role)}
-                                type="button"
-                              >
-                                {`Jadikan ${getInstitutionRoleLabel(role)}`}
-                              </Button>
-                            ))}
-                            <IconButton
-                              icon="trash"
-                              label={`Hapus anggota ${member.name ?? member.email}`}
-                              variant="outline"
-                              disabled={isActing}
-                              onClick={() => confirmRemoveMember(member)}
-                            />
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <Table
+            label="Daftar akses institusi"
+            columns={MEMBER_COLUMNS}
+            rows={memberRows}
+            stacked
+          />
         )}
       </section>
 
@@ -407,7 +456,6 @@ export const InstitutionTeamShell = ({
           <div>
             <h2>Undangan tertunda</h2>
           </div>
-          <CountPill count={invitations.length} />
         </div>
         {isLoadingInvitations ? (
           <div className="stack-sm" aria-label="Memuat undangan">
@@ -422,43 +470,12 @@ export const InstitutionTeamShell = ({
             description="Undangan yang dikirim akan muncul di sini sampai dijawab atau dibatalkan."
           />
         ) : (
-          <div className="table-scroll">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Email</th>
-                  <th>Peran</th>
-                  <th>Kedaluwarsa</th>
-                  <th>
-                    <span className="sr-only">Tindakan</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {invitations.map((invitation) => (
-                  <tr key={invitation.id}>
-                    <td>{invitation.invitedEmail}</td>
-                    <td>{getInstitutionRoleLabel(invitation.invitedRole)}</td>
-                    <td className="data-text">
-                      <LocalDate value={invitation.expiresAt} format="shortDate" />
-                    </td>
-                    <td>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        loading={pendingAction === `${invitation.id}:cancel`}
-                        disabled={pendingAction !== null}
-                        onClick={() => void cancelInvitation(invitation.id)}
-                        type="button"
-                      >
-                        Batalkan
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <Table
+            label="Undangan tertunda"
+            columns={INVITATION_COLUMNS}
+            rows={invitationRows}
+            stacked
+          />
         )}
       </section>
     </main>

@@ -23,10 +23,14 @@ export {
   Slider,
   TagChoiceChip,
 } from "./form-controls";
+export { MenuButton } from "./menu-button";
+export type { MenuButtonItem } from "./menu-button";
 export { Icon } from "./icon";
 export type { IconName } from "./icon";
 export { Skeleton, SkeletonCard } from "./skeleton";
 export type { SkeletonVariant, SkeletonWidth } from "./skeleton";
+export { Table, TableClamp, TableDataList, TableExpandToggle, TableNameLink } from "./table";
+export type { TableColumn, TableColumnKind, TableRowData } from "./table";
 export { Spinner } from "./spinner";
 export type { SpinnerSize } from "./spinner";
 // Exported because §14's "page change only" signal is the route skeleton, and an indexable route

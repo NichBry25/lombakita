@@ -2,8 +2,21 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import { getDb } from "@/server/db/client";
 import { competitions, institutions } from "@/server/db/schema";
 import { FeaturedRowForm } from "./featured-row-form";
-import { EmptyState, PageHeader } from "@/components/ui";
+import {
+  EmptyState,
+  PageHeader,
+  Table,
+  type TableColumn,
+  type TableRowData,
+} from "@/components/ui";
 import { requireRolePage } from "@/server/auth/page-guard";
+
+const FEATURED_COLUMNS: readonly TableColumn[] = [
+  { key: "title", header: "Judul", kind: "name" },
+  { key: "institution", header: "Institusi", kind: "text" },
+  { key: "order", header: "Urutan", kind: "number" },
+  { key: "actions", header: "Tindakan", kind: "control", hideHeader: true },
+];
 
 export default async function AdminFeaturedPage() {
   await requireRolePage("platform_ops", { callbackPath: "/admin/featured" });
@@ -27,6 +40,22 @@ export default async function AdminFeaturedPage() {
       desc(competitions.createdAt),
     );
 
+  const featuredRows: TableRowData[] = rows.map((row) => ({
+    key: row.id,
+    cells: {
+      title: row.title,
+      institution: row.institutionSlug,
+      order: row.featuredOrder,
+      actions: (
+        <FeaturedRowForm
+          competitionId={row.id}
+          initialIsFeatured={row.isFeatured}
+          initialFeaturedOrder={row.featuredOrder}
+        />
+      ),
+    },
+  }));
+
   return (
     <main className="page-shell app-page admin-page">
       <PageHeader
@@ -48,34 +77,7 @@ export default async function AdminFeaturedPage() {
       )}
 
       {rows.length > 0 && (
-        <div className="table-scroll">
-          <table className="data-table admin-featured-table">
-            <thead>
-              <tr>
-                <th>Judul</th>
-                <th>Institusi</th>
-                <th>Urutan</th>
-                <th>Aksi</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.id}>
-                  <td>{row.title}</td>
-                  <td className="data-text">{row.institutionSlug}</td>
-                  <td className="data-text">{row.featuredOrder ?? <em>–</em>}</td>
-                  <td>
-                    <FeaturedRowForm
-                      competitionId={row.id}
-                      initialIsFeatured={row.isFeatured}
-                      initialFeaturedOrder={row.featuredOrder}
-                    />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <Table label="Kompetisi unggulan" columns={FEATURED_COLUMNS} rows={featuredRows} stacked />
       )}
     </main>
   );

@@ -1552,44 +1552,415 @@ svg {
   padding-inline: var(--space-2);
 }
 
-.table-scroll {
+/* Table kit (Tabel). The frame is a Kartu surface with no shadow. A row is 48 px, or 64 px when it
+   holds a 44 px control, with a 1 px line above every row but the first. There is no hover tint,
+   because a row as a whole is not a link. */
+.ui-table-frame {
+  position: relative;
   max-width: 100%;
-  overflow-x: auto;
+  overflow: hidden;
   border: var(--border-thin) solid var(--color-line);
-  border-radius: var(--radius-card);
+  border-radius: var(--radius-kartu);
   background: var(--color-surface);
 }
 
-.data-table {
-  width: 100%;
-  border-collapse: collapse;
-  color: var(--color-ink);
-  font-size: var(--text-body-sm);
+.ui-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
 }
 
-.data-table th,
-.data-table td {
-  padding: var(--space-3) var(--space-4);
-  border-bottom: var(--border-thin) solid var(--color-line-soft);
+/* The frame clips the scroll area, so the focus ring sits inside it. */
+.ui-table-scroll:focus-visible {
+  outline-offset: calc(var(--focus-width) * -1);
+}
+
+/* While more columns wait on the right the edge fades into the frame fill. The table component
+   sets data-more and data-scrolled on the frame. */
+.ui-table-frame::after {
+  content: "";
+  position: absolute;
+  inset-block: var(--space-0);
+  inset-inline-end: var(--space-0);
+  display: none;
+  inline-size: var(--table-edge-fade);
+  background: linear-gradient(to right, transparent, var(--color-surface));
+  pointer-events: none;
+}
+
+.ui-table-frame[data-more="true"]::after {
+  display: block;
+}
+
+.ui-table {
+  --table-head-fill: var(--color-panel);
+
+  inline-size: 100%;
+  border-collapse: separate;
+  border-spacing: var(--space-0);
+  color: var(--color-ink);
+  font-size: var(--text-body);
+  line-height: 1.4667;
+}
+
+[data-theme="dark"] .ui-table {
+  --table-head-fill: var(--tone-waiting-fill);
+}
+
+/* MANUAL-D41: a cell is the containing block for its own children. Without this, an absolutely
+   positioned .sr-only child resolves against the initial containing block, escapes the scroll
+   area's clipping, and widens the document past the viewport. */
+.ui-table th,
+.ui-table td {
+  position: relative;
+  padding: var(--space-2-5) var(--space-3);
   text-align: start;
-  vertical-align: top;
+  vertical-align: middle;
   font-variant-numeric: tabular-nums;
 }
 
-/* MANUAL-D41: a header cell is the containing block for its own children. Without this, an
-   absolutely positioned .sr-only child resolves against the initial containing block, escapes
-   .table-scroll's overflow clipping, and widens the document past the viewport. */
-.data-table th {
-  position: relative;
-  background: var(--color-inset);
-  color: var(--color-ink-soft);
-  font-family: var(--font-data);
-  font-size: var(--text-micro);
-  font-weight: 500;
+.ui-table th:first-child,
+.ui-table td:first-child {
+  padding-inline-start: var(--space-5);
 }
 
-.data-table tr:last-child td {
-  border-bottom: 0;
+.ui-table th:last-child,
+.ui-table td:last-child {
+  padding-inline-end: var(--space-5);
+}
+
+.ui-table th {
+  block-size: var(--touch-target);
+  padding-block: var(--space-0);
+  background: var(--table-head-fill);
+  color: var(--color-ink-soft);
+  font-size: var(--text-body-sm);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ui-table td {
+  block-size: var(--space-12);
+}
+
+.ui-table > tbody > tr + tr > td {
+  border-block-start: var(--border-thin) solid var(--table-row-line);
+}
+
+.ui-table > tbody > tr[data-band-row] > td {
+  padding: var(--space-0);
+  border-block-start: 0;
+  background: var(--table-head-fill);
+}
+
+/* The first column stays in view while the rest scrolls. */
+.ui-table > thead > tr > th:first-child,
+.ui-table > tbody > tr:not([data-band-row]) > td:first-child {
+  position: sticky;
+  inset-inline-start: var(--space-0);
+  z-index: var(--z-content);
+}
+
+.ui-table > tbody > tr:not([data-band-row]) > td:first-child {
+  background: var(--color-surface);
+}
+
+.ui-table-frame[data-scrolled="true"] .ui-table > thead > tr > th:first-child,
+.ui-table-frame[data-scrolled="true"] .ui-table > tbody > tr:not([data-band-row]) > td:first-child {
+  box-shadow: inset calc(var(--border-thin) * -1) 0 0 var(--color-line);
+}
+
+.ui-table [data-kind="name"] {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.ui-table [data-kind="name"] .record-meta {
+  font-weight: 400;
+}
+
+.ui-table [data-kind="text"] {
+  overflow-wrap: anywhere;
+}
+
+.ui-table [data-kind="long"] {
+  min-inline-size: var(--table-long-min);
+  overflow-wrap: anywhere;
+}
+
+.ui-table [data-kind="wrap"] {
+  min-inline-size: var(--table-reason-min);
+  max-inline-size: var(--table-reason-max);
+  overflow-wrap: anywhere;
+}
+
+.ui-table [data-kind="number"],
+.ui-table [data-kind="control"] {
+  text-align: end;
+  white-space: nowrap;
+}
+
+.ui-table [data-kind="date"] {
+  min-inline-size: var(--table-date-min);
+  white-space: nowrap;
+}
+
+.ui-table [data-kind="pill"] {
+  inline-size: 1%;
+  white-space: nowrap;
+}
+
+.ui-table-empty {
+  color: var(--color-ink-faint);
+}
+
+.ui-table-clamp {
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+/* A second line under a name, such as the slug of an institution. */
+.ui-table-sub {
+  display: block;
+  color: var(--color-ink-soft);
+  font-size: var(--text-body-sm);
+  font-weight: 400;
+  line-height: 1.4286;
+}
+
+/* Tautan aksi inside a table. The 44 px press area is invisible, so a row with only a link stays
+   48 px. */
+.ui-table-link {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-0);
+  border: 0;
+  background: transparent;
+  color: var(--color-ink);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+a.ui-table-link,
+.ui-table-link > span {
+  text-decoration: underline;
+  text-decoration-thickness: 1.5px;
+  text-decoration-color: color-mix(in srgb, currentcolor 35%, transparent);
+  text-underline-offset: 4px;
+}
+
+[data-theme="dark"] a.ui-table-link,
+[data-theme="dark"] .ui-table-link > span {
+  text-decoration-color: color-mix(in srgb, currentcolor 40%, transparent);
+}
+
+.ui-table-link::after {
+  content: "";
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline: calc(var(--space-2) * -1);
+  block-size: var(--touch-target);
+  transform: translateY(-50%);
+}
+
+.ui-table-chevron {
+  transition: transform var(--duration-fast) ease;
+}
+
+.ui-table-link[aria-expanded="true"] .ui-table-chevron {
+  transform: rotate(180deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-table-chevron {
+    transition: none;
+  }
+}
+
+/* The detail band under an open row. */
+.ui-table-band {
+  padding: var(--space-4) var(--space-5);
+}
+
+.ui-table-band:has(> .ui-table[data-flat="true"]) {
+  padding: var(--space-1) var(--space-5) var(--space-3);
+}
+
+.ui-table-band-empty {
+  margin: var(--space-0);
+}
+
+.ui-table-member-list {
+  display: grid;
+  gap: var(--space-1-5);
+  margin: var(--space-0);
+  padding: var(--space-0);
+  list-style: none;
+}
+
+.ui-table-data-list {
+  display: grid;
+  gap: var(--space-1-5);
+  margin: var(--space-0);
+}
+
+.ui-table-data-list > div {
+  display: grid;
+  grid-template-columns: var(--table-data-label) minmax(0, 1fr);
+  gap: var(--space-3);
+}
+
+.ui-table-data-list dt {
+  color: var(--color-ink-soft);
+  overflow-wrap: anywhere;
+}
+
+.ui-table-data-list dd {
+  margin: var(--space-0);
+  overflow-wrap: anywhere;
+}
+
+/* A table inside a detail band has no frame and no header fill. The band already has a fill, so
+   the row line takes the pop-up edge, which stays visible on it. */
+.ui-table[data-flat="true"] > thead > tr > th,
+.ui-table[data-flat="true"] > tbody > tr > td {
+  background: transparent;
+}
+
+.ui-table[data-flat="true"] > thead > tr > th:first-child,
+.ui-table[data-flat="true"] > tbody > tr > td:first-child {
+  position: static;
+  padding-inline-start: var(--space-0);
+}
+
+.ui-table[data-flat="true"] > thead > tr > th:last-child,
+.ui-table[data-flat="true"] > tbody > tr > td:last-child {
+  padding-inline-end: var(--space-0);
+}
+
+.ui-table[data-flat="true"] > tbody > tr > td {
+  border-block-start: var(--border-thin) solid var(--modal-edge);
+}
+
+@media (max-width: 640px) {
+  .ui-table-frame {
+    border-radius: var(--radius-panel);
+  }
+}
+
+/* Below 760 px a table whose rows hold controls shows each row as a card. The name is the title,
+   the controls sit beside it, and every other filled cell is a label and a value. */
+@media (max-width: 760px) {
+  .ui-table-frame[data-stacked="true"] {
+    overflow: visible;
+    border: 0;
+    border-radius: var(--space-0);
+    background: transparent;
+  }
+
+  .ui-table-frame[data-stacked="true"]::after {
+    display: none;
+  }
+
+  .ui-table-frame[data-stacked="true"] .ui-table-scroll {
+    overflow: visible;
+  }
+
+  .ui-table-frame[data-stacked="true"] > .ui-table-scroll > .ui-table {
+    display: block;
+  }
+
+  .ui-table-frame[data-stacked="true"] > .ui-table-scroll > .ui-table > thead {
+    position: absolute;
+    inline-size: var(--border-thin);
+    block-size: var(--border-thin);
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .ui-table-frame[data-stacked="true"] > .ui-table-scroll > .ui-table > tbody {
+    display: grid;
+    gap: var(--space-3);
+  }
+
+  .ui-table-frame[data-stacked="true"]
+    > .ui-table-scroll
+    > .ui-table
+    > tbody
+    > tr:not([data-band-row]) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-3);
+    padding: var(--space-4);
+    border: var(--border-thin) solid var(--color-line);
+    border-radius: var(--radius-panel);
+    background: var(--color-surface);
+  }
+
+  .ui-table-frame[data-stacked="true"] > .ui-table-scroll > .ui-table > tbody > tr[data-band-row] {
+    display: block;
+    border-radius: var(--radius-panel);
+    background: var(--table-head-fill);
+  }
+
+  .ui-table-frame[data-stacked="true"] > .ui-table-scroll > .ui-table > tbody > tr > td {
+    display: block;
+    block-size: auto;
+    min-inline-size: 0;
+    max-inline-size: none;
+    inline-size: auto;
+    padding: var(--space-0);
+    border-block-start: 0;
+    background: transparent;
+    box-shadow: none;
+    text-align: start;
+    white-space: normal;
+  }
+
+  .ui-table-frame[data-stacked="true"]
+    > .ui-table-scroll
+    > .ui-table
+    > tbody
+    > tr
+    > td:first-child {
+    position: static;
+  }
+
+  .ui-table-frame[data-stacked="true"] td[data-kind="name"] {
+    order: 0;
+    flex: 1 1 0;
+    min-inline-size: 0;
+  }
+
+  .ui-table-frame[data-stacked="true"] td[data-kind="control"] {
+    order: 1;
+    flex: 0 0 auto;
+  }
+
+  .ui-table-frame[data-stacked="true"] td:not([data-kind="name"], [data-kind="control"]) {
+    order: 2;
+    flex: 1 1 100%;
+    display: grid;
+    grid-template-columns: calc(var(--space-12) * 2) minmax(0, 1fr);
+    gap: var(--space-3);
+  }
+
+  .ui-table-frame[data-stacked="true"] td:not([data-kind="name"], [data-kind="control"])::before {
+    content: attr(data-label);
+    color: var(--color-ink-soft);
+  }
+
+  .ui-table-frame[data-stacked="true"] td[data-empty="true"]:not([data-kind="name"]) {
+    display: none;
+  }
 }
 
 /* Empty state: text on the page. It has no frame, no fill and no padding of its own, and the page
@@ -2240,6 +2611,26 @@ button.header-nav-link {
 .header-dashboard-menuitem[aria-current="page"] {
   background: var(--color-inset);
   font-weight: 600;
+}
+
+/* The menu button of a row. Its panel is fixed to the viewport so a scroll area around the trigger
+   cannot clip it, and it keeps the header menu's surface and items. */
+.menu-button-root {
+  display: inline-flex;
+}
+
+.menu-button-panel {
+  position: fixed;
+  left: auto;
+}
+
+:where(.menu-button-panel) .header-dashboard-menuitem {
+  inline-size: 100%;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  text-align: start;
+  cursor: pointer;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -6055,16 +6446,14 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
   min-width: var(--control-select-min);
 }
 
+/* The controls of one control cell, 12 px apart. */
 .table-actions {
   display: flex;
   min-width: max-content;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-2);
-}
-
-.institution-members-table td:first-child {
-  font-weight: 600;
+  justify-content: flex-end;
+  gap: var(--space-3);
 }
 
 .verification-documents {
@@ -6105,12 +6494,6 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
 
 .form-file::file-selector-button:hover {
   border-color: var(--color-accent);
-}
-
-.verification-history-table td:last-child,
-.audit-summary {
-  max-width: var(--content-narrow);
-  overflow-wrap: anywhere;
 }
 
 .audit-log-page {
@@ -6504,22 +6887,6 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
   font-size: var(--text-data-lg);
 }
 
-.participant-team-details summary {
-  color: var(--color-link);
-  cursor: pointer;
-  font-weight: 600;
-}
-
-.participant-team-details ul {
-  display: grid;
-  gap: var(--space-1);
-  margin: var(--space-2) var(--space-0) var(--space-0);
-  padding: var(--space-0);
-  color: var(--color-ink-soft);
-  font-size: var(--text-meta);
-  list-style: none;
-}
-
 .participant-review-card,
 .participant-result-card {
   max-width: var(--content-form);
@@ -6616,15 +6983,6 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
   margin-block-start: var(--space-1);
   color: var(--color-error-text);
   font-size: var(--text-meta);
-}
-
-.admin-audit-row > td {
-  padding: var(--space-4);
-  background: var(--color-inset);
-}
-
-.admin-audit-table {
-  border: var(--border-thin) solid var(--color-line-soft);
 }
 
 .admin-proposed-name {
@@ -6892,16 +7250,6 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
   max-width: 100%;
   height: auto;
   border-radius: 0;
-}
-
-.participants-table,
-.audit-log-table,
-.institution-members-table,
-.verification-history-table,
-.admin-featured-table,
-.admin-verification-table,
-.admin-institutions-table {
-  min-width: var(--content-table-wide);
 }
 
 @media (max-width: 940px) {

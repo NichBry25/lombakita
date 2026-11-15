@@ -34,7 +34,7 @@ type FormSubmitModalAction = {
 };
 
 type ModalConfigFields = {
-  title: string;
+  title: ReactNode;
   body: ReactNode;
   onClose?: () => void;
   // 560 wide instead of 480. Also means the pop-up holds a field or an image, so a tap outside

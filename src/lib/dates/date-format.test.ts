@@ -40,6 +40,8 @@ describe("date formats", () => {
     expect(formatWib(value, "numericDate")).toBe("20/11/2026");
     expect(formatWib(value, "numericDateTime")).toBe("20/11/2026, 23.30.00");
     expect(formatWib(value, "shortDate")).toBe("20 Nov 2026");
+    expect(formatWib(value, "shortDateTime")).toBe("20 Nov 2026, 23.30");
+    expect(formatWib(value, "shortDateTimeSeconds")).toBe("20 Nov 2026, 23.30.00");
     expect(formatWib(value, "longDate")).toBe("20 November 2026");
     expect(formatWib(value, "longDateTime")).toBe("20 November 2026 pukul 23.30");
     expect(formatWib(value, "dayMonth")).toBe("20 November");

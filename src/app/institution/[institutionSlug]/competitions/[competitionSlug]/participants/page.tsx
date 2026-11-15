@@ -29,7 +29,18 @@ import {
 import { BatchDocumentRequestForm, type BatchTarget } from "./batch-document-request-form";
 import { REVIEW_STATUS_LABELS } from "./review-status-labels";
 import { ParticipantTeamMembers } from "./participant-team-members";
-import { ButtonLink, EmptyState, Icon, PageHeader, Pagination } from "@/components/ui";
+import {
+  ButtonLink,
+  EmptyState,
+  Icon,
+  PageHeader,
+  Pagination,
+  Table,
+  TableExpandToggle,
+  TableNameLink,
+  type TableColumn,
+  type TableRowData,
+} from "@/components/ui";
 import { LocalDate } from "@/components/ui/local-date";
 import { formatDisplayToken } from "@/lib/text/capitalize";
 
@@ -45,6 +56,28 @@ const REGISTRATION_STATUS_LABELS: Record<string, string> = {
 
 const getRegistrationStatusLabel = (status: string): string =>
   REGISTRATION_STATUS_LABELS[status] ?? formatDisplayToken(status);
+
+const registrationStatusTone = (status: ParticipantRecord["status"]): string => {
+  if (status === "confirmed") return "open";
+  if (status === "cancelled") return "closed";
+  return "awaiting";
+};
+
+const describeSubmission = (submission: ParticipantRecord["submission"]): string => {
+  if (submission === null) return "Tidak ada";
+  return submission.finalized ? "Finalisasi" : "Diunggah";
+};
+
+const PARTICIPANT_COLUMNS: readonly TableColumn[] = [
+  { key: "name", header: "Peserta", kind: "name" },
+  { key: "type", header: "Tipe", kind: "text" },
+  { key: "status", header: "Status", kind: "pill" },
+  { key: "members", header: "Anggota", kind: "number" },
+  { key: "submission", header: "Submission", kind: "text" },
+  { key: "review", header: "Tinjauan", kind: "pill" },
+  { key: "documents", header: "Dokumen", kind: "pill" },
+  { key: "registeredAt", header: "Terdaftar", kind: "date" },
+];
 
 export default async function ParticipantsPage({ params, searchParams }: Props) {
   const { institutionSlug, competitionSlug } = await params;
@@ -139,6 +172,55 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
       label: participantLabel(participant),
       hasOpenRequest: hasOpenRequest(participant.registrationId),
     }));
+
+  const buildParticipantRow = (participant: ParticipantRecord): TableRowData => {
+    const name = participantLabel(participant);
+    const team = participant.registrationType === "team" ? participant.team : null;
+    const latestRequest = latestRequestByRegistration.get(participant.registrationId);
+
+    return {
+      key: participant.registrationId,
+      cells: {
+        name: (
+          <TableNameLink
+            href={`${path}/${participant.registrationId}`}
+            aria-label={`Tinjau pendaftaran ${name}`}
+          >
+            {name}
+          </TableNameLink>
+        ),
+        type: participant.registrationType === "team" ? "Tim" : "Individu",
+        status: (
+          <span className="status-badge" data-status={registrationStatusTone(participant.status)}>
+            {getRegistrationStatusLabel(participant.status)}
+          </span>
+        ),
+        members: team ? (
+          <TableExpandToggle label={`Daftar anggota ${team.teamName}`}>
+            {team.activeMemberCount}
+          </TableExpandToggle>
+        ) : null,
+        submission: describeSubmission(participant.submission),
+        review: (
+          <span className="status-badge">
+            {REVIEW_STATUS_LABELS[participant.internalReviewStatus]}
+          </span>
+        ),
+        documents: latestRequest ? (
+          <span
+            className="status-badge"
+            data-status={DOCUMENT_REQUEST_STATUS_TONES[latestRequest.display.status]}
+          >
+            {DOCUMENT_REQUEST_STATUS_LABELS[latestRequest.display.status]}
+          </span>
+        ) : null,
+        registeredAt: <LocalDate value={participant.registeredAt} format="shortDate" />,
+      },
+      band: team ? <ParticipantTeamMembers team={team} /> : undefined,
+    };
+  };
+
+  const participantRows = result.participants.map(buildParticipantRow);
 
   const buildSearchParams = (overrides: Record<string, string>): string => {
     const p = new URLSearchParams();
@@ -263,90 +345,7 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
           action={{ label: "Bersihkan filter", href: path }}
         />
       ) : (
-        <div className="table-scroll">
-          <table className="data-table participants-table">
-            <thead>
-              <tr>
-                <th>Tipe</th>
-                <th>Peserta</th>
-                <th>Status</th>
-                <th>Anggota</th>
-                <th>Submission</th>
-                <th>Tinjauan</th>
-                <th>Dokumen</th>
-                <th>Terdaftar</th>
-                <th>Aksi</th>
-              </tr>
-            </thead>
-            <tbody>
-              {result.participants.map((p: ParticipantRecord) => (
-                <tr key={p.registrationId}>
-                  <td>{p.registrationType === "team" ? "Tim" : "Individu"}</td>
-                  <td>
-                    {p.registrationType === "individual" && p.candidate ? (
-                      (p.candidate.displayName ?? p.candidate.username)
-                    ) : p.team ? (
-                      <ParticipantTeamMembers team={p.team} />
-                    ) : (
-                      "—"
-                    )}
-                  </td>
-                  <td>
-                    <span
-                      className="status-badge"
-                      data-status={
-                        p.status === "confirmed"
-                          ? "open"
-                          : p.status === "cancelled"
-                            ? "closed"
-                            : "awaiting"
-                      }
-                    >
-                      {getRegistrationStatusLabel(p.status)}
-                    </span>
-                  </td>
-                  <td className="data-text">
-                    {p.registrationType === "team" && p.team ? p.team.activeMemberCount : "—"}
-                  </td>
-                  <td>
-                    {p.submission === null
-                      ? "Tidak ada"
-                      : p.submission.finalized
-                        ? "Finalisasi"
-                        : "Diunggah"}
-                  </td>
-                  <td>
-                    <span className="status-badge">
-                      {REVIEW_STATUS_LABELS[p.internalReviewStatus]}
-                    </span>
-                  </td>
-                  <td>
-                    {(() => {
-                      const latest = latestRequestByRegistration.get(p.registrationId);
-                      if (!latest) return <span className="muted-copy">—</span>;
-                      return (
-                        <span
-                          className="status-badge"
-                          data-status={DOCUMENT_REQUEST_STATUS_TONES[latest.display.status]}
-                        >
-                          {DOCUMENT_REQUEST_STATUS_LABELS[latest.display.status]}
-                        </span>
-                      );
-                    })()}
-                  </td>
-                  <td className="data-text">
-                    <LocalDate value={p.registeredAt} format="numericDate" />
-                  </td>
-                  <td>
-                    <ButtonLink href={`${path}/${p.registrationId}`} variant="outline" size="sm">
-                      Tinjau
-                    </ButtonLink>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <Table label="Peserta" columns={PARTICIPANT_COLUMNS} rows={participantRows} />
       )}
 
       <Pagination

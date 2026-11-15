@@ -77,6 +77,9 @@
   --color-fact-circle: var(--brand-mist);
   --color-link-card-pressed: var(--brand-mist);
 
+  /* The 1 px line above every table row but the first. */
+  --table-row-line: #ece5d3;
+
   /* Step line segments: done, current and not reached. */
   --color-step-done: var(--brand-palm);
   --color-step-current: var(--brand-terracotta);
@@ -265,6 +268,7 @@
 
   --color-hover-surface: #1c4a42;
   --color-panel: #0f2c27;
+  --table-row-line: #1e4a42;
   --color-fact-circle: #1a4a41;
   --color-link-card-pressed: #1a4a41;
   --color-step-done: var(--brand-lime);
@@ -455,7 +459,15 @@
   --notice-close-reserve: 3.5rem;
   --content-auth-min: 22rem;
   --content-footer-column: 8rem;
-  --content-table-wide: 56rem;
+  /* Table kit sizes. A name sticks at no more than 150 px, the edge fade is 36 px, a date column
+     is at least 150 px, a long text column at least 230 px, and a reason is 300 to 380 px. */
+  --table-sticky-column-max: 9.375rem;
+  --table-edge-fade: 2.25rem;
+  --table-date-min: 9.375rem;
+  --table-long-min: 14.375rem;
+  --table-reason-min: 18.75rem;
+  --table-reason-max: 23.75rem;
+  --table-data-label: 8.75rem;
   --viewport-min: 20rem;
   --content-detail-rail: 21.25rem;
   --cover-list-height: 10.5rem;

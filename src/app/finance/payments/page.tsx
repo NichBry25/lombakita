@@ -1,5 +1,12 @@
-import Link from "next/link";
-import { EmptyState, Feedback, PageHeader } from "@/components/ui";
+import {
+  EmptyState,
+  Feedback,
+  PageHeader,
+  Table,
+  TableNameLink,
+  type TableColumn,
+  type TableRowData,
+} from "@/components/ui";
 import { loadDisputePayments } from "@/server/finance/dispute-view";
 import { LocalDate } from "@/components/ui/local-date";
 import { formatRupiah } from "@/lib/finance/payment-display";
@@ -10,6 +17,15 @@ export const metadata = {
   title: "Sengketa pembayaran",
   description: "Riwayat bukti transfer lintas lembaga untuk penanganan sengketa.",
 };
+
+const PAYMENT_COLUMNS: readonly TableColumn[] = [
+  { key: "payer", header: "Peserta", kind: "name" },
+  { key: "competition", header: "Kompetisi", kind: "long" },
+  { key: "institution", header: "Lembaga", kind: "text" },
+  { key: "amount", header: "Jumlah", kind: "number" },
+  { key: "proof", header: "Status bukti", kind: "pill" },
+  { key: "submittedAt", header: "Dikirim", kind: "date" },
+];
 
 /**
  * Every bukti transfer ever filed, across every institution. This is the finance_ops dispute view.
@@ -27,6 +43,28 @@ export default async function FinanceDisputePaymentsPage() {
   await requireRolePage("finance_ops", { callbackPath: "/finance/payments" });
 
   const payments = await loadDisputePayments();
+
+  const paymentRows: TableRowData[] = payments.map((payment) => ({
+    key: payment.paymentId,
+    cells: {
+      payer: (
+        <TableNameLink href={`/finance/payments/${payment.paymentId}`}>
+          {payment.payerDisplayName}
+        </TableNameLink>
+      ),
+      competition: payment.competitionTitle,
+      institution: payment.institutionSlug,
+      amount: formatRupiah(payment.grossAmount, payment.currency),
+      proof: payment.proofStatus ? (
+        <span className="status-badge" data-status={PROOF_STATUS_TONES[payment.proofStatus]}>
+          {PROOF_STATUS_LABELS[payment.proofStatus]}
+        </span>
+      ) : null,
+      submittedAt: payment.submittedAt ? (
+        <LocalDate value={payment.submittedAt} format="shortDateTime" />
+      ) : null,
+    },
+  }));
 
   return (
     <main className="page-shell app-page admin-page">
@@ -53,55 +91,7 @@ export default async function FinanceDisputePaymentsPage() {
           description="Bukti transfer akan muncul di sini setelah peserta mengunggahnya."
         />
       ) : (
-        <div className="table-scroll">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Peserta</th>
-                <th>Kompetisi</th>
-                <th>Lembaga</th>
-                <th>Jumlah</th>
-                <th>Status bukti</th>
-                <th>Dikirim</th>
-              </tr>
-            </thead>
-            <tbody>
-              {payments.map((payment) => (
-                <tr key={payment.paymentId}>
-                  <td>
-                    <Link href={`/finance/payments/${payment.paymentId}`}>
-                      {payment.payerDisplayName}
-                    </Link>
-                  </td>
-                  <td>{payment.competitionTitle}</td>
-                  <td className="data-text">{payment.institutionSlug}</td>
-                  <td className="data-text">
-                    {formatRupiah(payment.grossAmount, payment.currency)}
-                  </td>
-                  <td>
-                    {payment.proofStatus ? (
-                      <span
-                        className="status-badge"
-                        data-status={PROOF_STATUS_TONES[payment.proofStatus]}
-                      >
-                        {PROOF_STATUS_LABELS[payment.proofStatus]}
-                      </span>
-                    ) : (
-                      "—"
-                    )}
-                  </td>
-                  <td>
-                    {payment.submittedAt ? (
-                      <LocalDate value={payment.submittedAt} format="financeDateTime" />
-                    ) : (
-                      "—"
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <Table label="Bukti transfer" columns={PAYMENT_COLUMNS} rows={paymentRows} />
       )}
     </main>
   );

@@ -16,6 +16,9 @@ import {
   IconButton,
   PageHeader,
   Skeleton,
+  Table,
+  type TableColumn,
+  type TableRowData,
 } from "@/components/ui";
 import {
   DOCUMENT_TYPE_LABELS,
@@ -47,6 +50,35 @@ const STATUS_LABELS: Record<SubmissionItem["status"], string> = {
   approved: "Disetujui",
   rejected: "Ditolak",
 };
+
+const HISTORY_COLUMNS: readonly TableColumn[] = [
+  { key: "target", header: "Tipe tujuan", kind: "name" },
+  { key: "status", header: "Status", kind: "pill" },
+  { key: "documents", header: "Dokumen", kind: "number" },
+  { key: "submittedAt", header: "Dikirim", kind: "date" },
+  { key: "notes", header: "Catatan", kind: "long" },
+];
+
+const submissionStatusTone = (status: SubmissionItem["status"]): string => {
+  if (status === "approved") return "open";
+  if (status === "rejected") return "closing";
+  return "awaiting";
+};
+
+const buildHistoryRow = (submission: SubmissionItem): TableRowData => ({
+  key: submission.id,
+  cells: {
+    target: INSTITUTION_TYPE_LABELS[submission.targetInstitutionType],
+    status: (
+      <span className="status-badge" data-status={submissionStatusTone(submission.status)}>
+        {STATUS_LABELS[submission.status]}
+      </span>
+    ),
+    documents: submission.documentCount,
+    submittedAt: <LocalDate value={submission.submittedAt} format="shortDate" />,
+    notes: submission.reviewerNotes,
+  },
+});
 
 type DocField = {
   documentType: string;
@@ -416,45 +448,11 @@ export const InstitutionVerificationShell = ({
           />
         )}
         {!loadingHistory && submissions.length > 0 && (
-          <div className="table-scroll">
-            <table className="data-table verification-history-table">
-              <thead>
-                <tr>
-                  <th>Tipe tujuan</th>
-                  <th>Status</th>
-                  <th>Dokumen</th>
-                  <th>Dikirim</th>
-                  <th>Catatan</th>
-                </tr>
-              </thead>
-              <tbody>
-                {submissions.map((s) => (
-                  <tr key={s.id}>
-                    <td>{INSTITUTION_TYPE_LABELS[s.targetInstitutionType]}</td>
-                    <td>
-                      <span
-                        className="status-badge"
-                        data-status={
-                          s.status === "approved"
-                            ? "open"
-                            : s.status === "rejected"
-                              ? "closing"
-                              : "awaiting"
-                        }
-                      >
-                        {STATUS_LABELS[s.status]}
-                      </span>
-                    </td>
-                    <td className="data-text">{s.documentCount}</td>
-                    <td className="data-text">
-                      <LocalDate value={s.submittedAt} format="numericDate" />
-                    </td>
-                    <td>{s.reviewerNotes ?? "–"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <Table
+            label="Riwayat verifikasi"
+            columns={HISTORY_COLUMNS}
+            rows={submissions.map(buildHistoryRow)}
+          />
         )}
       </section>
 
