@@ -41,9 +41,9 @@ const REGISTRATION_COLUMNS = {
 // Pure read for downstream steps (4.5 dashboard, 4.6 submission intake).
 // Returns the candidate's most recent registration row for this competition (any status) in its
 // current publication. When there is none, it returns the newest row of a publication an unpublish
-// closed if the candidate paid a transfer there that awaits verification or was verified, because
-// they still cannot register again; otherwise null. Callers must scope `studentId` to the
-// authenticated session. This helper performs no authorization of its own.
+// closed if a transfer the candidate paid on an ended publication still keeps them out (the payer
+// rule), so the page shows them a cancelled registration; otherwise null. Callers must scope
+// `studentId` to the authenticated session. This helper performs no authorization of its own.
 export const getStudentRegistration = async (
   studentId: string,
   competitionId: string,
@@ -281,7 +281,8 @@ const assertParticipantCancellationWindowOpen = (
 //   (d) registration_deadline (registrationEndAt) not yet passed
 //   (e) eligibility helper returns eligible
 //   (f) no registration that is not cancelled, no cancelled individual one that a payment proof
-//       was sent for, and no transfer the candidate paid on a closed publication that is in flight
+//       was sent for, and no transfer the candidate paid that was in flight when its publication
+//       closed and has not been voided since
 // The route layer already enforces (auth + role=candidate). This helper does not re-check role
 // because it requires `studentId` as input — callers must pass session.user.id.
 export const createIndividualRegistration = async (

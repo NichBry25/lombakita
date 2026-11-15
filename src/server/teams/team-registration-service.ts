@@ -250,8 +250,8 @@ const assertFormingTeamSentNoPaymentProof = async (
   }
 };
 
-// A captain who paid a transfer that awaits verification or was verified, on a registration of this
-// competition whose publication an unpublish closed, would pay twice for one place.
+// A captain who paid a transfer that was in flight when its publication closed, and that has not
+// been voided since, would pay twice for one place.
 const assertCaptainHoldsNoTransferOnClosedPublication = async (
   captainUserId: string,
   competitionId: string,

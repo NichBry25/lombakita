@@ -61,7 +61,10 @@ import {
   transitionCompetitionStatus,
   unpublishCompetition,
 } from "@/server/competitions/competition-service";
-import { cancelCompetitionAsOps } from "@/server/finance/ops-payment-service";
+import {
+  cancelCompetitionAsOps,
+  voidPaymentProofAsOps,
+} from "@/server/finance/ops-payment-service";
 import {
   rejectManualPaymentProof,
   submitManualPaymentProof,
@@ -281,6 +284,7 @@ const rejectProof = (tx: Tx, seed: Seed, proofId: string) =>
     "nominal tidak sesuai",
     true,
     tx as never,
+    new Date(Date.now() - 60_000),
   );
 
 const publishAgain = (tx: Tx, seed: Seed) =>
@@ -845,6 +849,95 @@ describe.skipIf(skipWithoutDatabase)(
             tx as never,
           ),
         }).toEqual({ payerAlone: true, teammateAlone: false, payerNewTeam: true });
+      });
+    });
+
+    it("after a platform_ops cancellation, a payer whose waiting transfer the host then rejects is still refused after a republish", async () => {
+      await inRollback(async (tx) => {
+        const seed = await seedCompetition(tx, true);
+        const dewi = await seedCandidate(tx, "dewi");
+        const { proofId } = await registerWithProof(tx, seed, dewi);
+
+        await cancelAsOps(tx, seed);
+        await rejectManualPaymentProof(
+          seed.institutionId,
+          seed.ownerId,
+          proofId,
+          "nominal tidak sesuai",
+          true,
+          tx as never,
+          new Date(Date.now() + 60_000),
+        );
+        await publishAgain(tx, seed);
+
+        expect(await comingBackOf(tx, seed, dewi)).toEqual({
+          pageRegistration: "cancelled",
+          proofBlocks: false,
+          registeredAgain: { ok: false, code: "registration_already_exists", status: 409 },
+          statuses: ["cancelled"],
+        });
+      });
+    });
+
+    it("after a platform_ops cancellation, a captain whose waiting team transfer the host then rejects cannot register a new team after a republish", async () => {
+      await inRollback(async (tx) => {
+        const { seed, rina, proofId } = await seedPaidTeamWithProof(tx);
+        const sari = await seedCandidate(tx, "sari");
+
+        await cancelAsOps(tx, seed);
+        await rejectManualPaymentProof(
+          seed.institutionId,
+          seed.ownerId,
+          proofId,
+          "nominal tidak sesuai",
+          true,
+          tx as never,
+          new Date(Date.now() + 60_000),
+        );
+        await publishAgain(tx, seed);
+        const newTeam = await createTeam(
+          rina,
+          seed.competitionId,
+          { name: `Tim Baru ${uniqueSuffix()}` },
+          tx as never,
+        );
+        await joinTeam(tx, newTeam.id, sari);
+        const submit = await outcomeOf(
+          submitTeamRegistration(rina, seed.competitionId, newTeam.id, tx as never),
+        );
+
+        expect({
+          submit,
+          newTeamRegistrations: await teamRegistrationsOf(tx, newTeam.id),
+        }).toEqual({
+          submit: { ok: false, code: "team_register_again_closed_by_payment_proof", status: 409 },
+          newTeamRegistrations: [],
+        });
+      });
+    });
+
+    it("after a platform_ops cancellation, a payer whose waiting transfer the operator then voids registers again as if for the first time", async () => {
+      await inRollback(async (tx) => {
+        const seed = await seedCompetition(tx, true);
+        const dewi = await seedCandidate(tx, "dewi");
+        const { proofId } = await registerWithProof(tx, seed, dewi);
+
+        await cancelAsOps(tx, seed);
+        const operatorId = await seedOperator(tx);
+        await voidPaymentProofAsOps(
+          operatorId,
+          proofId,
+          "dana dikembalikan oleh penyelenggara",
+          tx as never,
+        );
+        await publishAgain(tx, seed);
+
+        expect(await comingBackOf(tx, seed, dewi)).toEqual({
+          pageRegistration: null,
+          proofBlocks: false,
+          registeredAgain: { ok: true },
+          statuses: ["cancelled", "confirmed"],
+        });
       });
     });
 
