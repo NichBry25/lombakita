@@ -1627,6 +1627,26 @@ describe.skipIf(skipWithoutDatabase)("the captain's reminder and the members' no
     });
   });
 
+  it("sends nothing to a registered team whose competition is a draft", async () => {
+    await inRollback(async (tx) => {
+      const { competition, rina, teamId, markedClose } = await queueReminderThroughTheRealCheck(tx);
+      await tx
+        .update(competitions)
+        .set({ status: "draft" })
+        .where(eq(competitions.id, competition.competitionId));
+
+      await expect(
+        processTeamJoinReminderJob(reminderJob(teamId, competition.competitionId, markedClose)),
+      ).resolves.toBeUndefined();
+
+      expect({
+        inbox: await notificationsOf(tx, rina.id),
+        sends: noticeSpies.sendTeamCloseNoticeEmail.mock.calls.length,
+        team: await teamStatusOf(tx, teamId),
+      }).toEqual({ inbox: [], sends: 0, team: "submitted" });
+    });
+  });
+
   it("sends nothing when registration closed before the reminder was delivered", async () => {
     await inRollback(async (tx) => {
       const { competition, rina, teamId } = await queueReminderThroughTheRealCheck(tx);

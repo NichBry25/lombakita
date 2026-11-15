@@ -181,7 +181,7 @@ export const cancelCompetitionAsOps = async (
       .returning({ id: competitionRegistrations.id });
 
     await markCompetitionRegistrationsPublicationClosed(competitionId, now, tx);
-    await disbandEveryTeamOfCompetition(competitionId, now, tx);
+    const disbandedTeamIds = await disbandEveryTeamOfCompetition(competitionId, now, tx);
 
     await recordOperatorAuditEntry(tx, actor, {
       // A competition is not a user, and the audit table's target_present_chk requires a user or an
@@ -192,6 +192,7 @@ export const cancelCompetitionAsOps = async (
       metadata: {
         competitionId,
         cancelledRegistrationCount: cancelledRows.length,
+        disbandedTeamCount: disbandedTeamIds.length,
       },
     });
 

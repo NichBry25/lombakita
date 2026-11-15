@@ -360,21 +360,22 @@ const disbandTeams = async (tx: DbOrTx, teamIds: string[], now: Date): Promise<v
     .where(inArray(teams.id, teamIds));
 };
 
-// Disbands every team of the competition that is not already cancelled. Called inside an
-// unpublish's transaction, after its registrations are cancelled.
+// Disbands every team of the competition that is not already cancelled, and returns their ids.
+// Called inside an unpublish's transaction, after its registrations are cancelled.
 export const disbandEveryTeamOfCompetition = async (
   competitionId: string,
   now: Date,
   tx: DbOrTx,
-): Promise<void> => {
+): Promise<string[]> => {
   const openTeams = await tx
     .select({ id: teams.id })
     .from(teams)
     .where(and(eq(teams.competitionId, competitionId), ne(teams.status, "cancelled")));
-  if (openTeams.length === 0) return;
+  if (openTeams.length === 0) return [];
 
   const teamIds = openTeams.map((team) => team.id);
   await disbandTeams(tx, teamIds, now);
+  return teamIds;
 };
 
 // Captain disbands the team. Atomically: cancels every pending invitation, marks every active

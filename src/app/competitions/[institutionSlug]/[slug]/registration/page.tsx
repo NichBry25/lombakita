@@ -4,10 +4,10 @@ import { requireActiveSessionPage } from "@/server/auth/page-guard";
 import { getPublicCompetitionDetail } from "@/server/competitions/competition-public-service";
 import {
   getStudentRegistration,
-  hasPaymentProofOnCancelledIndividualRegistrations,
+  isRegisteringAgainClosedByPayment,
 } from "@/server/registrations/registration-service";
 import { getTeamForCompetitionAndCandidate } from "@/server/teams/team-service";
-import { hasFormingTeamSentPaymentProof } from "@/server/teams/team-registration-service";
+import { isTeamRegisterAgainClosedByPayment } from "@/server/teams/team-registration-service";
 import { resolveCancelAffordanceState } from "@/server/finance/cancel-affordance";
 import { resolveChargingReadinessBySlug } from "@/server/finance/charging-readiness";
 import { isPaidCompetition } from "@/lib/competitions/paid-competition";
@@ -60,7 +60,7 @@ export default async function CompetitionRegistrationPage({
     : null;
   const registerAgainClosedByPaymentProof =
     supportsIndividual &&
-    (await hasPaymentProofOnCancelledIndividualRegistrations(session.user.id, competition.id));
+    (await isRegisteringAgainClosedByPayment(session.user.id, competition.id));
 
   // Team side: load team snapshot so the section renders fully server-side. After every client
   // mutation the section calls router.refresh() which re-runs this page and re-fetches all of this.
@@ -89,7 +89,11 @@ export default async function CompetitionRegistrationPage({
   const teamRegisterAgainClosedByPaymentProof =
     teamSnapshot !== null &&
     teamSnapshot.team.status === "forming" &&
-    (await hasFormingTeamSentPaymentProof(teamSnapshot.team.id, competition.id));
+    (await isTeamRegisterAgainClosedByPayment(
+      teamSnapshot.team.id,
+      teamSnapshot.team.captainId,
+      competition.id,
+    ));
 
   // Whether either cancel control may be offered at all (DEC-0131). Resolved through the same
   // predicate the two cancel services call, so the page cannot offer what the server refuses.

@@ -16,12 +16,18 @@ vi.mock("@/server/competitions/competition-participation-lock", () => ({
 // this file tests cancelRegistration's OWN gate ORDER against a queued fake with no proof tables;
 // that the predicate reads a real proof row, and that both of its answers drive the right outcome,
 // is proven against a live Postgres in the manual-lane integration suite.
-const { hasSubmittedPaymentProof, lockPaymentGroupAnchorRow } = vi.hoisted(() => ({
+const {
+  hasSubmittedPaymentProof,
+  hasTransferInFlightOnClosedPublication,
+  lockPaymentGroupAnchorRow,
+} = vi.hoisted(() => ({
   hasSubmittedPaymentProof: vi.fn().mockResolvedValue(false),
+  hasTransferInFlightOnClosedPublication: vi.fn().mockResolvedValue(false),
   lockPaymentGroupAnchorRow: vi.fn().mockResolvedValue(null),
 }));
 vi.mock("@/server/finance/paid-registration", () => ({
   hasSubmittedPaymentProof,
+  hasTransferInFlightOnClosedPublication,
   lockPaymentGroupAnchorRow,
 }));
 

@@ -50,7 +50,7 @@ vi.mock("@/server/finance/manual-payment-proof-service", () => ({
 }));
 const { disbandEveryTeamOfCompetition, markCompetitionRegistrationsPublicationClosed } = vi.hoisted(
   () => ({
-    disbandEveryTeamOfCompetition: vi.fn().mockResolvedValue(undefined),
+    disbandEveryTeamOfCompetition: vi.fn().mockResolvedValue(["team_1", "team_2"]),
     markCompetitionRegistrationsPublicationClosed: vi.fn().mockResolvedValue(undefined),
   }),
 );
@@ -197,6 +197,11 @@ describe("cancelCompetitionAsOps operator integrity", () => {
       targetInstitutionId: "inst_1",
       eventType: "platform_ops_competition_cancelled",
       reason: "reason",
+      metadata: {
+        competitionId: "comp_1",
+        cancelledRegistrationCount: 2,
+        disbandedTeamCount: 2,
+      },
     });
     expect(markCompetitionRegistrationsPublicationClosed).toHaveBeenCalledWith(
       "comp_1",

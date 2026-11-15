@@ -2,7 +2,7 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/finance/paid-registration");
 
-import { and, eq, gt, inArray, ne, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNotNull, ne, sql } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
 import {
   competitionRegistrations,
@@ -299,6 +299,37 @@ export const isRegistrationPaymentInFlight = async (
     .limit(1);
 
   return row !== undefined;
+};
+
+/**
+ * Whether this person paid a transfer that awaits verification or was verified on a registration of
+ * this competition whose publication an unpublish closed. That money sits with the organiser for a
+ * place that ended, so a new registration would charge the same person twice for one place.
+ */
+export const hasTransferInFlightOnClosedPublication = async (
+  payerUserId: string,
+  competitionId: string,
+  db: Database = getDb(),
+): Promise<boolean> => {
+  const paidRows = await db
+    .select({ registrationId: competitionRegistrations.id })
+    .from(financePayments)
+    .innerJoin(
+      competitionRegistrations,
+      eq(competitionRegistrations.id, financePayments.competitionRegistrationId),
+    )
+    .where(
+      and(
+        eq(financePayments.payerUserId, payerUserId),
+        eq(competitionRegistrations.competitionId, competitionId),
+        isNotNull(competitionRegistrations.publicationClosedAt),
+      ),
+    );
+
+  for (const { registrationId } of paidRows) {
+    if (await isRegistrationPaymentInFlight(registrationId, db)) return true;
+  }
+  return false;
 };
 
 /**

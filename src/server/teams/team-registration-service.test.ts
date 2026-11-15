@@ -29,6 +29,7 @@ const { hasSubmittedPaymentProof, findTeamPaymentGroupAnchor, lockPaymentGroupAn
   }));
 vi.mock("@/server/finance/paid-registration", () => ({
   hasSubmittedPaymentProof,
+  hasTransferInFlightOnClosedPublication: vi.fn().mockResolvedValue(false),
   findTeamPaymentGroupAnchor,
   lockPaymentGroupAnchorRow,
 }));

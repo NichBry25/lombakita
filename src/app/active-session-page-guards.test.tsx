@@ -64,11 +64,11 @@ vi.mock("@/server/competitions/competition-public-service", () => ({
 }));
 vi.mock("@/server/registrations/registration-service", () => ({
   getStudentRegistration: mocks.registration,
-  hasPaymentProofOnCancelledIndividualRegistrations: mocks.registerAgainProof,
+  isRegisteringAgainClosedByPayment: mocks.registerAgainProof,
 }));
 vi.mock("@/server/teams/team-service", () => ({ getTeamForCompetitionAndCandidate: mocks.team }));
 vi.mock("@/server/teams/team-registration-service", () => ({
-  hasFormingTeamSentPaymentProof: mocks.teamRegisterAgainProof,
+  isTeamRegisterAgainClosedByPayment: mocks.teamRegisterAgainProof,
 }));
 vi.mock("@/server/finance/cancel-affordance", () => ({
   resolveCancelAffordanceState: mocks.cancel,
@@ -276,7 +276,7 @@ describe("the registration page's team section", () => {
       readerCalls: mocks.teamRegisterAgainProof.mock.calls,
     }).toEqual({
       registerAgainClosedByPaymentProof: true,
-      readerCalls: [["team-1", "competition"]],
+      readerCalls: [["team-1", "user", "competition"]],
     });
   });
 

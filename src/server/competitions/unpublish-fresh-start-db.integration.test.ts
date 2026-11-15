@@ -14,6 +14,7 @@ import {
   institutionMemberships,
   institutionPaymentInstructions,
   institutions,
+  platformOpsAuditLogs,
   teamInvitations,
   teamMemberships,
   teams,
@@ -71,9 +72,11 @@ import {
   createIndividualRegistration,
   getStudentRegistration,
   hasPaymentProofOnCancelledIndividualRegistrations,
+  isRegisteringAgainClosedByPayment,
 } from "@/server/registrations/registration-service";
 import { createTeam, disbandTeam } from "@/server/teams/team-service";
 import { submitTeamRegistration } from "@/server/teams/team-registration-service";
+import { isTeamRegisterAgainClosedByPayment } from "@/server/teams/team-registration-service";
 import { hashToken } from "@/server/teams/team-core";
 
 beforeAll(() => {
@@ -372,6 +375,132 @@ const teamRegistrationsOf = async (tx: Tx, teamId: string) => {
   return rows;
 };
 
+type Population = Seed & { registeredTeamId: string; formingTeamId: string };
+
+/**
+ * A competition holding an individual registration, a registered team with an open invite and a
+ * forming team with an open invite, each of a different person.
+ */
+const seedPopulatedCompetition = async (tx: Tx): Promise<Population> => {
+  const seed = await seedCompetition(tx, false);
+  const dewi = await seedCandidate(tx, "dewi");
+  const rina = await seedCandidate(tx, "rina");
+  const budi = await seedCandidate(tx, "budi");
+  const sari = await seedCandidate(tx, "sari");
+  const wati = await seedCandidate(tx, "wati");
+
+  await createIndividualRegistration(dewi, seed.competitionId, tx as never);
+  const registered = await createTeam(
+    rina,
+    seed.competitionId,
+    { name: `Tim Rina ${uniqueSuffix()}` },
+    tx as never,
+  );
+  await joinTeam(tx, registered.id, budi);
+  await seedOpenInvite(tx, registered.id, rina, sari);
+  await submitTeamRegistration(rina, seed.competitionId, registered.id, tx as never);
+  const forming = await createTeam(
+    wati,
+    seed.competitionId,
+    { name: `Tim Wati ${uniqueSuffix()}` },
+    tx as never,
+  );
+  await seedOpenInvite(tx, forming.id, wati, null);
+
+  return { ...seed, registeredTeamId: registered.id, formingTeamId: forming.id };
+};
+
+const populationStateOf = async (tx: Tx, population: Population) => {
+  const rows = await tx
+    .select({
+      status: competitionRegistrations.status,
+      publicationClosedAt: competitionRegistrations.publicationClosedAt,
+    })
+    .from(competitionRegistrations)
+    .where(eq(competitionRegistrations.competitionId, population.competitionId));
+  return {
+    registrations: rows.map((row) => ({
+      status: row.status,
+      publicationClosed: row.publicationClosedAt !== null,
+    })),
+    registeredTeam: await teamStateOf(tx, population.registeredTeamId),
+    formingTeam: await teamStateOf(tx, population.formingTeamId),
+  };
+};
+
+const ENDED_POPULATION = {
+  registrations: [
+    { status: "cancelled", publicationClosed: true },
+    { status: "cancelled", publicationClosed: true },
+    { status: "cancelled", publicationClosed: true },
+  ],
+  registeredTeam: {
+    team: "cancelled",
+    memberships: ["removed", "removed"],
+    invitations: ["cancelled"],
+  },
+  formingTeam: { team: "cancelled", memberships: ["removed"], invitations: ["cancelled"] },
+};
+
+const UNTOUCHED_POPULATION = {
+  registrations: [
+    { status: "confirmed", publicationClosed: false },
+    { status: "confirmed", publicationClosed: false },
+    { status: "confirmed", publicationClosed: false },
+  ],
+  registeredTeam: {
+    team: "submitted",
+    memberships: ["active", "active"],
+    invitations: ["pending"],
+  },
+  formingTeam: { team: "forming", memberships: ["active"], invitations: ["pending_claim"] },
+};
+
+type PaidTeam = { seed: Seed; rina: string; budi: string; teamId: string; proofId: string };
+
+/**
+ * A paid competition where Rina's team of Rina and Budi registered and Rina, its payer, sent the
+ * team's transfer proof.
+ */
+const seedPaidTeamWithProof = async (tx: Tx): Promise<PaidTeam> => {
+  const seed = await seedCompetition(tx, true);
+  const rina = await seedCandidate(tx, "rina");
+  const budi = await seedCandidate(tx, "budi");
+  const team = await createTeam(
+    rina,
+    seed.competitionId,
+    { name: `Tim Rina ${uniqueSuffix()}` },
+    tx as never,
+  );
+  await joinTeam(tx, team.id, budi);
+  const registered = await submitTeamRegistration(rina, seed.competitionId, team.id, tx as never);
+  const captainRow = registered.registrations.find((row) => row.studentId === rina);
+  const [payment] = await tx
+    .select({ id: financePayments.id })
+    .from(financePayments)
+    .where(eq(financePayments.competitionRegistrationId, captainRow!.id));
+  const proof = await submitManualPaymentProof(
+    {
+      paymentId: payment!.id,
+      submittedByUserId: rina,
+      r2Key: `payment-proofs/${seed.competitionId}/${payment!.id}/bukti.jpg`,
+      originalFileName: "bukti.jpg",
+    },
+    tx as never,
+  );
+  return { seed, rina, budi, teamId: team.id, proofId: proof.id };
+};
+
+const cancelAsOps = async (tx: Tx, seed: Seed): Promise<void> => {
+  const operatorId = await seedOperator(tx);
+  await cancelCompetitionAsOps(
+    operatorId,
+    seed.competitionId,
+    "penyelenggara tidak dapat menyelenggarakan acara",
+    tx as never,
+  );
+};
+
 describe.skipIf(skipWithoutDatabase)(
   "unpublishing ends the publication: teams are disbanded and nothing from it refuses anyone after a republish",
   () => {
@@ -522,13 +651,22 @@ describe.skipIf(skipWithoutDatabase)(
           tx as never,
         );
 
-        expect({ forming: await teamStateOf(tx, forming.id) }).toEqual({
+        const [audit] = await tx
+          .select({ metadata: platformOpsAuditLogs.metadata })
+          .from(platformOpsAuditLogs)
+          .where(eq(platformOpsAuditLogs.actorUserId, operatorId));
+        expect({ forming: await teamStateOf(tx, forming.id), audit: audit!.metadata }).toEqual({
           forming: { team: "cancelled", memberships: ["removed"], invitations: ["cancelled"] },
+          audit: {
+            competitionId: seed.competitionId,
+            cancelledRegistrationCount: 0,
+            disbandedTeamCount: 1,
+          },
         });
       });
     });
 
-    it("after a platform_ops cancellation and a republish, a person whose proof was awaiting verification registers again", async () => {
+    it("after a platform_ops cancellation and a republish, a person whose transfer awaits verification is still refused, as before", async () => {
       await inRollback(async (tx) => {
         const seed = await seedCompetition(tx, true);
         const operatorId = await seedOperator(tx);
@@ -544,11 +682,169 @@ describe.skipIf(skipWithoutDatabase)(
         await publishAgain(tx, seed);
 
         expect(await comingBackOf(tx, seed, dewi)).toEqual({
+          pageRegistration: "cancelled",
+          proofBlocks: false,
+          registeredAgain: { ok: false, code: "registration_already_exists", status: 409 },
+          statuses: ["cancelled"],
+        });
+      });
+    });
+
+    it("after a platform_ops cancellation and a republish, a person whose transfer was verified is still refused, as before", async () => {
+      await inRollback(async (tx) => {
+        const seed = await seedCompetition(tx, true);
+        const dewi = await seedCandidate(tx, "dewi");
+        const { proofId } = await registerWithProof(tx, seed, dewi);
+        await verifyManualPaymentProof(seed.institutionId, seed.ownerId, proofId, tx as never);
+
+        await cancelAsOps(tx, seed);
+        await publishAgain(tx, seed);
+
+        expect(await comingBackOf(tx, seed, dewi)).toEqual({
+          pageRegistration: "cancelled",
+          proofBlocks: false,
+          registeredAgain: { ok: false, code: "registration_already_exists", status: 409 },
+          statuses: ["cancelled"],
+        });
+      });
+    });
+
+    it("after a platform_ops cancellation and a republish, a person whose proof was rejected registers again as if for the first time", async () => {
+      await inRollback(async (tx) => {
+        const seed = await seedCompetition(tx, true);
+        const dewi = await seedCandidate(tx, "dewi");
+        const { proofId } = await registerWithProof(tx, seed, dewi);
+        await rejectProof(tx, seed, proofId);
+
+        await cancelAsOps(tx, seed);
+        await publishAgain(tx, seed);
+
+        expect(await comingBackOf(tx, seed, dewi)).toEqual({
           pageRegistration: null,
           proofBlocks: false,
           registeredAgain: { ok: true },
           statuses: ["cancelled", "confirmed"],
         });
+      });
+    });
+
+    it("an unpublish leaves another institution's competition as it was: its registrations, teams, memberships and invites", async () => {
+      await inRollback(async (tx) => {
+        const ended = await seedPopulatedCompetition(tx);
+        const bystander = await seedPopulatedCompetition(tx);
+
+        await unpublishCompetition(ended.ownerId, ended.competitionId, tx as never);
+
+        expect({
+          ended: await populationStateOf(tx, ended),
+          bystander: await populationStateOf(tx, bystander),
+        }).toEqual({ ended: ENDED_POPULATION, bystander: UNTOUCHED_POPULATION });
+      });
+    });
+
+    it("a platform_ops cancellation leaves another institution's competition as it was: its registrations, teams, memberships and invites", async () => {
+      await inRollback(async (tx) => {
+        const ended = await seedPopulatedCompetition(tx);
+        const bystander = await seedPopulatedCompetition(tx);
+
+        await cancelAsOps(tx, ended);
+
+        expect({
+          ended: await populationStateOf(tx, ended),
+          bystander: await populationStateOf(tx, bystander),
+        }).toEqual({ ended: ENDED_POPULATION, bystander: UNTOUCHED_POPULATION });
+      });
+    });
+
+    it("after a platform_ops cancellation and a republish, a captain whose team transfer awaits verification cannot register a new team", async () => {
+      await inRollback(async (tx) => {
+        const { seed, rina } = await seedPaidTeamWithProof(tx);
+        const sari = await seedCandidate(tx, "sari");
+
+        await cancelAsOps(tx, seed);
+        await publishAgain(tx, seed);
+        const newTeam = await createTeam(
+          rina,
+          seed.competitionId,
+          { name: `Tim Baru ${uniqueSuffix()}` },
+          tx as never,
+        );
+        await joinTeam(tx, newTeam.id, sari);
+        const submit = await outcomeOf(
+          submitTeamRegistration(rina, seed.competitionId, newTeam.id, tx as never),
+        );
+
+        expect({
+          submit,
+          newTeamRegistrations: await teamRegistrationsOf(tx, newTeam.id),
+        }).toEqual({
+          submit: { ok: false, code: "team_register_again_closed_by_payment_proof", status: 409 },
+          newTeamRegistrations: [],
+        });
+      });
+    });
+
+    it("after a platform_ops cancellation and a republish, a captain whose team transfer was verified cannot register alone, and a teammate who paid nothing starts fresh", async () => {
+      await inRollback(async (tx) => {
+        const { seed, rina, budi, proofId } = await seedPaidTeamWithProof(tx);
+        await verifyManualPaymentProof(seed.institutionId, seed.ownerId, proofId, tx as never);
+
+        await cancelAsOps(tx, seed);
+        await publishAgain(tx, seed);
+        const captainPage = await getStudentRegistration(rina, seed.competitionId, tx as never);
+        const memberPage = await getStudentRegistration(budi, seed.competitionId, tx as never);
+        const captainAlone = await outcomeOf(
+          createIndividualRegistration(rina, seed.competitionId, tx as never),
+        );
+        const member = await outcomeOf(
+          createIndividualRegistration(budi, seed.competitionId, tx as never),
+        );
+
+        expect({
+          captainPage: captainPage?.status ?? null,
+          memberPage: memberPage?.status ?? null,
+          captainAlone,
+          member,
+        }).toEqual({
+          captainPage: "cancelled",
+          memberPage: null,
+          captainAlone: { ok: false, code: "registration_already_exists", status: 409 },
+          member: { ok: true },
+        });
+      });
+    });
+
+    it("the registration page asks the question the server refuses on, for the payer and for a teammate who paid nothing", async () => {
+      await inRollback(async (tx) => {
+        const { seed, rina, budi } = await seedPaidTeamWithProof(tx);
+
+        await cancelAsOps(tx, seed);
+        await publishAgain(tx, seed);
+        const newTeam = await createTeam(
+          rina,
+          seed.competitionId,
+          { name: `Tim Baru ${uniqueSuffix()}` },
+          tx as never,
+        );
+
+        expect({
+          payerAlone: await isRegisteringAgainClosedByPayment(
+            rina,
+            seed.competitionId,
+            tx as never,
+          ),
+          teammateAlone: await isRegisteringAgainClosedByPayment(
+            budi,
+            seed.competitionId,
+            tx as never,
+          ),
+          payerNewTeam: await isTeamRegisterAgainClosedByPayment(
+            newTeam.id,
+            rina,
+            seed.competitionId,
+            tx as never,
+          ),
+        }).toEqual({ payerAlone: true, teammateAlone: false, payerNewTeam: true });
       });
     });
 
