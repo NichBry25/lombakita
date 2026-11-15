@@ -850,8 +850,11 @@ svg {
 }
 
 /* Forms */
+/* A field in a grid row is as tall as the row. Packing its label, control and lines at the top
+   keeps its control level with a neighbour's when only one of them has a line beneath it. */
 .form-field {
   display: grid;
+  align-content: start;
   gap: var(--space-2);
 }
 
@@ -5899,16 +5902,6 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
 .fee-rule-form {
   display: grid;
   gap: var(--space-4);
-}
-
-/* auto-fit rather than a fixed column count: the form holds nine fields, and at 390px they must
-   stack to one column without a breakpoint list that has to be maintained alongside them. */
-/* Layout comes from `.form-grid`; this class only carries what the fee form needs on top of it.
-   A field whose label and control have no help text beneath them would otherwise distribute the
-   row's spare height between the two, dropping the control below its neighbours and pushing it
-   over their help text. */
-.fee-rule-form-grid .form-field {
-  align-content: start;
 }
 
 /* Grid items default to `min-width: auto`, which resolves to the item's min-content size and

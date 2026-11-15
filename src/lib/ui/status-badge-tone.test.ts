@@ -107,15 +107,15 @@ describe("document request tone map", () => {
   });
 });
 
+const ruleBody = (selector: string): string | null => {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = new RegExp(`(?:^|\\n)${escaped}\\s*\\{([^}]*)\\}`).exec(CSS);
+  return match ? match[1]! : null;
+};
+
 // `ol` and `ul` carry no list style under the global reset, so a numbered list shows no numerals
 // unless a class restores them. The reset itself must stay as it is; the class is the repair.
 describe("the .prose-list class", () => {
-  const ruleBody = (selector: string): string | null => {
-    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const match = new RegExp(`(?:^|\\n)${escaped}\\s*\\{([^}]*)\\}`).exec(CSS);
-    return match ? match[1]! : null;
-  };
-
   it("restores decimal numerals", () => {
     const body = ruleBody(".prose-list");
 
@@ -155,5 +155,17 @@ describe("the participant summary tablet layout", () => {
     expect(block).toMatch(
       /\.participant-summary\s*>\s*:last-child\s*\{[^}]*grid-column:\s*1\s*\/\s*-1\s*;[^}]*\}/,
     );
+  });
+});
+
+// A field in a grid row is stretched to the row's height. Without this declaration its label and
+// control share the spare height, so a field with no line beneath it drops its control below its
+// neighbour's.
+describe("the .form-field rule", () => {
+  it("packs a field's label and control at the top of its row", () => {
+    const body = ruleBody(".form-field");
+
+    expect(body, ".form-field has no rule in globals.css").not.toBeNull();
+    expect(body).toMatch(/align-content:\s*start\s*;/);
   });
 });

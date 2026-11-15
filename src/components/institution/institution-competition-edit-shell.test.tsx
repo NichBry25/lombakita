@@ -516,6 +516,51 @@ describe("InstitutionCompetitionEditShell after publish", () => {
     }).toEqual({ slugDisabled: false, lockLines: 0, slugHelp: true });
   });
 
+  it.each([
+    {
+      state: "a published competition in both mode",
+      competition: { ...PUBLISHED_TEAM, mode: "both", minTeamSize: 1, maxTeamSize: 4 },
+      min: ["form-label", "form-input"],
+      max: ["form-label", "form-input", "form-help"],
+    },
+    {
+      state: "a published competition in team mode",
+      competition: PUBLISHED_TEAM,
+      min: ["form-label", "form-input", "form-help"],
+      max: ["form-label", "form-input", "form-help"],
+    },
+    {
+      state: "a draft in both mode",
+      competition: {
+        ...PUBLISHED_TEAM,
+        status: "draft",
+        mode: "both",
+        minTeamSize: 1,
+        maxTeamSize: 4,
+      },
+      min: ["form-label", "form-input"],
+      max: ["form-label", "form-input"],
+    },
+  ])(
+    "keeps the team size fields in one row with the label and input first, on $state",
+    async ({ competition, min, max }) => {
+      stubFetchSequence([() => okJson({ competition, publishReadiness: READY })]);
+      mount();
+      await screen.findByRole("button", { name: "Simpan" });
+
+      const minField = screen.getByLabelText(/^Min\. anggota tim/).closest(".form-field")!;
+      const maxField = screen.getByLabelText(/^Maks\. anggota tim/).closest(".form-field")!;
+      const classesOf = (field: Element) => Array.from(field.children, (child) => child.className);
+
+      expect({
+        sameRow: minField.parentElement === maxField.parentElement,
+        row: minField.parentElement?.className,
+        min: classesOf(minField),
+        max: classesOf(maxField),
+      }).toEqual({ sameRow: true, row: "form-grid", min, max });
+    },
+  );
+
   it("holds back an earlier event end once a published competition's event has started", async () => {
     const now = Date.now();
     const started = {
