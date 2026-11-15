@@ -25,6 +25,9 @@ export const JOBS = [
   "merge-audit",
   "lookup",
   "close",
+  "design-read",
+  "review-depth",
+  "review-security",
 ] as const;
 export type Job = (typeof JOBS)[number];
 
