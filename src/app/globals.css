@@ -218,6 +218,22 @@ svg {
   transform: translateY(calc(-1 * var(--border-strong)));
 }
 
+/* On a phone two marks side by side can be wider than the screen, so the group drops under the
+   title and its pills wrap. */
+@media (max-width: 640px) {
+  .page-heading-last-word {
+    white-space: normal;
+  }
+
+  .page-heading-mark {
+    display: flex;
+    flex-wrap: wrap;
+    margin-inline-start: var(--space-0);
+    margin-block-start: var(--space-2);
+    transform: none;
+  }
+}
+
 .page-heading-description {
   max-width: var(--content-prose);
   margin: var(--space-0);

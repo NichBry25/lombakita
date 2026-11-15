@@ -3,7 +3,11 @@ import { describe, expect, it } from "vitest";
 import { getCompetitionCategoryLabel } from "./categories";
 import { getCompetitionFieldLabel } from "./fields";
 import { getCompetitionModeLabel } from "./modes";
-import { COMPETITION_STATUS_LABELS, getCompetitionStatusLabel } from "./status-labels";
+import {
+  COMPETITION_STATUS_LABELS,
+  getCompetitionHeaderPillTone,
+  getCompetitionStatusLabel,
+} from "./status-labels";
 
 describe("competition display labels", () => {
   it("localizes the raw values shown in the competition summary", () => {
@@ -88,5 +92,27 @@ describe("COMPETITION_STATUS_LABELS", () => {
     for (const [key, label] of Object.entries(COMPETITION_STATUS_LABELS)) {
       expect(label.trim(), key).not.toBe("");
     }
+  });
+});
+
+describe("getCompetitionHeaderPillTone", () => {
+  it("marks a published competition as open", () => {
+    expect(getCompetitionHeaderPillTone({ status: "published", isCancelled: false })).toBe("open");
+  });
+
+  it("marks a draft and an archived competition as awaiting, never as open", () => {
+    expect(getCompetitionHeaderPillTone({ status: "draft", isCancelled: false })).toBe("awaiting");
+    expect(getCompetitionHeaderPillTone({ status: "archived", isCancelled: false })).toBe(
+      "awaiting",
+    );
+  });
+
+  it("marks a cancelled competition as cancelled whatever its status", () => {
+    expect(getCompetitionHeaderPillTone({ status: "published", isCancelled: true })).toBe(
+      "cancelled",
+    );
+    expect(getCompetitionHeaderPillTone({ status: "archived", isCancelled: true })).toBe(
+      "cancelled",
+    );
   });
 });

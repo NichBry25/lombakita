@@ -351,7 +351,7 @@ export default function AdminInstitutionsPage() {
         <EmptyState
           kind="nothing-yet"
           title="Belum ada institusi"
-          description="Ubah filter status untuk melihat kelompok institusi lainnya."
+          description="Institusi yang mendaftar akan muncul di sini."
         />
       )}
 

@@ -249,13 +249,13 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
         {`${result.pagination.totalCount} peserta`}
       </p>
 
-      {result.participants.length === 0 && !hasActiveFilter ? (
+      {result.pagination.totalCount === 0 && !hasActiveFilter ? (
         <EmptyState
           kind="nothing-yet"
           title="Belum ada peserta"
           description="Peserta akan muncul di sini setelah ada yang mendaftar."
         />
-      ) : result.participants.length === 0 ? (
+      ) : result.pagination.totalCount === 0 ? (
         <EmptyState
           kind="no-match"
           title="Belum ada peserta yang cocok"

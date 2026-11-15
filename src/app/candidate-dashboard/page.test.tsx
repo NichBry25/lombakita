@@ -308,6 +308,18 @@ describe("Step 8 — Empty states", () => {
     expect(html).toContain("Belum ada pendaftaran tim");
     expect(html).toContain("Belum ada kompetisi yang disimpan");
   });
+
+  it("shows Jelajahi kompetisi once and hides Lihat semua while every section is empty", async () => {
+    setupValidCandidate();
+    mockListIndividual.mockResolvedValue([]);
+    mockListTeam.mockResolvedValue([]);
+    mockListSaved.mockResolvedValue(emptySaved);
+
+    const html = renderToStaticMarkup(await CandidateDashboardPage());
+
+    expect(html.split("Jelajahi kompetisi")).toHaveLength(2);
+    expect(html).not.toContain("Lihat semua");
+  });
 });
 
 describe("Step 11 — Link hrefs", () => {
@@ -356,6 +368,24 @@ describe("Step 11 — Link hrefs", () => {
 
       expect(html).toContain("Kirim karya");
       expect(html).not.toContain("Lihat karya");
+    });
+
+    it("keeps the Kirim karya link outside the row's title link", async () => {
+      setupValidCandidate();
+      mockListIndividual.mockResolvedValue([{ ...confirmedIndReg, ...openWindow }]);
+      mockListTeam.mockResolvedValue([]);
+      mockListSaved.mockResolvedValue(emptySaved);
+
+      const html = renderToStaticMarkup(await CandidateDashboardPage());
+
+      const titleLinkStart = html.indexOf(
+        '<a href="/competitions/ui/hackathon-2026/registration/"',
+      );
+      expect(titleLinkStart).toBeGreaterThan(-1);
+      const titleLinkEnd = html.indexOf("</a>", titleLinkStart);
+      const titleLinkMarkup = html.slice(titleLinkStart, titleLinkEnd);
+      expect(titleLinkMarkup).not.toContain("Kirim karya");
+      expect(html.indexOf("Kirim karya")).toBeGreaterThan(titleLinkEnd);
     });
 
     it("says Lihat karya once the submission window has closed", async () => {

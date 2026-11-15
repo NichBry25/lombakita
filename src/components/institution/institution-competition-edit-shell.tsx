@@ -67,7 +67,10 @@ import {
   resolvePublishRefusalToastText,
 } from "@/components/institution/competition-publish-messages";
 import type { CompetitionPublishReadiness } from "@/server/competitions/competition-publish-readiness";
-import { getCompetitionStatusLabel } from "@/lib/competitions/status-labels";
+import {
+  getCompetitionHeaderPillTone,
+  getCompetitionStatusLabel,
+} from "@/lib/competitions/status-labels";
 import {
   classifyCompetitionEdit,
   type ClassifiableCompetition,
@@ -1532,7 +1535,10 @@ export const InstitutionCompetitionEditShell = ({
   const isDraftStep = activeStep !== null && isDraft;
   // The draft steps show no status: the step line already says the competition is being set up.
   const publishedStatusPill = isDraftStep ? null : (
-    <span className="status-badge" data-status={isCancelled ? "cancelled" : "open"}>
+    <span
+      className="status-badge"
+      data-status={getCompetitionHeaderPillTone({ status: competition.status, isCancelled })}
+    >
       {isCancelled ? "Dibatalkan" : getCompetitionStatusLabel(competition.status)}
     </span>
   );
@@ -1968,7 +1974,7 @@ export const InstitutionCompetitionEditShell = ({
             variant="plain"
             size="back"
             icon="arrow-left"
-            label={activeStep === 1 ? "Kembali ke Kompetisi" : "Kembali"}
+            label={activeStep === 1 ? "Kembali ke Kompetisi" : "Kembali ke langkah sebelumnya"}
             onClick={handleBack}
           />
           <div className="form-action-bar-end">

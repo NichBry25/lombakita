@@ -13,6 +13,17 @@ export const COMPETITION_STATUS_LABELS: Record<CompetitionStatus, string> = {
   archived: "Diarsipkan",
 };
 
+export type CompetitionHeaderPillTone = "cancelled" | "open" | "awaiting";
+
+export const getCompetitionHeaderPillTone = (competition: {
+  status: string;
+  isCancelled: boolean;
+}): CompetitionHeaderPillTone => {
+  if (competition.isCancelled) return "cancelled";
+  if (competition.status === "published") return "open";
+  return "awaiting";
+};
+
 // Resolve a stored status to its label, falling back to the raw value for any unrecognized string.
 export const getCompetitionStatusLabel = (value: string | null | undefined): string => {
   if (!value) return "";

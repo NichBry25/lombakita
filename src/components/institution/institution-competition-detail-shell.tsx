@@ -17,7 +17,10 @@ import { LocalDate } from "@/components/ui/local-date";
 import { getCompetitionCategoryLabel } from "@/lib/competitions/categories";
 import { getCompetitionFieldLabel } from "@/lib/competitions/fields";
 import { getCompetitionModeLabel } from "@/lib/competitions/modes";
-import { getCompetitionStatusLabel } from "@/lib/competitions/status-labels";
+import {
+  getCompetitionHeaderPillTone,
+  getCompetitionStatusLabel,
+} from "@/lib/competitions/status-labels";
 import { resolveResultAnnouncement } from "@/lib/competitions/competition-phase";
 import { useWithdrawalAvailability } from "@/components/competitions/use-withdrawal-availability";
 import { errorMessageFor } from "@/lib/errors/error-copy";
@@ -407,7 +410,7 @@ export const InstitutionCompetitionDetailShell = ({
         titleMark={
           <span
             className="status-badge"
-            data-status={isCancelled ? "cancelled" : isPublished ? "open" : "awaiting"}
+            data-status={getCompetitionHeaderPillTone({ status: competition.status, isCancelled })}
           >
             {isCancelled ? "Dibatalkan" : getCompetitionStatusLabel(competition.status)}
           </span>

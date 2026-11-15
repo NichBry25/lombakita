@@ -1007,6 +1007,10 @@ describe("InstitutionCompetitionEditShell steps", () => {
       withoutMarker(label.textContent),
     );
   const readinessNote = () => document.getElementById("publish-readiness-message");
+  const clickPreviousStepArrow = () => {
+    const [stepRowArrow] = screen.getAllByRole("button", { name: "Kembali ke langkah sebelumnya" });
+    fireEvent.click(stepRowArrow!);
+  };
   const sectionNav = () => screen.getByRole("navigation", { name: "Bagian kompetisi" });
   const summaryTerms = () =>
     [...document.querySelectorAll(".management-detail-grid dt")].map((term) => term.textContent);
@@ -1075,8 +1079,9 @@ describe("InstitutionCompetitionEditShell steps", () => {
 
     const next = await screen.findByRole("button", { name: "Lanjut" });
     const saveAndExit = screen.getByRole("button", { name: "Simpan dan keluar" });
-    const backLabel = step === 1 ? "Kembali ke Kompetisi" : "Kembali";
-    expect(screen.getByRole("button", { name: backLabel })).toBeTruthy();
+    const backLabel = step === 1 ? "Kembali ke Kompetisi" : "Kembali ke langkah sebelumnya";
+    const expectedBackArrows = step === 1 ? 1 : 2;
+    expect(screen.getAllByRole("button", { name: backLabel })).toHaveLength(expectedBackArrows);
     expect(next.getAttribute("data-variant")).toBe("primary");
     expect(saveAndExit.getAttribute("data-variant")).toBe("outline");
     expect(screen.queryByRole("button", { name: "Simpan" })).toBeNull();
@@ -1108,7 +1113,9 @@ describe("InstitutionCompetitionEditShell steps", () => {
     const exit = screen.getByRole("link", { name: "Keluar dari editor" });
     expect(exit.getAttribute("href")).toBe(LIST_URL);
     expect(exit.getAttribute("data-variant")).toBe("outline");
-    expect(screen.getByRole("button", { name: "Kembali" })).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Kembali ke langkah sebelumnya" })).toHaveLength(
+      2,
+    );
     expect(screen.queryByRole("button", { name: "Lanjut" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Simpan dan keluar" })).toBeNull();
     expect(readinessNote()).not.toBeNull();
@@ -1966,7 +1973,7 @@ describe("InstitutionCompetitionEditShell steps", () => {
       fireEvent.change(screen.getByLabelText(/^Nama tahapan(?: \* \(wajib\)| \(opsional\))?$/), {
         target: { value: "Penyisihan" },
       });
-      fireEvent.click(screen.getByRole("button", { name: "Kembali" }));
+      clickPreviousStepArrow();
 
       const dialog = await screen.findByRole("dialog");
       expect(within(dialog).getByText("Perubahan belum tersimpan")).toBeTruthy();
@@ -1982,7 +1989,7 @@ describe("InstitutionCompetitionEditShell steps", () => {
       render(shellWithPartsAt(3));
 
       await screen.findByRole("button", { name: "Tambah tahapan" });
-      fireEvent.click(screen.getByRole("button", { name: "Kembali" }));
+      clickPreviousStepArrow();
 
       expect(mockPush).toHaveBeenCalledWith(`${EDIT_URL}?langkah=2`);
       expect(screen.queryByRole("dialog")).toBeNull();
@@ -2602,7 +2609,7 @@ describe("InstitutionCompetitionEditShell steps", () => {
 
       expect(await screen.findByText(/^Hadiah belum tersimpan\./)).toBeTruthy();
       await waitFor(() => expect(document.querySelector(".page-transition")).toBeNull());
-      fireEvent.click(screen.getByRole("button", { name: "Kembali" }));
+      clickPreviousStepArrow();
       const dialog = await screen.findByRole("dialog");
       fireEvent.click(within(dialog).getByRole("button", { name: "Tinggalkan" }));
       expect(mockPush).toHaveBeenCalledWith(`${EDIT_URL}?langkah=3`);
