@@ -52,18 +52,18 @@ vi.mock("@/server/async/enqueue", async (importOriginal) => {
   return { ...actual, ...enqueueSpies };
 });
 
-// One test stands in for a failing invite move. While the flag is off, every test runs the real move.
+// Two tests stand in for a failing invite move. While the flag is off, every test runs the real move.
 const closeMoveState = vi.hoisted(() => ({ failNext: false }));
 
-vi.mock("@/server/teams/registered-team", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/server/teams/registered-team")>();
+vi.mock("@/server/teams/team-invitation-expiry", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/server/teams/team-invitation-expiry")>();
   return {
     ...actual,
-    moveRegisteredTeamInvitationsToClose: (
-      ...args: Parameters<typeof actual.moveRegisteredTeamInvitationsToClose>
+    moveOpenTeamInvitationsToClose: (
+      ...args: Parameters<typeof actual.moveOpenTeamInvitationsToClose>
     ) => {
       if (closeMoveState.failNext) throw new Error("the invite move failed");
-      return actual.moveRegisteredTeamInvitationsToClose(...args);
+      return actual.moveOpenTeamInvitationsToClose(...args);
     },
   };
 });
@@ -101,7 +101,7 @@ const seedCandidate = async (tx: Tx, label: string): Promise<{ id: string; email
 
 const seedCompetition = async (
   tx: Tx,
-  input: { paid?: boolean } = {},
+  input: { paid?: boolean; status?: "draft" | "published" } = {},
 ): Promise<{ ownerId: string; competitionId: string; oldClose: Date }> => {
   const id = uniqueSuffix();
   const ownerUsername = `closemove_owner_${id}`;
@@ -145,8 +145,8 @@ const seedCompetition = async (
       mode: "team",
       minTeamSize: 2,
       maxTeamSize: 4,
-      status: "published",
-      publishedAt: new Date(),
+      status: input.status ?? "published",
+      publishedAt: input.status === "draft" ? null : new Date(),
       registrationStartAt: new Date(Date.now() - 7 * DAY_MS),
       registrationEndAt: new Date(Date.now() + 14 * DAY_MS),
       participantConfirmationAt: new Date(Date.now() + 20 * DAY_MS),
@@ -249,8 +249,8 @@ const moveCloseTo = (tx: Tx, ownerId: string, competitionId: string, newClose: D
     tx as unknown as Database,
   );
 
-describe.skipIf(skipWithoutDatabase)("moving a free competition's registration close", () => {
-  it("moves every open invite of the competition's registered teams to the new close", async () => {
+describe.skipIf(skipWithoutDatabase)("moving a competition's registration close", () => {
+  it("moves every open invite of the competition's forming and registered teams to the new close", async () => {
     await inRollback(async (tx) => {
       const { ownerId, competitionId, oldClose } = await seedCompetition(tx);
       const registered = await seedTeam(tx, { competitionId, status: "submitted" });
@@ -279,7 +279,6 @@ describe.skipIf(skipWithoutDatabase)("moving a free competition's registration c
         status: "pending",
         expiresAt: new Date(Date.now() + 7 * DAY_MS),
       });
-      const formingExpiry = await expiryOf(tx, formingInvite);
       const newClose = new Date(Date.now() + 18 * DAY_MS);
 
       await moveCloseTo(tx, ownerId, competitionId, newClose);
@@ -288,7 +287,7 @@ describe.skipIf(skipWithoutDatabase)("moving a free competition's registration c
       expect(await expiryOf(tx, sariInvite)).toBe(newClose.getTime());
       expect(await expiryOf(tx, claimInvite)).toBe(newClose.getTime());
       expect(await expiryOf(tx, ekoInvite)).toBe(oldClose.getTime());
-      expect(await expiryOf(tx, formingInvite)).toBe(formingExpiry);
+      expect(await expiryOf(tx, formingInvite)).toBe(newClose.getTime());
     });
   });
 
@@ -320,7 +319,7 @@ describe.skipIf(skipWithoutDatabase)("moving a free competition's registration c
     });
   });
 
-  it("leaves the invites of a paid competition alone when its close moves", async () => {
+  it("moves the open invites of a paid competition's teams too when its close moves", async () => {
     await inRollback(async (tx) => {
       const { ownerId, competitionId, oldClose } = await seedCompetition(tx, { paid: true });
       const registered = await seedTeam(tx, { competitionId, status: "submitted" });
@@ -335,7 +334,7 @@ describe.skipIf(skipWithoutDatabase)("moving a free competition's registration c
       await moveCloseTo(tx, ownerId, competitionId, newClose);
 
       expect(await closeOf(tx, competitionId)).toBe(newClose.getTime());
-      expect(await expiryOf(tx, sariInvite)).toBe(oldClose.getTime());
+      expect(await expiryOf(tx, sariInvite)).toBe(newClose.getTime());
     });
   });
 
@@ -370,6 +369,69 @@ describe.skipIf(skipWithoutDatabase)("moving a free competition's registration c
       expect(await expiryOf(tx, firstInvite)).toBe(newClose.getTime());
       expect(await expiryOf(tx, otherInvite)).toBe(other.oldClose.getTime());
       expect(await closeOf(tx, other.competitionId)).toBe(other.oldClose.getTime());
+    });
+  });
+
+  it("moves the open invites of a draft competition's teams when its close moves earlier", async () => {
+    await inRollback(async (tx) => {
+      const { ownerId, competitionId, oldClose } = await seedCompetition(tx, { status: "draft" });
+      const forming = await seedTeam(tx, { competitionId, status: "forming" });
+      const pendingInvite = await seedInvitation(tx, {
+        teamId: forming.teamId,
+        invitedByUserId: forming.captainId,
+        status: "pending",
+        expiresAt: oldClose,
+      });
+      const claimInvite = await seedInvitation(tx, {
+        teamId: forming.teamId,
+        invitedByUserId: forming.captainId,
+        status: "pending_claim",
+        expiresAt: oldClose,
+      });
+      const acceptedInvite = await seedInvitation(tx, {
+        teamId: forming.teamId,
+        invitedByUserId: forming.captainId,
+        status: "accepted",
+        expiresAt: oldClose,
+      });
+      const earlierClose = new Date(oldClose.getTime() - 4 * DAY_MS);
+
+      await moveCloseTo(tx, ownerId, competitionId, earlierClose);
+
+      expect({
+        close: await closeOf(tx, competitionId),
+        pending: await expiryOf(tx, pendingInvite),
+        claim: await expiryOf(tx, claimInvite),
+        accepted: await expiryOf(tx, acceptedInvite),
+      }).toEqual({
+        close: earlierClose.getTime(),
+        pending: earlierClose.getTime(),
+        claim: earlierClose.getTime(),
+        accepted: oldClose.getTime(),
+      });
+    });
+  });
+
+  it("keeps a draft's old close when moving the invites fails, so both share the edit's transaction", async () => {
+    await inRollback(async (tx) => {
+      const { ownerId, competitionId, oldClose } = await seedCompetition(tx, { status: "draft" });
+      const forming = await seedTeam(tx, { competitionId, status: "forming" });
+      const pendingInvite = await seedInvitation(tx, {
+        teamId: forming.teamId,
+        invitedByUserId: forming.captainId,
+        status: "pending",
+        expiresAt: oldClose,
+      });
+      closeMoveState.failNext = true;
+
+      await expect(
+        moveCloseTo(tx, ownerId, competitionId, new Date(oldClose.getTime() - 4 * DAY_MS)),
+      ).rejects.toThrow("the invite move failed");
+
+      expect({
+        close: await closeOf(tx, competitionId),
+        pending: await expiryOf(tx, pendingInvite),
+      }).toEqual({ close: oldClose.getTime(), pending: oldClose.getTime() });
     });
   });
 });

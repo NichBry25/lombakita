@@ -57,13 +57,22 @@ describe("the team invitation email", () => {
     expect(html).toContain(closeLine);
   });
 
-  it("keeps the seven-day wording for an invite to a forming team", async () => {
+  it("names the registration close as the last day of an invite to a forming team too", async () => {
     await sendInvitation(false);
 
     const { text, html } = sentMessage();
-    expect(text).toContain(`Undangan ini berlaku hingga ${formatWib(EXPIRES_AT, "longDate")}.`);
-    expect(text).not.toContain("Tim ini sudah terdaftar");
-    expect(html).not.toContain("Tim ini sudah terdaftar");
+    const closeLine = `Undangan ini berlaku hingga pendaftaran ditutup pada ${formatWib(EXPIRES_AT, "longDateTime")} WIB.`;
+    expect({
+      textHasClose: text.includes(closeLine),
+      htmlHasClose: html.includes(closeLine),
+      textSaysRegistered: text.includes("Tim ini sudah terdaftar"),
+      htmlSaysRegistered: html.includes("Tim ini sudah terdaftar"),
+    }).toEqual({
+      textHasClose: true,
+      htmlHasClose: true,
+      textSaysRegistered: false,
+      htmlSaysRegistered: false,
+    });
   });
 
   it("escapes the team name, the competition title and the inviter's name in the html", async () => {

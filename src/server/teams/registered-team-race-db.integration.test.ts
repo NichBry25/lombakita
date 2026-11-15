@@ -1180,3 +1180,110 @@ describe.skipIf(skipWithoutDatabase)("a team created while the host unpublishes"
     });
   });
 });
+
+describe.skipIf(skipWithoutDatabase)(
+  "a forming team's invite and a moved close under real contention",
+  () => {
+    it("EDIT FIRST: an invite to a forming team queued behind a close edit expires at the new close", async () => {
+      readyEnqueueSpies();
+      const { competitionId, institutionId, teamId, captain } = await seedTeam("forming");
+      const owner = await seedOwner(institutionId);
+      const dewi = await seedUser("dewi");
+      const newClose = new Date(Date.now() + 18 * DAY_MS);
+      const [barrierPid, editPid, invitePid] = await Promise.all([
+        backendPidOf(barrier),
+        backendPidOf(racerOne),
+        backendPidOf(racerTwo),
+      ]);
+
+      const [edit, invite] = await withParticipationLockHeld(competitionId, async (track) => {
+        const editRun = track(
+          updateCompetitionDraft(
+            owner.id,
+            competitionId,
+            parseCompetitionPatchInput({ registrationEndAt: newClose.toISOString() }),
+            racerOne.db as never,
+          ),
+        );
+        await awaitBlockedBy(editPid, barrierPid, "the close edit");
+
+        const inviteRun = track(
+          inviteTeamMember(
+            captain.id,
+            teamId,
+            { invitedIdentifier: dewi.username },
+            racerTwo.db as never,
+          ),
+        );
+        await awaitBlockedBy(invitePid, barrierPid, "the invite");
+
+        return [editRun, inviteRun] as const;
+      }).then(async ([editRun, inviteRun]) => [await editRun, await inviteRun] as const);
+
+      const open = await openInvitationsOf(teamId);
+      expect({
+        inviteOk: invite.ok,
+        editOk: edit.ok,
+        open: open.map((invitation) => ({
+          invitedEmail: invitation.invitedEmail,
+          expiresAt: invitation.expiresAt.getTime(),
+        })),
+      }).toEqual({
+        inviteOk: true,
+        editOk: true,
+        open: [{ invitedEmail: dewi.email, expiresAt: newClose.getTime() }],
+      });
+    });
+
+    it("INVITE FIRST: a close edit queued behind an invite to a forming team moves that invite too", async () => {
+      readyEnqueueSpies();
+      const { competitionId, institutionId, teamId, captain } = await seedTeam("forming");
+      const owner = await seedOwner(institutionId);
+      const dewi = await seedUser("dewi");
+      const newClose = new Date(Date.now() + 18 * DAY_MS);
+      const [barrierPid, invitePid, editPid] = await Promise.all([
+        backendPidOf(barrier),
+        backendPidOf(racerOne),
+        backendPidOf(racerTwo),
+      ]);
+
+      const [invite, edit] = await withParticipationLockHeld(competitionId, async (track) => {
+        const inviteRun = track(
+          inviteTeamMember(
+            captain.id,
+            teamId,
+            { invitedIdentifier: dewi.username },
+            racerOne.db as never,
+          ),
+        );
+        await awaitBlockedBy(invitePid, barrierPid, "the invite");
+
+        const editRun = track(
+          updateCompetitionDraft(
+            owner.id,
+            competitionId,
+            parseCompetitionPatchInput({ registrationEndAt: newClose.toISOString() }),
+            racerTwo.db as never,
+          ),
+        );
+        await awaitBlockedBy(editPid, barrierPid, "the close edit");
+
+        return [inviteRun, editRun] as const;
+      }).then(async ([inviteRun, editRun]) => [await inviteRun, await editRun] as const);
+
+      const open = await openInvitationsOf(teamId);
+      expect({
+        inviteOk: invite.ok,
+        editOk: edit.ok,
+        open: open.map((invitation) => ({
+          invitedEmail: invitation.invitedEmail,
+          expiresAt: invitation.expiresAt.getTime(),
+        })),
+      }).toEqual({
+        inviteOk: true,
+        editOk: true,
+        open: [{ invitedEmail: dewi.email, expiresAt: newClose.getTime() }],
+      });
+    });
+  },
+);

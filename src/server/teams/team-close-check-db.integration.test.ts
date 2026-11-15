@@ -125,7 +125,7 @@ import {
   declineTeamInvitationForUser,
 } from "@/server/teams/team-service";
 import { unpublishCompetition } from "@/server/competitions/competition-service";
-import { moveRegisteredTeamInvitationsToClose } from "@/server/teams/registered-team";
+import { moveOpenTeamInvitationsToClose } from "@/server/teams/team-invitation-expiry";
 import { hashToken } from "@/server/teams/team-core";
 import { formatWib } from "@/lib/dates/date-format";
 
@@ -738,12 +738,7 @@ describe.skipIf(skipWithoutDatabase)("the reminder a day before registration clo
         sql`update competitions set registration_end_at = registration_end_at - interval '2 hours' where id = ${competition.competitionId}`,
       );
       const movedClose = await closeOf(tx, competition.competitionId);
-      await moveRegisteredTeamInvitationsToClose(
-        tx,
-        competition.competitionId,
-        movedClose,
-        new Date(),
-      );
+      await moveOpenTeamInvitationsToClose(tx, competition.competitionId, movedClose, new Date());
       await runTeamCloseCheckJob();
       await runTeamCloseCheckJob();
 

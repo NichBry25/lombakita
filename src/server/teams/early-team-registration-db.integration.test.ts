@@ -93,7 +93,9 @@ import { POST as declineRoute } from "@/app/api/v1/me/invitations/team/[invitati
 import {
   transitionCompetitionStatus,
   unpublishCompetition,
+  updateCompetitionDraft,
 } from "@/server/competitions/competition-service";
+import { parseCompetitionPatchInput } from "@/server/competitions/competition-core";
 import {
   parseReviewUpdatePayload,
   updateRegistrationReview,
@@ -1241,6 +1243,196 @@ describe.skipIf(skipWithoutDatabase)("accepting an invite of a registered free t
         internalReviewStatus: "shortlisted",
         internalNotes: "Proposal kuat",
       });
+    });
+  });
+});
+
+describe.skipIf(skipWithoutDatabase)("a team invite lasts until registration closes", () => {
+  const inviteDewiToFormingTeam = async (tx: Tx, paid: boolean) => {
+    const { competitionId, registrationEndAt } = await seedCompetition(tx, {
+      minTeamSize: 2,
+      maxTeamSize: 3,
+      paid,
+    });
+    const rina = await seedCandidate(tx, "rina");
+    const budi = await seedCandidate(tx, "budi");
+    const dewi = await seedCandidate(tx, "dewi");
+    const teamId = await seedTeam(tx, {
+      competitionId,
+      captainId: rina.id,
+      memberIds: [budi.id],
+      status: "forming",
+    });
+    const answer = await inviteViaRoute(tx, rina.id, teamId, dewi.username);
+    const invitationId = (answer.body.invitation as { id: string }).id;
+    return { competitionId, registrationEndAt, teamId, dewi, answer, invitationId };
+  };
+
+  const moveCloseTo = (tx: Tx, ownerId: string, competitionId: string, newClose: Date) =>
+    updateCompetitionDraft(
+      ownerId,
+      competitionId,
+      parseCompetitionPatchInput({ registrationEndAt: newClose.toISOString() }),
+      tx as unknown as Database,
+    );
+
+  it("an invite to a forming free team is open until the registration close", async () => {
+    await inRollback(async (tx) => {
+      const { registrationEndAt, answer, invitationId } = await inviteDewiToFormingTeam(tx, false);
+      const invite = await invitationOf(tx, invitationId);
+
+      expect({
+        status: answer.status,
+        inviteStatus: invite.status,
+        expiresAt: invite.expiresAt.getTime(),
+      }).toEqual({ status: 201, inviteStatus: "pending", expiresAt: registrationEndAt.getTime() });
+    });
+  });
+
+  it("an invite to a forming paid team is open until the registration close, as a free one", async () => {
+    await inRollback(async (tx) => {
+      const { registrationEndAt, answer, invitationId } = await inviteDewiToFormingTeam(tx, true);
+      const invite = await invitationOf(tx, invitationId);
+
+      expect({
+        status: answer.status,
+        inviteStatus: invite.status,
+        expiresAt: invite.expiresAt.getTime(),
+      }).toEqual({ status: 201, inviteStatus: "pending", expiresAt: registrationEndAt.getTime() });
+    });
+  });
+
+  it("refuses a forming team's accept after the registration close even when the invite's stored expiry is later", async () => {
+    await inRollback(async (tx) => {
+      const { competitionId, teamId, dewi, invitationId } = await inviteDewiToFormingTeam(
+        tx,
+        false,
+      );
+      await passTheClose(tx, competitionId);
+
+      const answer = await acceptViaRoute(tx, dewi.id, invitationId);
+
+      expect({
+        status: answer.status,
+        code: errorCodeOf(answer),
+        joined: (await activeMemberIds(tx, teamId)).includes(dewi.id),
+        inviteStatus: (await invitationOf(tx, invitationId)).status,
+      }).toEqual({
+        status: 422,
+        code: "team_competition_registration_closed",
+        joined: false,
+        inviteStatus: "pending",
+      });
+    });
+  });
+
+  it("refuses a paid forming team's accept after the registration close, as a free one", async () => {
+    await inRollback(async (tx) => {
+      const { competitionId, teamId, dewi, invitationId } = await inviteDewiToFormingTeam(tx, true);
+      await passTheClose(tx, competitionId);
+
+      const answer = await acceptViaRoute(tx, dewi.id, invitationId);
+
+      expect({
+        status: answer.status,
+        code: errorCodeOf(answer),
+        joined: (await activeMemberIds(tx, teamId)).includes(dewi.id),
+        inviteStatus: (await invitationOf(tx, invitationId)).status,
+      }).toEqual({
+        status: 422,
+        code: "team_competition_registration_closed",
+        joined: false,
+        inviteStatus: "pending",
+      });
+    });
+  });
+
+  it("a forming team's invite that expired with the registration close says registration has closed", async () => {
+    await inRollback(async (tx) => {
+      const { competitionId, teamId, dewi, invitationId } = await inviteDewiToFormingTeam(
+        tx,
+        false,
+      );
+      const closedAt = await passTheClose(tx, competitionId);
+      await tx
+        .update(teamInvitations)
+        .set({ expiresAt: closedAt })
+        .where(eq(teamInvitations.id, invitationId));
+
+      const answer = await acceptViaRoute(tx, dewi.id, invitationId);
+
+      expect({
+        status: answer.status,
+        code: errorCodeOf(answer),
+        joined: (await activeMemberIds(tx, teamId)).includes(dewi.id),
+      }).toEqual({ status: 422, code: "team_competition_registration_closed", joined: false });
+    });
+  });
+
+  it("moving a free competition's close later moves the open invites of its forming and registered teams", async () => {
+    await inRollback(async (tx) => {
+      const { ownerId, competitionId, registrationEndAt } = await seedCompetition(tx, {
+        minTeamSize: 3,
+        maxTeamSize: 4,
+      });
+      const rina = await seedCandidate(tx, "rina");
+      const budi = await seedCandidate(tx, "budi");
+      const sari = await seedCandidate(tx, "sari");
+      const eko = await seedCandidate(tx, "eko");
+      const fajar = await seedCandidate(tx, "fajar");
+      const gita = await seedCandidate(tx, "gita");
+      const teamOne = await seedTeam(tx, {
+        competitionId,
+        captainId: rina.id,
+        memberIds: [budi.id],
+        status: "forming",
+      });
+      const teamTwo = await seedTeam(tx, {
+        competitionId,
+        captainId: eko.id,
+        memberIds: [fajar.id],
+        status: "forming",
+      });
+      const sariAnswer = await inviteViaRoute(tx, rina.id, teamOne, sari.username);
+      const gitaAnswer = await inviteViaRoute(tx, eko.id, teamTwo, gita.username);
+      const registerAnswer = await registerTeamViaRoute(tx, eko.id, competitionId, teamTwo);
+      const newClose = new Date(registrationEndAt.getTime() + 4 * DAY_MS);
+
+      await moveCloseTo(tx, ownerId, competitionId, newClose);
+
+      const sariInvite = await invitationOf(tx, (sariAnswer.body.invitation as { id: string }).id);
+      const gitaInvite = await invitationOf(tx, (gitaAnswer.body.invitation as { id: string }).id);
+      expect({
+        registered: registerAnswer.status,
+        sari: sariInvite.expiresAt.getTime(),
+        gita: gitaInvite.expiresAt.getTime(),
+      }).toEqual({ registered: 201, sari: newClose.getTime(), gita: newClose.getTime() });
+    });
+  });
+
+  it("moving a paid competition's close later moves the open invites of its forming teams, as a free one's", async () => {
+    await inRollback(async (tx) => {
+      const { ownerId, competitionId, registrationEndAt } = await seedCompetition(tx, {
+        minTeamSize: 3,
+        maxTeamSize: 4,
+        paid: true,
+      });
+      const rina = await seedCandidate(tx, "rina");
+      const budi = await seedCandidate(tx, "budi");
+      const sari = await seedCandidate(tx, "sari");
+      const teamId = await seedTeam(tx, {
+        competitionId,
+        captainId: rina.id,
+        memberIds: [budi.id],
+        status: "forming",
+      });
+      const sariAnswer = await inviteViaRoute(tx, rina.id, teamId, sari.username);
+      const newClose = new Date(registrationEndAt.getTime() + 4 * DAY_MS);
+
+      await moveCloseTo(tx, ownerId, competitionId, newClose);
+
+      const sariInvite = await invitationOf(tx, (sariAnswer.body.invitation as { id: string }).id);
+      expect({ sari: sariInvite.expiresAt.getTime() }).toEqual({ sari: newClose.getTime() });
     });
   });
 });

@@ -25,10 +25,6 @@ const buildClaimSignupUrl = (rawToken: string): string => {
   return url.toString();
 };
 
-const formatExpiryDate = (expiresAt: Date): string => {
-  return formatWib(expiresAt, "longDate");
-};
-
 export type TeamInvitationEmailMode = "targeted" | "claim";
 
 const REGISTERED_TEAM_LINE =
@@ -40,8 +36,7 @@ export const sendTeamInvitationEmail = async (options: {
   competitionTitle: string;
   inviterDisplayName: string | null;
   expiresAt: Date;
-  // An invite of a registered free team lasts until registration closes, and joining registers the
-  // teammate at once.
+  // Joining a registered free team registers the teammate at once.
   joinsRegisteredTeam: boolean;
   mode: TeamInvitationEmailMode;
   // Required for `claim` mode (the signup link); ignored for `targeted`.
@@ -51,10 +46,7 @@ export const sendTeamInvitationEmail = async (options: {
     throw new Error("claim-mode team invitation email requires a rawToken");
   }
 
-  const expiryFormatted = formatExpiryDate(options.expiresAt);
-  const expiryLine = options.joinsRegisteredTeam
-    ? `Undangan ini berlaku hingga pendaftaran ditutup pada ${formatWib(options.expiresAt, "longDateTime")} WIB.`
-    : `Undangan ini berlaku hingga ${expiryFormatted}.`;
+  const expiryLine = `Undangan ini berlaku hingga pendaftaran ditutup pada ${formatWib(options.expiresAt, "longDateTime")} WIB.`;
   const inviterLabel = options.inviterDisplayName ?? "Kapten tim";
   const inviterLabelHtml = escapeHtml(inviterLabel);
   const teamNameHtml = escapeHtml(options.teamName);

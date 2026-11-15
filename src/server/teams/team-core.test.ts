@@ -2,14 +2,12 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  buildInvitationExpiresAt,
   generateRawToken,
   hashToken,
   maskToken,
   parseTeamCreateInput,
   parseTeamInviteCreateInput,
   parseTeamUpdateInput,
-  TEAM_INVITATION_EXPIRY_DAYS,
   TeamError,
   toTeamErrorResponse,
 } from "./team-core";
@@ -79,12 +77,6 @@ describe("token helpers", () => {
 
   it("masks a token to first 8 chars + ellipsis", () => {
     expect(maskToken("abcdefgh_secret_rest_of_token")).toBe("abcdefgh…");
-  });
-
-  it("builds an expiry 7 days from the given date", () => {
-    const base = new Date("2026-01-01T00:00:00.000Z");
-    const expiry = buildInvitationExpiresAt(base);
-    expect(expiry.getTime() - base.getTime()).toBe(TEAM_INVITATION_EXPIRY_DAYS * 86400_000);
   });
 });
 

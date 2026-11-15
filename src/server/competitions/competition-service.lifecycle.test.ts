@@ -14,14 +14,14 @@ const {
   enqueueCompetitionEdited,
   enqueueCompetitionCancelled,
   enqueueCompetitionSearchSync,
-  moveRegisteredTeamInvitationsToClose,
+  moveOpenTeamInvitationsToClose,
 } = vi.hoisted(() => ({
   assertCompetitionAccess: vi.fn(),
   hasActiveRegistrationsForCompetition: vi.fn(),
   enqueueCompetitionEdited: vi.fn(),
   enqueueCompetitionCancelled: vi.fn(),
   enqueueCompetitionSearchSync: vi.fn(),
-  moveRegisteredTeamInvitationsToClose: vi.fn(),
+  moveOpenTeamInvitationsToClose: vi.fn(),
 }));
 
 const {
@@ -49,7 +49,7 @@ vi.mock("@/server/async/enqueue", () => ({
 vi.mock("@/server/competitions/competition-participation-lock", () => ({
   acquireCompetitionParticipationLock: vi.fn(),
 }));
-vi.mock("@/server/teams/registered-team", () => ({ moveRegisteredTeamInvitationsToClose }));
+vi.mock("@/server/teams/team-invitation-expiry", () => ({ moveOpenTeamInvitationsToClose }));
 const { disbandEveryTeamOfCompetition, markCompetitionRegistrationsPublicationClosed } = vi.hoisted(
   () => ({
     disbandEveryTeamOfCompetition: vi.fn().mockResolvedValue(undefined),
@@ -645,7 +645,7 @@ describe("updateCompetitionDraft — published edit (F6/F17)", () => {
   });
 });
 
-describe("updateCompetitionDraft — the invites of registered teams follow a moved close", () => {
+describe("updateCompetitionDraft — every open team invite follows a moved close", () => {
   const PAID_PRICING = { feeAmount: 150_000, feeCurrency: "IDR", paymentWindowDays: 3 };
 
   const closeMovedBy25Days = () =>
@@ -653,7 +653,7 @@ describe("updateCompetitionDraft — the invites of registered teams follow a mo
       registrationEndAt: new Date(Date.now() + 25 * DAY).toISOString(),
     });
 
-  it("moves the open invites of registered teams to a free competition's new close inside the edit's transaction", async () => {
+  it("moves the open team invites to a free competition's new close inside the edit's transaction", async () => {
     const competition = baseCompetition();
     const patch = closeMovedBy25Days();
     const updated = { ...competition, registrationEndAt: patch.registrationEndAt as Date };
@@ -668,8 +668,8 @@ describe("updateCompetitionDraft — the invites of registered teams follow a mo
     await expect(updateCompetitionDraft("u_1", "comp_1", patch, db)).resolves.toEqual(updated);
 
     expect(transaction).toHaveBeenCalledTimes(1);
-    expect(moveRegisteredTeamInvitationsToClose).toHaveBeenCalledTimes(1);
-    expect(moveRegisteredTeamInvitationsToClose).toHaveBeenCalledWith(
+    expect(moveOpenTeamInvitationsToClose).toHaveBeenCalledTimes(1);
+    expect(moveOpenTeamInvitationsToClose).toHaveBeenCalledWith(
       tx,
       "comp_1",
       patch.registrationEndAt,
@@ -678,7 +678,7 @@ describe("updateCompetitionDraft — the invites of registered teams follow a mo
     expect(acquireCompetitionParticipationLock).toHaveBeenCalledWith(tx, "comp_1");
   });
 
-  it("leaves team invites alone when a paid competition's close moves", async () => {
+  it("moves the open team invites when a paid competition's close moves too", async () => {
     const competition = baseCompetition();
     const patch = closeMovedBy25Days();
     const updated = { ...competition, registrationEndAt: patch.registrationEndAt as Date };
@@ -696,36 +696,14 @@ describe("updateCompetitionDraft — the invites of registered teams follow a mo
 
     await expect(updateCompetitionDraft("u_1", "comp_1", patch, db)).resolves.toEqual(updated);
 
-    expect(moveRegisteredTeamInvitationsToClose).not.toHaveBeenCalled();
-    expect(transaction).toHaveBeenCalledTimes(1);
-  });
-
-  it("moves the open invites when the fee read under the lock is free, though the fee read before it was paid", async () => {
-    const competition = baseCompetition();
-    const patch = closeMovedBy25Days();
-    const updated = { ...competition, registrationEndAt: patch.registrationEndAt as Date };
-    const tx = {
-      update: () => updateChain([updated]),
-      select: makeSelectQueue([[FREE_PRICING]]),
-    };
-    const transaction = vi.fn((callback: (transaction: unknown) => unknown) => callback(tx));
-    const db = {
-      select: publishedEditSelect([], PAID_PRICING),
-      update: () => updateChain([updated]),
-      transaction,
-    } as unknown as Database;
-    assertCompetitionAccess.mockResolvedValue({ competition, membershipRole: "institution_owner" });
-
-    await expect(updateCompetitionDraft("u_1", "comp_1", patch, db)).resolves.toEqual(updated);
-
-    expect(transaction).toHaveBeenCalledTimes(1);
-    expect(moveRegisteredTeamInvitationsToClose).toHaveBeenCalledTimes(1);
-    expect(moveRegisteredTeamInvitationsToClose).toHaveBeenCalledWith(
+    expect(moveOpenTeamInvitationsToClose).toHaveBeenCalledTimes(1);
+    expect(moveOpenTeamInvitationsToClose).toHaveBeenCalledWith(
       tx,
       "comp_1",
       patch.registrationEndAt,
       expect.any(Date),
     );
+    expect(transaction).toHaveBeenCalledTimes(1);
   });
 
   it("does not touch team invites when an edit keeps the close", async () => {
@@ -740,7 +718,7 @@ describe("updateCompetitionDraft — the invites of registered teams follow a mo
 
     await expect(updateCompetitionDraft("u_1", "comp_1", patch, db)).resolves.toEqual(updated);
 
-    expect(moveRegisteredTeamInvitationsToClose).not.toHaveBeenCalled();
+    expect(moveOpenTeamInvitationsToClose).not.toHaveBeenCalled();
   });
 });
 

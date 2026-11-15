@@ -130,28 +130,3 @@ export const setOpenTeamInvitationsExpiryToClose = async (
       ),
     );
 };
-
-// Runs in the transaction that moves the close, so no open invite of a registered team keeps the
-// old one.
-export const moveRegisteredTeamInvitationsToClose = async (
-  tx: DbOrTx,
-  competitionId: string,
-  closesAt: Date,
-  now: Date,
-): Promise<void> => {
-  const registeredTeamIds = tx
-    .select({ id: teams.id })
-    .from(teams)
-    .where(and(eq(teams.competitionId, competitionId), registeredTeamCondition()));
-
-  await tx
-    .update(teamInvitations)
-    .set({ expiresAt: closesAt })
-    .where(
-      and(
-        inArray(teamInvitations.status, ["pending", "pending_claim"]),
-        gt(teamInvitations.expiresAt, now),
-        inArray(teamInvitations.teamId, registeredTeamIds),
-      ),
-    );
-};

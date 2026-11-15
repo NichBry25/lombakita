@@ -7,10 +7,6 @@ import type {
   TeamStatus,
 } from "@/server/db/schema";
 
-// Team invitation expiry. Matches institution_invitations cadence (7 days from
-// creation). Acceptable at MVP; revisit if business requires shorter-lived team invites.
-export const TEAM_INVITATION_EXPIRY_DAYS = 7;
-
 // Team name validation. Length is generous for Indonesian team names; trimmed at the boundary.
 const TEAM_NAME_MIN = 2;
 const TEAM_NAME_MAX = 80;
@@ -213,12 +209,6 @@ export const hashToken = (rawToken: string): string => {
 // First 8 chars only — never log the full raw token.
 export const maskToken = (rawToken: string): string => {
   return `${rawToken.slice(0, 8)}…`;
-};
-
-export const buildInvitationExpiresAt = (from: Date = new Date()): Date => {
-  const expiry = new Date(from);
-  expiry.setDate(expiry.getDate() + TEAM_INVITATION_EXPIRY_DAYS);
-  return expiry;
 };
 
 // Wire-format records returned by service + route layer.

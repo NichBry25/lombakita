@@ -15,10 +15,8 @@ import {
   users,
   type CompetitionRegistrationReviewStatus,
   type TeamInvitationStatus,
-  type TeamStatus,
 } from "@/server/db/schema";
 import {
-  buildInvitationExpiresAt,
   generateRawToken,
   hashToken,
   parseTeamCreateInput,
@@ -38,7 +36,7 @@ import {
   enqueueTeamInvitationDispatch,
 } from "@/server/async/enqueue";
 import { acquireCompetitionParticipationLock } from "@/server/competitions/competition-participation-lock";
-import { isPaidCompetition } from "@/lib/competitions/paid-competition";
+import { isRegistrationEndPast } from "@/lib/competitions/competition-timeline";
 import { assertRegisteredFreeTeamOpen } from "@/server/teams/registered-team";
 
 // Postgres error code extraction. drizzle-orm wraps the underlying postgres error in a
@@ -95,12 +93,14 @@ const loadCompetitionForTeams = async (
   return row ?? null;
 };
 
+type OpenTeamCompetition = CompetitionTeamSnapshot & { registrationEndAt: Date };
+
 // Assert the competition exists, is published, accepts team registration, and registration is
 // still open. Returns the snapshot for downstream guards (size enforcement, etc.).
 const assertCompetitionTeamPlayable = (
   competition: CompetitionTeamSnapshot | null,
   now: Date,
-): CompetitionTeamSnapshot => {
+): OpenTeamCompetition => {
   if (!competition) {
     throw new TeamError("team_competition_not_found", "Competition not found");
   }
@@ -122,7 +122,7 @@ const assertCompetitionTeamPlayable = (
       "Registration window for this competition has closed",
     );
   }
-  return competition;
+  return { ...competition, registrationEndAt: competition.registrationEndAt };
 };
 
 // Find any active team membership the candidate currently holds for this competition. Used by
@@ -685,10 +685,7 @@ export const inviteTeamMember = async (
   }
   assertTeamForming(team);
 
-  const competition = assertCompetitionTeamPlayable(
-    await loadCompetitionForTeams(team.competitionId, db),
-    now,
-  );
+  assertCompetitionTeamPlayable(await loadCompetitionForTeams(team.competitionId, db), now);
 
   const recipient = await resolveTeamInviteRecipient(invitedIdentifier, db);
 
@@ -697,13 +694,20 @@ export const inviteTeamMember = async (
   const { invitation, rawToken } = await db.transaction(async (tx) => {
     await acquireCompetitionParticipationLock(tx, team.competitionId);
     await assertTeamStillForming(tx, team.id);
+    // Read again under the lock that moving the close also takes, so the invite expires at the close
+    // as it stands when the invite is written.
+    const lockedCompetition = await loadCompetitionForTeams(
+      team.competitionId,
+      tx as unknown as Database,
+    );
+    const competition = assertCompetitionTeamPlayable(lockedCompetition, now);
     await assertTeamHasRoomForInvite(tx, team.id, competition.maxTeamSize);
     await assertInviteeNotOnTeamOrInvited(tx, team.id, recipient.invitedEmail);
     return insertTeamInvitation(tx, {
       teamId: team.id,
       invitedByUserId: userId,
       recipient,
-      expiresAt: buildInvitationExpiresAt(now),
+      expiresAt: competition.registrationEndAt,
     });
   });
 
@@ -816,8 +820,6 @@ type InvitationForAccept = {
   targetUserId: string | null;
   expiresAt: Date;
   competitionId: string;
-  teamStatus: TeamStatus;
-  feeAmount: number | null;
   registrationEndAt: Date | null;
 };
 
@@ -833,8 +835,6 @@ const loadInvitationForAccept = async (
       targetUserId: teamInvitations.targetUserId,
       expiresAt: teamInvitations.expiresAt,
       competitionId: teams.competitionId,
-      teamStatus: teams.status,
-      feeAmount: competitions.feeAmount,
       registrationEndAt: competitions.registrationEndAt,
     })
     .from(teamInvitations)
@@ -846,13 +846,12 @@ const loadInvitationForAccept = async (
   return row ?? null;
 };
 
-// An invite of a registered free team expires when registration closes, so its refusal says so.
+// Every invite expires when registration closes, so an invite that expired with the close says so.
 const expiredInvitationError = (invitation: InvitationForAccept, now: Date): TeamError => {
-  const expiredWithTheRegistrationClose =
-    invitation.teamStatus === "submitted" &&
-    !isPaidCompetition(invitation.feeAmount) &&
-    invitation.registrationEndAt !== null &&
-    invitation.registrationEndAt.getTime() <= now.getTime();
+  const expiredWithTheRegistrationClose = isRegistrationEndPast(
+    invitation.registrationEndAt,
+    now.getTime(),
+  );
 
   if (expiredWithTheRegistrationClose) {
     return new TeamError(
@@ -955,6 +954,18 @@ const joinFormingTeam = async (
   userId: string,
   now: Date,
 ): Promise<AcceptedInvitation> => {
+  // Read under the participation lock that moving the close also takes, so an accept after the
+  // close is refused whatever expiry the invite carries.
+  const lockedCompetition = await loadCompetitionForTeams(
+    team.competitionId,
+    tx as unknown as Database,
+  );
+  if (isRegistrationEndPast(lockedCompetition?.registrationEndAt, now.getTime())) {
+    throw new TeamError(
+      "team_competition_registration_closed",
+      "Registration window for this competition has closed",
+    );
+  }
   await assertAccountCanJoinTeam(tx, userId, team.competitionId);
   await insertActiveMembership(tx, team.id, userId, now);
   await markInvitationAcceptedIfPending(tx, invitationId, now);

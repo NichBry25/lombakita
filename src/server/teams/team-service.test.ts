@@ -316,6 +316,7 @@ describe("inviteTeamMember invariants", () => {
       {
         transactionSelectQueue: [
           [{ status: "forming" }], // status read under the lock
+          [baseCompetition({ maxTeamSize: 2 })],
           [{ count: 1 }], // active members (captain)
           [{ count: 1 }], // pending invites (one outstanding; incl. pending_claim)
         ],
@@ -336,6 +337,7 @@ describe("inviteTeamMember invariants", () => {
     const { db } = makeDb([[baseTeam()], [baseCompetition()], [{ id: "user_target" }]], {
       transactionSelectQueue: [
         [{ status: "forming" }], // status read under the lock
+        [baseCompetition()],
         [{ count: 1 }],
         [{ count: 0 }],
         [], // existingActiveMember check
@@ -378,6 +380,7 @@ describe("inviteTeamMember invariants", () => {
         insertReturning: [baseInvitation()],
         transactionSelectQueue: [
           [{ status: "forming" }], // status read under the lock
+          [baseCompetition()],
           [{ count: 1 }],
           [{ count: 0 }],
           [], // existingActiveMember — none
@@ -411,6 +414,7 @@ describe("inviteTeamMember invariants", () => {
         insertReturning: [baseInvitation({ status: "pending_claim", targetUserId: null })],
         transactionSelectQueue: [
           [{ status: "forming" }], // status read under the lock
+          [baseCompetition()],
           [{ count: 1 }],
           [{ count: 0 }],
           [],
@@ -439,6 +443,7 @@ describe("inviteTeamMember invariants", () => {
       insertReturning: [baseInvitation()],
       transactionSelectQueue: [
         [{ status: "forming" }], // status read under the lock
+        [baseCompetition()],
         [{ count: 1 }],
         [{ count: 0 }],
         [],
@@ -510,6 +515,7 @@ describe("acceptTeamInvitationForUser — session-id match + candidate gate", ()
       transactionSelectQueue: [
         [targetInvitation()],
         [baseTeam()],
+        [baseCompetition()],
         [{ id: "cand_invitee", candidateVerifiedAt: null }], // session user — not candidate-verified
       ],
     });
@@ -523,6 +529,7 @@ describe("acceptTeamInvitationForUser — session-id match + candidate gate", ()
       transactionSelectQueue: [
         [targetInvitation()],
         [baseTeam()],
+        [baseCompetition()],
         [{ id: "cand_invitee", candidateVerifiedAt: NOW }],
         [{ teamId: "other_team_for_same_competition" }],
       ],
@@ -537,6 +544,7 @@ describe("acceptTeamInvitationForUser — session-id match + candidate gate", ()
       transactionSelectQueue: [
         [targetInvitation()],
         [baseTeam()],
+        [baseCompetition()],
         [{ id: "cand_invitee", candidateVerifiedAt: NOW }],
         [], // no existing team for competition
       ],

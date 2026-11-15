@@ -42,7 +42,7 @@ import { INSTITUTION_CANCELLATION_REASON } from "@/server/competitions/competiti
 import { hasCompetitionStarted } from "@/lib/competitions/competition-withdrawal";
 import { isParticipantCancellationClosedByConfirmation } from "@/lib/competitions/competition-participation";
 import { acquireCompetitionParticipationLock } from "@/server/competitions/competition-participation-lock";
-import { moveRegisteredTeamInvitationsToClose } from "@/server/teams/registered-team";
+import { moveOpenTeamInvitationsToClose } from "@/server/teams/team-invitation-expiry";
 import { disbandEveryTeamOfCompetition } from "@/server/teams/team-service";
 import { markCompetitionRegistrationsPublicationClosed } from "@/server/registrations/registration-service";
 import {
@@ -577,6 +577,19 @@ const writePublishedCompetitionUpdates = (
     )
     .returning(PUBLIC_COMPETITION_COLUMNS);
 
+// Writes a draft edit only while the competition is still a draft, so a publish that commits first
+// leaves the edit matching nothing.
+const writeDraftCompetitionUpdates = (
+  writer: DbOrTx,
+  competitionId: string,
+  updates: Record<string, unknown>,
+) =>
+  writer
+    .update(competitions)
+    .set(updates)
+    .where(and(eq(competitions.id, competitionId), eq(competitions.status, "draft")))
+    .returning(PUBLIC_COMPETITION_COLUMNS);
+
 // The team sizes a patch leaves the competition with, normalized to its mode, or null when the
 // patch touches neither the mode nor a size. Catches what the patch parse cannot see, such as a
 // team minimum patched alone on a team-mode row, and refuses a team minimum below the floor rather
@@ -737,9 +750,9 @@ const updatePublishedCompetition = async (
   const now = new Date();
   let updated: CompetitionRow;
   try {
-    // The lock orders the move with a team registering, a teammate joining and a fee change, which
-    // read the close or the fee under the same lock. The fee is read again under it, after the write,
-    // so the invites move whenever the competition is free when its close moves.
+    // The lock orders the move with an invite, an accept and a team registering, which read the
+    // close under the same lock, so no open invite keeps the old close. A write that matched no row
+    // moved no close, so it moves no invite.
     const [persisted] =
       movedClose === null
         ? await writePublishedCompetitionUpdates(db, competition.id, competition.updatedAt, updates)
@@ -752,10 +765,7 @@ const updatePublishedCompetition = async (
               updates,
             );
             if (rows.length === 0) return rows;
-            const pricingUnderLock = await loadCompetitionPricing(competition.id, tx);
-            if (!isPaidCompetition(pricingUnderLock.feeAmount)) {
-              await moveRegisteredTeamInvitationsToClose(tx, competition.id, movedClose, now);
-            }
+            await moveOpenTeamInvitationsToClose(tx, competition.id, movedClose, now);
             return rows;
           });
     if (!persisted) {
@@ -903,12 +913,22 @@ export const updateCompetitionDraft = async (
     return competition;
   }
 
+  const movedClose = closeMovedByPatch(patch, competition);
+  // The app clock, which every reader of an invite's expiry compares with.
+  const now = new Date();
   try {
-    const [row] = await db
-      .update(competitions)
-      .set(updates)
-      .where(and(eq(competitions.id, competitionId), eq(competitions.status, "draft")))
-      .returning(PUBLIC_COMPETITION_COLUMNS);
+    // Open team invites expire at the close, so a moved close moves them in the same transaction,
+    // under the lock an invite and an accept take. A write that matched no row moves no invite.
+    const [row] =
+      movedClose === null
+        ? await writeDraftCompetitionUpdates(db, competitionId, updates)
+        : await db.transaction(async (tx) => {
+            await acquireCompetitionParticipationLock(tx, competitionId);
+            const rows = await writeDraftCompetitionUpdates(tx, competitionId, updates);
+            if (rows.length === 0) return rows;
+            await moveOpenTeamInvitationsToClose(tx, competitionId, movedClose, now);
+            return rows;
+          });
     if (!row) {
       throw new CompetitionError(
         "competition_changed_during_edit",

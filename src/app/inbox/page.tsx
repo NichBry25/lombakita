@@ -97,7 +97,8 @@ export default async function InboxPage() {
                     <h2>{item.teamName}</h2>
                     <p>Kompetisi: {item.competitionTitle}</p>
                     <div className="inbox-date data-text">
-                      Kedaluwarsa: <LocalDate value={item.expiresAt} format="longDateTime" />
+                      Berlaku hingga pendaftaran ditutup pada{" "}
+                      <LocalDate value={item.expiresAt} format="longDateTime" />
                     </div>
                     <InboxInviteActions
                       kind="team"
