@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 import { joinClassNames } from "./class-names";
-import { ButtonLink } from "./button";
-import { Icon } from "./icon";
+import { IconButtonLink } from "./button";
 
 type PageHeaderBaseProps = {
   title: string;
@@ -21,20 +20,19 @@ export function PageHeader({
   actions,
   className,
 }: PageHeaderProps) {
+  const backLinkLabel = backLabel === "Kembali" ? "Kembali" : `Kembali ke ${backLabel}`;
+
   return (
     <header className={joinClassNames("page-heading", className)}>
       <div className="page-heading-main">
         {backHref ? (
-          <ButtonLink
+          <IconButtonLink
             href={backHref}
-            variant="ghost"
-            size="sm"
-            leadingIcon={<Icon name="arrow-left" size="sm" />}
-            className="page-heading-back"
-            title={backLabel}
-          >
-            {backLabel}
-          </ButtonLink>
+            icon="arrow-left"
+            variant="plain"
+            size="back"
+            label={backLinkLabel}
+          />
         ) : null}
         <h1>{title}</h1>
         {description ? <p>{description}</p> : null}

@@ -348,9 +348,8 @@ export const InstitutionTeamShell = ({
                             ))}
                             <IconButton
                               icon="trash"
-                              label={`Hapus ${member.name ?? member.email}`}
-                              variant="danger"
-                              size="sm"
+                              label={`Hapus anggota ${member.name ?? member.email}`}
+                              variant="outline"
                               loading={pendingAction === `${member.membershipId}:remove`}
                               disabled={isActing}
                               onClick={() => confirmRemoveMember(member)}
@@ -451,7 +450,7 @@ export const InstitutionTeamShell = ({
                     </td>
                     <td>
                       <Button
-                        variant="danger"
+                        variant="outline"
                         size="sm"
                         loading={pendingAction === `${invitation.id}:cancel`}
                         disabled={pendingAction !== null}

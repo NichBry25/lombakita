@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useRef, useState } from "react";
+import { useCallback, useId, useRef, useState } from "react";
 import { Button, CheckboxField, IconButton } from "@/components/ui";
 import { FormField, FormInput, FormLabel, FormTextarea, SelectField } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
@@ -66,7 +66,7 @@ type FormProps<D> = {
   submitLabel: string;
   busy: boolean;
   onSubmit: (payload: unknown) => void;
-  onCancel?: () => void;
+  onCancel: () => void;
 };
 
 // --------------------------------------------------------------------------- shared plumbing
@@ -84,6 +84,10 @@ function useEditableCollection<T extends { id: string }>(
   const [editingId, setEditingId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [addResetKey, setAddResetKey] = useState(0);
+  const [isAdding, setIsAdding] = useState(false);
+
+  const openAddForm = () => setIsAdding(true);
+  const closeAddForm = () => setIsAdding(false);
 
   const add = async (payload: unknown): Promise<boolean> => {
     setBusy(true);
@@ -95,6 +99,7 @@ function useEditableCollection<T extends { id: string }>(
     }
     setItems((prev) => [result.entry as T, ...prev]);
     setAddResetKey((k) => k + 1);
+    setIsAdding(false);
     addToast({ type: "success", message: labels.added });
     return true;
   };
@@ -123,16 +128,52 @@ function useEditableCollection<T extends { id: string }>(
     addToast({ type: "success", message: "Entri dihapus." });
   };
 
-  return { items, editingId, setEditingId, busy, addResetKey, add, update, remove };
+  return {
+    items,
+    editingId,
+    setEditingId,
+    busy,
+    addResetKey,
+    isAdding,
+    openAddForm,
+    closeAddForm,
+    add,
+    update,
+    remove,
+  };
 }
 
-function SectionShell({ title, children }: { title: string; children: React.ReactNode }) {
+// Wraps a freshly opened add form and puts focus on its first field when it mounts. The callback
+// ref has a stable identity, so it runs once per mount and not on every render.
+function FocusFirstFieldOnMount({ children }: { children: React.ReactNode }) {
+  const focusFirstField = useCallback((wrapper: HTMLDivElement | null) => {
+    wrapper?.querySelector<HTMLElement>("input, textarea, select")?.focus();
+  }, []);
+
+  return <div ref={focusFirstField}>{children}</div>;
+}
+
+// The "+" at the right end of the heading row is how a repeating section gets a new entry.
+function SectionShell({
+  title,
+  addLabel,
+  onAdd,
+  children,
+}: {
+  title: string;
+  addLabel?: string;
+  onAdd?: () => void;
+  children: React.ReactNode;
+}) {
   return (
     <section className="content-section surface-card card-padding">
       <div className="section-heading">
         <div>
           <h2>{title}</h2>
         </div>
+        {addLabel && onAdd ? (
+          <IconButton icon="plus" variant="outline" label={addLabel} onClick={onAdd} />
+        ) : null}
       </div>
       {children}
     </section>
@@ -167,15 +208,13 @@ function EntryRow({
           <IconButton
             icon="edit"
             label={`Ubah ${entityLabel}`}
-            variant="ghost"
-            size="sm"
+            variant="outline"
             onClick={onEdit}
           />
           <IconButton
             icon="trash"
             label={`Hapus ${entityLabel}`}
-            variant="danger"
-            size="sm"
+            variant="outline"
             onClick={onDelete}
           />
         </div>
@@ -185,10 +224,6 @@ function EntryRow({
   );
 }
 
-// `onCancel` is only ever passed for an in-place edit form (Simpan/Batal); the persistent add
-// form at the bottom of each section never passes it, so its absence is the add-vs-edit signal.
-// Add forms render as an icon-only "+" (submitLabel becomes the accessible name); edit forms keep
-// full text buttons.
 function FormActions({
   submitLabel,
   busy,
@@ -198,29 +233,14 @@ function FormActions({
   submitLabel: string;
   busy: boolean;
   onSubmit: () => void;
-  onCancel?: () => void;
+  onCancel: () => void;
 }) {
-  if (!onCancel) {
-    return (
-      <div className="pf-editor-form-actions">
-        <IconButton
-          icon="plus"
-          label={submitLabel}
-          variant="outline"
-          size="sm"
-          disabled={busy}
-          onClick={onSubmit}
-        />
-      </div>
-    );
-  }
-
   return (
     <div className="pf-editor-form-actions">
       <Button type="button" variant="outline" size="sm" loading={busy} onClick={onSubmit}>
         {submitLabel}
       </Button>
-      <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+      <Button type="button" variant="outline" size="sm" onClick={onCancel}>
         Batal
       </Button>
     </div>
@@ -369,7 +389,7 @@ function ExperienceEditor({
   });
 
   return (
-    <SectionShell title="Pengalaman">
+    <SectionShell title="Pengalaman" addLabel="Tambah pengalaman" onAdd={c.openAddForm}>
       <ul className="pf-editor-list">
         {c.items.map((entry) =>
           c.editingId === entry.id ? (
@@ -394,13 +414,18 @@ function ExperienceEditor({
           ),
         )}
       </ul>
-      <ExperienceForm
-        key={c.addResetKey}
-        initial={emptyExperienceDraft()}
-        submitLabel="Tambah pengalaman"
-        busy={c.busy}
-        onSubmit={(p) => c.add(p)}
-      />
+      {c.isAdding ? (
+        <FocusFirstFieldOnMount>
+          <ExperienceForm
+            key={c.addResetKey}
+            initial={emptyExperienceDraft()}
+            submitLabel="Tambah pengalaman"
+            busy={c.busy}
+            onSubmit={(p) => c.add(p)}
+            onCancel={c.closeAddForm}
+          />
+        </FocusFirstFieldOnMount>
+      ) : null}
     </SectionShell>
   );
 }
@@ -526,7 +551,7 @@ function EducationEditor({
   });
 
   return (
-    <SectionShell title="Riwayat pendidikan">
+    <SectionShell title="Riwayat pendidikan" addLabel="Tambah pendidikan" onAdd={c.openAddForm}>
       <ul className="pf-editor-list">
         {c.items.map((entry) =>
           c.editingId === entry.id ? (
@@ -551,13 +576,18 @@ function EducationEditor({
           ),
         )}
       </ul>
-      <EducationForm
-        key={c.addResetKey}
-        initial={emptyEducationDraft()}
-        submitLabel="Tambah pendidikan"
-        busy={c.busy}
-        onSubmit={(p) => c.add(p)}
-      />
+      {c.isAdding ? (
+        <FocusFirstFieldOnMount>
+          <EducationForm
+            key={c.addResetKey}
+            initial={emptyEducationDraft()}
+            submitLabel="Tambah pendidikan"
+            busy={c.busy}
+            onSubmit={(p) => c.add(p)}
+            onCancel={c.closeAddForm}
+          />
+        </FocusFirstFieldOnMount>
+      ) : null}
     </SectionShell>
   );
 }
@@ -613,7 +643,6 @@ function SkillEditor({
           icon="plus"
           label="Tambah keahlian"
           variant="outline"
-          size="sm"
           disabled={c.busy}
           onClick={add}
         />
@@ -858,7 +887,7 @@ function CertificationEditor({
   });
 
   return (
-    <SectionShell title="Sertifikasi & lisensi">
+    <SectionShell title="Sertifikasi & lisensi" addLabel="Tambah sertifikasi" onAdd={c.openAddForm}>
       <ul className="pf-editor-list">
         {c.items.map((entry) =>
           c.editingId === entry.id ? (
@@ -892,13 +921,18 @@ function CertificationEditor({
           ),
         )}
       </ul>
-      <CertificationForm
-        key={c.addResetKey}
-        initial={emptyCertificationDraft()}
-        submitLabel="Tambah sertifikasi"
-        busy={c.busy}
-        onSubmit={(p) => c.add(p)}
-      />
+      {c.isAdding ? (
+        <FocusFirstFieldOnMount>
+          <CertificationForm
+            key={c.addResetKey}
+            initial={emptyCertificationDraft()}
+            submitLabel="Tambah sertifikasi"
+            busy={c.busy}
+            onSubmit={(p) => c.add(p)}
+            onCancel={c.closeAddForm}
+          />
+        </FocusFirstFieldOnMount>
+      ) : null}
     </SectionShell>
   );
 }
@@ -973,7 +1007,7 @@ function SocialLinkEditor({
   });
 
   return (
-    <SectionShell title="Tautan sosial">
+    <SectionShell title="Tautan sosial" addLabel="Tambah tautan" onAdd={c.openAddForm}>
       <ul className="pf-editor-list">
         {c.items.map((entry) =>
           c.editingId === entry.id ? (
@@ -998,13 +1032,18 @@ function SocialLinkEditor({
           ),
         )}
       </ul>
-      <SocialLinkForm
-        key={c.addResetKey}
-        initial={emptySocialLinkDraft()}
-        submitLabel="Tambah tautan"
-        busy={c.busy}
-        onSubmit={(p) => c.add(p)}
-      />
+      {c.isAdding ? (
+        <FocusFirstFieldOnMount>
+          <SocialLinkForm
+            key={c.addResetKey}
+            initial={emptySocialLinkDraft()}
+            submitLabel="Tambah tautan"
+            busy={c.busy}
+            onSubmit={(p) => c.add(p)}
+            onCancel={c.closeAddForm}
+          />
+        </FocusFirstFieldOnMount>
+      ) : null}
     </SectionShell>
   );
 }

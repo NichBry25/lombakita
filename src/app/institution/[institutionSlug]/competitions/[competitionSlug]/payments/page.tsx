@@ -8,7 +8,7 @@ import { getCompetitionIdentityByInstitutionAndSlug } from "@/server/competition
 import { requireAdminInstitutionBySlug } from "@/server/institution-members/member-service";
 import { loadOrganiserPaymentQueue } from "@/server/finance/organiser-payment-review";
 import { OrganiserPaymentQueue } from "@/components/finance/organiser-payment-queue";
-import { ButtonLink, Feedback, PageHeader } from "@/components/ui";
+import { ButtonLink, Feedback, Icon, PageHeader } from "@/components/ui";
 
 type Props = {
   params: Promise<{ institutionSlug: string; competitionSlug: string }>;
@@ -75,7 +75,8 @@ export default async function CompetitionPaymentsPage({ params }: Props) {
         actions={
           <ButtonLink
             href={`/institution/${institutionSlug}/competitions/${competitionSlug}/participants`}
-            variant="outline"
+            variant="link"
+            leadingIcon={<Icon name="users" size="sm" />}
           >
             Peserta
           </ButtonLink>

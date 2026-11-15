@@ -30,6 +30,7 @@ function ToastItem({ toast, onRemove }: { toast: Toast; onRemove: (id: string) =
         <p className="toast-message">{toast.message}</p>
       </div>
       <IconButton
+        variant="plain"
         className="toast-close"
         icon="close"
         label="Tutup notifikasi"

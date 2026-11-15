@@ -9,7 +9,7 @@ export default function NotFoundPage() {
         </span>
         <h1>Halaman tidak ditemukan</h1>
         <p>Alamat yang Anda buka tidak tersedia atau sudah dipindahkan.</p>
-        <ButtonLink href="/competitions" variant="secondary">
+        <ButtonLink href="/competitions" variant="primary">
           Jelajahi kompetisi
         </ButtonLink>
       </section>

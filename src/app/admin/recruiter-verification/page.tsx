@@ -373,7 +373,7 @@ export default function RecruiterVerificationQueuePage() {
                         <div className="auth-form-actions">
                           <Button
                             type="button"
-                            variant="ghost"
+                            variant="outline"
                             size="sm"
                             leadingIcon={<Icon name="eye" size="sm" />}
                             loading={pendingAction === `document:${document.id}:inline`}
@@ -383,7 +383,7 @@ export default function RecruiterVerificationQueuePage() {
                           </Button>
                           <Button
                             type="button"
-                            variant="ghost"
+                            variant="outline"
                             size="sm"
                             leadingIcon={<Icon name="download" size="sm" />}
                             loading={pendingAction === `document:${document.id}:attachment`}
@@ -424,7 +424,7 @@ export default function RecruiterVerificationQueuePage() {
                     <>
                       <Button
                         type="button"
-                        variant="ghost"
+                        variant="outline"
                         size="sm"
                         onClick={() => confirmReject(item)}
                       >

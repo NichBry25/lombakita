@@ -52,7 +52,7 @@ describe("OrganiserPaymentQueue", () => {
     renderQueue([proof()]);
 
     expect(screen.getByRole("button", { name: "Verifikasi" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Tolak" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Tolak pembayaran" })).toBeTruthy();
   });
 
   it("WITHHOLDS both verdicts on a verified proof", () => {
@@ -62,7 +62,7 @@ describe("OrganiserPaymentQueue", () => {
     renderQueue([proof({ status: "verified" })]);
 
     expect(screen.queryByRole("button", { name: "Verifikasi" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Tolak" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Tolak pembayaran" })).toBeNull();
   });
 
   it("WITHHOLDS both verdicts on a rejected proof", () => {
@@ -71,14 +71,14 @@ describe("OrganiserPaymentQueue", () => {
     renderQueue([proof({ status: "rejected", rejectionReason: "Nominal tidak sesuai" })]);
 
     expect(screen.queryByRole("button", { name: "Verifikasi" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Tolak" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Tolak pembayaran" })).toBeNull();
   });
 
   it("WITHHOLDS both verdicts on a proof the platform voided", () => {
     renderQueue([proof({ status: "voided" })]);
 
     expect(screen.queryByRole("button", { name: "Verifikasi" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Tolak" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Tolak pembayaran" })).toBeNull();
   });
 
   it("keeps the file open control on every state, including the settled ones", () => {
@@ -86,7 +86,7 @@ describe("OrganiserPaymentQueue", () => {
     // and an organiser who can no longer open it cannot answer it.
     renderQueue([proof({ status: "verified" })]);
 
-    expect(screen.getByRole("button", { name: "Lihat bukti" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "bukti.jpg" })).toBeTruthy();
   });
 
   it("offers verdicts on the pending row only when a settled row sits beside it", () => {
@@ -97,7 +97,7 @@ describe("OrganiserPaymentQueue", () => {
     ]);
 
     expect(screen.getAllByRole("button", { name: "Verifikasi" })).toHaveLength(1);
-    expect(screen.getAllByRole("button", { name: "Lihat bukti" })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: "bukti.jpg" })).toHaveLength(2);
   });
 
   it("tells the reviewer a rejected payer may still try again, or may not", () => {

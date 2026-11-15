@@ -1,12 +1,27 @@
+"use client";
+
 import Link from "next/link";
-import type { ButtonHTMLAttributes, ComponentProps, ReactNode } from "react";
+import {
+  useLayoutEffect,
+  useRef,
+  type ButtonHTMLAttributes,
+  type ComponentProps,
+  type ReactNode,
+} from "react";
 import { joinClassNames } from "./class-names";
 import { Icon, type IconName } from "./icon";
 import { LinkPendingSlot } from "./link-pending";
 import { Spinner } from "./spinner";
 
-export type ButtonVariant = "primary" | "secondary" | "outline" | "ghost" | "danger";
+// primary is Utama, outline is Kedua, link is Tautan aksi.
+export type ButtonVariant = "primary" | "outline" | "link";
 export type ButtonSize = "sm" | "md" | "lg";
+
+// outline is Garis, plain is Polos, fill is Isi.
+export type IconButtonVariant = "outline" | "plain" | "fill";
+// md is 44 px with a 20 px glyph, lg is 52 px with a 22 px glyph (outline only), back is the
+// 48 px touch area with a 24 px glyph that every back arrow uses.
+export type IconButtonSize = "md" | "lg" | "back";
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: ButtonVariant;
@@ -16,10 +31,32 @@ type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   leadingIcon?: ReactNode;
 };
 
+// Holds the width the button had before it started loading, so the spinner taking the leading
+// slot never makes the button resize.
+function useWidthLockedWhileLoading(loading: boolean) {
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const restingWidthRef = useRef(0);
+
+  useLayoutEffect(() => {
+    const button = buttonRef.current;
+    if (!button) {
+      return;
+    }
+    if (loading) {
+      button.style.minWidth = `${restingWidthRef.current}px`;
+      return;
+    }
+    button.style.minWidth = "";
+    restingWidthRef.current = button.offsetWidth;
+  });
+
+  return buttonRef;
+}
+
 /**
- * While `loading` is set the button keeps its own label and takes the spinner into the
- * leading slot. The label is what tells the user which action is running, so it is never
- * swapped out for generic loading text, and the fixed slot keeps the button from resizing.
+ * While `loading` is set the button keeps its own label and colours and takes the spinner into
+ * the leading slot. The label is what tells the user which action is running, so it is never
+ * swapped out for generic loading text.
  */
 export function Button({
   variant = "primary",
@@ -33,9 +70,12 @@ export function Button({
   type = "button",
   ...buttonProps
 }: ButtonProps) {
+  const buttonRef = useWidthLockedWhileLoading(loading);
+
   return (
     <button
       {...buttonProps}
+      ref={buttonRef}
       type={type}
       className={joinClassNames("ui-button", className)}
       data-variant={variant}
@@ -89,8 +129,10 @@ type IconButtonLinkProps = ComponentProps<typeof Link> & {
   // A localized accessible name is mandatory — an icon-only control is unnamed without it.
   label: string;
   icon: IconName;
-  variant?: ButtonVariant;
-  size?: ButtonSize;
+  variant: IconButtonVariant;
+  size?: IconButtonSize;
+  // The tooltip shows the label unless the caller needs different words.
+  tooltip?: string;
 };
 
 // The navigating counterpart of IconButton. Like ButtonLink it owns no action, so its pending
@@ -99,8 +141,9 @@ type IconButtonLinkProps = ComponentProps<typeof Link> & {
 export function IconButtonLink({
   label,
   icon,
-  variant = "ghost",
+  variant,
   size = "md",
+  tooltip,
   className,
   ...linkProps
 }: IconButtonLinkProps) {
@@ -110,8 +153,8 @@ export function IconButtonLink({
       className={joinClassNames("ui-icon-button", className)}
       data-variant={variant}
       data-size={size}
+      data-tooltip={tooltip ?? label}
       aria-label={label}
-      title={label}
     >
       <LinkPendingSlot leadingIcon={<Icon name={icon} />} />
     </Link>
@@ -122,21 +165,24 @@ type IconButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   // A localized accessible name is mandatory — an icon-only control is unnamed without it.
   label: string;
   icon: IconName;
-  variant?: ButtonVariant;
-  size?: ButtonSize;
+  variant: IconButtonVariant;
+  size?: IconButtonSize;
   loading?: boolean;
+  // The tooltip shows the label unless the caller needs different words (a toggle, a short form).
+  tooltip?: string;
 };
 
-// Icon-only button for actions whose glyph is unambiguous (logout, delete, share, back).
+// Icon-only button for actions whose glyph is unambiguous (close, delete, back, add).
 // The glyph is decorative (aria-hidden via Icon); the button carries the accessible name.
 // While loading the glyph is replaced by the spinner — the accessible name is unchanged, so
 // the control keeps announcing what it does while `aria-busy` reports that it is running.
 export function IconButton({
   label,
   icon,
-  variant = "ghost",
+  variant,
   size = "md",
   loading = false,
+  tooltip,
   className,
   disabled,
   type = "button",
@@ -150,8 +196,8 @@ export function IconButton({
       data-variant={variant}
       data-size={size}
       data-loading={loading ? "true" : undefined}
+      data-tooltip={tooltip ?? label}
       aria-label={label}
-      title={label}
       aria-busy={loading || undefined}
       disabled={disabled || loading}
     >

@@ -204,22 +204,6 @@ svg {
   font-size: var(--text-lead);
 }
 
-/*
- * Renders as a ghost .ui-button (icon + label) — see PageHeader. The label can be a dynamic
- * value (e.g. a competition title, up to 200 chars), so it's capped and truncated here rather
- * than letting a long back-destination name stretch the pill across the viewport.
- */
-.page-heading-back {
-  width: fit-content;
-  max-width: min(20rem, 100%);
-}
-
-.page-heading-back > span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .page-heading-actions {
   display: flex;
   flex-wrap: wrap;
@@ -403,6 +387,11 @@ svg {
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
+}
+
+.record-actions-end {
+  justify-content: flex-end;
+  gap: var(--space-3);
 }
 
 .hub-grid,
@@ -681,7 +670,6 @@ svg {
   white-space: nowrap;
 }
 
-.ui-button:hover:not(:disabled):not([aria-disabled="true"]),
 .primary-button:hover:not(:disabled),
 .action-chip:hover:not(:disabled) {
   box-shadow: var(--shadow-md);
@@ -689,11 +677,14 @@ svg {
   transform: translateY(var(--motion-lift-control));
 }
 
-.ui-button:active:not(:disabled):not([aria-disabled="true"]),
 .primary-button:active:not(:disabled),
 .action-chip:active:not(:disabled) {
   filter: brightness(0.97);
   transform: translateY(var(--space-0));
+}
+
+.ui-button:active:not(:disabled):not([aria-disabled="true"]) {
+  transform: translateY(var(--border-thin));
 }
 
 .ui-button[data-size="sm"] {
@@ -716,16 +707,21 @@ svg {
   font-size: var(--text-button-lg);
 }
 
-.ui-button[data-variant="primary"],
 .primary-button {
   background: var(--color-action);
   color: var(--color-action-ink);
   box-shadow: var(--shadow-action);
 }
 
-.ui-button[data-variant="secondary"] {
-  background: var(--brand-palm);
-  color: var(--brand-paper);
+/* Three text styles: primary (Utama), outline (Kedua), link (Tautan aksi). */
+.ui-button[data-variant="primary"] {
+  background: var(--color-action);
+  color: var(--color-action-ink);
+}
+
+.ui-button[data-variant="primary"]:hover:not(:disabled):not([aria-disabled="true"]),
+.ui-button[data-variant="primary"]:active:not(:disabled):not([aria-disabled="true"]) {
+  background: var(--color-action-hover);
 }
 
 /*
@@ -741,53 +737,59 @@ svg {
   color: var(--color-ink);
 }
 
-.ui-button[data-variant="ghost"] {
+.ui-button[data-variant="outline"] {
+  border-width: 1.5px;
+}
+
+.ui-button[data-variant="outline"]:hover:not(:disabled):not([aria-disabled="true"]),
+.ui-button[data-variant="outline"]:active:not(:disabled):not([aria-disabled="true"]) {
+  background: var(--color-hover-surface);
+}
+
+.ui-button[data-variant="link"] {
+  min-height: var(--touch-target);
+  padding-inline: 0.625rem;
   background: transparent;
-  color: var(--color-ink-soft);
+  color: var(--color-ink);
 }
 
-.ui-button[data-variant="danger"] {
-  background: var(--color-error-text);
-  color: var(--color-surface);
+.ui-button[data-variant="link"] > span {
+  text-decoration: underline;
+  text-decoration-thickness: 1.5px;
+  text-decoration-color: color-mix(in srgb, currentcolor 35%, transparent);
+  text-underline-offset: 4px;
 }
 
-.ui-button[data-variant="ghost"]:hover:not(:disabled),
+[data-theme="dark"] .ui-button[data-variant="link"] > span {
+  text-decoration-color: color-mix(in srgb, currentcolor 40%, transparent);
+}
+
 .action-chip:hover:not(:disabled) {
   background: var(--color-inset);
 }
 
 /*
- * On the deep-palm brand bands, the palm-coloured button variants (secondary fill, outline
- * border, ghost text) would sink into the surface. Flip them to a paper treatment so they read
- * as real, tappable buttons against the dark background.
+ * On the deep-palm brand bands, the palm-coloured button variants (outline border, link text)
+ * would sink into the surface. Flip them to a paper treatment so they read as real, tappable
+ * buttons against the dark background.
  */
-.brand-band .ui-button[data-variant="secondary"] {
-  background: var(--brand-paper);
-  color: var(--brand-palm);
-}
-
 .brand-band .ui-button[data-variant="outline"] {
   border-color: var(--brand-paper);
   color: var(--brand-paper);
 }
 
-.brand-band .ui-button[data-variant="ghost"] {
-  color: var(--brand-paper);
+.brand-band .ui-button[data-variant="outline"]:hover:not(:disabled):not([aria-disabled="true"]) {
+  background: rgba(251, 246, 235, 0.16);
 }
 
-.brand-band .ui-button[data-variant="ghost"]:hover:not(:disabled) {
-  background: rgba(251, 246, 235, 0.16);
+.brand-band .ui-button[data-variant="link"] {
+  color: var(--brand-paper);
 }
 
 /*
  * Exception: the glass search bars are light sub-surfaces sitting on the palm band, so a button
  * inside them needs the palm (not paper) treatment to contrast. Restore it.
  */
-.glass-focus .ui-button[data-variant="secondary"] {
-  background: var(--brand-palm);
-  color: var(--brand-paper);
-}
-
 .glass-focus .ui-button[data-variant="outline"] {
   border-color: var(--brand-palm);
   color: var(--brand-palm);
@@ -797,7 +799,7 @@ svg {
   width: 100%;
 }
 
-.ui-button:disabled,
+.ui-button:disabled:not([data-loading="true"]),
 .ui-button[aria-disabled="true"],
 .primary-button:disabled,
 .action-chip:disabled {
@@ -807,6 +809,25 @@ svg {
   box-shadow: none;
   filter: none;
   transform: none;
+}
+
+/* A loading button keeps its own colours; only the spinner and aria-busy say it is waiting. */
+.ui-button[data-loading="true"] {
+  cursor: progress;
+}
+
+.ui-button[data-loading="true"] > span > .ui-icon {
+  display: none;
+}
+
+.ui-button > .spinner {
+  width: var(--space-4);
+  height: var(--space-4);
+}
+
+.ui-button[data-size="lg"] > .spinner {
+  width: var(--icon-md);
+  height: var(--icon-md);
 }
 
 .icon-button {
@@ -2825,13 +2846,20 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
 }
 
 /* ---- Icon-only button ---- */
+/* Three styles: outline (Garis), plain (Polos), fill (Isi). Sizes: md 44 / 20 px glyph, lg 52 / 22
+   (outline only), back 48 / 24 (the back arrow). */
 .ui-icon-button {
+  --icon-button-box: var(--touch-target);
+  --icon-button-glyph: var(--space-5);
+  position: relative;
   display: inline-grid;
   place-items: center;
-  min-width: var(--touch-target);
-  min-height: var(--touch-target);
-  padding: var(--space-2);
-  border: var(--border-thin) solid transparent;
+  width: var(--icon-button-box);
+  height: var(--icon-button-box);
+  min-width: var(--icon-button-box);
+  min-height: var(--icon-button-box);
+  padding: 0;
+  border: 1.5px solid transparent;
   border-radius: var(--radius-pill);
   background: transparent;
   color: var(--color-ink);
@@ -2842,8 +2870,28 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
     color var(--duration-fast) var(--ease-primary);
 }
 
-.ui-icon-button:hover:not(:disabled) {
+.ui-icon-button[data-size="lg"] {
+  --icon-button-box: var(--control-height-lg);
+  --icon-button-glyph: var(--icon-lg);
+}
+
+.ui-icon-button[data-size="back"] {
+  --icon-button-box: var(--control-height-md);
+  --icon-button-glyph: var(--space-6);
+}
+
+.ui-icon-button > .ui-icon,
+.ui-icon-button > .spinner {
+  width: var(--icon-button-glyph);
+  height: var(--icon-button-glyph);
+}
+
+.ui-icon-button:hover:not(:disabled):not([aria-disabled="true"]) {
   background: var(--color-hover-surface);
+}
+
+.ui-icon-button:active:not(:disabled):not([aria-disabled="true"]) {
+  transform: translateY(var(--border-thin));
 }
 
 .ui-icon-button:focus-visible {
@@ -2851,51 +2899,78 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   outline-offset: var(--focus-offset);
 }
 
-.ui-icon-button:disabled {
-  color: var(--color-disabled-text);
-  cursor: not-allowed;
-}
-
-/* An icon-only control still has to carry the weight of the action it replaced, so the
-   variants mirror .ui-button rather than collapsing every converted action into a ghost. */
-.ui-icon-button[data-variant="primary"] {
-  background: var(--color-action);
-  color: var(--color-action-ink);
-  box-shadow: var(--shadow-action);
-}
-
-.ui-icon-button[data-variant="primary"]:hover:not(:disabled) {
-  background: var(--color-action-strong, var(--color-action));
-}
-
-.ui-icon-button[data-variant="secondary"] {
-  background: var(--brand-palm);
-  color: var(--brand-paper);
-}
-
-.ui-icon-button[data-variant="secondary"]:hover:not(:disabled) {
-  background: var(--brand-palm-ink, var(--brand-palm));
-}
-
-/* Same reasoning as the outline button label above. */
 .ui-icon-button[data-variant="outline"] {
   border-color: var(--color-ink);
-  color: var(--color-ink);
 }
 
-.ui-icon-button[data-variant="danger"] {
-  color: var(--color-error-text);
+.ui-icon-button[data-variant="fill"] {
+  border-color: transparent;
+  background: var(--color-action);
+  color: var(--color-action-ink);
 }
 
-.ui-icon-button[data-variant="danger"]:hover:not(:disabled) {
-  background: var(--color-error-surface);
+.ui-icon-button[data-variant="fill"]:hover:not(:disabled):not([aria-disabled="true"]),
+.ui-icon-button[data-variant="fill"]:active:not(:disabled):not([aria-disabled="true"]) {
+  background: var(--color-action-hover);
 }
 
 /* Anchors have no :disabled, and IconButtonLink is the only icon control that can be
    inert while still focusable, so the disabled look keys off aria-disabled too. */
+.ui-icon-button:disabled:not([data-loading="true"]),
 .ui-icon-button[aria-disabled="true"] {
+  border-color: var(--color-disabled-border);
+  background: var(--color-disabled-surface);
   color: var(--color-disabled-text);
   cursor: not-allowed;
+}
+
+.ui-icon-button[data-variant="plain"]:disabled:not([data-loading="true"]),
+.ui-icon-button[data-variant="plain"][aria-disabled="true"] {
+  border-color: transparent;
+  background: transparent;
+}
+
+/* On the deep-palm brand bands a palm icon would sink into the surface, so the plain icon button
+   and its tooltip flip to the paper treatment. */
+.brand-band .ui-icon-button[data-variant="plain"] {
+  color: var(--brand-paper);
+}
+
+.brand-band .ui-icon-button[data-variant="plain"]:hover:not(:disabled):not([aria-disabled="true"]) {
+  background: rgba(251, 246, 235, 0.16);
+}
+
+.brand-band .ui-icon-button[data-tooltip]::after {
+  background: var(--brand-paper);
+  color: var(--brand-palm);
+}
+
+/* Tooltip: CSS only, from the control's own data-tooltip. It shows on hover and on keyboard
+   focus after 400 ms, and hides at once when the pointer or focus leaves. */
+.ui-icon-button[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  inset-block-start: calc(100% + var(--space-2));
+  inset-inline-start: 50%;
+  z-index: var(--z-dropdown);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--space-2);
+  background: var(--color-ink);
+  color: var(--color-bg);
+  font-size: var(--text-meta);
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateX(-50%);
+  transition: opacity var(--duration-fast) var(--ease-primary) 0ms;
+}
+
+.ui-icon-button[data-tooltip]:hover::after,
+.ui-icon-button[data-tooltip]:focus-visible::after {
+  opacity: 1;
+  transition-delay: 400ms;
 }
 
 /* ---- Page-level sticky form action bar (global Save + Back) ---- */
@@ -3192,24 +3267,10 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   padding-inline: var(--space-16);
 }
 
-.featured-nav-btn {
+.ui-icon-button.featured-nav-btn {
   position: absolute;
-  inset-block-start: 50%;
+  inset-block-start: calc(50% - var(--icon-button-box) / 2);
   z-index: var(--z-content);
-  display: grid;
-  width: var(--control-height-md);
-  height: var(--control-height-md);
-  place-items: center;
-  border: 0;
-  border-radius: var(--radius-circle);
-  background: var(--brand-palm);
-  color: var(--brand-paper);
-  box-shadow: var(--shadow-md);
-  cursor: pointer;
-  transform: translateY(-50%);
-  transition:
-    background-color var(--duration-fast) var(--ease-primary),
-    opacity var(--duration-fast) var(--ease-primary);
 }
 
 .featured-nav-btn[data-direction="prev"] {
@@ -3218,20 +3279,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
 
 .featured-nav-btn[data-direction="next"] {
   inset-inline-end: var(--space-2);
-}
-
-.featured-nav-btn[data-direction="prev"] .ui-icon {
-  transform: rotate(180deg);
-}
-
-.featured-nav-btn:hover:not(:disabled) {
-  background: var(--brand-tangerine);
-  color: var(--brand-palm);
-}
-
-.featured-nav-btn:disabled {
-  opacity: 0.35;
-  pointer-events: none;
 }
 
 .featured-carousel {
@@ -3312,21 +3359,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   align-content: space-between;
   gap: var(--space-8);
   padding-block: var(--space-6) var(--space-9);
-}
-
-.detail-back-link {
-  display: inline-flex;
-  width: fit-content;
-  min-height: var(--touch-target);
-  align-items: center;
-  gap: var(--space-2);
-  color: var(--brand-mist);
-  font-size: var(--text-body-sm);
-  text-decoration: none;
-}
-
-.detail-back-link:hover {
-  color: var(--color-brand-ink);
 }
 
 .detail-hero-content {
@@ -3796,6 +3828,25 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: var(--space-5);
+}
+
+/* The back arrow sits above the heading and takes 44 px of the card's top, not its own grid row. */
+.auth-entry[data-has-back="true"] {
+  position: relative;
+  padding-block-start: var(--touch-target);
+}
+
+.auth-entry-back {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: calc(-1 * var(--space-3));
+}
+
+.auth-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
 }
 
 .auth-entry-header {
@@ -5714,6 +5765,45 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
   justify-self: start;
 }
 
+/* Underline tabs for the sections of a published competition. */
+.section-tabs {
+  display: flex;
+  gap: var(--space-7);
+  border-block-end: var(--border-thin) solid var(--color-line);
+}
+
+.section-tab {
+  display: inline-flex;
+  min-height: var(--touch-target);
+  flex: none;
+  align-items: center;
+  margin-block-end: calc(-1 * var(--border-thin));
+  border-block-end: 3px solid transparent;
+  color: #4f6b65;
+  font-family: var(--font-body);
+  font-size: 1rem;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+[data-theme="dark"] .section-tab {
+  color: var(--color-ink-soft);
+}
+
+.section-tab[aria-current="page"] {
+  border-block-end-color: var(--color-action);
+  color: var(--color-ink);
+}
+
+@media (max-width: 640px) {
+  .section-tabs {
+    overflow-x: auto;
+    scrollbar-width: none;
+    mask-image: linear-gradient(to right, #000 calc(100% - var(--space-9)), transparent);
+  }
+}
+
 .competition-edit-actions {
   position: sticky;
   inset-block-end: var(--space-3);
@@ -6344,7 +6434,7 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
     padding-inline: 0;
   }
 
-  .featured-nav-btn {
+  .ui-icon-button.featured-nav-btn {
     display: none;
   }
 

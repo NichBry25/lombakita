@@ -186,7 +186,12 @@ export function ResultForm({
             </>
           )}
           {status === "published" && (
-            <Button variant="danger" type="button" onClick={handleUnpublish} loading={unpublishing}>
+            <Button
+              variant="outline"
+              type="button"
+              onClick={handleUnpublish}
+              loading={unpublishing}
+            >
               Batalkan publikasi
             </Button>
           )}

@@ -59,7 +59,7 @@ export function CompetitionSearchForm({ params }: { params: CompetitionSearchPar
           <input key={filter} type="hidden" name={filter} value={params[filter]} />
         ) : null,
       )}
-      <Button type="submit" variant="secondary" size="lg" loading={isSearching}>
+      <Button type="submit" variant="primary" size="lg" loading={isSearching}>
         Cari
       </Button>
     </form>

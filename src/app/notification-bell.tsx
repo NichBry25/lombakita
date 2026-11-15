@@ -120,6 +120,7 @@ export function NotificationBell() {
   if (!authed) return null;
 
   const hasUnread = typeof unreadCount === "number" && unreadCount > 0;
+  const unreadCountLabel = hasUnread && unreadCount > 99 ? "99+" : unreadCount;
 
   return (
     // Not an IconButtonLink: the unread badge is an extra child that the primitive has no slot
@@ -127,12 +128,13 @@ export function NotificationBell() {
     <Link
       href="/inbox"
       className="ui-icon-button notification-link"
-      data-variant="ghost"
+      data-variant="plain"
       data-size="md"
-      aria-label={hasUnread ? `Kotak masuk, ${unreadCount} belum dibaca` : "Kotak masuk"}
+      data-tooltip="Kotak masuk"
+      aria-label={hasUnread ? `Kotak masuk, ${unreadCountLabel} belum dibaca` : "Kotak masuk"}
     >
       <Icon name="inbox" />
-      {hasUnread ? <span className="notification-badge">{unreadCount}</span> : null}
+      {hasUnread ? <span className="notification-badge">{unreadCountLabel}</span> : null}
     </Link>
   );
 }

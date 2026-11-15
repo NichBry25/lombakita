@@ -97,7 +97,7 @@ export default async function ProtectedPage() {
 
       <div className="page-secondary-actions">
         <SignOutButton />
-        <ButtonLink href="/" variant="ghost" size="sm">
+        <ButtonLink href="/" variant="link" size="sm">
           Kembali ke beranda
         </ButtonLink>
       </div>

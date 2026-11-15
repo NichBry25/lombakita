@@ -135,7 +135,13 @@ export const PersonalInstitutionCreateShell = ({ expectedUserId }: { expectedUse
       </section>
 
       <FormActionBar>
-        <IconButton icon="arrow-left" label="Kembali ke beranda" onClick={() => router.push("/")} />
+        <IconButton
+          icon="arrow-left"
+          variant="plain"
+          size="back"
+          label="Kembali ke beranda"
+          onClick={() => router.push("/")}
+        />
         {!created ? (
           <div className="form-action-bar-end">
             <Button type="button" onClick={onSubmit} loading={isCreating}>

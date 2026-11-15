@@ -439,7 +439,7 @@ export const InstitutionCompetitionDetailShell = ({
             >
               Salin tautan
             </Button>
-            <ButtonLink href={publicPath} variant="secondary">
+            <ButtonLink href={publicPath} variant="link">
               Lihat halaman
             </ButtonLink>
           </div>
@@ -456,9 +456,8 @@ export const InstitutionCompetitionDetailShell = ({
               competition.slug,
             )}/edit`}
             icon="edit"
-            label="Edit kompetisi"
+            label="Ubah informasi kompetisi"
             variant="outline"
-            size="sm"
           />
         </div>
         <dl className="management-detail-grid">
@@ -581,7 +580,7 @@ export const InstitutionCompetitionDetailShell = ({
             <div className="record-actions">
               {participation.canConfirmProceed ? (
                 <Button
-                  variant="secondary"
+                  variant="primary"
                   loading={pendingAction === "proceed"}
                   disabled={isSubmitting}
                   onClick={() =>
@@ -613,7 +612,7 @@ export const InstitutionCompetitionDetailShell = ({
               ) : null}
               {participation.canCancel ? (
                 <Button
-                  variant="danger"
+                  variant="outline"
                   loading={pendingAction === "cancel"}
                   disabled={isSubmitting}
                   onClick={() =>
@@ -663,16 +662,17 @@ export const InstitutionCompetitionDetailShell = ({
         {isDraft ? (
           <div className="stack-sm">
             <div className="record-actions">
+              {publishIsBlockedByServer ? null : (
+                <Button
+                  onClick={() => onAction("publish")}
+                  loading={pendingAction === "publish"}
+                  disabled={isSubmitting}
+                >
+                  Terbitkan
+                </Button>
+              )}
               <Button
-                onClick={() => onAction("publish")}
-                loading={pendingAction === "publish"}
-                disabled={isSubmitting || publishIsBlockedByServer}
-                aria-describedby={publishIsBlockedByServer ? "publish-blocked-reason" : undefined}
-              >
-                Terbitkan
-              </Button>
-              <Button
-                variant="danger"
+                variant="outline"
                 onClick={confirmDelete}
                 loading={pendingAction === "delete"}
                 disabled={isSubmitting}
@@ -713,7 +713,7 @@ export const InstitutionCompetitionDetailShell = ({
           <div className="stack-sm">
             <div className="record-actions">
               <Button
-                variant="danger"
+                variant="outline"
                 onClick={() =>
                   openModal({
                     title: "Tarik publikasi kompetisi?",

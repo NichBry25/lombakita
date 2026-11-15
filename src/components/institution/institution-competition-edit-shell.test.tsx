@@ -1098,9 +1098,9 @@ describe("InstitutionCompetitionEditShell steps", () => {
     }
     expect(publish.getAttribute("data-variant")).toBe("primary");
     expect(publish.hasAttribute("disabled")).toBe(false);
-    const exit = screen.getByRole("link", { name: "Keluar" });
+    const exit = screen.getByRole("link", { name: "Keluar dari editor" });
     expect(exit.getAttribute("href")).toBe(LIST_URL);
-    expect(exit.getAttribute("data-variant")).toBe("ghost");
+    expect(exit.getAttribute("data-variant")).toBe("outline");
     expect(screen.getByRole("button", { name: "Kembali" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Lanjut" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Simpan dan keluar" })).toBeNull();
@@ -1126,8 +1126,7 @@ describe("InstitutionCompetitionEditShell steps", () => {
       const isCurrent = index === 1;
       expect(link.getAttribute("href")).toBe(`${EDIT_URL}?langkah=${index + 1}`);
       expect(link.getAttribute("aria-current")).toBe(isCurrent ? "page" : null);
-      expect(link.getAttribute("data-variant")).toBe(isCurrent ? "primary" : "outline");
-      expect(link.getAttribute("data-size")).toBe("sm");
+      expect(link.className).toBe("section-tab");
     });
     const expectedHeadings: readonly string[] = SECTION_HEADINGS_BY_STEP[2];
     for (const heading of ALL_SECTION_HEADINGS) {
@@ -1327,7 +1326,7 @@ describe("InstitutionCompetitionEditShell steps", () => {
 
     render(shellAt(5));
 
-    await screen.findByRole("button", { name: "Terbitkan" });
+    await screen.findByRole("link", { name: "Keluar dari editor" });
     const editLabels = [
       "Edit informasi dasar",
       "Edit peserta",
@@ -1338,7 +1337,7 @@ describe("InstitutionCompetitionEditShell steps", () => {
       const link = screen.getByRole("link", { name: label });
       expect(link.getAttribute("href")).toBe(`${EDIT_URL}?langkah=${index + 1}`);
       expect(link.getAttribute("data-variant")).toBe("outline");
-      expect(link.getAttribute("data-size")).toBe("sm");
+      expect(link.getAttribute("data-size")).toBe("md");
     });
     expect(summaryValue("Judul")).toBe(COMPETITION.title);
     expect(summaryValue("Kategori")).toBe("Hackathon");
@@ -1425,7 +1424,7 @@ describe("InstitutionCompetitionEditShell steps", () => {
 
     render(shellAt(5));
 
-    await screen.findByRole("button", { name: "Terbitkan" });
+    await screen.findByRole("link", { name: "Keluar dari editor" });
     expect(summaryValue("Deskripsi")).toBe("—");
     expect(screen.queryByRole("button", { name: "Lihat selengkapnya" })).toBeNull();
   });

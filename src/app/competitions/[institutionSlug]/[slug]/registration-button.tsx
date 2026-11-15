@@ -1,5 +1,6 @@
 import { Button, ButtonLink, Icon } from "@/components/ui";
 import type { PublicCompetitionDetail } from "@/server/competitions/competition-public-service";
+import { AddToCalendarButton, type CalendarEventProps } from "./detail-actions";
 
 export function RegistrationButton({
   ctaState,
@@ -9,6 +10,7 @@ export function RegistrationButton({
   isCandidate,
   isSignedIn,
   isCancelled,
+  calendarEvent,
 }: {
   ctaState: PublicCompetitionDetail["ctaState"];
   registrationPath: string;
@@ -17,6 +19,7 @@ export function RegistrationButton({
   isCandidate: boolean;
   isSignedIn: boolean;
   isCancelled: boolean;
+  calendarEvent?: CalendarEventProps;
 }) {
   if (isCancelled) {
     return (
@@ -63,6 +66,10 @@ export function RegistrationButton({
   // shortens to "Belum dibuka" so it reads as a status rather than a sentence; the accessible name
   // keeps the full phrase, because someone reaching this control by screen reader has no visual
   // "Daftar kompetisi" heading above it to supply the missing subject.
+  if (ctaState === "not_yet_open" && calendarEvent?.eventStartAt) {
+    return <AddToCalendarButton {...calendarEvent} />;
+  }
+
   if (ctaState === "not_yet_open") {
     return (
       <Button disabled size="lg" fullWidth aria-label="Pendaftaran belum dibuka">

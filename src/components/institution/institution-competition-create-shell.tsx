@@ -212,6 +212,8 @@ export const InstitutionCompetitionCreateShell = ({
 
       <FormActionBar>
         <IconButton
+          variant="plain"
+          size="back"
           icon="arrow-left"
           label="Kembali ke daftar kompetisi"
           onClick={() => router.push(backHref)}

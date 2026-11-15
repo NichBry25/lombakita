@@ -342,7 +342,7 @@ function DocumentRequestCard({
                   <IconButton
                     label={`Hapus ${file.originalFileName}`}
                     icon="trash"
-                    variant="danger"
+                    variant="outline"
                     loading={deletingFileId === file.id}
                     onClick={() => void removeFile(file.id, file.originalFileName)}
                   />

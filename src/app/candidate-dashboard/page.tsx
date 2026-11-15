@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { SecondRoleBanner } from "@/components/auth/second-role-banner";
-import { ButtonLink, EmptyState, Icon, PageHeader } from "@/components/ui";
+import { ButtonLink, EmptyState, Icon, IconButtonLink, PageHeader } from "@/components/ui";
 import { LocalDate } from "@/components/ui/local-date";
 import { formatDisplayToken } from "@/lib/text/capitalize";
 import { requireRolePage } from "@/server/auth/page-guard";
@@ -41,16 +41,12 @@ export default async function CandidateDashboardPage() {
       <PageHeader
         title="Dasbor kandidat"
         actions={
-          <>
-            <ButtonLink
-              href="/candidate-dashboard/profile"
-              variant="primary"
-              size="sm"
-              leadingIcon={<Icon name="settings" size="sm" />}
-            >
-              Pengaturan
-            </ButtonLink>
-          </>
+          <IconButtonLink
+            href="/candidate-dashboard/profile"
+            icon="settings"
+            variant="outline"
+            label="Pengaturan"
+          />
         }
       />
 
@@ -169,7 +165,7 @@ export default async function CandidateDashboardPage() {
                       {getCandidateRegistrationStatusLabel(reg.registrationStatus)}
                     </span>
                     <ButtonLink
-                      variant="ghost"
+                      variant="link"
                       size="sm"
                       href={`/competitions/${reg.institutionSlug}/${reg.competitionSlug}/registration/`}
                     >
@@ -246,7 +242,7 @@ export default async function CandidateDashboardPage() {
                       {getCandidateRegistrationStatusLabel(reg.registrationStatus)}
                     </span>
                     <ButtonLink
-                      variant="ghost"
+                      variant="link"
                       size="sm"
                       href={`/competitions/${reg.institutionSlug}/${reg.competitionSlug}/registration/`}
                     >
@@ -285,7 +281,7 @@ export default async function CandidateDashboardPage() {
           <div>
             <h2>Tersimpan</h2>
           </div>
-          <ButtonLink href="/saved" variant="ghost" size="sm">
+          <ButtonLink href="/saved" variant="link" size="sm">
             Lihat semua
           </ButtonLink>
         </div>

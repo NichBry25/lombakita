@@ -54,7 +54,7 @@ const REASONS: Record<CompetitionPublishBlockerCode, PublishBlockerReason> = {
   competition_publish_validation_failed: {
     code: "competition_publish_validation_failed",
     text: "Data kompetisi belum lengkap atau belum valid.",
-    link: { kind: "edit", label: "Buka halaman edit" },
+    link: null,
   },
   competition_organizer_contact_missing: {
     code: "competition_organizer_contact_missing",

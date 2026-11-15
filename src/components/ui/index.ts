@@ -1,5 +1,5 @@
 export { Button, ButtonLink, IconButton, IconButtonLink } from "./button";
-export type { ButtonSize, ButtonVariant } from "./button";
+export type { ButtonSize, ButtonVariant, IconButtonSize, IconButtonVariant } from "./button";
 export { FormActionBar } from "./form-action-bar";
 export { SelectField } from "./select-field";
 export type { SelectFieldOption } from "./select-field";

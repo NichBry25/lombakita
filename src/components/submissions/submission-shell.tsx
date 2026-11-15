@@ -311,7 +311,7 @@ export const SubmissionShell = ({
             onClick={finalizeSubmission}
             loading={pendingStep === "finalize"}
             disabled={loading}
-            variant="secondary"
+            variant="primary"
             size="md"
           >
             Finalisasi submission

@@ -258,8 +258,7 @@ export const CompetitionRoundsEditor = ({
               <IconButton
                 icon="trash"
                 label={`Hapus tahapan ${index + 1}`}
-                variant="danger"
-                size="sm"
+                variant="outline"
                 className="remove-row-button"
                 onClick={() => setRows((prev) => prev.filter((_, i) => i !== index))}
               />
@@ -269,7 +268,7 @@ export const CompetitionRoundsEditor = ({
           <div className="cluster">
             <IconButton
               type="button"
-              size="sm"
+              variant="outline"
               icon="plus"
               label="Tambah tahapan"
               onClick={() => setRows((prev) => [...prev, emptyRow()])}

@@ -181,7 +181,7 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
           href={`/api/v1/institutions/${institutionSlug}/competitions/${competitionId}/export/registrants`}
           download
           className="ui-button"
-          data-variant="outline"
+          data-variant="link"
           data-size="sm"
         >
           <Icon name="download" size="sm" />
@@ -191,7 +191,7 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
           href={`/api/v1/institutions/${institutionSlug}/competitions/${competitionId}/export/submissions`}
           download
           className="ui-button"
-          data-variant="outline"
+          data-variant="link"
           data-size="sm"
         >
           <Icon name="download" size="sm" />
@@ -201,7 +201,7 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
           href={`/api/v1/institutions/${institutionSlug}/competitions/${competitionId}/export/results`}
           download
           className="ui-button"
-          data-variant="outline"
+          data-variant="link"
           data-size="sm"
         >
           <Icon name="download" size="sm" />

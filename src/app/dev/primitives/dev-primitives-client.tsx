@@ -89,11 +89,9 @@ export function DevPrimitivesClient() {
           <h2 className="section-title">Tombol dan status</h2>
         </div>
         <div className="cluster">
-          <Button variant="primary">Aksi utama</Button>
-          <Button variant="secondary">Aksi sekunder</Button>
-          <Button variant="outline">Aksi sekunder</Button>
-          <Button variant="ghost">Aksi tenang</Button>
-          <Button variant="danger">Aksi destruktif</Button>
+          <Button variant="primary">Utama</Button>
+          <Button variant="outline">Kedua</Button>
+          <Button variant="link">Tautan aksi</Button>
           <Button disabled>Nonaktif</Button>
         </div>
       </section>
@@ -110,13 +108,13 @@ export function DevPrimitivesClient() {
           <Button variant="primary" loading>
             Simpan
           </Button>
-          <Button variant="secondary" loading>
+          <Button variant="outline" loading>
             Publikasikan
           </Button>
           <Button variant="outline" loading>
             Kirim ulasan
           </Button>
-          <Button variant="danger" loading size="sm">
+          <Button variant="outline" loading size="sm">
             Hapus
           </Button>
           <Button variant="primary" loading size="lg">
@@ -217,28 +215,28 @@ export function DevPrimitivesClient() {
           <div className="cluster">
             <Button
               size="sm"
-              variant="ghost"
+              variant="outline"
               onClick={() => addToast({ message: "Terjadi kesalahan. Coba lagi.", type: "error" })}
             >
               Toast error
             </Button>
             <Button
               size="sm"
-              variant="ghost"
+              variant="outline"
               onClick={() => addToast({ message: "Operasi berhasil.", type: "success" })}
             >
               Toast sukses
             </Button>
             <Button
               size="sm"
-              variant="ghost"
+              variant="outline"
               onClick={() => addToast({ message: "Informasi tambahan tersedia.", type: "info" })}
             >
               Toast info
             </Button>
             <Button
               size="sm"
-              variant="ghost"
+              variant="outline"
               onClick={() =>
                 addToast({ message: "Perhatikan langkah berikutnya.", type: "warning" })
               }

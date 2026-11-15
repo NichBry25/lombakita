@@ -61,6 +61,7 @@ export function SaveButton({ competitionId, initialSaved, expectedUserId }: Prop
       className="detail-save-action"
       icon="bookmark"
       label="Simpan kompetisi"
+      tooltip={saved ? "Hapus dari tersimpan" : "Simpan kompetisi"}
       aria-pressed={saved}
       data-saved={saved ? "true" : "false"}
       onClick={handleToggle}

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ButtonLink, Icon } from "@/components/ui";
+import { ButtonLink, Icon, IconButton } from "@/components/ui";
 import { LocalDate } from "@/components/ui/local-date";
 import { getCompetitionCategoryLabel } from "@/lib/competitions/categories";
 import { getCompetitionModeLabel } from "@/lib/competitions/modes";
@@ -44,10 +44,12 @@ export function FeaturedCarousel({ items }: { items: FeaturedItem[] }) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const [atStart, setAtStart] = useState(true);
   const [atEnd, setAtEnd] = useState(false);
+  const [fitsWithoutScrolling, setFitsWithoutScrolling] = useState(false);
 
   const updateEdges = useCallback(() => {
     const el = viewportRef.current;
     if (!el) return;
+    setFitsWithoutScrolling(el.scrollWidth <= el.clientWidth);
     // Tolerance absorbs the scroll-snap rest offset from the rail's inline padding.
     const tolerance = 12;
     setAtStart(el.scrollLeft <= tolerance);
@@ -78,29 +80,25 @@ export function FeaturedCarousel({ items }: { items: FeaturedItem[] }) {
       <header className="stack-xs">
         <div className="home-section-header">
           <h2 className="section-title">Kompetisi unggulan</h2>
-          <ButtonLink
-            href="/competitions"
-            variant="primary"
-            size="sm"
-            className="featured-view-all"
-          >
-            Semua
+          <ButtonLink href="/competitions" variant="link" size="sm" className="featured-view-all">
+            Lihat semua
             <Icon name="arrow-right" size="sm" />
           </ButtonLink>
         </div>
       </header>
 
       <div className="featured-carousel-wrap">
-        <button
-          type="button"
-          className="featured-nav-btn"
-          data-direction="prev"
-          aria-label="Kompetisi sebelumnya"
-          onClick={() => scrollByStep(-1)}
-          disabled={atStart}
-        >
-          <Icon name="arrow-right" size="md" />
-        </button>
+        {fitsWithoutScrolling ? null : (
+          <IconButton
+            icon="arrow-left"
+            variant="outline"
+            label="Kompetisi sebelumnya"
+            className="featured-nav-btn"
+            data-direction="prev"
+            onClick={() => scrollByStep(-1)}
+            disabled={atStart}
+          />
+        )}
 
         <div className="featured-carousel" ref={viewportRef} onScroll={updateEdges}>
           {items.map((competition) => {
@@ -167,16 +165,17 @@ export function FeaturedCarousel({ items }: { items: FeaturedItem[] }) {
           })}
         </div>
 
-        <button
-          type="button"
-          className="featured-nav-btn"
-          data-direction="next"
-          aria-label="Kompetisi berikutnya"
-          onClick={() => scrollByStep(1)}
-          disabled={atEnd}
-        >
-          <Icon name="arrow-right" size="md" />
-        </button>
+        {fitsWithoutScrolling ? null : (
+          <IconButton
+            icon="arrow-right"
+            variant="outline"
+            label="Kompetisi berikutnya"
+            className="featured-nav-btn"
+            data-direction="next"
+            onClick={() => scrollByStep(1)}
+            disabled={atEnd}
+          />
+        )}
       </div>
     </>
   );

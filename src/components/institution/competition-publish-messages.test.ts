@@ -86,7 +86,7 @@ describe("publish blocker reasons", () => {
       competition_invalid_transition: null,
       competition_recruiter_not_trusted: "Verifikasi penyelenggara",
       institution_suspended: null,
-      competition_publish_validation_failed: "Buka halaman edit",
+      competition_publish_validation_failed: null,
       competition_organizer_contact_missing: "Isi kontak",
       competition_institution_not_verified: "Ajukan verifikasi",
       competition_personal_individual_only: null,

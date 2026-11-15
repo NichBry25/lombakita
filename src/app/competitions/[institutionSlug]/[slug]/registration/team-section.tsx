@@ -291,7 +291,7 @@ function TeamCancelReasonForm({
           type="button"
           disabled={trimmed.length === 0}
           onClick={() => onConfirm(trimmed)}
-          variant="danger"
+          variant="primary"
           size="sm"
         >
           Batalkan pendaftaran tim
@@ -665,8 +665,7 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
                 onClick={() => onRemoveMember(m.membershipId)}
                 loading={pendingAction === `remove-member:${m.membershipId}`}
                 disabled={busy}
-                variant="danger"
-                size="sm"
+                variant="outline"
               />
             )}
             {!isCaptain && m.userId === props.expectedUserId && status === "forming" && (
@@ -674,7 +673,7 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
                 onClick={() => onLeave(m.membershipId)}
                 loading={pendingAction === `leave:${m.membershipId}`}
                 disabled={busy}
-                variant="danger"
+                variant="outline"
                 size="sm"
               >
                 Tinggalkan
@@ -696,7 +695,7 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
                     onClick={() => onCancelInvite(p.tokenHash)}
                     loading={pendingAction === `cancel-invite:${p.tokenHash}`}
                     disabled={busy}
-                    variant="danger"
+                    variant="outline"
                     size="sm"
                   >
                     Batalkan
@@ -755,7 +754,7 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
               onClick={onCancelSubmission}
               loading={pendingAction === "cancel-submission"}
               disabled={busy}
-              variant="danger"
+              variant="outline"
               size="md"
             >
               Batalkan pendaftaran tim
@@ -766,7 +765,7 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
               onClick={onDisband}
               loading={pendingAction === "disband"}
               disabled={busy}
-              variant="danger"
+              variant="outline"
               size="md"
             >
               Bubarkan tim
@@ -797,7 +796,7 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
           <Button
             type="button"
             onClick={handleBackOut}
-            variant="ghost"
+            variant="outline"
             size="sm"
             leadingIcon={<Icon name="arrow-left" size="sm" />}
           >

@@ -124,8 +124,7 @@ export const InstitutionCompetitionsShell = ({ institutionSlug }: { institutionS
             href={`/institution/${institutionSlug}/competitions/new`}
             icon="plus"
             label="Buat kompetisi"
-            variant="primary"
-            size="sm"
+            variant="fill"
           />
         }
       />
@@ -216,8 +215,9 @@ export const InstitutionCompetitionsShell = ({ institutionSlug }: { institutionS
                 ) : (
                   <ButtonLink
                     href={`/institution/${institutionSlug}/competitions/${c.slug}/participants`}
-                    variant="outline"
+                    variant="link"
                     size="sm"
+                    leadingIcon={<Icon name="users" size="sm" />}
                   >
                     Peserta
                   </ButtonLink>

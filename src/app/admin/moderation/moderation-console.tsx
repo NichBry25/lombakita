@@ -169,8 +169,8 @@ function NoteRow({ note, onSaved }: { note: NoteItem; onSaved: () => void }) {
           </span>
           <IconButton
             icon="edit"
+            variant="outline"
             label="Edit catatan ini"
-            size="sm"
             onClick={() => setEditing(true)}
           />
         </div>
@@ -279,7 +279,7 @@ function ActionForm({
         onChange={(e) => setReason(e.target.value)}
       />
       <Button
-        variant={buttonLabel === "Tangguhkan" ? "danger" : "primary"}
+        variant={buttonLabel === "Tangguhkan" ? "outline" : "primary"}
         size="sm"
         loading={busy}
         onClick={async () => {
@@ -463,7 +463,7 @@ function DeidentifyAction({ account, onDone }: { account: UserResult; onDone: ()
         />
       </div>
       <Button
-        variant="danger"
+        variant="outline"
         size="sm"
         loading={busy}
         onClick={() =>

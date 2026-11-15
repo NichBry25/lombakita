@@ -132,11 +132,9 @@ export function Modal() {
               <Button
                 key={i}
                 variant={
-                  action.variant === "primary"
+                  action.variant === "primary" || action.variant === "danger"
                     ? "primary"
-                    : action.variant === "danger"
-                      ? "danger"
-                      : "outline"
+                    : "outline"
                 }
                 size="sm"
                 onClick={() => handleAction(action)}

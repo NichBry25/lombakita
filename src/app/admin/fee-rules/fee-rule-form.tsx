@@ -313,6 +313,8 @@ export function FeeRuleForm() {
 
       <FormActionBar>
         <IconButton
+          variant="plain"
+          size="back"
           icon="arrow-left"
           label="Kembali ke Platform Operations"
           onClick={() => router.push("/admin")}

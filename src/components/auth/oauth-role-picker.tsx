@@ -283,7 +283,7 @@ export const OAuthRolePicker = ({ carrier, email, name }: OAuthRolePickerProps) 
                 onClick={() => {
                   setStage("choose");
                 }}
-                variant="ghost"
+                variant="outline"
                 size="sm"
               >
                 Kembali
@@ -361,7 +361,7 @@ export const OAuthRolePicker = ({ carrier, email, name }: OAuthRolePickerProps) 
                 onClick={() => {
                   setStage("choose");
                 }}
-                variant="ghost"
+                variant="outline"
                 size="sm"
               >
                 Kembali

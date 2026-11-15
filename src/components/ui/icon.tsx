@@ -13,6 +13,7 @@ export type IconName =
   | "chevron-down"
   | "close"
   | "copy"
+  | "door-open"
   | "download"
   | "edit"
   | "eye"
@@ -109,6 +110,16 @@ function IconPaths({ name }: { name: IconName }) {
         <>
           <rect x="9" y="9" width="12" height="12" rx="2.5" />
           <path d="M6.5 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1.5" />
+        </>
+      );
+    case "door-open":
+      return (
+        <>
+          <path d="M11 20H2" />
+          <path d="M11 4.562v16.157a1 1 0 0 0 1.242.97L19 20V5.562a2 2 0 0 0-1.515-1.94l-4-1A2 2 0 0 0 11 4.561z" />
+          <path d="M11 4H8a2 2 0 0 0-2 2v14" />
+          <path d="M14 12h.01" />
+          <path d="M22 20h-3" />
         </>
       );
     case "download":

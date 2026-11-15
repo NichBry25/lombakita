@@ -122,14 +122,14 @@ export function ApplicationHeader() {
               href="/saved"
               icon="bookmark"
               label="Kompetisi tersimpan"
-              variant="ghost"
+              variant="plain"
             />
           )}
           <NotificationBell />
           <IconButton
             icon="moon"
             label="Tema gelap"
-            variant="ghost"
+            variant="plain"
             className="theme-toggle"
             aria-pressed={theme === "dark"}
             onClick={toggleTheme}
@@ -140,7 +140,7 @@ export function ApplicationHeader() {
                 href="/profile"
                 icon="user"
                 label="Profil dan akun saya"
-                variant="ghost"
+                variant="plain"
                 className="header-auth-action"
               />
               <IconButton
@@ -153,12 +153,7 @@ export function ApplicationHeader() {
             </>
           ) : onSignInForm ? null : (
             <>
-              <ButtonLink
-                href={signInHref}
-                variant="ghost"
-                size="sm"
-                className="header-auth-action"
-              >
+              <ButtonLink href={signInHref} variant="link" size="sm" className="header-auth-action">
                 Masuk
               </ButtonLink>
               <ButtonLink
@@ -174,7 +169,7 @@ export function ApplicationHeader() {
           <IconButton
             icon={menuOpen ? "close" : "menu"}
             label={menuOpen ? "Tutup menu" : "Buka menu"}
-            variant="ghost"
+            variant="plain"
             className="mobile-nav-toggle"
             aria-expanded={menuOpen}
             aria-controls="mobile-navigation"

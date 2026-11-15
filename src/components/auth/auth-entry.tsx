@@ -2,7 +2,15 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { signIn } from "next-auth/react";
-import { Button, ButtonLink, SelectField, StepIndicator, usePageTransition } from "@/components/ui";
+import {
+  Button,
+  ButtonLink,
+  Icon,
+  IconButton,
+  SelectField,
+  StepIndicator,
+  usePageTransition,
+} from "@/components/ui";
 import { AssentNotice } from "@/components/legal/assent-notice";
 import { useToast } from "@/components/ui/primitives";
 import { rememberGoogleReturnPath } from "@/components/auth/google-return-path";
@@ -649,7 +657,17 @@ export const AuthEntry = ({
   };
 
   return (
-    <div className="auth-entry">
+    <div className="auth-entry" data-has-back={method === "credentials" && stage === "entry"}>
+      {method === "credentials" && stage === "entry" ? (
+        <IconButton
+          icon="arrow-left"
+          variant="plain"
+          size="back"
+          label="Ganti metode"
+          className="auth-entry-back"
+          onClick={backToChoose}
+        />
+      ) : null}
       <header className="auth-entry-header">
         <h1>Masuk atau daftar</h1>
       </header>
@@ -704,9 +722,18 @@ export const AuthEntry = ({
           </div>
 
           <div className="form-field">
-            <label className="form-label form-label-required" htmlFor="auth-password">
-              Password
-            </label>
+            <div className="auth-label-row">
+              <label className="form-label form-label-required" htmlFor="auth-password">
+                Password
+              </label>
+              <ButtonLink
+                variant="link"
+                size="sm"
+                href={`/auth/forgot-password?email=${encodeURIComponent(email.trim().toLowerCase())}`}
+              >
+                Lupa password?
+              </ButtonLink>
+            </div>
             <input
               id="auth-password"
               name="password"
@@ -721,21 +748,12 @@ export const AuthEntry = ({
             <p id="auth-password-help" className="form-help">
               Password minimal 8 karakter.
             </p>
-            <ButtonLink
-              variant="ghost"
-              size="sm"
-              href={`/auth/forgot-password?email=${encodeURIComponent(email.trim().toLowerCase())}`}
-            >
-              Lupa password?
-            </ButtonLink>
           </div>
 
           <div className="auth-form-actions">
-            <Button type="button" onClick={backToChoose} variant="ghost" size="sm">
-              Ganti metode
-            </Button>
-            <Button type="submit" loading={isSubmitting} variant="primary" size="md">
+            <Button type="submit" loading={isSubmitting} variant="primary" size="lg" fullWidth>
               Lanjut
+              <Icon name="arrow-right" size="md" />
             </Button>
           </div>
           <p className="form-help">
@@ -751,7 +769,7 @@ export const AuthEntry = ({
             verifikasi ke email ini, lalu masukkan kodenya di langkah berikutnya.
           </p>
           <div className="auth-form-actions">
-            <Button type="button" onClick={backToEntry} variant="ghost" size="sm">
+            <Button type="button" onClick={backToEntry} variant="outline" size="sm">
               Kembali
             </Button>
             <Button
@@ -777,7 +795,7 @@ export const AuthEntry = ({
             pendaftaran Anda, lalu kami kirim kode verifikasi ke email ini.
           </p>
           <div className="auth-form-actions">
-            <Button type="button" onClick={backToEntry} variant="ghost" size="sm">
+            <Button type="button" onClick={backToEntry} variant="outline" size="sm">
               Kembali
             </Button>
             <Button
@@ -825,7 +843,7 @@ export const AuthEntry = ({
           </div>
 
           <div className="auth-form-actions">
-            <Button type="button" onClick={backToEntry} variant="ghost" size="sm">
+            <Button type="button" onClick={backToEntry} variant="outline" size="sm">
               Kembali
             </Button>
             <Button
@@ -904,7 +922,7 @@ export const AuthEntry = ({
 
           <AssentNotice />
 
-          <Button type="button" onClick={backToEntry} variant="ghost" size="sm">
+          <Button type="button" onClick={backToEntry} variant="outline" size="sm">
             Kembali
           </Button>
         </div>
@@ -976,7 +994,7 @@ export const AuthEntry = ({
           </div>
 
           <div className="auth-form-actions">
-            <Button type="button" onClick={backToSignup} variant="ghost" size="sm">
+            <Button type="button" onClick={backToSignup} variant="outline" size="sm">
               Kembali
             </Button>
             <Button type="submit" loading={isSubmitting || isResending} variant="primary" size="md">
@@ -1046,7 +1064,7 @@ export const AuthEntry = ({
           </div>
 
           <div className="auth-form-actions">
-            <Button type="button" onClick={backToSignup} variant="ghost" size="sm">
+            <Button type="button" onClick={backToSignup} variant="outline" size="sm">
               Kembali
             </Button>
             <Button type="submit" loading={isSubmitting || isResending} variant="primary" size="md">

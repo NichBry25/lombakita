@@ -546,6 +546,8 @@ export const InstitutionSettingsShell = ({
 
       <FormActionBar>
         <IconButton
+          variant="plain"
+          size="back"
           icon="arrow-left"
           label="Panel institusi"
           onClick={() => router.push(`/institution/${activeSlug}`)}

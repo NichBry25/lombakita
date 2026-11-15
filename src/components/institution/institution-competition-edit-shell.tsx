@@ -428,7 +428,7 @@ const ClampedSummaryText = ({ text }: { text: string }) => {
       </div>
       {isOverflowing ? (
         <Button
-          variant="ghost"
+          variant="outline"
           size="sm"
           aria-expanded={isExpanded}
           aria-controls={textId}
@@ -460,7 +460,6 @@ const StepSummarySection = ({
         icon="edit"
         label={`Edit ${COMPETITION_STEP_TITLES[step].toLowerCase()}`}
         variant="outline"
-        size="sm"
       />
     </div>
     <dl className="management-detail-grid">
@@ -902,6 +901,15 @@ export const InstitutionCompetitionEditShell = ({
     if (step !== null && step !== COMPETITION_STEP_COUNT) return;
     router.replace(getCompetitionStepHref(institutionSlug, savedSnapshot.slug, 1));
   }, [step, competition?.status, savedSnapshot, institutionSlug, router]);
+
+  // On a phone the section tabs scroll sideways, so the active tab is brought into view.
+  const sectionNavRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const tabRow = sectionNavRef.current;
+    const activeTab = tabRow?.querySelector<HTMLElement>('[aria-current="page"]');
+    if (!tabRow || !activeTab) return;
+    tabRow.scrollLeft = activeTab.offsetLeft - (tabRow.clientWidth - activeTab.offsetWidth) / 2;
+  }, [activeStep]);
 
   // Sends the main fields, or nothing for a published form without changes. A refusal shows its own
   // toast or modal. A request that throws escapes to saveCurrentStep.
@@ -1485,21 +1493,20 @@ export const InstitutionCompetitionEditShell = ({
   );
 
   const sectionNav = (
-    <nav aria-label="Bagian kompetisi" className="cluster">
+    <nav aria-label="Bagian kompetisi" className="section-tabs" ref={sectionNavRef}>
       {SECTION_STEPS.map((sectionStep) => {
         const href = getCompetitionStepHref(institutionSlug, savedCompetitionSlug, sectionStep);
         const isCurrentSection = sectionStep === activeStep;
         return (
-          <ButtonLink
+          <Link
             key={sectionStep}
             href={href}
-            size="sm"
-            variant={isCurrentSection ? "primary" : "outline"}
+            className="section-tab"
             aria-current={isCurrentSection ? "page" : undefined}
             onClick={(event) => onSectionLinkClick(event, href, isCurrentSection)}
           >
             {COMPETITION_STEP_TITLES[sectionStep]}
-          </ButtonLink>
+          </Link>
         );
       })}
     </nav>
@@ -1930,7 +1937,13 @@ export const InstitutionCompetitionEditShell = ({
 
       {!isDraftStep ? (
         <FormActionBar>
-          <IconButton icon="arrow-left" label="Kembali ke aksi status" onClick={handleBack} />
+          <IconButton
+            icon="arrow-left"
+            variant="plain"
+            size="back"
+            label="Kembali ke aksi status"
+            onClick={handleBack}
+          />
           {isEditable ? (
             <div className="form-action-bar-end">
               {publishReadinessNote}
@@ -1961,6 +1974,8 @@ export const InstitutionCompetitionEditShell = ({
       ) : (
         <FormActionBar>
           <IconButton
+            variant="plain"
+            size="back"
             icon="arrow-left"
             label={activeStep === 1 ? "Kembali ke daftar kompetisi" : "Kembali"}
             onClick={handleBack}
@@ -1969,18 +1984,22 @@ export const InstitutionCompetitionEditShell = ({
             {publishReadinessNote}
             {activeStep === 5 ? (
               <>
-                <ButtonLink href={listHref} variant="ghost">
-                  Keluar
-                </ButtonLink>
-                <Button
-                  type="button"
-                  onClick={onPublishAndOpenManagement}
-                  loading={isPublishing}
-                  disabled={isSubmitting || publishIsBlocked}
-                  aria-describedby="publish-readiness-message"
-                >
-                  Terbitkan
-                </Button>
+                <IconButtonLink
+                  href={listHref}
+                  icon="door-open"
+                  variant="outline"
+                  label="Keluar dari editor"
+                />
+                {publishIsBlocked ? null : (
+                  <Button
+                    type="button"
+                    onClick={onPublishAndOpenManagement}
+                    loading={isPublishing}
+                    disabled={isSubmitting}
+                  >
+                    Terbitkan
+                  </Button>
+                )}
               </>
             ) : (
               <>

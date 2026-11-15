@@ -162,7 +162,7 @@ function RejectInstitutionForm({
         <Button variant="outline" onClick={onClose} disabled={busy}>
           Batal
         </Button>
-        <Button variant="danger" loading={busy} onClick={() => void submit()}>
+        <Button variant="primary" loading={busy} onClick={() => void submit()}>
           {isRevocation ? "Cabut verifikasi" : "Tolak institusi"}
         </Button>
       </div>
@@ -409,7 +409,7 @@ export default function AdminInstitutionsPage() {
                             {transitions.map((t) => (
                               <Button
                                 key={t.targetStatus}
-                                variant={t.targetStatus === "rejected" ? "danger" : "primary"}
+                                variant={t.targetStatus === "rejected" ? "outline" : "primary"}
                                 size="sm"
                                 loading={
                                   pendingRowAction === `transition:${row.id}:${t.targetStatus}`
@@ -435,7 +435,7 @@ export default function AdminInstitutionsPage() {
                       </td>
                       <td>
                         <Button
-                          variant="ghost"
+                          variant="outline"
                           size="sm"
                           loading={pendingRowAction === `audit:${row.id}`}
                           onClick={() => void toggleAudit(row.id, row.id)}

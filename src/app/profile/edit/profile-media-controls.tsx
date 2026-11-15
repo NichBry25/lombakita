@@ -227,8 +227,7 @@ export function ResumeSection({
             <IconButton
               icon="trash"
               label="Hapus resume"
-              variant="danger"
-              size="sm"
+              variant="outline"
               disabled={busy}
               onClick={onRemove}
             />

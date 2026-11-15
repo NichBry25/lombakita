@@ -11,6 +11,8 @@ import {
   FormField,
   FormLabel,
   FormTextarea,
+  Icon,
+  IconButton,
 } from "@/components/ui";
 import { useModal, useToast } from "@/components/ui/primitives";
 import { LocalDate } from "@/components/ui/local-date";
@@ -233,7 +235,17 @@ export function OrganiserPaymentQueue({ institutionSlug, competitionId, proofs }
                 <div>
                   <dt>Berkas</dt>
                   <dd>
-                    {proof.originalFileName} · {formatFileSize(proof.fileSizeBytes)}
+                    <Button
+                      type="button"
+                      variant="link"
+                      size="sm"
+                      leadingIcon={<Icon name="eye" size="sm" />}
+                      loading={viewing}
+                      onClick={() => void openProofFile(proof.proofId)}
+                    >
+                      {proof.originalFileName}
+                    </Button>{" "}
+                    · {formatFileSize(proof.fileSizeBytes)}
                   </dd>
                 </div>
               </dl>
@@ -253,39 +265,27 @@ export function OrganiserPaymentQueue({ institutionSlug, competitionId, proofs }
                 </Feedback>
               ) : null}
 
-              <div className="record-actions">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  loading={viewing}
-                  onClick={() => void openProofFile(proof.proofId)}
-                >
-                  Lihat bukti
-                </Button>
-
-                {reviewable ? (
-                  <>
-                    <Button
-                      type="button"
-                      size="sm"
-                      loading={deciding}
-                      onClick={() => confirmVerify(proof)}
-                    >
-                      Verifikasi
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="danger"
-                      size="sm"
-                      loading={deciding}
-                      onClick={() => openRejectForm(proof)}
-                    >
-                      Tolak
-                    </Button>
-                  </>
-                ) : null}
-              </div>
+              {reviewable ? (
+                <div className="record-actions record-actions-end">
+                  <IconButton
+                    type="button"
+                    icon="close"
+                    variant="outline"
+                    label="Tolak pembayaran"
+                    tooltip="Tolak"
+                    loading={deciding}
+                    onClick={() => openRejectForm(proof)}
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    loading={deciding}
+                    onClick={() => confirmVerify(proof)}
+                  >
+                    Verifikasi
+                  </Button>
+                </div>
+              ) : null}
             </Card>
           </li>
         );
@@ -358,7 +358,7 @@ function RejectForm({
         </Button>
         <Button
           type="button"
-          variant="danger"
+          variant="primary"
           size="sm"
           // `disabled` and `loading` are different conditions, so both appear: an empty reason is
           // refused by the server, and a reviewer should not have to discover that by submitting.

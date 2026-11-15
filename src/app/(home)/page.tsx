@@ -171,7 +171,7 @@ export default async function HomePage() {
             <div className="stack-sm">
               <h2>Buat ruang kerja institusi untuk menerbitkan kompetisi</h2>
             </div>
-            <ButtonLink href="/recruiter-dashboard" variant="secondary" size="lg" prefetch={false}>
+            <ButtonLink href="/recruiter-dashboard" variant="primary" size="lg" prefetch={false}>
               Buka ruang kerja
               <Icon name="arrow-right" size="md" />
             </ButtonLink>

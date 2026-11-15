@@ -143,8 +143,7 @@ export function CroppedImageUpload({
           <IconButton
             icon="trash"
             label={copy.removeLabel}
-            variant="danger"
-            size="sm"
+            variant="outline"
             loading={pending === "remove"}
             disabled={pending === "upload"}
             onClick={onRemove}

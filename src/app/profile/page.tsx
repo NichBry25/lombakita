@@ -74,8 +74,7 @@ export default async function OwnerProfilePage() {
                 href="/profile/edit"
                 icon="edit"
                 label="Edit profil"
-                variant="primary"
-                size="sm"
+                variant="outline"
               />
             </div>
           </div>

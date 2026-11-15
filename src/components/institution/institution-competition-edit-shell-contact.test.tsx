@@ -159,14 +159,14 @@ describe("the contact part in the edit shell", () => {
     expect(calls).toEqual([COMPETITION_URL, CONTACT_GET, CONTACT_PUT, PUBLISH_POST]);
   });
 
-  it("names the missing contact and keeps Terbitkan disabled while the field is empty", async () => {
+  it("names the missing contact and hides Terbitkan while the field is empty", async () => {
     stubFetchSequence([() => loadOk(CONTACT_MISSING), () => draftContact(null)]);
 
     render(shellWithContactAt(5, CONTACT_MISSING));
 
     const field = await screen.findByLabelText("Nomor WhatsApp");
     expect((field as HTMLInputElement).value).toBe("");
-    expect(publishButton().hasAttribute("disabled")).toBe(true);
+    expect(screen.queryByRole("button", { name: "Terbitkan" })).toBeNull();
     expect(readinessNote()?.textContent).toContain(CONTACT_MISSING_REASON);
     expect(screen.queryByRole("link", { name: "Isi kontak" })).toBeNull();
   });

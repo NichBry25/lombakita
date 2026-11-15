@@ -418,6 +418,7 @@ export function RecruiterVerificationPanel({
               {editable ? (
                 <div className="record-actions">
                   <IconButton
+                    variant="outline"
                     label={`Hapus ${document.originalFileName}`}
                     icon="trash"
                     loading={deletingDocumentId === document.id}

@@ -251,7 +251,7 @@ export function MfaEnrollForm({
           <code className="mfa-key-value" aria-labelledby="mfa-secret-label">
             {secretBase32}
           </code>
-          <IconButton icon="copy" label="Salin kunci" onClick={copySecret} />
+          <IconButton icon="copy" variant="outline" label="Salin kunci" onClick={copySecret} />
         </div>
       </section>
 

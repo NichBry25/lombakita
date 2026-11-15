@@ -54,8 +54,7 @@ export function DeleteNotificationButton({
     <IconButton
       icon="trash"
       label="Hapus notifikasi"
-      variant="danger"
-      size="sm"
+      variant="outline"
       onClick={onClick}
       loading={pending}
     />

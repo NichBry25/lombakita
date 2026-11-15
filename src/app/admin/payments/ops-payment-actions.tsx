@@ -297,7 +297,7 @@ export function OpsPaymentActions({
                             <div className="record-actions">
                               <Button
                                 type="button"
-                                variant="danger"
+                                variant="outline"
                                 size="sm"
                                 loading={pending === `void:${proof.proofId}`}
                                 onClick={() => openVoid(competition, proof)}
@@ -320,7 +320,7 @@ export function OpsPaymentActions({
                     <div className="record-actions">
                       <Button
                         type="button"
-                        variant="danger"
+                        variant="outline"
                         loading={pending === `cancel:${competition.competitionId}`}
                         onClick={() => openCancel(competition)}
                       >
@@ -391,7 +391,7 @@ export function OpsPaymentActions({
                   <div className="record-actions">
                     <Button
                       type="button"
-                      variant="danger"
+                      variant="outline"
                       size="sm"
                       loading={pending === `void:${proof.proofId}`}
                       onClick={() => openBarredVoid(proof)}
@@ -463,7 +463,7 @@ function ReasonForm({
         </Button>
         <Button
           type="button"
-          variant="danger"
+          variant="primary"
           size="sm"
           disabled={reason.trim().length === 0}
           loading={submitting}

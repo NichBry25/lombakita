@@ -88,7 +88,7 @@ export default async function VerifyRolePage(props: {
         ) : null}
 
         <VerifyRoleForm role={role} expectedUserId={session.user.id} returnPath={returnPath} />
-        <ButtonLink href={backHref} variant="ghost" size="sm">
+        <ButtonLink href={backHref} variant="link" size="sm">
           Kembali
         </ButtonLink>
       </div>

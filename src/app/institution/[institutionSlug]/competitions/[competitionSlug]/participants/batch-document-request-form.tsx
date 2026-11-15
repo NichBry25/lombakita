@@ -201,14 +201,14 @@ export function BatchDocumentRequestForm({
                 </Button>
               ) : null}
               {selectable.length > 0 ? (
-                <Button type="button" variant="ghost" size="sm" onClick={selectPage}>
+                <Button type="button" variant="outline" size="sm" onClick={selectPage}>
                   Pilih halaman ini ({selectable.length})
                 </Button>
               ) : null}
               {selected.size > 0 ? (
                 <Button
                   type="button"
-                  variant="ghost"
+                  variant="outline"
                   size="sm"
                   onClick={() => setSelected(new Set())}
                 >

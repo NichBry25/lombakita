@@ -201,7 +201,7 @@ export function MfaChallengeForm({ callbackUrl }: MfaChallengeFormProps) {
       ) : (
         <Button
           type="button"
-          variant="ghost"
+          variant="outline"
           size="sm"
           onClick={() => {
             setMode("totp");

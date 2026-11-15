@@ -115,7 +115,7 @@ function CancelReasonForm({
           type="button"
           disabled={trimmed.length === 0}
           onClick={() => onConfirm(trimmed)}
-          variant="danger"
+          variant="primary"
           size="sm"
         >
           Batalkan pendaftaran
@@ -237,7 +237,7 @@ export function IndividualRegistrationSection({
             </span>
             {cancellationClosedByPaymentProof ? null : (
               <div className="stack-xs">
-                <Button onClick={handleCancel} loading={loading} variant="danger" size="sm">
+                <Button onClick={handleCancel} loading={loading} variant="outline" size="sm">
                   Batalkan pendaftaran
                 </Button>
                 <p className="form-help">Pembatalan tunduk pada kebijakan penyelenggara.</p>

@@ -193,6 +193,8 @@ export function ProfileEditShell({ profile, expectedUserId }: Props) {
 
       <FormActionBar>
         <IconButton
+          variant="plain"
+          size="back"
           icon="arrow-left"
           label="Kembali ke profil"
           onClick={() => router.push("/profile")}

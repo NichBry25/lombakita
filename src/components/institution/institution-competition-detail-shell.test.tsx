@@ -158,10 +158,10 @@ describe("InstitutionCompetitionDetailShell publish readiness", () => {
 
     mount();
 
-    // 1. KNOWN-BLOCKED. The server refused; the control says so and prints the server's reason.
-    await screen.findByRole("button", { name: "Terbitkan" });
-    await waitFor(() => expect(publishButton().hasAttribute("disabled")).toBe(true));
-    expect(screen.getByText(UNVERIFIED_REASON)).toBeTruthy();
+    // 1. KNOWN-BLOCKED. The server refused; Terbitkan is hidden and the page prints the server's
+    // reason.
+    expect(await screen.findByText(UNVERIFIED_REASON)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Terbitkan" })).toBeNull();
 
     // 2. UNKNOWN. A lifecycle action succeeds and the refetch behind it fails. The readiness that
     // provoked this must go with it: Terbitkan is offered again and no reason is shown. The error
@@ -177,7 +177,7 @@ describe("InstitutionCompetitionDetailShell publish readiness", () => {
     // what proves the unknown state is not sticky.
     await decideToCancel();
 
-    await waitFor(() => expect(publishButton().hasAttribute("disabled")).toBe(true));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Terbitkan" })).toBeNull());
     expect(screen.getByText(UNVERIFIED_REASON)).toBeTruthy();
 
     expect(calls).toEqual([
@@ -189,14 +189,13 @@ describe("InstitutionCompetitionDetailShell publish readiness", () => {
     ]);
   });
 
-  it("keeps the control disabled and the reason visible while the server still refuses", async () => {
+  it("hides Terbitkan and keeps the reason visible while the server still refuses", async () => {
     stubFetchSequence([() => loadOk(BLOCKED)]);
 
     mount();
 
-    await screen.findByRole("button", { name: "Terbitkan" });
-    await waitFor(() => expect(publishButton().hasAttribute("disabled")).toBe(true));
-    expect(screen.getByText(UNVERIFIED_REASON)).toBeTruthy();
+    expect(await screen.findByText(UNVERIFIED_REASON)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Terbitkan" })).toBeNull();
   });
 });
 
@@ -252,7 +251,7 @@ describe("InstitutionCompetitionDetailShell share panel", () => {
 
     mount("acme");
 
-    await screen.findByRole("button", { name: "Terbitkan" });
+    await screen.findByRole("button", { name: "Hapus" });
     expect(screen.queryByText("Kompetisi sudah terbit")).toBeNull();
   });
 

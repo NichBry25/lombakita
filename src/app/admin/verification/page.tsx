@@ -160,7 +160,7 @@ function ReviewPanelBody({
           Batal
         </Button>
         <Button
-          variant="danger"
+          variant="primary"
           onClick={() => void submitDecision("rejected")}
           loading={pendingDecision === "rejected"}
           disabled={pendingDecision !== null}

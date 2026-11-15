@@ -63,7 +63,7 @@ export function SecondRoleBanner({ unverifiedRole, userId }: SecondRoleBannerPro
         <ButtonLink href={`/auth/verify-role?as=${unverifiedRole}`} variant="primary" size="sm">
           {copy.cta}
         </ButtonLink>
-        <IconButton icon="close" label="Tutup pemberitahuan" size="sm" onClick={onDismiss} />
+        <IconButton icon="close" label="Tutup" variant="plain" onClick={onDismiss} />
       </span>
     </div>
   );

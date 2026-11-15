@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Icon, LinkPendingSlot } from "@/components/ui";
+import { Icon, IconButtonLink, LinkPendingSlot } from "@/components/ui";
 import { LocalDate } from "@/components/ui/local-date";
 import { INDEXABLE_ROBOTS } from "@/config/indexable-routes";
 import { sessionHasRole } from "@/lib/access/roles";
@@ -334,6 +334,15 @@ export default async function CompetitionDetailPage({
   const registrationPath = `/competitions/${institutionSlug}/${slug}/registration`;
   const competitionPath = `/competitions/${institutionSlug}/${slug}`;
   const signInPath = `/auth/login?callbackUrl=${encodeURIComponent(competitionPath)}`;
+  const calendarEvent = {
+    competitionId: competition.id,
+    title: competition.title,
+    eventStartAt: competition.eventStartAt
+      ? new Date(competition.eventStartAt).toISOString()
+      : null,
+    eventEndAt: competition.eventEndAt ? new Date(competition.eventEndAt).toISOString() : null,
+    description: competition.description,
+  };
   const roleOfferPath = candidateRoleOfferPath(
     session?.user?.role,
     session?.user?.verifiedRoles,
@@ -372,10 +381,13 @@ export default async function CompetitionDetailPage({
         data-category={competition.category ?? "other"}
       >
         <div className="content-shell competition-detail-hero-inner">
-          <Link href="/competitions" className="detail-back-link">
-            <span aria-hidden="true">←</span>
-            Kompetisi
-          </Link>
+          <IconButtonLink
+            href="/competitions"
+            icon="arrow-left"
+            variant="plain"
+            size="back"
+            label="Kembali ke Kompetisi"
+          />
 
           <div className="detail-hero-content stack-md">
             <h1>{competition.title}</h1>
@@ -741,6 +753,7 @@ export default async function CompetitionDetailPage({
                   isCandidate={isCandidate}
                   isSignedIn={Boolean(session?.user)}
                   isCancelled={competition.cancelledAt !== null}
+                  calendarEvent={calendarEvent}
                 />
               )}
               {isCandidate ? (
@@ -774,17 +787,7 @@ export default async function CompetitionDetailPage({
               </p>
             ) : null}
 
-            <DetailActions
-              competitionId={competition.id}
-              title={competition.title}
-              eventStartAt={
-                competition.eventStartAt ? new Date(competition.eventStartAt).toISOString() : null
-              }
-              eventEndAt={
-                competition.eventEndAt ? new Date(competition.eventEndAt).toISOString() : null
-              }
-              description={competition.description}
-            />
+            <DetailActions {...calendarEvent} />
           </div>
           {competition.organizerContact ? (
             <>
@@ -803,6 +806,7 @@ export default async function CompetitionDetailPage({
               isCandidate={isCandidate}
               isSignedIn={Boolean(session?.user)}
               isCancelled={competition.cancelledAt !== null}
+              calendarEvent={calendarEvent}
             />
           </RegisterStickyBar>
         ) : null}

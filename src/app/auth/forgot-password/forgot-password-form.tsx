@@ -100,7 +100,7 @@ export function ForgotPasswordForm({ initialEmail }: ForgotPasswordFormProps) {
             "Kirim ulang"
           )}
         </Button>
-        <ButtonLink href="/auth/login" variant="ghost">
+        <ButtonLink href="/auth/login" variant="link">
           Kembali ke halaman masuk
         </ButtonLink>
       </div>

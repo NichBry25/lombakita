@@ -342,7 +342,7 @@ export function OrganiserDocumentRequestPanel({
                     >
                       Terima
                     </Button>
-                    <Button type="button" variant="danger" onClick={() => confirmReject(request)}>
+                    <Button type="button" variant="outline" onClick={() => confirmReject(request)}>
                       Tolak
                     </Button>
                     <Button type="button" variant="outline" onClick={() => confirmExtend(request)}>
@@ -351,7 +351,7 @@ export function OrganiserDocumentRequestPanel({
                     <IconButton
                       label={`Tarik permintaan ${request.title}`}
                       icon="close"
-                      variant="ghost"
+                      variant="outline"
                       onClick={() => confirmCancel(request)}
                     />
                   </div>
@@ -504,10 +504,10 @@ function RejectForm({
       ) : null}
 
       <div className="record-actions">
-        <Button type="button" variant="secondary" onClick={onCancel}>
+        <Button type="button" variant="outline" onClick={onCancel}>
           Batal
         </Button>
-        <Button type="submit" variant="danger">
+        <Button type="submit" variant="primary">
           Tolak dokumen
         </Button>
       </div>
@@ -545,7 +545,7 @@ function DeadlineForm({
         />
       </div>
       <div className="record-actions">
-        <Button type="button" variant="ghost" onClick={onCancel}>
+        <Button type="button" variant="outline" onClick={onCancel}>
           Batal
         </Button>
         <Button type="submit">Perpanjang</Button>
