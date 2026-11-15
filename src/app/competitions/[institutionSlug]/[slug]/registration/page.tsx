@@ -13,7 +13,7 @@ import { resolveChargingReadinessBySlug } from "@/server/finance/charging-readin
 import { isPaidCompetition } from "@/lib/competitions/paid-competition";
 import { IndividualRegistrationSection } from "./individual-section";
 import { CompetitionTeamSection } from "./team-section";
-import { PageHeader } from "@/components/ui";
+import { Feedback, PageHeader } from "@/components/ui";
 
 // Dedicated registration surface. The detail page at `..` is read-only; candidates click
 // "Daftar" there which navigates here. This separation keeps reading vs. registering distinct
@@ -133,11 +133,11 @@ export default async function CompetitionRegistrationPage({
       />
 
       {!registrationOpen && (
-        <div role="alert" className="feedback" data-tone="warning">
+        <Feedback tone="info">
           {competition.ctaState === "not_yet_open"
             ? "Pendaftaran belum dibuka."
             : "Pendaftaran sudah ditutup."}
-        </div>
+        </Feedback>
       )}
 
       {paidRegistrationUnavailable && (

@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useId, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Button,
+  Feedback,
   FormActionBar,
   FormHelp,
   FormInput,
@@ -79,17 +80,6 @@ export const InstitutionUpgradeShell = ({
   const [displayName, setDisplayName] = useState("");
   const [nameInvalid, setNameInvalid] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    if (!canUpgrade) {
-      addToast({
-        type: "warning",
-        message:
-          "Peningkatan institusi hanya tersedia untuk penyelenggara terverifikasi. Selesaikan verifikasi akun Anda terlebih dahulu.",
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canUpgrade]);
 
   // Returns whether the upgrade actually navigated, so the blocking screen is dismissed on a
   // rejected upgrade and held through the redirect on a successful one.
@@ -181,6 +171,12 @@ export const InstitutionUpgradeShell = ({
       />
 
       <section className="content-section institution-upgrade-card">
+        {!canUpgrade ? (
+          <Feedback tone="warning">
+            Peningkatan institusi hanya tersedia untuk penyelenggara terverifikasi. Selesaikan
+            verifikasi akun Anda terlebih dahulu.
+          </Feedback>
+        ) : null}
         <div className="section-heading">
           <div>
             <h2>Peningkatan ini permanen</h2>

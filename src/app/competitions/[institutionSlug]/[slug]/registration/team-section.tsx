@@ -365,24 +365,13 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
   // The server still takes an invite to such a team and the invitee's acceptance.
   const offersInviteForm = takesInviteChanges && !props.registerAgainClosedByPaymentProof;
 
-  useEffect(() => {
-    if (atCapacity) {
-      addToast({ type: "warning", message: "Tim telah mencapai kapasitas maksimum." });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [atCapacity]);
-
-  useEffect(() => {
-    if (
-      isCaptain &&
-      submitDisabledReason &&
-      status === "forming" &&
-      !props.registerAgainClosedByPaymentProof
-    ) {
-      addToast({ type: "warning", message: submitDisabledReason });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isCaptain, submitDisabledReason, status, props.registerAgainClosedByPaymentProof]);
+  const submitBlockedNotice =
+    isCaptain &&
+    submitDisabledReason &&
+    status === "forming" &&
+    !props.registerAgainClosedByPaymentProof
+      ? submitDisabledReason
+      : null;
 
   useEffect(() => {
     if (!isCaptain && ownMembership) {
@@ -645,6 +634,11 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
             : null}
         </Feedback>
       ) : null}
+
+      {atCapacity ? (
+        <Feedback tone="warning">Tim telah mencapai kapasitas maksimum.</Feedback>
+      ) : null}
+      {submitBlockedNotice ? <Feedback tone="warning">{submitBlockedNotice}</Feedback> : null}
 
       <h3 className="team-subheading">Anggota</h3>
       <ul className="team-member-list">

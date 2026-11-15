@@ -322,7 +322,7 @@ describe("sendCompetitionCancelledEmail: the refund sentence", () => {
     // DEC-0130: the funds are in the organiser's account and always were. Naming the holder is the
     // only useful thing this notice can do.
     expect(call.text).toContain("rekening penyelenggara");
-    expect(call.text).toContain("Lombakita tidak menampung dana peserta");
+    expect(call.text).toContain("Ketentuan lengkapnya ada di Syarat & Ketentuan Lombakita.");
     // And no promise the platform cannot keep.
     expect(call.text).not.toContain("akan kami kembalikan");
     expect(call.text).not.toContain("pengembalian dana otomatis");

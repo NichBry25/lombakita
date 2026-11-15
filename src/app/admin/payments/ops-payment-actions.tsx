@@ -202,7 +202,7 @@ export function OpsPaymentActions({
           // R8 in one sentence, and it is stated because no part of this flow can undo it: the fee
           // already accrued to the institution stays accrued, and cancelled registrations are
           // terminal.
-          warning="Kompetisi akan turun ke draf dan SELURUH pendaftaran dibatalkan secara permanen. Biaya layanan yang sudah tercatat tidak dibatalkan. Peserta yang sudah transfer akan diberi tahu untuk menghubungi penyelenggara, karena Lombakita tidak menampung dana peserta dan tidak dapat mengembalikannya."
+          warning="Kompetisi akan turun ke draf dan seluruh pendaftaran dibatalkan secara permanen. Biaya layanan yang sudah tercatat tidak dibatalkan. Peserta yang sudah transfer akan diberi tahu untuk menghubungi penyelenggara soal pengembalian dana."
           placeholder="Contoh: penyelenggara membatalkan acara dan meminta penarikan lewat dukungan."
           submitLabel="Batalkan kompetisi"
           onSubmit={(reason) =>

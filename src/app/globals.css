@@ -1098,135 +1098,139 @@ svg {
 
 /* Feedback, badges, tables, and empty states */
 .feedback {
+  --notice-fill: var(--tone-calm-fill);
+  --notice-ink: var(--tone-calm-ink);
+  --notice-icon-color: var(--tone-calm-icon);
+
+  position: relative;
   display: flex;
+  box-sizing: border-box;
+  min-height: var(--notice-min-height);
   align-items: flex-start;
   gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
-  border: var(--border-thin) solid;
-  border-radius: var(--radius-input);
-  font-size: var(--text-body-sm);
+  padding: var(--space-4);
+  border: 0;
+  border-radius: var(--radius-notice);
+  background: var(--notice-fill);
+  box-shadow: none;
+  color: var(--notice-ink);
+  font-size: var(--text-body);
+  font-weight: 400;
+  line-height: var(--notice-line);
 }
 
-.feedback[data-tone="success"] {
-  border-color: var(--color-success-border);
-  background: var(--color-success-surface);
-  color: var(--color-success-text);
+/* Perhatian covers warning and error. Tenang, the default, covers info, success and neutral. */
+.feedback:is([data-tone="warning"], [data-tone="error"]) {
+  --notice-fill: var(--tone-attention-notice-fill);
+  --notice-ink: var(--tone-attention-notice-ink);
+  --notice-icon-color: var(--tone-attention-notice-icon);
 }
 
-.feedback[data-tone="warning"] {
-  border-color: var(--color-warning-border);
-  background: var(--color-warning-surface);
-  color: var(--color-warning-text);
+.feedback-icon {
+  flex: none;
+  width: var(--notice-icon);
+  height: var(--notice-icon);
+  margin-block-start: var(--border-thin);
+  color: var(--notice-icon-color);
 }
 
-.feedback[data-tone="error"] {
-  border-color: var(--color-error-border);
-  background: var(--color-error-surface);
-  color: var(--color-error-text);
+.feedback-body {
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
 }
 
-.feedback[data-tone="info"] {
-  border-color: var(--color-info-border);
-  background: var(--color-info-surface);
-  color: var(--color-info-text);
+.feedback-body > p {
+  margin: var(--space-0);
 }
 
-/* The neutral ground the status badges already use for `awaiting`. It exists because `info` shares
-   its hue with `success` (both sit at 120deg, apart only in saturation), so a withheld control or a
-   refused action written as `info` renders in the same green as a verified payment. Nothing here is
-   a new colour: the inset ground, the soft ink and the hairline are the app's standard neutral
-   surface. */
-.feedback[data-tone="neutral"] {
-  border-color: var(--color-line);
-  background: var(--color-inset);
-  color: var(--color-ink-soft);
+.feedback-body > * + * {
+  margin-block-start: var(--space-2);
 }
 
+.feedback-lead {
+  font-weight: 600;
+}
+
+.feedback .ui-button[data-variant="link"] {
+  min-height: var(--touch-target);
+  padding-inline: var(--space-0);
+  color: inherit;
+  font-size: var(--text-body);
+  font-weight: 600;
+}
+
+/* Pills. A pill is a label and never presses: a pressable one is a chip, a button or a link. */
 .status-badge {
+  --pill-pad-start: var(--space-3);
+
   display: inline-flex;
-  min-height: var(--control-height-sm);
+  box-sizing: border-box;
+  width: fit-content;
+  max-width: 100%;
+  height: var(--pill-height);
+  flex: none;
   align-items: center;
-  gap: var(--space-1-5);
-  padding-inline: var(--space-3);
+  gap: var(--space-2);
+  padding: var(--space-0) var(--space-3) var(--space-0) var(--pill-pad-start);
   border: 0;
   border-radius: var(--radius-pill);
-  background: var(--color-inset);
-  color: var(--color-ink-soft);
+  background: var(--pill-fill, var(--tone-label-fill));
+  color: var(--pill-ink, var(--tone-label-ink));
+  font-family: var(--font-data);
+  font-size: var(--text-body-sm);
   font-variant-numeric: tabular-nums;
-  font-size: var(--text-micro);
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1;
+  white-space: nowrap;
 }
 
-.status-badge[data-status="open"] {
-  background: var(--color-status-open-bg);
-  color: var(--color-status-open-text);
+.status-badge > .ui-icon {
+  flex: none;
+  width: var(--pill-mark-icon);
+  height: var(--pill-mark-icon);
 }
 
-.status-badge[data-status="verified"] {
-  background: var(--color-status-open-bg);
-  color: var(--color-status-open-text);
+/* Four status tones. Each value of data-status maps to exactly one of them. */
+.status-badge[data-status="open"],
+.status-badge[data-status="verified"],
+.status-badge[data-status="ongoing"],
+.status-badge[data-status="announced"],
+.status-badge[data-status="paid"],
+.status-badge[data-team-status="submitted"] {
+  --pill-fill: var(--tone-positive-fill);
+  --pill-ink: var(--tone-positive-ink);
+  --pill-dot-color: var(--tone-positive-dot);
+  --pill-pad-start: var(--space-2-5);
 }
 
 .status-badge[data-status="closing"] {
-  background: var(--color-status-closing-bg);
-  color: var(--color-status-closing-text);
+  --pill-fill: var(--tone-attention-fill);
+  --pill-ink: var(--tone-attention-ink);
+  --pill-dot-color: var(--tone-attention-dot);
+  --pill-pad-start: var(--space-2-5);
 }
 
-.status-badge[data-status="closed"] {
-  background: var(--color-status-closed-bg);
-  color: var(--color-status-closed-text);
+/* Menunggu draws a hollow dot, a 2px ring with no fill. */
+.status-badge[data-status="upcoming"],
+.status-badge[data-status="awaiting"],
+.status-badge[data-status="overdue"],
+.status-badge[data-team-status="forming"] {
+  --pill-fill: var(--tone-waiting-fill);
+  --pill-ink: var(--tone-waiting-ink);
+  --pill-dot-color: var(--tone-waiting-dot);
+  --pill-dot-fill: transparent;
+  --pill-pad-start: var(--space-2-5);
 }
 
-/* Lifecycle-phase badges. Built on the existing semantic families so no new colour is minted;
-   each carries its own dot below, so adjacent phases never read as the same state. */
-.status-badge[data-status="upcoming"] {
-  background: var(--color-info-surface);
-  color: var(--color-info-text);
-}
-
-.status-badge[data-status="ongoing"] {
-  background: var(--color-success-surface);
-  color: var(--color-success-text);
-}
-
-.status-badge[data-status="awaiting"] {
-  background: var(--color-inset);
-  color: var(--color-ink-soft);
-}
-
-.status-badge[data-status="overdue"] {
-  background: var(--color-warning-surface);
-  color: var(--color-warning-text);
-}
-
-.status-badge[data-status="announced"] {
-  background: var(--color-success-surface);
-  color: var(--color-success-text);
-}
-
-.status-badge[data-status="cancelled"] {
-  background: var(--color-error-surface);
-  color: var(--color-error-text);
-}
-
-/* Payment-lane badges. Same construction as the lifecycle phases above: existing semantic families
-   only, no new colour, each with its own dot. They exist because the lifecycle vocabulary cannot
-   express a payment: a paid, expired or refunded transfer has no equivalent among open/closing/
-   upcoming/ongoing, and reusing one of those would put a competition's word on a payment's state. */
-.status-badge[data-status="paid"] {
-  background: var(--color-success-surface);
-  color: var(--color-success-text);
-}
-
-.status-badge[data-status="expired"] {
-  background: var(--color-error-surface);
-  color: var(--color-error-text);
-}
-
+.status-badge[data-status="closed"],
+.status-badge[data-status="cancelled"],
+.status-badge[data-status="expired"],
 .status-badge[data-status="refunded"] {
-  background: var(--color-info-surface);
-  color: var(--color-info-text);
+  --pill-fill: var(--tone-neutral-fill);
+  --pill-ink: var(--tone-neutral-ink);
+  --pill-dot-color: var(--tone-neutral-dot);
+  --pill-pad-start: var(--space-2-5);
 }
 
 .status-badge:is(
@@ -1243,60 +1247,39 @@ svg {
     [data-status="expired"],
     [data-status="refunded"]
   )::before {
-  width: var(--space-1-5);
-  height: var(--space-1-5);
+  width: var(--pill-dot);
+  height: var(--pill-dot);
+  box-sizing: border-box;
   flex: none;
+  border: var(--border-strong) solid var(--pill-dot-color);
   border-radius: var(--radius-circle);
-  background: currentColor;
+  background: var(--pill-dot-fill, var(--pill-dot-color));
   content: "";
 }
 
-.status-badge[data-status="open"]::before {
-  background: var(--color-status-open-dot);
+.status-badge[data-team-status]::before {
+  width: var(--pill-dot);
+  height: var(--pill-dot);
+  box-sizing: border-box;
+  flex: none;
+  border: var(--border-strong) solid var(--pill-dot-color);
+  border-radius: var(--radius-circle);
+  background: var(--pill-dot-fill, var(--pill-dot-color));
+  content: "";
 }
 
-.status-badge[data-status="closing"]::before {
-  background: var(--color-status-closing-dot);
+/* The verified mark takes a check in place of the dot, with a 6px gap. */
+.status-badge[data-status="verified"] {
+  --pill-pad-start: var(--space-2-5);
+
+  gap: var(--space-1-5);
 }
 
-.status-badge[data-status="closed"]::before {
-  background: var(--color-status-closed-dot);
-}
-
-.status-badge[data-status="upcoming"]::before {
-  background: var(--color-info-border);
-}
-
-.status-badge[data-status="ongoing"]::before {
-  background: var(--color-success-text);
-}
-
-.status-badge[data-status="awaiting"]::before {
-  background: var(--color-status-closed-dot);
-}
-
-.status-badge[data-status="overdue"]::before {
-  background: var(--color-warning-border);
-}
-
-.status-badge[data-status="announced"]::before {
-  background: var(--color-success-border);
-}
-
-.status-badge[data-status="cancelled"]::before {
-  background: var(--color-error-border);
-}
-
-.status-badge[data-status="paid"]::before {
-  background: var(--color-success-border);
-}
-
-.status-badge[data-status="expired"]::before {
-  background: var(--color-error-border);
-}
-
-.status-badge[data-status="refunded"]::before {
-  background: var(--color-info-border);
+/* Count: a number beside a heading. It is one status pill with a square minimum. */
+.status-badge[data-pill="count"] {
+  min-width: var(--pill-height);
+  justify-content: center;
+  padding-inline: var(--space-2);
 }
 
 .table-scroll {
@@ -3270,14 +3253,19 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
 }
 
 .competition-cover-label {
+  display: inline-flex;
   width: fit-content;
-  padding: var(--space-1-5) var(--space-3);
+  height: var(--pill-height);
+  align-items: center;
+  padding-inline: var(--space-3);
   border-radius: var(--radius-pill);
-  background: var(--on-cover-chip);
-  color: var(--on-cover-chip-ink);
+  background: var(--tone-label-cover-fill);
+  color: var(--tone-label-cover-ink);
   font-family: var(--font-data);
-  font-size: var(--text-micro);
-  font-weight: 500;
+  font-size: var(--text-body-sm);
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .competition-card-body {
@@ -3290,7 +3278,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
 
 .competition-card-badges {
   display: flex;
-  min-height: var(--control-height-sm);
   flex-wrap: wrap;
   gap: var(--space-2);
 }
@@ -3474,9 +3461,8 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
 }
 
 .detail-hero-content .status-badge {
-  border-color: var(--overlay-highlight);
-  background: var(--overlay-highlight);
-  color: var(--brand-paper);
+  --pill-fill: var(--tone-label-band-fill);
+  --pill-ink: var(--tone-label-band-ink);
 }
 
 .detail-organizer-line {
@@ -4359,62 +4345,40 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
   gap: var(--space-2);
 }
 
-/*
- * Toasts are chrome glass, so they need a glow to sit on — glass never lands on flat
- * paper. Each item paints its own peach glow behind itself (.toast-item::before) rather
- * than the region painting one, so a single toast is not framed by a stack-sized wash.
- */
+/* A toast is a notice that floats: a solid card in the same two tones as the notice. */
 .toast-region {
   position: fixed;
-  inset-inline-end: var(--page-padding);
-  inset-block-end: max(var(--page-padding), env(safe-area-inset-bottom));
+  inset-inline-end: var(--space-7);
+  inset-block-end: var(--space-7);
   z-index: var(--z-toast);
   display: flex;
-  width: min(calc(100% - (var(--page-padding) * 2)), var(--content-toast));
+  width: min(var(--content-toast), calc(100% - (var(--space-4) * 2)));
   flex-direction: column;
-  gap: var(--space-2-5);
+  gap: var(--space-3);
   /* The gaps between toasts stay clickable; each item takes pointer events back. */
   pointer-events: none;
 }
 
 .toast-item {
-  --toast-tint: var(--color-info-surface);
-  --toast-hue: var(--color-info-text);
-  --toast-edge: var(--color-info-border);
+  --toast-fill: var(--tone-calm-fill);
+  --toast-ink: var(--tone-calm-ink);
+  --toast-icon-color: var(--tone-calm-icon);
 
   position: relative;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
+  display: flex;
+  box-sizing: border-box;
+  align-items: flex-start;
   gap: var(--space-3);
-  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
-  border: var(--border-thin) solid var(--toast-edge);
-  border-radius: var(--radius-card);
-  background: var(--glass-chrome-fallback);
-  box-shadow:
-    0 24px 52px -34px var(--glow-peach),
-    var(--shadow-glass);
+  padding: var(--space-4) var(--notice-close-reserve) var(--space-4) var(--space-4);
+  border: 0;
+  border-radius: var(--radius-notice);
+  background: var(--toast-fill);
+  box-shadow: var(--shadow-glass);
+  color: var(--toast-ink);
+  font-size: var(--text-body);
+  line-height: var(--notice-line);
   pointer-events: auto;
   animation: toast-enter var(--duration-fast) var(--ease-primary) both;
-}
-
-.toast-item::before {
-  position: absolute;
-  z-index: -1;
-  border-radius: var(--radius-feature);
-  background: radial-gradient(120% 120% at 85% 100%, var(--glow-peach), transparent 68%);
-  content: "";
-  /* No top extent: stacked toasts would otherwise lay two glows over the same gap. */
-  inset: 0 calc(var(--space-3) * -1) calc(var(--space-3) * -1);
-  pointer-events: none;
-}
-
-@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .toast-item {
-    background: var(--glass-chrome-fill);
-    -webkit-backdrop-filter: blur(var(--glass-blur-chrome));
-    backdrop-filter: blur(var(--glass-blur-chrome));
-  }
 }
 
 @keyframes toast-enter {
@@ -4429,64 +4393,37 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
   }
 }
 
-.toast-item[data-toast-type="success"] {
-  --toast-tint: var(--color-success-surface);
-  --toast-hue: var(--color-success-text);
-  --toast-edge: var(--color-success-border);
-}
-
-.toast-item[data-toast-type="warning"] {
-  --toast-tint: var(--color-warning-surface);
-  --toast-hue: var(--color-warning-text);
-  --toast-edge: var(--color-warning-border);
-}
-
 .toast-item[data-toast-type="error"] {
-  --toast-tint: var(--color-error-surface);
-  --toast-hue: var(--color-error-text);
-  --toast-edge: var(--color-error-border);
+  --toast-fill: var(--tone-attention-notice-fill);
+  --toast-ink: var(--tone-attention-notice-ink);
+  --toast-icon-color: var(--tone-attention-notice-icon);
 }
 
-/* Icon chip: soft type tint on a blob, no outline — the brand book's chip treatment. */
 .toast-icon {
-  display: grid;
-  width: var(--icon-chip);
-  height: var(--icon-chip);
-  place-items: center;
-  border-radius: var(--blob-radius-a);
-  background: var(--toast-tint);
-  color: var(--toast-hue);
-}
-
-.toast-copy {
-  display: grid;
-  gap: var(--space-1);
-}
-
-.toast-label {
-  color: var(--toast-hue);
-  font-family: var(--font-data);
-  font-size: var(--text-micro);
-  font-weight: 600;
-  line-height: 1;
+  flex: none;
+  width: var(--notice-icon);
+  height: var(--notice-icon);
+  margin-block-start: var(--border-thin);
+  color: var(--toast-icon-color);
 }
 
 .toast-message {
+  min-width: 0;
   margin: var(--space-0);
   overflow-wrap: anywhere;
-  color: var(--color-ink);
-  font-size: var(--text-body-sm);
-  line-height: var(--leading-body);
 }
 
 .toast-close {
-  color: var(--color-ink-soft);
+  position: absolute;
+  inset-block-start: calc(var(--space-1) + var(--border-thin));
+  inset-inline-end: var(--space-1-5);
+  color: inherit;
 }
 
 /* Theme-aware hover: the shared icon-button hover tint is a fixed light mist. */
 .toast-close:hover:not(:disabled) {
-  background: var(--color-inset);
-  color: var(--color-ink);
+  background: color-mix(in srgb, currentcolor 12%, transparent);
+  color: inherit;
 }
 
 .modal-close {
@@ -4958,18 +4895,6 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
   font-size: var(--text-meta);
 }
 
-.status-badge[data-team-status="forming"] {
-  border-color: var(--color-warning-border);
-  background: var(--color-warning-surface);
-  color: var(--color-warning-text);
-}
-
-.status-badge[data-team-status="submitted"] {
-  border-color: var(--color-success-border);
-  background: var(--color-success-surface);
-  color: var(--color-success-text);
-}
-
 .profile-edit-page {
   max-width: var(--content-form);
 }
@@ -5161,12 +5086,6 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
   flex-wrap: wrap;
   gap: var(--space-2);
   margin-block-start: var(--space-1);
-}
-
-.pf-badges .status-badge {
-  min-height: auto;
-  padding-block: var(--space-1-5);
-  font-size: var(--text-meta);
 }
 
 .pf-email {
@@ -6801,8 +6720,8 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
   }
 
   .toast-region {
-    inset-inline: var(--page-padding-mobile);
-    inset-block-end: max(var(--page-padding-mobile), env(safe-area-inset-bottom));
+    inset-inline: var(--space-4);
+    inset-block-end: calc(var(--space-4) + env(safe-area-inset-bottom));
     width: auto;
   }
 

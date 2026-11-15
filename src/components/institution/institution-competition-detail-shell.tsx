@@ -407,7 +407,7 @@ export const InstitutionCompetitionDetailShell = ({
         actions={
           <span
             className="status-badge"
-            data-status={isCancelled ? "cancelled" : isPublished ? "open" : "closing"}
+            data-status={isCancelled ? "cancelled" : isPublished ? "open" : "awaiting"}
           >
             {isCancelled ? "Dibatalkan" : getCompetitionStatusLabel(competition.status)}
           </span>

@@ -1,7 +1,7 @@
 "use client";
 
 import { ChangeEvent, useEffect, useRef, useState } from "react";
-import { Button, FormLabel, Icon } from "@/components/ui";
+import { Button, Feedback, FormLabel, Icon } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import { errorMessageFor } from "@/lib/errors/error-copy";
 import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
@@ -93,14 +93,9 @@ export const SubmissionShell = ({
   useEffect(() => {
     if (registrationCancelled) {
       addToast({ type: "error", message: "Pendaftaran dibatalkan, jadi submission ditutup." });
-    } else if (!windowOpen) {
-      addToast({
-        type: "warning",
-        message: "Jendela submission belum dibuka atau sudah ditutup.",
-      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [registrationCancelled, windowOpen]);
+  }, [registrationCancelled]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -211,6 +206,9 @@ export const SubmissionShell = ({
 
   return (
     <div className="submission-shell">
+      {!registrationCancelled && !windowOpen ? (
+        <Feedback tone="warning">Jendela submission belum dibuka atau sudah ditutup.</Feedback>
+      ) : null}
       <section className="content-section submission-status">
         <div className="section-heading">
           <div>

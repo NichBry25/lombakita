@@ -161,6 +161,32 @@
   --skeleton-button-width: 8.5rem;
   --skeleton-chip-width: 5.5rem;
   --skeleton-stat-min: 13rem;
+
+  /* Tones shared by pills, notices and toasts. Theme-invariant tones are declared once here. */
+  --tone-positive-fill: var(--color-status-open-bg);
+  --tone-positive-ink: var(--brand-palm);
+  --tone-positive-dot: #5f7a10;
+  --tone-attention-fill: var(--brand-blush);
+  --tone-attention-ink: #9b3617;
+  --tone-attention-dot: var(--brand-terracotta);
+  --tone-waiting-fill: #f1eada;
+  --tone-waiting-ink: var(--color-ink-soft);
+  --tone-waiting-dot: #536b66;
+  --tone-neutral-fill: #e8e6de;
+  --tone-neutral-ink: var(--color-ink-soft);
+  --tone-neutral-dot: #6b7f79;
+  --tone-calm-fill: var(--brand-mist);
+  --tone-calm-ink: var(--brand-palm);
+  --tone-calm-icon: var(--brand-palm);
+  --tone-attention-notice-fill: var(--brand-blush);
+  --tone-attention-notice-ink: var(--brand-palm);
+  --tone-attention-notice-icon: var(--brand-terracotta);
+  --tone-label-fill: #f1eada;
+  --tone-label-ink: var(--brand-palm);
+  --tone-label-band-fill: rgba(251, 246, 235, 0.14);
+  --tone-label-band-ink: var(--brand-paper);
+  --tone-label-cover-fill: var(--brand-paper);
+  --tone-label-cover-ink: var(--brand-palm);
 }
 
 /*
@@ -359,6 +385,14 @@
   --content-form: 42rem;
   --content-narrow: 32rem;
   --content-toast: 22.5rem;
+  --pill-height: 1.75rem;
+  --pill-dot: 0.5rem;
+  --pill-mark-icon: 1rem;
+  --radius-notice: 1rem;
+  --notice-min-height: 3.375rem;
+  --notice-line: 1.375rem;
+  --notice-icon: 1.25rem;
+  --notice-close-reserve: 3.5rem;
   --content-auth-min: 22rem;
   --content-footer-column: 8rem;
   --content-table-wide: 56rem;
@@ -484,6 +518,24 @@
   --category-wash-lightness: 90%;
   --category-blob-saturation: 62%;
   --category-blob-lightness: 52%;
+
+  --tone-positive-fill: #1c3a22;
+  --tone-positive-ink: #c3e27a;
+  --tone-positive-dot: var(--brand-lime-deep);
+  --tone-attention-fill: #3b2417;
+  --tone-attention-ink: var(--brand-peach);
+  --tone-attention-dot: var(--brand-tangerine);
+  --tone-waiting-fill: #1b3f38;
+  --tone-waiting-ink: #a8c0b8;
+  --tone-waiting-dot: #a8c0b8;
+  --tone-neutral-fill: #1b3f38;
+  --tone-neutral-ink: #a8c0b8;
+  --tone-neutral-dot: #7e9f97;
+  --tone-calm-fill: var(--brand-palm);
+  --tone-calm-ink: var(--color-ink);
+  --tone-calm-icon: var(--color-ink);
+  --tone-label-fill: #1b3f38;
+  --tone-label-ink: var(--color-ink);
 }
 
 /*

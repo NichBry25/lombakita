@@ -103,7 +103,7 @@ describe("the individual cancel affordance", () => {
   it("keeps the registration itself visible: withholding cancel is not hiding the record", () => {
     renderIndividual(true);
 
-    expect(screen.getByText("✓ Terdaftar")).toBeTruthy();
+    expect(screen.getByText("Terdaftar")).toBeTruthy();
   });
 });
 

@@ -205,7 +205,7 @@ export function DevPrimitivesClient() {
           <div className="stack-sm">
             <Feedback tone="success">Perubahan berhasil disimpan.</Feedback>
             <Feedback tone="warning">Periksa tenggat sebelum melanjutkan.</Feedback>
-            <Feedback tone="error">Dokumen belum lengkap.</Feedback>
+            <Feedback tone="error" lead="Dokumen belum lengkap." />
             <Feedback tone="info">Data akan ditinjau oleh tim operasi.</Feedback>
           </div>
           <div className="cluster">
@@ -237,15 +237,6 @@ export function DevPrimitivesClient() {
               onClick={() => addToast({ message: "Informasi tambahan tersedia.", type: "info" })}
             >
               Toast info
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() =>
-                addToast({ message: "Perhatikan langkah berikutnya.", type: "warning" })
-              }
-            >
-              Toast peringatan
             </Button>
           </div>
         </div>

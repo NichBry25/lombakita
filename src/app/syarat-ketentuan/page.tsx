@@ -108,7 +108,9 @@ export default function TermsPage() {
         </section>
 
         <section className="stack-md document-clause">
-          <h2 className="section-title">5. Biaya pendaftaran dan cara pembayaran</h2>
+          <h2 className="section-title" id="biaya-pendaftaran">
+            5. Biaya pendaftaran dan cara pembayaran
+          </h2>
           <p>
             Sebagian kompetisi memungut biaya pendaftaran. Besaran biaya ditetapkan oleh institusi
             penyelenggara dan dibayarkan langsung kepada institusi tersebut. Lombakita tidak
@@ -156,7 +158,9 @@ export default function TermsPage() {
         </section>
 
         <section className="stack-md document-clause">
-          <h2 className="section-title">7. Pembatalan kompetisi oleh penyelenggara</h2>
+          <h2 className="section-title" id="pembatalan-kompetisi">
+            7. Pembatalan kompetisi oleh penyelenggara
+          </h2>
           <p>
             Penyelenggara tidak dapat menarik atau membatalkan sendiri sebuah kompetisi yang sudah
             memiliki pendaftaran berbayar. Sistem menolak tindakan itu.

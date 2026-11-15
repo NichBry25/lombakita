@@ -127,7 +127,7 @@ export function ResultForm({
         <div>
           <h2>Hasil kompetisi</h2>
         </div>
-        <span className="status-badge" data-status={status === "published" ? "open" : "closing"}>
+        <span className="status-badge" data-status={status === "published" ? "open" : "awaiting"}>
           {status === "published" ? "Dipublikasikan" : "Draf"}
         </span>
       </div>

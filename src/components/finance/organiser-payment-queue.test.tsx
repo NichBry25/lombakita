@@ -166,7 +166,7 @@ describe("what tone the queue notes carry", () => {
     return note ? note.getAttribute("data-tone") : null;
   };
 
-  it("prints a rejection in the refusing tone, never the one success uses", () => {
+  it("prints a rejection reason as a neutral note, never in the tone success uses", () => {
     renderQueue([
       proof({
         status: "rejected",
@@ -175,7 +175,7 @@ describe("what tone the queue notes carry", () => {
       }),
     ]);
 
-    expect(toneOf(/Ditolak dengan alasan/)).toBe("error");
+    expect(toneOf(/Nominal tidak sesuai/)).toBe("neutral");
   });
 
   it("prints the count of prior attempts as a neutral fact, not as a warning", () => {

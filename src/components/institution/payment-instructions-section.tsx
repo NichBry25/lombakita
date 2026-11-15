@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Button,
+  ButtonLink,
   Feedback,
   FormInput,
   FormLabel,
@@ -225,10 +226,14 @@ export function PaymentInstructionsSection({
         </div>
       </div>
 
-      <Feedback tone="warning">
-        Dana peserta masuk langsung ke rekening lembaga Anda. Lombakita tidak menampung dana.
-        Periksa setiap digit: nomor rekening yang keliru mengirim transfer peserta ke rekening yang
-        salah, dan platform tidak dapat menariknya kembali.
+      <Feedback tone="warning" lead="Periksa nomor rekening sebelum menyimpan.">
+        Dana peserta masuk langsung ke rekening ini, dan transfer ke rekening yang salah tidak dapat
+        ditarik kembali.
+        <div>
+          <ButtonLink variant="link" size="sm" href="/syarat-ketentuan#biaya-pendaftaran">
+            Baca ketentuan pembayaran
+          </ButtonLink>
+        </div>
       </Feedback>
 
       <p className="muted-copy">

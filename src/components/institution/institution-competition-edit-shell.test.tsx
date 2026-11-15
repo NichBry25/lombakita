@@ -2857,8 +2857,9 @@ describe("InstitutionCompetitionEditShell steps", () => {
 
       fireEvent.click(saveButton());
 
+      // Five toasts were raised by now, and only the newest three stay on screen.
       await waitFor(() => {
-        expect(screen.getAllByText("Perubahan tersimpan.")).toHaveLength(2);
+        expect(screen.getAllByText("Perubahan tersimpan.")).toHaveLength(1);
         expect(roundReads()).toHaveLength(4);
       });
       expect(roundWrites()).toHaveLength(1);

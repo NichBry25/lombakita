@@ -33,9 +33,9 @@ export type CompetitionCancelledJob = Job<
  * be a promise no part of this system can keep.
  */
 const TRANSFER_REFUND_NOTICE =
-  "Jika Anda sudah melakukan transfer, dana tersebut ada pada rekening penyelenggara. " +
-  "Hubungi penyelenggara secara langsung untuk pengembaliannya. Lombakita tidak menampung dana " +
-  "peserta sehingga tidak dapat memprosesnya.";
+  "Jika Anda sudah melakukan transfer, dana tersebut ada di rekening penyelenggara. " +
+  "Hubungi penyelenggara secara langsung untuk pengembaliannya. Ketentuan lengkapnya ada di " +
+  "Syarat & Ketentuan Lombakita. /syarat-ketentuan#pembatalan-kompetisi";
 
 export const buildCompetitionCancellationRecipientsCondition = (
   competitionId: string,

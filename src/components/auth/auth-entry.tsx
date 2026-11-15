@@ -6,6 +6,7 @@ import {
   Button,
   ButtonLink,
   ChoiceCard,
+  Feedback,
   FormInput,
   FormLabel,
   Icon,
@@ -208,16 +209,6 @@ export const AuthEntry = ({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  useEffect(() => {
-    if (stage === "signup" && !verificationEnabled) {
-      addToast({
-        type: "warning",
-        message: "Pendaftaran email sedang tidak tersedia. Coba lagi nanti.",
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stage]);
 
   // The form that held focus unmounts at these stages, so focus moves to what replaced it: the
   // verify notice's message, or the code box.
@@ -876,6 +867,11 @@ export const AuthEntry = ({
       {method === "credentials" && stage === "signup" ? (
         <div className="auth-stage-panel">
           <StepIndicator current={2} total={3} label="Peran" />
+          {!verificationEnabled ? (
+            <Feedback tone="warning">
+              Pendaftaran email sedang tidak tersedia. Coba lagi nanti.
+            </Feedback>
+          ) : null}
           {completingUnverified ? (
             <p>
               Email <span className="font-medium">{email}</span> belum diverifikasi. Ulangi password

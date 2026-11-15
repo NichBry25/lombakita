@@ -47,7 +47,7 @@ describe("useToast — addToast", () => {
 
     act(() => {
       result.current.toast.addToast({ message: "A", type: "error" });
-      result.current.toast.addToast({ message: "B", type: "warning" });
+      result.current.toast.addToast({ message: "B", type: "success" });
     });
 
     expect(result.current.state.toasts).toHaveLength(2);
@@ -139,7 +139,7 @@ describe("useToast — auto-dismiss", () => {
 
     let id!: string;
     act(() => {
-      id = result.current.toast.addToast({ message: "M", type: "warning", duration: 5000 });
+      id = result.current.toast.addToast({ message: "M", type: "success", duration: 5000 });
     });
 
     act(() => {
@@ -153,6 +153,91 @@ describe("useToast — auto-dismiss", () => {
         vi.advanceTimersByTime(5000);
       }),
     ).not.toThrow();
+    expect(result.current.state.toasts).toHaveLength(0);
+  });
+});
+
+describe("useToast — kinds and limits", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const renderToasts = () =>
+    renderHook(() => ({ toast: useToast(), state: useToastState() }), { wrapper });
+
+  it("dismisses a success toast after 6000 ms when no duration is given", () => {
+    const { result } = renderToasts();
+
+    act(() => {
+      result.current.toast.addToast({ message: "Ok", type: "success" });
+    });
+    act(() => {
+      vi.advanceTimersByTime(5999);
+    });
+    expect(result.current.state.toasts).toHaveLength(1);
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(result.current.state.toasts).toHaveLength(0);
+  });
+
+  it("keeps an error toast until it is closed, even with a duration", () => {
+    const { result } = renderToasts();
+
+    act(() => {
+      result.current.toast.addToast({ message: "Gagal", type: "error", duration: 1000 });
+    });
+    act(() => {
+      vi.advanceTimersByTime(60_000);
+    });
+
+    expect(result.current.state.toasts).toHaveLength(1);
+  });
+
+  it("keeps at most 3 toasts and drops the oldest first", () => {
+    const { result } = renderToasts();
+
+    act(() => {
+      for (const message of ["A", "B", "C", "D"]) {
+        result.current.toast.addToast({ message, type: "info", duration: 0 });
+      }
+    });
+
+    expect(result.current.state.toasts.map((t) => t.message)).toEqual(["B", "C", "D"]);
+  });
+
+  it("resumes a paused toast from where it stopped", () => {
+    const { result } = renderToasts();
+    let id!: string;
+
+    act(() => {
+      id = result.current.toast.addToast({ message: "Ok", type: "success" });
+    });
+    act(() => {
+      vi.advanceTimersByTime(4000);
+      result.current.state.pauseToast(id);
+    });
+    act(() => {
+      vi.advanceTimersByTime(60_000);
+    });
+    expect(result.current.state.toasts).toHaveLength(1);
+
+    act(() => {
+      result.current.state.resumeToast(id);
+    });
+    act(() => {
+      vi.advanceTimersByTime(1999);
+    });
+    expect(result.current.state.toasts).toHaveLength(1);
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
     expect(result.current.state.toasts).toHaveLength(0);
   });
 });

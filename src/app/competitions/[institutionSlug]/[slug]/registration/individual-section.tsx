@@ -232,7 +232,7 @@ export function IndividualRegistrationSection({
         <>
           <div className="registration-state stack-sm">
             <span className="status-badge" data-status="open">
-              ✓ Terdaftar
+              Terdaftar
             </span>
             {cancellationClosedByPaymentProof ? null : (
               <div className="stack-xs">

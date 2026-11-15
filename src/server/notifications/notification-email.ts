@@ -267,7 +267,8 @@ export const sendCompetitionCancelledEmail = async (options: {
       ...(options.transferRefundNotice
         ? [
             "",
-            "Jika kamu sudah melakukan transfer, dana tersebut ada pada rekening penyelenggara. Hubungi penyelenggara secara langsung untuk pengembaliannya. Lombakita tidak menampung dana peserta sehingga tidak dapat memprosesnya.",
+            "Jika kamu sudah melakukan transfer, dana tersebut ada di rekening penyelenggara. Hubungi penyelenggara secara langsung untuk pengembaliannya. Ketentuan lengkapnya ada di Syarat & Ketentuan Lombakita.",
+            `${resolveBaseUrl()}/syarat-ketentuan#pembatalan-kompetisi`,
           ]
         : []),
       "",

@@ -10,6 +10,7 @@ export type IconName =
   | "building"
   | "calendar"
   | "check"
+  | "check-circle"
   | "chevron-down"
   | "close"
   | "copy"
@@ -95,6 +96,13 @@ function IconPaths({ name }: { name: IconName }) {
       );
     case "check":
       return <path d="m5 12 4 4L19 6" />;
+    case "check-circle":
+      return (
+        <>
+          <circle cx="12" cy="12" r="9" />
+          <path d="m8.25 12.25 2.5 2.5 5-5.5" />
+        </>
+      );
     case "chevron-down":
       return <path d="m6 9 6 6 6-6" />;
     case "close":

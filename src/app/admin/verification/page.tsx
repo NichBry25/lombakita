@@ -99,7 +99,7 @@ function ReviewPanelBody({
       // an error that would suggest the review did not land.
       const deliveryWarning = emailDeliveryWarning(data.emailDelivery);
       if (deliveryWarning) {
-        addToast({ type: "warning", message: deliveryWarning, duration: 0 });
+        addToast({ type: "error", message: deliveryWarning });
       }
 
       closeModal();
@@ -300,7 +300,7 @@ export default function AdminVerificationPage() {
                         Institusional
                       </span>
                     ) : (
-                      <span className="status-badge" data-status="closing">
+                      <span className="status-badge" data-status="closed">
                         Personal
                       </span>
                     )}

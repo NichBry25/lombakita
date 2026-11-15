@@ -1545,7 +1545,7 @@ export const InstitutionCompetitionEditShell = ({
       <PageHeader
         title={competition.title}
         actions={
-          <span className="status-badge" data-status={isPublished ? "open" : "closing"}>
+          <span className="status-badge" data-status={isPublished ? "open" : "awaiting"}>
             {getCompetitionStatusLabel(competition.status)}
           </span>
         }

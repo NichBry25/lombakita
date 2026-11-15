@@ -6,6 +6,7 @@ import { useModal, useToast } from "@/components/ui/primitives";
 import { LocalDate } from "@/components/ui/local-date";
 import {
   Button,
+  CountPill,
   EmptyState,
   Feedback,
   FormActionBar,
@@ -272,27 +273,20 @@ export const InstitutionVerificationShell = ({
               <h2>Institusi terverifikasi</h2>
             </div>
           </div>
-          <Feedback tone="success">
-            <p>
-              <strong>Dokumen institusi Anda telah disetujui</strong>
-              {verifiedAt ? (
-                <>
-                  {" "}
-                  pada <LocalDate value={verifiedAt} format="longDate" />
-                </>
-              ) : (
-                ""
-              )}
-              .
-            </p>
-          </Feedback>
           {approvedSubmission?.reviewerNotes ? (
             <p className="muted-copy">
               <strong>Catatan peninjau:</strong> {approvedSubmission.reviewerNotes}
             </p>
           ) : null}
           <p className="muted-copy">
-            Verifikasi ini berlaku seterusnya, jadi tidak ada dokumen baru yang perlu Anda kirim.
+            Disetujui
+            {verifiedAt ? (
+              <>
+                {" "}
+                pada <LocalDate value={verifiedAt} format="longDate" />
+              </>
+            ) : null}
+            . Verifikasi ini berlaku seterusnya, jadi tidak ada dokumen baru yang perlu Anda kirim.
             Hubungi tim dukungan jika data institusi Anda berubah.
           </p>
         </section>
@@ -397,7 +391,7 @@ export const InstitutionVerificationShell = ({
           <div>
             <h2>Riwayat verifikasi</h2>
           </div>
-          <span className="status-badge data-text">{submissions.length}</span>
+          <CountPill count={submissions.length} />
         </div>
         {loadingHistory && (
           <div className="stack-sm" aria-label="Memuat riwayat verifikasi">
@@ -442,7 +436,7 @@ export const InstitutionVerificationShell = ({
                             ? "open"
                             : s.status === "rejected"
                               ? "closed"
-                              : "closing"
+                              : "awaiting"
                         }
                       >
                         {STATUS_LABELS[s.status]}

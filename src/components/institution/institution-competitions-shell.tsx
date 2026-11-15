@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Button,
   ButtonLink,
+  CountPill,
   EmptyState,
   FilterDropdown,
   Icon,
@@ -141,7 +142,7 @@ export const InstitutionCompetitionsShell = ({ institutionSlug }: { institutionS
               value={filter}
               onChange={(value) => setFilter(value as CompetitionListFilter)}
             />
-            <span className="status-badge data-text">{visibleItems.length}</span>
+            <CountPill count={visibleItems.length} />
           </div>
         </div>
         {isLoading ? (
@@ -199,7 +200,7 @@ export const InstitutionCompetitionsShell = ({ institutionSlug }: { institutionS
                       ? "closed"
                       : c.status === "published"
                         ? "open"
-                        : "closing"
+                        : "awaiting"
                   }
                 >
                   {hasFinished(c, loadedAt) ? "Selesai" : getCompetitionStatusLabel(c.status)}

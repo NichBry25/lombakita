@@ -78,7 +78,7 @@ export function OrganiserSubmissionPanel({
                 <p className="record-row-title">{submission.fileName}</p>
                 <span
                   className="status-badge"
-                  data-status={submission.finalized ? "open" : "closing"}
+                  data-status={submission.finalized ? "open" : "awaiting"}
                 >
                   {submission.finalized ? "Finalisasi" : "Belum final"}
                 </span>

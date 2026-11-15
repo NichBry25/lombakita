@@ -257,8 +257,8 @@ export function OrganiserPaymentQueue({ institutionSlug, competitionId, proofs }
               ) : null}
 
               {proof.status === "rejected" && proof.rejectionReason ? (
-                <Feedback tone="error">
-                  {`Ditolak dengan alasan: ${asSentence(proof.rejectionReason)}`}
+                <Feedback tone="neutral">
+                  {asSentence(proof.rejectionReason)}
                   {proof.resubmissionAllowed
                     ? " Peserta masih dapat mengirim bukti baru."
                     : " Peserta tidak dapat mengirim ulang."}

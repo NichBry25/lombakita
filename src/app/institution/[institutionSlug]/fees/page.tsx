@@ -63,11 +63,9 @@ export default async function InstitutionFeeStatementPage({ params }: Props) {
         backHref={`/institution/${institutionSlug}`}
       />
 
-      <Feedback tone="info">
-        Dana peserta masuk langsung ke rekening lembaga Anda, sehingga biaya layanan tidak pernah
-        dipotong dari transfer mereka. Angka di bawah ini adalah tagihan Lombakita kepada lembaga
-        Anda, bukan saldo yang kami simpan untuk Anda. Belum ada proses penagihan yang berjalan.
-        Halaman ini hanya mencatat.
+      <Feedback tone="info" lead="Biaya layanan tidak dipotong dari transfer peserta.">
+        Angka di bawah adalah catatan tagihan, bukan saldo yang kami simpan, dan belum ada penagihan
+        yang berjalan.
       </Feedback>
 
       <div className="stack-md">

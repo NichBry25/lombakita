@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   Button,
+  CountPill,
   EmptyState,
   Feedback,
   FormInput,
@@ -286,7 +287,7 @@ export const InstitutionTeamShell = ({
           <div>
             <h2>Daftar akses institusi</h2>
           </div>
-          <span className="status-badge data-text">{members.length}</span>
+          <CountPill count={members.length} />
         </div>
         {isLoadingMembers ? (
           <div className="stack-sm" aria-label="Memuat anggota">
@@ -415,7 +416,7 @@ export const InstitutionTeamShell = ({
           <div>
             <h2>Undangan tertunda</h2>
           </div>
-          <span className="status-badge data-text">{invitations.length}</span>
+          <CountPill count={invitations.length} />
         </div>
         {isLoadingInvitations ? (
           <div className="stack-sm" aria-label="Memuat undangan">

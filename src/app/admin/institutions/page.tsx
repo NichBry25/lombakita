@@ -119,7 +119,7 @@ function RejectInstitutionForm({
       // The status change is committed either way, so a failed notice is a warning on a success.
       const deliveryWarning = emailDeliveryWarning(data?.emailDelivery);
       if (deliveryWarning) {
-        addToast({ type: "warning", message: deliveryWarning, duration: 0 });
+        addToast({ type: "error", message: deliveryWarning });
       }
 
       onClose();
@@ -250,7 +250,7 @@ export default function AdminInstitutionsPage() {
       return;
     }
     if (result.deliveryWarning) {
-      addToast({ type: "warning", message: result.deliveryWarning, duration: 0 });
+      addToast({ type: "error", message: result.deliveryWarning });
     }
     await fetchInstitutions();
   };
@@ -387,7 +387,7 @@ export default function AdminInstitutionsPage() {
                               : row.verificationStatus === "rejected"
                                 ? "closed"
                                 : row.verificationStatus === "pending_verification"
-                                  ? "closing"
+                                  ? "awaiting"
                                   : undefined
                           }
                         >

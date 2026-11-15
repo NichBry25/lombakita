@@ -285,7 +285,7 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
                           ? "open"
                           : p.status === "cancelled"
                             ? "closed"
-                            : "closing"
+                            : "awaiting"
                       }
                     >
                       {getRegistrationStatusLabel(p.status)}
