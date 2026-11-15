@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import type {
   ComponentProps,
+  CSSProperties,
   InputHTMLAttributes,
   LabelHTMLAttributes,
   ReactNode,
@@ -145,6 +146,114 @@ export function FormTextarea({
       readOnly={readOnly}
       className={joinClassNames("form-textarea", readOnly && "form-input-readonly", className)}
     />
+  );
+}
+
+// The counter announces to a screen reader only when the length crosses 80, 90 and 100 percent of
+// the limit, never on every key. The text is fixed per threshold so it does not change between them.
+const ANNOUNCE_AT_FRACTIONS = [0.9, 0.8];
+
+function limitAnnouncementFor(length: number, maxLength: number): string {
+  if (length >= maxLength) return `Batas ${maxLength} karakter tercapai.`;
+  for (const fraction of ANNOUNCE_AT_FRACTIONS) {
+    const threshold = Math.ceil(maxLength * fraction);
+    if (length >= threshold) return `Sisa ${maxLength - threshold} karakter`;
+  }
+  return "";
+}
+
+type FormTextareaWithLimitProps = Omit<
+  TextareaHTMLAttributes<HTMLTextAreaElement>,
+  "maxLength" | "value"
+> & {
+  value: string;
+  maxLength: number;
+  // The field error, shown at the left of the message row and linked to the field.
+  error?: string;
+};
+
+/**
+ * A text area with a character limit: a "{n} / {max}" counter at the right of the message row.
+ * At the limit the counter and a message turn to the error colour, with no change to the field's
+ * ring, because reaching the limit is not an error. Render it inside a FormField.
+ */
+export function FormTextareaWithLimit({
+  value,
+  maxLength,
+  error,
+  className,
+  "aria-describedby": describedBy,
+  ...textareaProps
+}: FormTextareaWithLimitProps) {
+  const counterId = useId();
+  const errorId = useId();
+  const atLimit = value.length >= maxLength;
+  const describedByIds = [describedBy, error ? errorId : undefined, counterId]
+    .filter(Boolean)
+    .join(" ");
+
+  return (
+    <>
+      <FormTextarea
+        {...textareaProps}
+        value={value}
+        maxLength={maxLength}
+        className={className}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={describedByIds}
+      />
+      <div className="form-message-row">
+        {error ? (
+          <FormError id={errorId}>{error}</FormError>
+        ) : atLimit ? (
+          <p className="form-limit-message">{`Batas ${maxLength} karakter tercapai.`}</p>
+        ) : (
+          <span />
+        )}
+        <span id={counterId} className="form-counter" data-at-limit={atLimit ? "true" : undefined}>
+          {`${value.length} / ${maxLength}`}
+        </span>
+      </div>
+      <span className="sr-only" aria-live="polite" aria-atomic="true">
+        {limitAnnouncementFor(value.length, maxLength)}
+      </span>
+    </>
+  );
+}
+
+type SliderProps = {
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+  value: number;
+  onChange: (value: number) => void;
+};
+
+// A native range input, so arrow keys and touch drag are the browser's own. The filled part of
+// the track is drawn from the value, which CSS cannot read from the input.
+export function Slider({ label, min, max, step, value, onChange }: SliderProps) {
+  const inputId = useId();
+  const progressPercent = ((value - min) / (max - min)) * 100;
+  const progressStyle = { "--slider-progress": `${progressPercent}%` } as CSSProperties;
+
+  return (
+    <div className="slider">
+      <label className="slider-label" htmlFor={inputId}>
+        {label}
+      </label>
+      <input
+        id={inputId}
+        className="slider-input"
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        style={progressStyle}
+        onChange={(event) => onChange(parseFloat(event.target.value))}
+      />
+    </div>
   );
 }
 

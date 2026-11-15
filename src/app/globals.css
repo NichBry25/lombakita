@@ -4648,43 +4648,131 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: var(--page-padding);
+  padding: var(--modal-margin-desktop);
   background: var(--overlay-scrim);
 }
 
+/* A solid box, never glass. The body scrolls under a fixed title and footer when the screen is
+   shorter than the content. */
 .modal-dialog {
-  width: min(100%, var(--content-narrow));
-  max-height: calc(100vh - (var(--page-padding) * 2));
-  overflow-y: auto;
-  padding: var(--space-6);
-  border: var(--border-thin) solid var(--color-line);
-  border-radius: var(--radius-card);
-  background: var(--color-raised);
-  box-shadow: var(--shadow-lg);
+  display: flex;
+  box-sizing: border-box;
+  width: min(100%, var(--modal-width));
+  max-height: calc(100dvh - (var(--modal-margin-desktop) * 2));
+  flex-direction: column;
+  padding: var(--modal-padding);
+  border: var(--border-thin) solid var(--modal-edge);
+  border-radius: var(--modal-radius);
+  background: var(--modal-fill);
+  box-shadow: var(--modal-shadow);
+  animation: modal-enter var(--duration-modal) var(--ease-primary) both;
 }
 
-.modal-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-4);
-  margin-block-end: var(--space-4);
+.modal-dialog[data-width="wide"] {
+  width: min(100%, var(--modal-width-wide));
+}
+
+@keyframes modal-enter {
+  from {
+    opacity: 0;
+    transform: translateY(var(--modal-rise));
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-dialog {
+    animation-name: modal-fade;
+  }
+
+  @keyframes modal-fade {
+    from {
+      opacity: 0;
+    }
+
+    to {
+      opacity: 1;
+    }
+  }
 }
 
 .modal-title {
-  font-size: var(--text-section-title);
+  flex: none;
+  margin: var(--space-0);
+  margin-block-end: var(--modal-title-gap);
+  color: var(--color-ink);
+  font-size: var(--modal-title-size);
+  line-height: var(--modal-title-leading);
+  overflow-wrap: break-word;
 }
 
+/* The inline padding with a matching negative margin keeps a focus ring at the edge of the body
+   from being clipped by the scroll container. */
 .modal-body {
-  margin-block-end: var(--space-5);
+  min-height: var(--space-0);
+  margin-inline: calc(-1 * var(--space-2));
+  padding-inline: var(--space-2);
+  overflow-y: auto;
   color: var(--color-ink-soft);
+  font-size: var(--modal-body-size);
+  line-height: var(--modal-body-leading);
 }
 
+.modal-body > p {
+  margin: var(--space-0);
+}
+
+.modal-failure {
+  flex: none;
+  margin-block-start: var(--modal-failure-gap);
+}
+
+/* The decisions row of the operator review pop-up, which carries three equal decisions in its body
+   and has no shared footer. */
 .modal-actions {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: var(--space-2);
+}
+
+/* The safe choice sits on the left and the main action on the right, on one row. */
+.modal-footer {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  margin-block-start: var(--modal-footer-gap);
+}
+
+.modal-footer[data-layout="end"] {
+  justify-content: flex-end;
+}
+
+/* Three choices stack in a centred column so no two different styles sit side by side. */
+.modal-footer[data-layout="stack"] {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--modal-stack-gap);
+}
+
+/* The text of the link, not its padding, lines up with the left edge of the content. */
+.modal-footer[data-layout="row"] > .modal-safe-action {
+  margin-inline-start: calc(-1 * var(--space-2-5));
+}
+
+/* While the main action runs the link dims and does nothing. aria-disabled keeps it announced as
+   unavailable without the grey disabled surface the button kit paints. */
+.modal-footer .modal-safe-action[aria-disabled="true"] {
+  border-color: transparent;
+  background: transparent;
+  color: var(--color-ink-faint);
+  cursor: default;
 }
 
 /* A toast is a notice that floats: a solid card in the same two tones as the notice. */
@@ -4766,28 +4854,6 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
 .toast-close:hover:not(:disabled) {
   background: color-mix(in srgb, currentcolor 12%, transparent);
   color: inherit;
-}
-
-.modal-close {
-  display: inline-grid;
-  width: var(--touch-target);
-  min-width: var(--touch-target);
-  min-height: var(--touch-target);
-  /* The 44px target overhangs the header instead of setting its height. A title line is about
-     28px, so letting the button define the row adds blank space above the body that reads as a
-     gap between the dialog's title and what it says. */
-  margin-block: calc(-1 * var(--space-2));
-  place-items: center;
-  border: 0;
-  border-radius: var(--radius-circle);
-  background: transparent;
-  color: var(--color-ink-soft);
-  cursor: pointer;
-}
-
-.modal-close:hover {
-  background: var(--color-inset);
-  color: var(--color-ink);
 }
 
 /* Candidate actions and identity */
@@ -5663,11 +5729,12 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
   font-size: var(--text-meta);
 }
 
-/* Image crop modal — shared by the avatar (1:1) and banner (4:1) croppers. The viewport takes the
-   width it is given and derives its height from the frame ratio, which the editor sets inline. */
+/* Image crop pop-up, shared by the avatar (1:1) and cover (4:1) croppers. The area takes the width
+   of the pop-up and keeps one ratio for both shapes. The image is panned under a guide, and what
+   the guide frames is what gets saved. The editor sets the guide's size inline from the area's
+   measured width. */
 .image-crop {
   display: grid;
-  justify-items: center;
   gap: var(--space-4);
   color: var(--color-ink);
 }
@@ -5675,18 +5742,31 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
 .image-crop-viewport {
   position: relative;
   inline-size: 100%;
-  max-inline-size: 400px;
+  aspect-ratio: var(--crop-area-ratio);
   overflow: hidden;
+  border-radius: var(--crop-area-radius);
   background: var(--color-inset);
   cursor: grab;
   touch-action: none;
 }
 
-.image-crop-viewport-blob {
+/* Everything outside the guide is dimmed by the guide's own spread shadow, clipped by the area. */
+.image-crop-guide {
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-start: 50%;
+  box-sizing: border-box;
+  border: var(--crop-guide-ring-width) solid var(--crop-guide-ring);
+  box-shadow: 0 0 0 100vmax var(--overlay-scrim);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.image-crop-guide-blob {
   border-radius: var(--blob-radius-a);
 }
 
-.image-crop-viewport-rect {
+.image-crop-guide-rect {
   border-radius: var(--radius-card);
 }
 
@@ -5707,26 +5787,122 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
   -webkit-user-drag: none;
 }
 
-.image-crop-zoom {
+/* Slider kit. The native range input keeps the keyboard and touch behaviour. The 44px input is the
+   hit area, the track is 6px with the filled part drawn from --slider-progress, and the 24px thumb
+   carries a ring in the pop-up's fill so it reads against the track. */
+.slider {
   display: flex;
-  inline-size: 100%;
-  max-inline-size: 400px;
   align-items: center;
-  gap: var(--space-3);
-  font-size: var(--text-body-sm);
-  color: var(--color-ink-soft);
+  gap: var(--slider-gap);
 }
 
-.image-crop-zoom input[type="range"] {
+.slider-label {
+  flex: none;
+  inline-size: var(--slider-label-width);
+  color: var(--color-ink);
+  font-size: var(--text-body-sm);
+  font-weight: 600;
+}
+
+.slider-input {
+  --slider-progress: 0%;
+  --slider-unfilled: var(--color-field-ring);
+
   flex: 1;
-  accent-color: var(--color-action);
+  min-width: var(--space-0);
+  block-size: var(--touch-target);
+  margin: var(--space-0);
+  background: transparent;
+  cursor: pointer;
+  appearance: none;
+}
+
+.slider-input::-webkit-slider-runnable-track {
+  block-size: var(--slider-track-height);
+  border-radius: var(--radius-pill);
+  background: linear-gradient(
+    to right,
+    var(--color-ink) var(--slider-progress),
+    var(--slider-unfilled) var(--slider-progress)
+  );
+}
+
+.slider-input::-moz-range-track {
+  block-size: var(--slider-track-height);
+  border-radius: var(--radius-pill);
+  background: var(--slider-unfilled);
+}
+
+.slider-input::-moz-range-progress {
+  block-size: var(--slider-track-height);
+  border-radius: var(--radius-pill);
+  background: var(--color-ink);
+}
+
+.slider-input::-webkit-slider-thumb {
+  inline-size: var(--slider-thumb-size);
+  block-size: var(--slider-thumb-size);
+  margin-block-start: calc((var(--slider-track-height) - var(--slider-thumb-size)) / 2);
+  border: var(--slider-thumb-ring) solid var(--modal-fill);
+  border-radius: var(--radius-circle);
+  background: var(--color-ink);
+  box-sizing: border-box;
+  appearance: none;
+}
+
+.slider-input::-moz-range-thumb {
+  inline-size: var(--slider-thumb-size);
+  block-size: var(--slider-thumb-size);
+  border: var(--slider-thumb-ring) solid var(--modal-fill);
+  border-radius: var(--radius-circle);
+  background: var(--color-ink);
+  box-sizing: border-box;
+}
+
+.slider-input:focus-visible {
+  outline: var(--focus-width) solid var(--focus-color);
+  outline-offset: var(--focus-offset);
 }
 
 .image-crop-hint {
   margin: var(--space-0);
-  color: var(--color-ink-faint);
-  font-size: var(--text-meta);
-  text-align: center;
+  color: var(--color-ink-soft);
+  font-size: var(--modal-body-size);
+  line-height: var(--modal-body-leading);
+}
+
+/* The row under a text area: the message at the left, the character counter at the right. It keeps
+   its height so nothing moves when a message appears. */
+.form-message-row {
+  display: flex;
+  min-height: var(--form-message-row-height);
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.form-message-row > :first-child:not(.form-counter) {
+  min-width: var(--space-0);
+}
+
+.form-counter {
+  flex: none;
+  margin-inline-start: auto;
+  color: var(--color-ink-soft);
+  font-size: var(--text-body-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.form-counter[data-at-limit="true"] {
+  color: var(--color-error-text);
+  font-weight: 600;
+}
+
+.form-limit-message {
+  margin: var(--space-0);
+  color: var(--color-error-text);
+  font-size: var(--text-body-sm);
+  font-weight: 500;
 }
 
 .pf-resume {
@@ -6992,14 +7168,28 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
     padding: var(--space-10) var(--page-padding-mobile);
   }
 
+  /* On a phone the pop-up sits at the bottom, within reach of the thumb, 16px from each edge plus
+     the safe area. */
   .modal-backdrop {
     align-items: flex-end;
-    padding: var(--space-2);
+    padding: var(--modal-margin-phone);
+    padding-block-start: calc(var(--modal-margin-phone) + env(safe-area-inset-top));
+    padding-block-end: calc(var(--modal-margin-phone) + env(safe-area-inset-bottom));
+    padding-inline-start: calc(var(--modal-margin-phone) + env(safe-area-inset-left));
+    padding-inline-end: calc(var(--modal-margin-phone) + env(safe-area-inset-right));
   }
 
-  .modal-dialog {
-    max-height: calc(100vh - (var(--space-2) * 2));
-    padding: var(--space-5);
+  .modal-dialog,
+  .modal-dialog[data-width="wide"] {
+    width: 100%;
+    max-height: 100%;
+    padding: var(--modal-padding-phone);
+    border-radius: var(--modal-radius-phone);
+  }
+
+  .modal-title {
+    font-size: var(--modal-title-size-phone);
+    line-height: var(--modal-title-leading-phone);
   }
 
   .modal-actions .ui-button {

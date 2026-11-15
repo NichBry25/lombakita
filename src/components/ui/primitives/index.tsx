@@ -1,8 +1,8 @@
 "use client";
 
-export { useModal } from "./modal-context";
+export { useModal, useModalTask } from "./modal-context";
 export { useToast } from "./toast-context";
-export type { ModalConfig, ModalAction } from "./modal-context";
+export type { ModalConfig, ModalAction, ModalOutcome } from "./modal-context";
 export type { ToastConfig, ToastType } from "./toast-context";
 
 import type { ReactNode } from "react";

@@ -151,7 +151,7 @@ export const InstitutionVerificationShell = ({
         openModal({
           title: "Dokumen belum lengkap",
           body: `Unggah dokumen ${DOCUMENT_TYPE_LABELS[field.documentType] ?? formatDisplayToken(field.documentType)} sebelum melanjutkan.`,
-          actions: [{ label: "OK", onClick: () => {} }],
+          actions: [{ label: "Mengerti", variant: "primary" }],
         });
         return;
       }
@@ -187,7 +187,8 @@ export const InstitutionVerificationShell = ({
         openModal({
           title: "Pengajuan gagal",
           body: errorMessageFor(errorCode, SUBMIT_ERROR_COPY, SUBMIT_FALLBACK),
-          actions: [{ label: "OK", onClick: () => {} }],
+          alert: true,
+          actions: [{ label: "Mengerti", variant: "primary" }],
         });
         // This page was rendered before the institution reached a state that closes submissions —
         // a verdict landed, or another owner filed first. Pull the current state back in so it
@@ -248,7 +249,8 @@ export const InstitutionVerificationShell = ({
       openModal({
         title: "Pengajuan gagal",
         body: NETWORK_ERROR_MESSAGE,
-        actions: [{ label: "OK", onClick: () => {} }],
+        alert: true,
+        actions: [{ label: "Mengerti", variant: "primary" }],
       });
     } finally {
       setSubmitting(false);

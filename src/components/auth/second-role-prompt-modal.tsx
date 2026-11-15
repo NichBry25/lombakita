@@ -81,12 +81,12 @@ export function SecondRolePromptModal() {
       title: copy.headline,
       body: copy.description,
       actions: [
+        { label: "Nanti saja" },
         {
           label: copy.cta,
           variant: "primary",
           onClick: () => router.push(`/auth/verify-role?as=${offeredRole}`),
         },
-        { label: "Nanti saja", variant: "secondary", onClick: () => {} },
       ],
       onClose: () => setOpen(false),
     });

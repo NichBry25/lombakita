@@ -1,11 +1,10 @@
 "use client";
 
-import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui";
 import { COMPETITION_HOST_CANNOT_JOIN_MESSAGE, errorMessageFor } from "@/lib/errors/error-copy";
 import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
-import { useModal, useToast } from "@/components/ui/primitives";
+import { useModal, useToast, type ModalOutcome } from "@/components/ui/primitives";
 
 // Actionable accept/reject controls for an inbox invitation card. Acceptance is in-app
 // and session-id matched server-side (the invitation is addressed by id; the server checks
@@ -69,11 +68,8 @@ export function InboxInviteActions({
   const router = useRouter();
   const { openModal } = useModal();
   const { addToast } = useToast();
-  // Which action is in flight, so the spinner lands on the button the user actually pressed.
-  const [runningAction, setRunningAction] = useState<InviteAction | null>(null);
-
-  const run = async (action: InviteAction) => {
-    setRunningAction(action);
+  // The confirm pop-up shows the waiting and the failure, so this reports an outcome.
+  const run = async (action: InviteAction): Promise<ModalOutcome> => {
     try {
       const res = await sessionFetch(
         expectedUserId,
@@ -81,20 +77,18 @@ export function InboxInviteActions({
         { method: "POST" },
       );
       if (!res.ok) {
-        addToast({ type: "error", message: await readErrorMessage(res, action) });
         // A stale card (already accepted/declined/expired elsewhere) is dropped by refreshing.
         router.refresh();
-        return;
+        return { ok: false, message: await readErrorMessage(res, action) };
       }
       addToast({
         type: "success",
         message: action === "accept" ? "Undangan diterima." : "Undangan ditolak.",
       });
       router.refresh();
+      return { ok: true };
     } catch {
-      addToast({ type: "error", message: "Terjadi kesalahan jaringan. Coba lagi." });
-    } finally {
-      setRunningAction(null);
+      return { ok: false, message: "Terjadi kesalahan jaringan. Coba lagi." };
     }
   };
 
@@ -105,41 +99,24 @@ export function InboxInviteActions({
         action === "accept"
           ? "Anda akan bergabung sesuai undangan ini."
           : "Undangan ini akan ditolak dan tidak dapat dibatalkan.",
-      closeable: true,
+      alert: action === "decline",
       actions: [
+        { label: "Batal" },
         {
           label: action === "accept" ? "Terima" : "Tolak",
-          variant: action === "accept" ? "primary" : "secondary",
-          autoClose: true,
-          onClick: () => {
-            void run(action);
-          },
+          variant: "primary",
+          onClick: () => run(action),
         },
-        { label: "Batal", variant: "secondary", autoClose: true, onClick: () => {} },
       ],
     });
   };
 
   return (
     <div className="inbox-actions">
-      <Button
-        type="button"
-        variant="primary"
-        size="sm"
-        loading={runningAction === "accept"}
-        disabled={runningAction !== null}
-        onClick={() => confirm("accept")}
-      >
+      <Button type="button" variant="primary" size="sm" onClick={() => confirm("accept")}>
         Terima
       </Button>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        loading={runningAction === "decline"}
-        disabled={runningAction !== null}
-        onClick={() => confirm("decline")}
-      >
+      <Button type="button" variant="outline" size="sm" onClick={() => confirm("decline")}>
         Tolak
       </Button>
     </div>

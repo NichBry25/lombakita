@@ -9,10 +9,11 @@ import {
   FormInput,
   FormLabel,
   FormTextarea,
+  FormTextareaWithLimit,
   Icon,
   IconButton,
 } from "@/components/ui";
-import { useModal, useToast } from "@/components/ui/primitives";
+import { useModal, useModalTask, useToast, type ModalOutcome } from "@/components/ui/primitives";
 import { LocalDate } from "@/components/ui/local-date";
 import {
   DOCUMENT_REQUEST_STATUS_LABELS,
@@ -76,7 +77,7 @@ export function OrganiserDocumentRequestPanel({
 }: PanelProps) {
   const router = useRouter();
   const { addToast } = useToast();
-  const { openModal, closeModal } = useModal();
+  const { openModal } = useModal();
 
   const [title, setTitle] = useState("");
   const [instructions, setInstructions] = useState("");
@@ -140,12 +141,13 @@ export function OrganiserDocumentRequestPanel({
     }
   };
 
-  const patchRequest = async (
+  // Reports an outcome and toasts only the success, so a pop-up can show the failure itself and a
+  // page control can toast it.
+  const sendRequestPatch = async (
     requestId: string,
     body: Record<string, unknown>,
     successMessage: string,
-  ) => {
-    setPendingRequestId(requestId);
+  ): Promise<ModalOutcome> => {
     try {
       const response = await fetch(`${requestBase}/document-requests/${requestId}`, {
         method: "PATCH",
@@ -158,23 +160,32 @@ export function OrganiserDocumentRequestPanel({
         const payload = (await response.json().catch(() => null)) as {
           error?: { code?: string };
         } | null;
-        addToast({
-          type: "error",
+        return {
+          ok: false,
           message: resolveDocumentRequestErrorMessage(
             payload?.error?.code,
             "Tindakan gagal. Muat ulang halaman lalu coba lagi.",
           ),
-        });
-        return;
+        };
       }
 
       addToast({ type: "success", message: successMessage });
       router.refresh();
+      return { ok: true };
     } catch {
-      addToast({ type: "error", message: "Tindakan gagal karena gangguan koneksi." });
-    } finally {
-      setPendingRequestId(null);
+      return { ok: false, message: "Tindakan gagal karena gangguan koneksi." };
     }
+  };
+
+  const patchRequest = async (
+    requestId: string,
+    body: Record<string, unknown>,
+    successMessage: string,
+  ) => {
+    setPendingRequestId(requestId);
+    const outcome = await sendRequestPatch(requestId, body, successMessage);
+    setPendingRequestId(null);
+    if (!outcome.ok) addToast({ type: "error", message: outcome.message });
   };
 
   const openFile = async (
@@ -201,41 +212,39 @@ export function OrganiserDocumentRequestPanel({
   };
 
   // Rejecting is reachable whether or not a file was uploaded: a document that is present, on time
-  // and legible may still be refused. The form owns its own submit, so the modal carries no actions.
+  // and legible may still be refused. The form owns its fields and the pop-up footer submits it.
   const confirmReject = (request: OrganiserDocumentRequest) => {
     openModal({
       title: "Tolak dokumen",
+      wide: true,
+      formId: rejectFormId(request.id),
       body: (
         <RejectForm
           request={request}
-          onSubmit={(body) => {
-            closeModal();
-            void patchRequest(request.id, body, "Dokumen ditolak.");
-          }}
-          onCancel={closeModal}
+          onSubmit={(body) => sendRequestPatch(request.id, body, "Dokumen ditolak.")}
         />
       ),
-      actions: [],
+      actions: [{ label: "Batal" }, { label: "Tolak dokumen", variant: "primary" }],
     });
   };
 
   const confirmExtend = (request: OrganiserDocumentRequest) => {
     openModal({
       title: "Perpanjang tenggat",
+      wide: true,
+      formId: EXTEND_FORM_ID,
       body: (
         <DeadlineForm
-          onSubmit={(dueAtIso) => {
-            closeModal();
-            void patchRequest(
+          onSubmit={(dueAtIso) =>
+            sendRequestPatch(
               request.id,
               { action: "extend", dueAt: dueAtIso },
               "Tenggat diperpanjang.",
-            );
-          }}
-          onCancel={closeModal}
+            )
+          }
         />
       ),
-      actions: [],
+      actions: [{ label: "Batal" }, { label: "Perpanjang", variant: "primary" }],
     });
   };
 
@@ -243,15 +252,13 @@ export function OrganiserDocumentRequestPanel({
     openModal({
       title: "Tarik permintaan",
       body: `Permintaan "${request.title}" akan ditarik. Peserta tidak perlu lagi mengunggah dokumen.`,
+      alert: true,
       actions: [
-        { label: "Batal", variant: "secondary", onClick: closeModal },
+        { label: "Batal" },
         {
           label: "Tarik permintaan",
-          variant: "danger",
-          onClick: () => {
-            closeModal();
-            void patchRequest(request.id, { action: "cancel" }, "Permintaan ditarik.");
-          },
+          variant: "primary",
+          onClick: () => sendRequestPatch(request.id, { action: "cancel" }, "Permintaan ditarik."),
         },
       ],
     });
@@ -435,32 +442,36 @@ export function OrganiserDocumentRequestPanel({
   );
 }
 
+const rejectFormId = (requestId: string) => `reject-document-form-${requestId}`;
+
+const EXTEND_FORM_ID = "extend-document-deadline-form";
+
 function RejectForm({
   request,
   onSubmit,
-  onCancel,
 }: {
   request: OrganiserDocumentRequest;
-  onSubmit: (body: Record<string, unknown>) => void;
-  onCancel: () => void;
+  onSubmit: (body: Record<string, unknown>) => Promise<ModalOutcome>;
 }) {
+  const runModalTask = useModalTask();
   const [note, setNote] = useState("");
   const [allowReupload, setAllowReupload] = useState(true);
   const [dueAt, setDueAt] = useState(defaultDeadlineValue);
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    onSubmit({
+    const body = {
       action: "review",
       verdict: "reject",
       note: note.trim(),
       allowReupload,
       ...(allowReupload ? { dueAt: new Date(dueAt).toISOString() } : {}),
-    });
+    };
+    void runModalTask(() => onSubmit(body));
   };
 
   return (
-    <form className="auth-form" onSubmit={submit}>
+    <form id={rejectFormId(request.id)} className="auth-form" onSubmit={submit}>
       <p className="muted-copy">
         Alasan ini ditampilkan kepada peserta sebagai isi halaman, bukan notifikasi sesaat.
       </p>
@@ -468,7 +479,7 @@ function RejectForm({
         <FormLabel htmlFor={`reject-note-${request.id}`} required>
           Alasan penolakan
         </FormLabel>
-        <FormTextarea
+        <FormTextareaWithLimit
           id={`reject-note-${request.id}`}
           rows={3}
           value={note}
@@ -506,35 +517,22 @@ function RejectForm({
           />
         </div>
       ) : null}
-
-      <div className="record-actions">
-        <Button type="button" variant="outline" onClick={onCancel}>
-          Batal
-        </Button>
-        <Button type="submit" variant="primary">
-          Tolak dokumen
-        </Button>
-      </div>
     </form>
   );
 }
 
-function DeadlineForm({
-  onSubmit,
-  onCancel,
-}: {
-  onSubmit: (dueAtIso: string) => void;
-  onCancel: () => void;
-}) {
+function DeadlineForm({ onSubmit }: { onSubmit: (dueAtIso: string) => Promise<ModalOutcome> }) {
+  const runModalTask = useModalTask();
   const [dueAt, setDueAt] = useState(defaultDeadlineValue);
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    onSubmit(new Date(dueAt).toISOString());
+    const dueAtIso = new Date(dueAt).toISOString();
+    void runModalTask(() => onSubmit(dueAtIso));
   };
 
   return (
-    <form className="auth-form" onSubmit={submit}>
+    <form id={EXTEND_FORM_ID} className="auth-form" onSubmit={submit}>
       <div className="form-field">
         <FormLabel htmlFor="extend-due" required>
           Tenggat baru
@@ -546,12 +544,6 @@ function DeadlineForm({
           onChange={(event) => setDueAt(event.target.value)}
           required
         />
-      </div>
-      <div className="record-actions">
-        <Button type="button" variant="outline" onClick={onCancel}>
-          Batal
-        </Button>
-        <Button type="submit">Perpanjang</Button>
       </div>
     </form>
   );

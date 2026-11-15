@@ -3,7 +3,7 @@
 import { useCallback, useId, useRef, useState } from "react";
 import { Button, CheckboxField, IconButton, PageSection, Panel } from "@/components/ui";
 import { FormField, FormInput, FormLabel, FormTextarea, SelectField } from "@/components/ui";
-import { useToast } from "@/components/ui/primitives";
+import { useModal, useToast, type ModalOutcome } from "@/components/ui/primitives";
 import { ownerFetch, PROFILE_FILE_REMOVE_FALLBACK, uploadProfileFile } from "./profile-file-upload";
 import { errorMessageFor } from "@/lib/errors/error-copy";
 import { sessionFetch } from "@/lib/session/session-fetch";
@@ -80,6 +80,7 @@ function useEditableCollection<T extends { id: string }>(
   addToast: AddToast,
   labels: { added: string; updated: string },
 ) {
+  const { openModal } = useModal();
   const [items, setItems] = useState<T[]>(initialItems);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -117,15 +118,33 @@ function useEditableCollection<T extends { id: string }>(
     addToast({ type: "success", message: labels.updated });
   };
 
-  const remove = async (id: string): Promise<void> => {
+  // The entry leaves the page only after the server has confirmed the delete.
+  const requestRemove = async (id: string): Promise<ModalOutcome> => {
     const result = await mutate("DELETE", `/${collection}/${id}`);
-    if (!result.ok) {
-      addToast({ type: "error", message: result.message });
-      return;
-    }
+    if (!result.ok) return { ok: false, message: result.message };
     setItems((prev) => prev.filter((item) => item.id !== id));
     if (editingId === id) setEditingId(null);
     addToast({ type: "success", message: "Entri dihapus." });
+    return { ok: true };
+  };
+
+  const remove = async (id: string): Promise<void> => {
+    const outcome = await requestRemove(id);
+    if (!outcome.ok) addToast({ type: "error", message: outcome.message });
+  };
+
+  // Deleting a saved entry is immediate and permanent, so it asks first. The noun names the section
+  // ("pendidikan", "pengalaman") in the title and on the button.
+  const confirmRemove = (id: string, entryName: string, noun: string) => {
+    openModal({
+      title: `Hapus ${noun} ini?`,
+      body: `“${entryName}” akan dihapus dari profil Anda.`,
+      alert: true,
+      actions: [
+        { label: "Batal" },
+        { label: `Hapus ${noun}`, variant: "primary", onClick: () => requestRemove(id) },
+      ],
+    });
   };
 
   return {
@@ -140,6 +159,7 @@ function useEditableCollection<T extends { id: string }>(
     add,
     update,
     remove,
+    confirmRemove,
   };
 }
 
@@ -432,7 +452,7 @@ function ExperienceEditor({
           <EntryPanel
             key={entry.id}
             heading={`Pengalaman ${index + 1}`}
-            onDelete={() => c.remove(entry.id)}
+            onDelete={() => c.confirmRemove(entry.id, entry.title, "pengalaman")}
             deleteLabel={`Hapus pengalaman ${entry.title}`}
           >
             {c.editingId === entry.id ? (
@@ -605,7 +625,7 @@ function EducationEditor({
           <EntryPanel
             key={entry.id}
             heading={`Pendidikan ${index + 1}`}
-            onDelete={() => c.remove(entry.id)}
+            onDelete={() => c.confirmRemove(entry.id, entry.school, "pendidikan")}
             deleteLabel={`Hapus pendidikan ${entry.school}`}
           >
             {c.editingId === entry.id ? (
@@ -952,7 +972,7 @@ function CertificationEditor({
           <EntryPanel
             key={entry.id}
             heading={`Sertifikasi ${index + 1}`}
-            onDelete={() => c.remove(entry.id)}
+            onDelete={() => c.confirmRemove(entry.id, entry.name, "sertifikasi")}
             deleteLabel={`Hapus sertifikasi ${entry.name}`}
           >
             {c.editingId === entry.id ? (
@@ -1078,7 +1098,7 @@ function SocialLinkEditor({
           <EntryPanel
             key={entry.id}
             heading={`Tautan ${index + 1}`}
-            onDelete={() => c.remove(entry.id)}
+            onDelete={() => c.confirmRemove(entry.id, PLATFORM_LABELS[entry.platform], "tautan")}
             deleteLabel={`Hapus tautan ${PLATFORM_LABELS[entry.platform]}`}
           >
             {c.editingId === entry.id ? (

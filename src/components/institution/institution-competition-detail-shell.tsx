@@ -12,7 +12,7 @@ import {
   Skeleton,
   usePageTransition,
 } from "@/components/ui";
-import { useModal, useToast } from "@/components/ui/primitives";
+import { useModal, useToast, type ModalOutcome } from "@/components/ui/primitives";
 import { LocalDate } from "@/components/ui/local-date";
 import { getCompetitionCategoryLabel } from "@/lib/competitions/categories";
 import { getCompetitionFieldLabel } from "@/lib/competitions/fields";
@@ -193,9 +193,7 @@ export const InstitutionCompetitionDetailShell = ({
   const [isLoading, setIsLoading] = useState(true);
   // Several lifecycle actions live side by side; the key records which one is running so only
   // that button spins while the rest stay locked.
-  const [pendingAction, setPendingAction] = useState<
-    ActionKind | ParticipationDecision | "delete" | null
-  >(null);
+  const [pendingAction, setPendingAction] = useState<ActionKind | null>(null);
   const isSubmitting = pendingAction !== null;
 
   const load = useCallback(async () => {
@@ -247,8 +245,9 @@ export const InstitutionCompetitionDetailShell = ({
     hasActiveRegistrations,
   });
 
-  const onAction = async (action: ActionKind) => {
-    setPendingAction(action);
+  // Reports an outcome instead of toasting the refusal, so a pop-up can show it inside itself and
+  // the page's own button can toast it.
+  const requestAction = async (action: ActionKind): Promise<ModalOutcome> => {
     const url = `/api/v1/institutions/${encodeURIComponent(institutionSlug)}/competitions/${encodeURIComponent(competitionId)}/${action}`;
     const response = await sessionFetch(expectedUserId, url, { method: "POST" });
     if (!response.ok) {
@@ -256,31 +255,33 @@ export const InstitutionCompetitionDetailShell = ({
       // A publish refusal is translated from its code, never relayed. The server's message is
       // English and written for a log; the person who pressed the button gets Indonesian.
       if (action === "publish") {
-        addToast({
-          type: "error",
+        return {
+          ok: false,
           message: resolveSessionMismatchMessage(
             code,
             resolvePublishRefusalToastText(code, failures),
           ),
-        });
-      } else {
-        const message = errorMessageFor(code, REFUSAL_COPY.unpublish, REFUSAL_FALLBACK.unpublish);
-        const failureText = formatFailures(failures);
-        addToast({
-          type: "error",
-          message: failureText ? `${message} (${failureText})` : message,
-        });
+        };
       }
-      setPendingAction(null);
-      return;
+      const message = errorMessageFor(code, REFUSAL_COPY.unpublish, REFUSAL_FALLBACK.unpublish);
+      const failureText = formatFailures(failures);
+      return { ok: false, message: failureText ? `${message} (${failureText})` : message };
     }
     addToast({ type: "success", message: actionLabel[action] });
-    setPendingAction(null);
     void load();
+    return { ok: true };
   };
 
-  const onParticipationDecision = async (decision: ParticipationDecision) => {
-    setPendingAction(decision);
+  const onAction = async (action: ActionKind) => {
+    setPendingAction(action);
+    const outcome = await requestAction(action);
+    setPendingAction(null);
+    if (!outcome.ok) addToast({ type: "error", message: outcome.message });
+  };
+
+  const requestParticipationDecision = async (
+    decision: ParticipationDecision,
+  ): Promise<ModalOutcome> => {
     const url = `/api/v1/institutions/${encodeURIComponent(institutionSlug)}/competitions/${encodeURIComponent(competitionId)}/participation-decision`;
     const response = await sessionFetch(expectedUserId, url, {
       method: "POST",
@@ -289,24 +290,21 @@ export const InstitutionCompetitionDetailShell = ({
     });
     if (!response.ok) {
       const { code } = await extractError(response);
-      addToast({
-        type: "error",
+      return {
+        ok: false,
         message: errorMessageFor(code, REFUSAL_COPY.decision, REFUSAL_FALLBACK.decision),
-      });
-      setPendingAction(null);
-      return;
+      };
     }
     addToast({
       type: "success",
       message:
         decision === "cancel" ? "Kompetisi dibatalkan." : "Kompetisi dikonfirmasi tetap berjalan.",
     });
-    setPendingAction(null);
     void load();
+    return { ok: true };
   };
 
-  const runDelete = async () => {
-    setPendingAction("delete");
+  const requestDelete = async (): Promise<ModalOutcome> => {
     const response = await sessionFetch(
       expectedUserId,
       `/api/v1/competitions/${encodeURIComponent(competitionId)}`,
@@ -314,32 +312,69 @@ export const InstitutionCompetitionDetailShell = ({
     );
     if (!response.ok && response.status !== 204) {
       const { code } = await extractError(response);
-      addToast({
-        type: "error",
+      return {
+        ok: false,
         message: errorMessageFor(code, REFUSAL_COPY.delete, REFUSAL_FALLBACK.delete),
-      });
-      setPendingAction(null);
-      return;
+      };
     }
     // Deleting the draft leaves this page for the competition list.
     beginPageTransition("Menghapus draf…");
     window.location.href = `/institution/${encodeURIComponent(institutionSlug)}/competitions`;
+    return { ok: true };
   };
 
   const confirmDelete = () => {
+    if (!competition) return;
     openModal({
-      title: "Hapus draf ini?",
-      closeable: true,
-      body: "Draf kompetisi ini akan dihapus permanen. Tindakan ini tidak dapat dibatalkan.",
+      title: "Hapus draf kompetisi ini?",
+      body: `“${competition.title}” akan dihapus dan tidak dapat dikembalikan.`,
+      alert: true,
       actions: [
-        { label: "Batal", variant: "secondary", autoClose: true, onClick: () => {} },
+        { label: "Batal" },
+        { label: "Hapus kompetisi", variant: "primary", onClick: requestDelete },
+      ],
+    });
+  };
+
+  const confirmWithdrawPublication = () => {
+    if (!competition) return;
+    openModal({
+      title: "Tarik publikasi kompetisi?",
+      body: `Semua pendaftaran peserta untuk “${competition.title}” akan dibatalkan dan setiap peserta diberi tahu. Tindakan ini tidak dapat dibatalkan.`,
+      alert: true,
+      actions: [
+        { label: "Batal" },
+        { label: "Tarik", variant: "primary", onClick: () => requestAction("unpublish") },
+      ],
+    });
+  };
+
+  const confirmProceedDespiteMinimum = () => {
+    openModal({
+      title: "Tetap jalankan kompetisi?",
+      body: "Kompetisi akan dikonfirmasi tetap berjalan meskipun minimum peserta belum tercapai. Setelah dikonfirmasi, kompetisi tidak dapat dibatalkan karena kekurangan peserta.",
+      actions: [
+        { label: "Batal" },
         {
-          label: "Hapus",
-          variant: "danger",
-          autoClose: true,
-          onClick: () => {
-            void runDelete();
-          },
+          label: "Tetap jalankan",
+          variant: "primary",
+          onClick: () => requestParticipationDecision("proceed"),
+        },
+      ],
+    });
+  };
+
+  const confirmCancelForMinimum = () => {
+    openModal({
+      title: "Batalkan kompetisi?",
+      body: "Minimum peserta belum tercapai. Kompetisi akan tetap terlihat dengan status Dibatalkan, semua pendaftaran aktif dibatalkan, dan peserta diberi tahu. Tindakan ini tidak dapat dibatalkan.",
+      alert: true,
+      actions: [
+        { label: "Kembali" },
+        {
+          label: "Batalkan",
+          variant: "primary",
+          onClick: () => requestParticipationDecision("cancel"),
         },
       ],
     });
@@ -584,64 +619,14 @@ export const InstitutionCompetitionDetailShell = ({
               {participation.canConfirmProceed ? (
                 <Button
                   variant="primary"
-                  loading={pendingAction === "proceed"}
                   disabled={isSubmitting}
-                  onClick={() =>
-                    openModal({
-                      title: "Tetap jalankan kompetisi?",
-                      closeable: true,
-                      body: "Kompetisi akan dikonfirmasi tetap berjalan meskipun minimum peserta belum tercapai. Setelah dikonfirmasi, kompetisi tidak dapat dibatalkan karena kekurangan peserta.",
-                      actions: [
-                        {
-                          label: "Kembali",
-                          variant: "secondary",
-                          autoClose: true,
-                          onClick: () => {},
-                        },
-                        {
-                          label: "Tetap jalankan",
-                          variant: "primary",
-                          autoClose: true,
-                          onClick: () => {
-                            void onParticipationDecision("proceed");
-                          },
-                        },
-                      ],
-                    })
-                  }
+                  onClick={confirmProceedDespiteMinimum}
                 >
                   Tetap jalankan
                 </Button>
               ) : null}
               {participation.canCancel ? (
-                <Button
-                  variant="outline"
-                  loading={pendingAction === "cancel"}
-                  disabled={isSubmitting}
-                  onClick={() =>
-                    openModal({
-                      title: "Batalkan kompetisi?",
-                      closeable: true,
-                      body: "Minimum peserta belum tercapai. Kompetisi akan tetap terlihat dengan status Dibatalkan, semua pendaftaran aktif dibatalkan, dan peserta diberi tahu. Tindakan ini tidak dapat dibatalkan.",
-                      actions: [
-                        {
-                          label: "Kembali",
-                          variant: "secondary",
-                          autoClose: true,
-                          onClick: () => {},
-                        },
-                        {
-                          label: "Batalkan",
-                          variant: "danger",
-                          autoClose: true,
-                          onClick: () => {
-                            void onParticipationDecision("cancel");
-                          },
-                        },
-                      ],
-                    })
-                  }
-                >
+                <Button variant="outline" disabled={isSubmitting} onClick={confirmCancelForMinimum}>
                   Batalkan
                 </Button>
               ) : null}
@@ -674,12 +659,7 @@ export const InstitutionCompetitionDetailShell = ({
                   Terbitkan
                 </Button>
               )}
-              <Button
-                variant="outline"
-                onClick={confirmDelete}
-                loading={pendingAction === "delete"}
-                disabled={isSubmitting}
-              >
+              <Button variant="outline" onClick={confirmDelete} disabled={isSubmitting}>
                 Hapus
               </Button>
             </div>
@@ -717,25 +697,7 @@ export const InstitutionCompetitionDetailShell = ({
             <div className="record-actions">
               <Button
                 variant="outline"
-                onClick={() =>
-                  openModal({
-                    title: "Tarik publikasi kompetisi?",
-                    closeable: true,
-                    body: "Menarik publikasi akan membatalkan SEMUA pendaftaran peserta untuk kompetisi ini. Tindakan ini tidak dapat dibatalkan.",
-                    actions: [
-                      { label: "Batal", variant: "secondary", autoClose: true, onClick: () => {} },
-                      {
-                        label: "Tarik",
-                        variant: "danger",
-                        autoClose: true,
-                        onClick: () => {
-                          void onAction("unpublish");
-                        },
-                      },
-                    ],
-                  })
-                }
-                loading={pendingAction === "unpublish"}
+                onClick={confirmWithdrawPublication}
                 disabled={isSubmitting || !canWithdraw}
                 aria-describedby={canWithdraw ? undefined : "unpublish-blocked-reason"}
               >

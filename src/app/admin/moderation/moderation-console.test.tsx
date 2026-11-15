@@ -494,7 +494,9 @@ describe("what the console tells the operator when the server refuses", () => {
       await waitFor(() => {
         expect(screen.getByText(toast)).toBeTruthy();
       });
-      expect(toastOf(toast)?.getAttribute("data-toast-type")).toBe("error");
+      // The refusal stays inside the confirm pop-up, which is still open for another try.
+      const confirmDialog = screen.getByRole("alertdialog");
+      expect(within(confirmDialog).getByRole("alert").textContent).toContain(toast);
 
       // The other half of the same claim: on the codes that have copy, the message the server packed
       // beside the code is not what the operator reads. Only the rows marked fromServerMessage are

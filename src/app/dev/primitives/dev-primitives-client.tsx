@@ -24,38 +24,16 @@ export function DevPrimitivesClient() {
 
   function openTwoActionModal() {
     openModal({
-      title: "Konfirmasi tindakan",
-      body: "Apakah Anda yakin ingin melanjutkan? Tindakan ini tidak dapat dibatalkan.",
+      title: "Hapus draf kompetisi ini?",
+      body: "“Seed Draft Competition” akan dihapus dan tidak dapat dikembalikan.",
+      alert: true,
       onClose: () => console.log("[dev] modal onClose fired"),
       actions: [
+        { label: "Batal", onClick: () => console.log("[dev] Cancel clicked") },
         {
-          label: "Konfirmasi",
+          label: "Hapus kompetisi",
           variant: "primary",
-          autoClose: true,
           onClick: () => console.log("[dev] Confirm clicked"),
-        },
-        {
-          label: "Batal",
-          variant: "secondary",
-          autoClose: true,
-          onClick: () => console.log("[dev] Cancel clicked"),
-        },
-      ],
-    });
-  }
-
-  function openNoCloseModal() {
-    openModal({
-      title: "Modal tanpa tombol tutup",
-      body: "Modal ini tidak memiliki tombol ×. Gunakan salah satu tombol aksi di bawah.",
-      closeable: false,
-      onClose: () => console.log("[dev] no-close modal onClose fired"),
-      actions: [
-        {
-          label: "Mengerti",
-          variant: "primary",
-          autoClose: true,
-          onClick: () => console.log("[dev] Understood clicked"),
         },
       ],
     });
@@ -211,9 +189,6 @@ export function DevPrimitivesClient() {
           <div className="cluster">
             <Button variant="outline" size="sm" onClick={openTwoActionModal}>
               Modal dua aksi
-            </Button>
-            <Button variant="outline" size="sm" onClick={openNoCloseModal}>
-              Modal terkunci
             </Button>
           </div>
           <div className="cluster">

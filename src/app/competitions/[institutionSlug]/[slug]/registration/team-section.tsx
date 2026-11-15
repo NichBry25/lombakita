@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import {
   COMPETITION_HOST_CANNOT_JOIN_MESSAGE,
@@ -10,8 +10,17 @@ import {
 import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
 import { getTeamRoleLabel } from "@/lib/access/role-labels";
 import { formatDisplayToken } from "@/lib/text/capitalize";
-import { useModal, useToast } from "@/components/ui/primitives";
-import { Button, Feedback, FormInput, FormTextarea, Icon, IconButton } from "@/components/ui";
+import { useModal, useModalTask, useToast, type ModalOutcome } from "@/components/ui/primitives";
+import {
+  Button,
+  Feedback,
+  FormField,
+  FormInput,
+  FormLabel,
+  FormTextareaWithLimit,
+  Icon,
+  IconButton,
+} from "@/components/ui";
 import { LocalDate } from "@/components/ui/local-date";
 
 type Member = {
@@ -123,6 +132,7 @@ const TEAM_INVITE_ERROR_COPY: SurfaceCopy = {
 };
 
 const CREATE_TEAM_FALLBACK = "Gagal membuat tim. Coba lagi.";
+const SAVE_COMPETITION_FAILED_MESSAGE = "Gagal menyimpan kompetisi. Silakan coba lagi.";
 const CANCEL_TEAM_REGISTRATION_FALLBACK = "Gagal membatalkan pendaftaran tim. Coba lagi.";
 
 // A size limit the competition does not set has no number to name, so that refusal shows the
@@ -257,45 +267,48 @@ function CreateTeamForm(props: Props) {
   );
 }
 
-// Self-contained modal body: required cancellation reason + its own confirm/cancel buttons.
+const TEAM_CANCEL_FORM_ID = "cancel-team-registration-form";
+
+const TEAM_REASON_MISSING_MESSAGE = "Alasan belum diisi. Tulis alasan pembatalan Anda.";
+
+// The pop-up footer submits this form. An empty reason shows the field error and sends nothing.
 function TeamCancelReasonForm({
   onConfirm,
-  onCancel,
 }: {
-  onConfirm: (reason: string) => void;
-  onCancel: () => void;
+  onConfirm: (reason: string) => Promise<ModalOutcome>;
 }) {
+  const runModalTask = useModalTask();
   const [reason, setReason] = useState("");
+  const [hasTriedToSubmit, setHasTriedToSubmit] = useState(false);
   const trimmed = reason.trim();
+  const reasonError =
+    hasTriedToSubmit && trimmed.length === 0 ? TEAM_REASON_MISSING_MESSAGE : undefined;
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setHasTriedToSubmit(true);
+    if (trimmed.length === 0) return;
+    void runModalTask(() => onConfirm(trimmed));
+  };
+
   return (
-    <div className="stack-md">
-      <p className="muted-copy">
-        Tim akan kembali ke tahap pembentukan dan semua pendaftaran tim dibatalkan. Tuliskan alasan
-        pembatalan (wajib diisi).
-      </p>
-      <FormTextarea
-        value={reason}
-        onChange={(e) => setReason(e.target.value)}
-        rows={4}
-        maxLength={500}
-        placeholder="Alasan pembatalan"
-        aria-label="Alasan pembatalan"
-      />
-      <div className="modal-actions">
-        <Button type="button" onClick={onCancel} variant="outline" size="sm">
-          Kembali
-        </Button>
-        <Button
-          type="button"
-          disabled={trimmed.length === 0}
-          onClick={() => onConfirm(trimmed)}
-          variant="primary"
-          size="sm"
-        >
-          Batalkan pendaftaran tim
-        </Button>
-      </div>
-    </div>
+    <form id={TEAM_CANCEL_FORM_ID} noValidate onSubmit={submit} className="stack-md">
+      <p>Tim akan kembali ke tahap pembentukan dan semua pendaftaran tim dibatalkan.</p>
+      <FormField>
+        <FormLabel htmlFor="cancel-team-registration-reason" required>
+          Alasan pembatalan
+        </FormLabel>
+        <FormTextareaWithLimit
+          id="cancel-team-registration-reason"
+          value={reason}
+          onChange={(event) => setReason(event.target.value)}
+          rows={4}
+          maxLength={500}
+          placeholder="Contoh: jadwal saya bertabrakan"
+          error={reasonError}
+        />
+      </FormField>
+    </form>
   );
 }
 
@@ -311,7 +324,7 @@ const TEAM_CANCEL_MESSAGE: Record<string, string> = {
 
 function TeamRoster(props: Props & { team: TeamSnapshot }) {
   const router = useRouter();
-  const { openModal, closeModal } = useModal();
+  const { openModal } = useModal();
   const { addToast } = useToast();
   const { team } = props;
   const isCaptain = team.captainId === props.expectedUserId;
@@ -387,6 +400,22 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
     if (focusesRegisterAgainNoteRef.current) registerAgainNoteRef.current?.focus();
   }, [props.registerAgainClosedByPaymentProof]);
 
+  const sendTeamRequest = async (
+    label: string,
+    url: string,
+    init: RequestInit,
+    surfaceCopy: SurfaceCopy,
+  ): Promise<{ ok: true } | { ok: false; message: string; code?: string | null }> => {
+    try {
+      const res = await sessionFetch(props.expectedUserId, url, init);
+      if (res.ok) return { ok: true };
+      const code = await readErrorCode(res);
+      return { ok: false, message: errorMessageFor(code, surfaceCopy, `Gagal ${label}.`), code };
+    } catch {
+      return { ok: false, message: `Gagal ${label}.` };
+    }
+  };
+
   const executeAction = async (
     actionKey: string,
     label: string,
@@ -395,25 +424,18 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
     surfaceCopy: SurfaceCopy,
   ) => {
     setPendingAction(actionKey);
-    try {
-      const res = await sessionFetch(props.expectedUserId, url, init);
-      if (!res.ok) {
-        const code = await readErrorCode(res);
-        const message = errorMessageFor(code, surfaceCopy, `Gagal ${label}.`);
-        addToast({ type: "error", message });
-        // This refusal holds for as long as the team exists, so the page is read again and the
-        // register control gives way to the note.
-        if (code === "team_register_again_closed_by_payment_proof") {
-          focusesRegisterAgainNoteRef.current = true;
-          router.refresh();
-        }
-        return;
-      }
+    const outcome = await sendTeamRequest(label, url, init, surfaceCopy);
+    setPendingAction(null);
+    if (outcome.ok) {
       router.refresh();
-    } catch {
-      addToast({ type: "error", message: `Gagal ${label}.` });
-    } finally {
-      setPendingAction(null);
+      return;
+    }
+    addToast({ type: "error", message: outcome.message });
+    // This refusal holds for as long as the team exists, so the page is read again and the
+    // register control gives way to the note.
+    if (outcome.code === "team_register_again_closed_by_payment_proof") {
+      focusesRegisterAgainNoteRef.current = true;
+      router.refresh();
     }
   };
 
@@ -451,25 +473,32 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
       TEAM_ERROR_COPY,
     );
 
+  // The pop-up shows the waiting and the failure, so these two confirm through the request itself
+  // and not through the page's toast.
+  const runConfirmedTeamRequest = async (
+    label: string,
+    url: string,
+    surfaceCopy: SurfaceCopy,
+  ): Promise<ModalOutcome> => {
+    const outcome = await sendTeamRequest(label, url, { method: "DELETE" }, surfaceCopy);
+    if (!outcome.ok) return outcome;
+    router.refresh();
+    return { ok: true };
+  };
+
   const onDisband = () =>
     openModal({
       title: "Bubarkan tim",
       body: "Bubarkan tim? Tindakan ini tidak dapat dibatalkan.",
+      alert: true,
       actions: [
+        { label: "Batal" },
         {
           label: "Bubarkan tim",
-          autoClose: true,
-          onClick: () => {
-            void executeAction(
-              "disband",
-              "membubarkan tim",
-              `/api/v1/teams/${team.id}`,
-              { method: "DELETE" },
-              TEAM_ERROR_COPY,
-            );
-          },
+          variant: "primary",
+          onClick: () =>
+            runConfirmedTeamRequest("membubarkan tim", `/api/v1/teams/${team.id}`, TEAM_ERROR_COPY),
         },
-        { label: "Batal", onClick: () => {} },
       ],
     });
 
@@ -477,21 +506,19 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
     openModal({
       title: "Tinggalkan tim",
       body: "Tinggalkan tim?",
+      alert: true,
       actions: [
+        { label: "Batal" },
         {
           label: "Tinggalkan",
-          autoClose: true,
-          onClick: () => {
-            void executeAction(
-              `leave:${membershipId}`,
+          variant: "primary",
+          onClick: () =>
+            runConfirmedTeamRequest(
               "meninggalkan tim",
               `/api/v1/teams/${team.id}/memberships/${membershipId}`,
-              { method: "DELETE" },
               TEAM_ERROR_COPY,
-            );
-          },
+            ),
         },
-        { label: "Batal", onClick: () => {} },
       ],
     });
 
@@ -507,9 +534,7 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
       },
     );
 
-  const submitTeamCancel = async (reason: string) => {
-    closeModal();
-    setPendingAction("cancel-submission");
+  const submitTeamCancel = async (reason: string): Promise<ModalOutcome> => {
     try {
       const res = await sessionFetch(
         props.expectedUserId,
@@ -526,24 +551,23 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
           { ...TEAM_ERROR_COPY, ...TEAM_CANCEL_MESSAGE },
           CANCEL_TEAM_REGISTRATION_FALLBACK,
         );
-        addToast({ type: "error", message });
-        return;
+        return { ok: false, message };
       }
       addToast({ type: "success", message: "Pendaftaran tim dibatalkan." });
       router.refresh();
+      return { ok: true };
     } catch {
-      addToast({ type: "error", message: "Terjadi kesalahan jaringan. Coba lagi." });
-    } finally {
-      setPendingAction(null);
+      return { ok: false, message: "Terjadi kesalahan jaringan. Coba lagi." };
     }
   };
 
   const onCancelSubmission = () =>
     openModal({
       title: "Batalkan pendaftaran tim",
-      closeable: true,
-      actions: [],
-      body: <TeamCancelReasonForm onConfirm={submitTeamCancel} onCancel={closeModal} />,
+      wide: true,
+      formId: TEAM_CANCEL_FORM_ID,
+      body: <TeamCancelReasonForm onConfirm={submitTeamCancel} />,
+      actions: [{ label: "Kembali" }, { label: "Batalkan pendaftaran tim", variant: "primary" }],
     });
 
   // A team that cannot register again cannot be completed, so leaving it is not warned against.
@@ -567,39 +591,29 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
       router.back();
       return;
     }
-    const saveAndBack = async () => {
+    // Leaving only follows a saved competition, so a failed save keeps the pop-up open to retry.
+    const saveAndBack = async (): Promise<ModalOutcome> => {
       try {
-        await sessionFetch(
+        const res = await sessionFetch(
           props.expectedUserId,
           `/api/v1/competitions/${props.competitionId}/save`,
           { method: "POST" },
         );
+        if (!res.ok) return { ok: false, message: SAVE_COMPETITION_FAILED_MESSAGE };
       } catch {
-        addToast({ type: "error", message: "Gagal menyimpan kompetisi. Silakan coba lagi." });
+        return { ok: false, message: SAVE_COMPETITION_FAILED_MESSAGE };
       }
       router.back();
+      return { ok: true };
     };
     openModal({
       title: "Tim belum lengkap",
       body: "Tim Anda belum memiliki cukup anggota. Simpan kompetisi ini ke daftar simpanan sebelum keluar?",
-      closeable: true,
+      initialFocus: "safe",
       actions: [
-        {
-          label: "Simpan & keluar",
-          variant: "primary",
-          autoClose: true,
-          onClick: () => {
-            void saveAndBack();
-          },
-        },
-        {
-          label: "Keluar tanpa menyimpan",
-          variant: "secondary",
-          autoClose: true,
-          onClick: () => {
-            router.back();
-          },
-        },
+        { label: "Simpan dan keluar", variant: "primary", onClick: saveAndBack },
+        { label: "Tetap di sini" },
+        { label: "Keluar tanpa menyimpan", onClick: () => router.back() },
       ],
     });
   };

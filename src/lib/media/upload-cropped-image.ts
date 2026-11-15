@@ -16,7 +16,7 @@ export type UploadOutcome = { ok: true } | { ok: false; message: string };
 
 const TYPE_NOT_ALLOWED = "Tipe berkas tidak didukung.";
 const TOO_LARGE = "Ukuran berkas melebihi batas.";
-const UPLOAD_FALLBACK = "Gagal mengunggah gambar. Coba lagi.";
+export const UPLOAD_FALLBACK = "Gagal mengunggah gambar. Coba lagi.";
 const DELETE_FALLBACK = "Gagal menghapus gambar. Coba lagi.";
 
 const MESSAGES: Partial<Record<string, string>> = {

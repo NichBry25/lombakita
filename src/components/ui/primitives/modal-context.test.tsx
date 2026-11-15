@@ -87,29 +87,88 @@ describe("useModal — closeModal", () => {
   });
 });
 
-describe("useModal — action autoClose", () => {
-  it("action with autoClose: true fires onClick then closes the modal", () => {
-    const onClick = vi.fn();
-    const { result } = renderHook(() => ({ modal: useModal(), state: useModalState() }), {
+describe("useModalState — runTask", () => {
+  const openWithState = () => {
+    const rendered = renderHook(() => ({ modal: useModal(), state: useModalState() }), {
       wrapper,
     });
-
     act(() => {
-      result.current.modal.openModal({
-        title: "T",
-        body: "B",
-        actions: [{ label: "Confirm", onClick, autoClose: true }],
+      rendered.result.current.modal.openModal({ title: "T", body: "B", actions: [] });
+    });
+    return rendered.result;
+  };
+
+  it("closes the modal when the task succeeds", async () => {
+    const result = openWithState();
+
+    await act(async () => {
+      await result.current.state.runTask(async () => ({ ok: true }));
+    });
+
+    expect(result.current.state.config).toBeNull();
+    expect(result.current.state.isPending).toBe(false);
+  });
+
+  it("closes the modal when the task returns nothing", async () => {
+    const result = openWithState();
+
+    await act(async () => {
+      await result.current.state.runTask(() => undefined);
+    });
+
+    expect(result.current.state.config).toBeNull();
+  });
+
+  it("stays open and keeps the failure message when the task fails", async () => {
+    const result = openWithState();
+
+    await act(async () => {
+      await result.current.state.runTask(async () => ({ ok: false, message: "Gagal." }));
+    });
+
+    expect(result.current.state.config).not.toBeNull();
+    expect(result.current.state.failureMessage).toBe("Gagal.");
+    expect(result.current.state.isPending).toBe(false);
+  });
+
+  it("shows a failure instead of closing when the task throws", async () => {
+    const result = openWithState();
+
+    await act(async () => {
+      await result.current.state.runTask(async () => {
+        throw new Error("network down");
       });
     });
 
-    const action = result.current.state.config!.actions[0]!;
-    act(() => {
-      action.onClick();
-      // Simulate the Modal component calling closeModal after autoClose action
-      result.current.modal.closeModal();
+    expect(result.current.state.config).not.toBeNull();
+    expect(result.current.state.failureMessage).not.toBeNull();
+  });
+
+  it("clears the failure message when the task is tried again", async () => {
+    const result = openWithState();
+
+    await act(async () => {
+      await result.current.state.runTask(async () => ({ ok: false, message: "Gagal." }));
+    });
+    await act(async () => {
+      await result.current.state.runTask(async () => ({ ok: false, message: "Gagal lagi." }));
     });
 
-    expect(onClick).toHaveBeenCalledOnce();
-    expect(result.current.state.config).toBeNull();
+    expect(result.current.state.failureMessage).toBe("Gagal lagi.");
+  });
+
+  it("ignores a second press while the first task is still running", async () => {
+    const result = openWithState();
+    const task = vi.fn(() => new Promise<void>(() => {}));
+
+    act(() => {
+      void result.current.state.runTask(task);
+    });
+    act(() => {
+      void result.current.state.runTask(task);
+    });
+
+    expect(task).toHaveBeenCalledOnce();
+    expect(result.current.state.isPending).toBe(true);
   });
 });

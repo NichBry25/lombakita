@@ -94,6 +94,6 @@ describe("InstitutionVerificationShell submit", () => {
     await attachDocumentAndSubmit();
 
     expect(await screen.findByText(NETWORK_ERROR_MESSAGE)).toBeTruthy();
-    expect(screen.getByRole("dialog", { name: "Pengajuan gagal" })).toBeTruthy();
+    expect(screen.getByRole("alertdialog", { name: "Pengajuan gagal" })).toBeTruthy();
   });
 });

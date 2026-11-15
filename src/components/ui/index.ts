@@ -18,7 +18,9 @@ export {
   FormLabelText,
   FormSelect,
   FormTextarea,
+  FormTextareaWithLimit,
   PasswordField,
+  Slider,
   TagChoiceChip,
 } from "./form-controls";
 export { Icon } from "./icon";

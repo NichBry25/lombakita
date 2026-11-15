@@ -1,13 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { useModal, useToast } from "@/components/ui/primitives";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useModal, useModalTask, useToast, type ModalOutcome } from "@/components/ui/primitives";
 import {
   Button,
   Card,
   CheckboxField,
   EmptyState,
   Feedback,
+  FormError,
   FormInput,
   FormLabel,
   Icon,
@@ -87,8 +88,74 @@ function attemptLabel(count: number): string | null {
   return count === 1 ? "Pengajuan ulang" : `Pengajuan ulang ke-${count}`;
 }
 
+const REJECT_APPLICATION_FORM_ID = "reject-recruiter-application-form";
+
+const REJECT_REASON_MISSING_MESSAGE = "Isi alasan penolakan.";
+
+// The pop-up footer submits this form. An empty reason shows the field error and sends nothing.
+function RejectApplicationForm({
+  onSubmit,
+}: {
+  onSubmit: (reason: string, allowResubmission: boolean) => Promise<ModalOutcome>;
+}) {
+  const runModalTask = useModalTask();
+  const [reason, setReason] = useState("");
+  const [allowResubmission, setAllowResubmission] = useState(true);
+  const [hasTriedToSubmit, setHasTriedToSubmit] = useState(false);
+  const trimmedReason = reason.trim();
+  const showsReasonError = hasTriedToSubmit && trimmedReason.length === 0;
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setHasTriedToSubmit(true);
+    if (trimmedReason.length === 0) return;
+    void runModalTask(() => onSubmit(trimmedReason, allowResubmission));
+  };
+
+  return (
+    <form id={REJECT_APPLICATION_FORM_ID} noValidate onSubmit={submit} className="stack-md">
+      <div className="form-field">
+        <FormLabel htmlFor="reject-reason" required>
+          Alasan penolakan
+        </FormLabel>
+        <FormInput
+          id="reject-reason"
+          type="text"
+          value={reason}
+          aria-invalid={showsReasonError ? true : undefined}
+          aria-describedby={
+            showsReasonError ? "reject-reason-error reject-reason-help" : "reject-reason-help"
+          }
+          onChange={(event) => setReason(event.target.value)}
+          placeholder="Alasan yang akan ditampilkan ke pemohon"
+        />
+        {showsReasonError ? (
+          <FormError id="reject-reason-error">{REJECT_REASON_MISSING_MESSAGE}</FormError>
+        ) : null}
+        <p className="form-help" id="reject-reason-help">
+          Pemohon akan membaca alasan ini di dasbor mereka.
+        </p>
+      </div>
+      <div className="form-field">
+        <CheckboxField
+          id="reject-allow-resubmission"
+          checked={allowResubmission}
+          aria-describedby="reject-allow-resubmission-help"
+          onChange={(event) => setAllowResubmission(event.target.checked)}
+        >
+          Izinkan pemohon mengajukan ulang
+        </CheckboxField>
+        <p className="form-help" id="reject-allow-resubmission-help">
+          Jika dimatikan, pemohon tidak dapat mengirim permohonan baru. Anda masih dapat membukanya
+          kembali dari antrean ini.
+        </p>
+      </div>
+    </form>
+  );
+}
+
 export default function RecruiterVerificationQueuePage() {
-  const { openModal, closeModal } = useModal();
+  const { openModal } = useModal();
   const { addToast } = useToast();
   const [items, setItems] = useState<PendingItem[] | null>(null);
   // Each queue row owns several controls; the key keeps the spinner on the pressed one.
@@ -125,14 +192,15 @@ export default function RecruiterVerificationQueuePage() {
     };
   }, [fetchPending]);
 
-  const review = useCallback(
+  // Reports an outcome and toasts only the success, so the reject pop-up can show the failure
+  // itself and the approve button can toast it.
+  const requestReview = useCallback(
     async (
       submissionId: string,
       decision: "approve" | "reject",
       rejectionReason: string | null,
       allowResubmission: boolean = true,
-    ) => {
-      setPendingAction(`review:${submissionId}`);
+    ): Promise<ModalOutcome> => {
       try {
         const response = await fetch(
           `/api/platform-ops/recruiter-verification/submissions/${submissionId}`,
@@ -146,29 +214,40 @@ export default function RecruiterVerificationQueuePage() {
           const payload = (await response.json().catch(() => null)) as {
             error?: { code?: string };
           } | null;
-          addToast({
-            type: "error",
+          return {
+            ok: false,
             message: errorMessageFor(
               payload?.error?.code,
               REVIEW_ERROR_COPY,
               REVIEW_FALLBACK[decision],
             ),
-          });
-          return;
+          };
         }
         addToast({
           type: "success",
           message: decision === "approve" ? "Disetujui sebagai Rekruter Terpercaya." : "Ditolak.",
         });
-        closeModal();
         void reload();
+        return { ok: true };
       } catch {
-        addToast({ type: "error", message: NETWORK_ERROR_MESSAGE });
-      } finally {
-        setPendingAction(null);
+        return { ok: false, message: NETWORK_ERROR_MESSAGE };
       }
     },
-    [addToast, closeModal, reload],
+    [addToast, reload],
+  );
+
+  const review = useCallback(
+    async (
+      submissionId: string,
+      decision: "approve" | "reject",
+      rejectionReason: string | null,
+    ) => {
+      setPendingAction(`review:${submissionId}`);
+      const outcome = await requestReview(submissionId, decision, rejectionReason);
+      setPendingAction(null);
+      if (!outcome.ok) addToast({ type: "error", message: outcome.message });
+    },
+    [addToast, requestReview],
   );
 
   // Opens a document via a freshly minted presigned URL. `inline` views it in a new tab,
@@ -240,69 +319,19 @@ export default function RecruiterVerificationQueuePage() {
     [addToast, reload],
   );
 
-  // The modal body is static JSX, so both fields are read from closure variables rather than
-  // component state, because the body never re-renders and nothing here needs to.
   const confirmReject = (item: PendingItem) => {
-    let reason = "";
-    let allowResubmission = true;
     openModal({
       title: "Tolak permohonan",
+      wide: true,
+      formId: REJECT_APPLICATION_FORM_ID,
       body: (
-        <>
-          <div className="form-field">
-            <FormLabel htmlFor="reject-reason" required>
-              Alasan penolakan
-            </FormLabel>
-            <FormInput
-              id="reject-reason"
-              type="text"
-              required
-              aria-describedby="reject-reason-help"
-              onChange={(event) => {
-                reason = event.target.value;
-              }}
-              placeholder="Alasan yang akan ditampilkan ke pemohon"
-            />
-            <p className="form-help" id="reject-reason-help">
-              Pemohon akan membaca alasan ini di dasbor mereka.
-            </p>
-          </div>
-          <div className="form-field">
-            <CheckboxField
-              id="reject-allow-resubmission"
-              defaultChecked
-              aria-describedby="reject-allow-resubmission-help"
-              onChange={(event) => {
-                allowResubmission = event.target.checked;
-              }}
-            >
-              Izinkan pemohon mengajukan ulang
-            </CheckboxField>
-            <p className="form-help" id="reject-allow-resubmission-help">
-              Jika dimatikan, pemohon tidak dapat mengirim permohonan baru. Anda masih dapat
-              membukanya kembali dari antrean ini.
-            </p>
-          </div>
-        </>
+        <RejectApplicationForm
+          onSubmit={(reason, allowResubmission) =>
+            requestReview(item.submission.id, "reject", reason, allowResubmission)
+          }
+        />
       ),
-      actions: [
-        {
-          label: "Batal",
-          variant: "secondary",
-          onClick: closeModal,
-        },
-        {
-          label: "Tolak",
-          variant: "danger",
-          onClick: () => {
-            if (reason.trim().length === 0) {
-              addToast({ type: "error", message: "Isi alasan penolakan." });
-              return;
-            }
-            void review(item.submission.id, "reject", reason.trim(), allowResubmission);
-          },
-        },
-      ],
+      actions: [{ label: "Batal" }, { label: "Tolak", variant: "primary" }],
     });
   };
 

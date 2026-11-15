@@ -232,8 +232,8 @@ export default function AdminVerificationPage() {
             onReviewed={() => void fetchPending()}
           />
         ),
+        wide: true,
         actions: [],
-        closeable: true,
       });
     } catch {
       addToast({ type: "error", message: "Terjadi kesalahan saat memuat detail." });

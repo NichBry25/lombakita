@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Button, FormInput, FormLabel, IconButton } from "@/components/ui";
-import { useModal, useToast } from "@/components/ui/primitives";
+import { useModal, useToast, type ModalOutcome } from "@/components/ui/primitives";
 import { LocalDate } from "@/components/ui/local-date";
 import { getAppRoleLabel } from "@/lib/access/role-labels";
 import { errorMessageFor } from "@/lib/errors/error-copy";
@@ -349,11 +349,10 @@ async function readDeidentifyError(res: Response): Promise<string> {
 
 function RecruiterTierAction({ account, onDone }: { account: UserResult; onDone: () => void }) {
   const { addToast } = useToast();
-  const { openModal, closeModal } = useModal();
-  const [busy, setBusy] = useState(false);
+  const { openModal } = useModal();
 
-  const elevate = async () => {
-    setBusy(true);
+  // The confirm pop-up shows the waiting and the failure, so this reports an outcome.
+  const elevate = async (): Promise<ModalOutcome> => {
     try {
       const res = await fetch(`/api/platform-ops/accounts/${account.id}/recruiter-tier`, {
         method: "PATCH",
@@ -361,8 +360,7 @@ function RecruiterTierAction({ account, onDone }: { account: UserResult; onDone:
         body: JSON.stringify({ tier: ELEVATION_TARGET_TIER }),
       });
       if (!res.ok) {
-        addToast({ type: "error", message: await readError(res, RECRUITER_TIER_FALLBACK) });
-        return;
+        return { ok: false, message: await readError(res, RECRUITER_TIER_FALLBACK) };
       }
       const data = await res.json();
       addToast({
@@ -373,25 +371,20 @@ function RecruiterTierAction({ account, onDone }: { account: UserResult; onDone:
             : "Tingkat rekruter dinaikkan.",
       });
       onDone();
+      return { ok: true };
     } catch {
-      addToast({ type: "error", message: "Kesalahan jaringan." });
-    } finally {
-      setBusy(false);
+      return { ok: false, message: "Kesalahan jaringan." };
     }
   };
 
   return (
     <Button
       size="sm"
-      loading={busy}
       onClick={() =>
         openModal({
           title: "Naikkan tingkat rekruter?",
           body: "Akun ini akan dapat membuat institusi dan menerbitkan kompetisi.",
-          actions: [
-            { label: "Batal", variant: "secondary", onClick: closeModal },
-            { label: "Naikkan", variant: "primary", onClick: () => void elevate() },
-          ],
+          actions: [{ label: "Batal" }, { label: "Naikkan", variant: "primary", onClick: elevate }],
         })
       }
     >
@@ -402,13 +395,12 @@ function RecruiterTierAction({ account, onDone }: { account: UserResult; onDone:
 
 function DeidentifyAction({ account, onDone }: { account: UserResult; onDone: () => void }) {
   const { addToast } = useToast();
-  const { openModal, closeModal } = useModal();
+  const { openModal } = useModal();
   const [confirmUsername, setConfirmUsername] = useState("");
   const [reason, setReason] = useState("");
-  const [busy, setBusy] = useState(false);
 
-  const deidentify = async () => {
-    setBusy(true);
+  // The confirm pop-up shows the waiting and the failure, so this reports an outcome.
+  const deidentify = async (): Promise<ModalOutcome> => {
     try {
       const res = await fetch(`/api/platform-ops/accounts/${account.id}/deidentify`, {
         method: "POST",
@@ -416,8 +408,7 @@ function DeidentifyAction({ account, onDone }: { account: UserResult; onDone: ()
         body: JSON.stringify({ confirmUsername, reason }),
       });
       if (!res.ok) {
-        addToast({ type: "error", message: await readDeidentifyError(res) });
-        return;
+        return { ok: false, message: await readDeidentifyError(res) };
       }
       const data = await res.json();
       addToast({
@@ -425,10 +416,9 @@ function DeidentifyAction({ account, onDone }: { account: UserResult; onDone: ()
         message: `Data akun dihapus. ${data?.objectsDeleted ?? 0} berkas dihapus.`,
       });
       onDone();
+      return { ok: true };
     } catch {
-      addToast({ type: "error", message: "Kesalahan jaringan." });
-    } finally {
-      setBusy(false);
+      return { ok: false, message: "Kesalahan jaringan." };
     }
   };
 
@@ -460,14 +450,14 @@ function DeidentifyAction({ account, onDone }: { account: UserResult; onDone: ()
       <Button
         variant="outline"
         size="sm"
-        loading={busy}
         onClick={() =>
           openModal({
             title: "Hapus data akun ini?",
             body: `Akun @${account.username} akan dihapus. Nama, email, profil, dan berkas akun ini akan dihapus permanen, dan akun tidak dapat masuk lagi. Catatan pendaftaran, hasil lomba, keuangan, dan audit tetap disimpan tanpa data pribadi. Tindakan ini tidak dapat dibatalkan.`,
+            alert: true,
             actions: [
-              { label: "Batal", variant: "secondary", onClick: closeModal },
-              { label: "Hapus data", variant: "danger", onClick: () => void deidentify() },
+              { label: "Batal" },
+              { label: "Hapus data", variant: "primary", onClick: deidentify },
             ],
           })
         }

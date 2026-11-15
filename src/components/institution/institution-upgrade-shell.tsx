@@ -15,7 +15,7 @@ import {
   SelectField,
   usePageTransition,
 } from "@/components/ui";
-import { useModal, useToast } from "@/components/ui/primitives";
+import { useModal, useToast, type ModalOutcome } from "@/components/ui/primitives";
 import { errorMessageFor } from "@/lib/errors/error-copy";
 import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
 // Type-only: importing the enum VALUE would pull the Drizzle schema into the client bundle. The
@@ -70,7 +70,7 @@ export const InstitutionUpgradeShell = ({
   const router = useRouter();
   const { openModal } = useModal();
   const { addToast } = useToast();
-  const { runAndNavigate } = usePageTransition();
+  const { begin: beginPageTransition } = usePageTransition();
 
   const nameFieldId = useId();
   const nameHintId = `${nameFieldId}-hint`;
@@ -79,50 +79,38 @@ export const InstitutionUpgradeShell = ({
   const [targetType, setTargetType] = useState<FullInstitutionType>("company");
   const [displayName, setDisplayName] = useState("");
   const [nameInvalid, setNameInvalid] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
 
-  // Returns whether the upgrade actually navigated, so the blocking screen is dismissed on a
-  // rejected upgrade and held through the redirect on a successful one.
-  const requestUpgrade = async (): Promise<boolean> => {
-    setSubmitting(true);
-    try {
-      const response = await sessionFetch(
-        expectedUserId,
-        `/api/v1/institutions/${institutionSlug}/upgrade`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            targetType,
-            displayName: displayName.trim(),
-          }),
-        },
-      );
+  // The confirm pop-up shows the waiting and any refusal. A successful upgrade then raises the
+  // blocking screen at the navigation point, which holds through the redirect.
+  const requestUpgrade = async (): Promise<ModalOutcome> => {
+    const response = await sessionFetch(
+      expectedUserId,
+      `/api/v1/institutions/${institutionSlug}/upgrade`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          targetType,
+          displayName: displayName.trim(),
+        }),
+      },
+    );
 
-      if (!response.ok) {
-        const code = await readErrorCode(response);
-        addToast({
-          type: "error",
-          message: errorMessageFor(code, UPGRADE_ERROR_COPY, UPGRADE_FALLBACK),
-        });
-        return false;
-      }
-
-      const data = (await response.json()) as UpgradeResponse;
-      addToast({
-        type: "success",
-        message: `Institusi ditingkatkan menjadi ${FULL_INSTITUTION_TYPE_LABELS[data.institutionType]}.`,
-      });
-      // The slug is re-derived from the official name, so the old URL no longer resolves.
-      router.replace(`/institution/${data.slug}`);
-      return true;
-    } finally {
-      setSubmitting(false);
+    if (!response.ok) {
+      const code = await readErrorCode(response);
+      return { ok: false, message: errorMessageFor(code, UPGRADE_ERROR_COPY, UPGRADE_FALLBACK) };
     }
-  };
 
-  const submitUpgrade = () =>
-    runAndNavigate(requestUpgrade, { message: "Meningkatkan institusi…" });
+    const data = (await response.json()) as UpgradeResponse;
+    addToast({
+      type: "success",
+      message: `Institusi ditingkatkan menjadi ${FULL_INSTITUTION_TYPE_LABELS[data.institutionType]}.`,
+    });
+    beginPageTransition("Meningkatkan institusi…");
+    // The slug is re-derived from the official name, so the old URL no longer resolves.
+    router.replace(`/institution/${data.slug}`);
+    return { ok: true };
+  };
 
   const confirmUpgrade = () => {
     const trimmedName = displayName.trim();
@@ -132,7 +120,8 @@ export const InstitutionUpgradeShell = ({
       openModal({
         title: "Nama institusi wajib diisi",
         body: "Masukkan nama resmi institusi yang akan ditampilkan setelah peningkatan.",
-        actions: [{ label: "Mengerti", onClick: () => {} }],
+        alert: true,
+        actions: [{ label: "Mengerti", variant: "primary" }],
       });
       return;
     }
@@ -156,9 +145,10 @@ export const InstitutionUpgradeShell = ({
           </p>
         </div>
       ),
+      alert: true,
       actions: [
-        { label: "Batal", variant: "secondary", onClick: () => {} },
-        { label: "Tingkatkan", variant: "danger", onClick: () => void submitUpgrade() },
+        { label: "Batal" },
+        { label: "Tingkatkan", variant: "primary", onClick: requestUpgrade },
       ],
     });
   };
@@ -249,7 +239,6 @@ export const InstitutionUpgradeShell = ({
           <Button
             type="button"
             disabled={!canUpgrade}
-            loading={submitting}
             onClick={confirmUpgrade}
             leadingIcon={<Icon name="building" />}
             aria-describedby={canUpgrade ? undefined : blockedNoticeId}

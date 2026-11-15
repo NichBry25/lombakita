@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import {
   Button,
@@ -8,11 +8,12 @@ import {
   EmptyState,
   Feedback,
   PageSection,
+  FormError,
   FormField,
   FormLabel,
   FormTextarea,
 } from "@/components/ui";
-import { useModal, useToast } from "@/components/ui/primitives";
+import { useModal, useModalTask, useToast, type ModalOutcome } from "@/components/ui/primitives";
 import { getCompetitionStatusLabel } from "@/lib/competitions/status-labels";
 import { LocalDate } from "@/components/ui/local-date";
 import { asSentence, formatRupiah } from "@/lib/finance/payment-display";
@@ -39,6 +40,8 @@ const OPS_PAYMENT_ERROR_COPY: Partial<Record<string, string>> = {
     "Akun Anda tidak lagi memiliki peran yang diperlukan untuk tindakan ini.",
   operator_actor_suspended: "Akun Anda sedang ditangguhkan oleh tim Lombakita.",
 };
+
+const OPS_REASON_FORM_ID = "ops-reason-form";
 
 const VOID_PROOF_FALLBACK = "Bukti transfer gagal dibatalkan. Coba lagi.";
 const CANCEL_COMPETITION_FALLBACK = "Kompetisi gagal dibatalkan. Coba lagi.";
@@ -100,18 +103,15 @@ export function OpsPaymentActions({
 }) {
   const router = useRouter();
   const { addToast } = useToast();
-  const { openModal, closeModal } = useModal();
-  // Keyed by target, so the spinner sits on the control that was pressed rather than on all of them.
-  const [pending, setPending] = useState<string | null>(null);
+  const { openModal } = useModal();
 
+  // The reason pop-up shows the waiting and the failure, so this reports an outcome.
   const post = async (
-    key: string,
     url: string,
     reason: string,
     successMessage: string,
     refusalFallback: string,
-  ): Promise<void> => {
-    setPending(key);
+  ): Promise<ModalOutcome> => {
     try {
       const response = await fetch(url, {
         method: "POST",
@@ -123,25 +123,25 @@ export function OpsPaymentActions({
         const payload = (await response.json().catch(() => null)) as {
           error?: { code?: string };
         } | null;
-        addToast({
-          type: "error",
+        return {
+          ok: false,
           message: errorMessageFor(payload?.error?.code, OPS_PAYMENT_ERROR_COPY, refusalFallback),
-        });
-        return;
+        };
       }
 
       addToast({ type: "success", message: successMessage });
       router.refresh();
+      return { ok: true };
     } catch {
-      addToast({ type: "error", message: "Tindakan gagal disimpan karena gangguan koneksi." });
-    } finally {
-      setPending(null);
+      return { ok: false, message: "Tindakan gagal disimpan karena gangguan koneksi." };
     }
   };
 
   const openVoid = (competition: OpsCompetitionView, proof: OpsProofView) => {
     openModal({
       title: "Batalkan bukti transfer",
+      wide: true,
+      formId: OPS_REASON_FORM_ID,
       body: (
         <ReasonForm
           intro={`${proof.payerDisplayName} · ${formatRupiah(proof.grossAmount, proof.currency)} · ${competition.title}`}
@@ -150,20 +150,17 @@ export function OpsPaymentActions({
           // this competition themselves.
           warning="Bukti transfer ini akan dibatalkan tanpa keputusan apa pun mengenai dananya, dan peserta dapat mengirim bukti baru. Tidak ada catatan keuangan yang ditulis. Tindakan ini juga membuka kembali blokir penarikan kompetisi bagi penyelenggara."
           placeholder="Contoh: bukti transfer milik peserta lain, diunggah ke pendaftaran yang keliru."
-          submitLabel="Batalkan bukti transfer"
           onSubmit={(reason) =>
             post(
-              `void:${proof.proofId}`,
               `/api/platform-ops/payments/proofs/${proof.proofId}/void`,
               reason,
               "Bukti transfer dibatalkan.",
               VOID_PROOF_FALLBACK,
             )
           }
-          onDone={closeModal}
         />
       ),
-      actions: [],
+      actions: [{ label: "Kembali" }, { label: "Batalkan bukti transfer", variant: "primary" }],
     });
   };
 
@@ -172,31 +169,32 @@ export function OpsPaymentActions({
   const openBarredVoid = (proof: OpsBarredProofView) => {
     openModal({
       title: "Batalkan bukti transfer",
+      wide: true,
+      formId: OPS_REASON_FORM_ID,
       body: (
         <ReasonForm
           intro={`${proof.payerDisplayName} · ${formatRupiah(proof.grossAmount, proof.currency)} · ${proof.competitionTitle}`}
           warning="Penyelenggara menolak bukti ini dan melarang pengiriman ulang, sehingga peserta tidak dapat berbuat apa pun. Membatalkannya membuka kembali kesempatan mengirim bukti baru sebelum batas waktu. Tidak ada catatan keuangan yang ditulis dan tidak ada keputusan atas dananya."
           placeholder="Contoh: peserta menghubungi dukungan dengan bukti transfer yang sah."
-          submitLabel="Batalkan bukti transfer"
           onSubmit={(reason) =>
             post(
-              `void:${proof.proofId}`,
               `/api/platform-ops/payments/proofs/${proof.proofId}/void`,
               reason,
               "Bukti transfer dibatalkan.",
               VOID_PROOF_FALLBACK,
             )
           }
-          onDone={closeModal}
         />
       ),
-      actions: [],
+      actions: [{ label: "Kembali" }, { label: "Batalkan bukti transfer", variant: "primary" }],
     });
   };
 
   const openCancel = (competition: OpsCompetitionView) => {
     openModal({
       title: "Batalkan kompetisi",
+      wide: true,
+      formId: OPS_REASON_FORM_ID,
       body: (
         <ReasonForm
           intro={`${competition.title} · ${competition.proofs.length} bukti transfer belum selesai`}
@@ -205,20 +203,17 @@ export function OpsPaymentActions({
           // terminal.
           warning="Kompetisi akan turun ke draf dan seluruh pendaftaran dibatalkan secara permanen. Biaya layanan yang sudah tercatat tidak dibatalkan. Peserta yang sudah transfer akan diberi tahu untuk menghubungi penyelenggara soal pengembalian dana."
           placeholder="Contoh: penyelenggara membatalkan acara dan meminta penarikan lewat dukungan."
-          submitLabel="Batalkan kompetisi"
           onSubmit={(reason) =>
             post(
-              `cancel:${competition.competitionId}`,
               `/api/platform-ops/competitions/${competition.competitionId}/cancel`,
               reason,
               "Kompetisi dibatalkan.",
               CANCEL_COMPETITION_FALLBACK,
             )
           }
-          onDone={closeModal}
         />
       ),
-      actions: [],
+      actions: [{ label: "Kembali" }, { label: "Batalkan kompetisi", variant: "primary" }],
     });
   };
 
@@ -300,7 +295,6 @@ export function OpsPaymentActions({
                                 type="button"
                                 variant="outline"
                                 size="sm"
-                                loading={pending === `void:${proof.proofId}`}
                                 onClick={() => openVoid(competition, proof)}
                               >
                                 Batalkan bukti transfer
@@ -322,7 +316,6 @@ export function OpsPaymentActions({
                       <Button
                         type="button"
                         variant="outline"
-                        loading={pending === `cancel:${competition.competitionId}`}
                         onClick={() => openCancel(competition)}
                       >
                         Batalkan kompetisi
@@ -394,7 +387,6 @@ export function OpsPaymentActions({
                       type="button"
                       variant="outline"
                       size="sm"
-                      loading={pending === `void:${proof.proofId}`}
                       onClick={() => openBarredVoid(proof)}
                     >
                       Batalkan bukti transfer
@@ -421,29 +413,28 @@ function ReasonForm({
   intro,
   warning,
   placeholder,
-  submitLabel,
   onSubmit,
-  onDone,
 }: {
   intro: string;
   warning: string;
   placeholder: string;
-  submitLabel: string;
-  onSubmit: (reason: string) => Promise<void>;
-  onDone: () => void;
+  onSubmit: (reason: string) => Promise<ModalOutcome>;
 }) {
+  const runModalTask = useModalTask();
   const [reason, setReason] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+  const [hasTriedToSubmit, setHasTriedToSubmit] = useState(false);
+  const trimmedReason = reason.trim();
+  const showsReasonError = hasTriedToSubmit && trimmedReason.length === 0;
 
-  const submit = async () => {
-    setSubmitting(true);
-    await onSubmit(reason.trim());
-    setSubmitting(false);
-    onDone();
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setHasTriedToSubmit(true);
+    if (trimmedReason.length === 0) return;
+    void runModalTask(() => onSubmit(trimmedReason));
   };
 
   return (
-    <div className="stack-md">
+    <form id={OPS_REASON_FORM_ID} noValidate onSubmit={submit} className="stack-md">
       <p>{intro}</p>
       <Feedback tone="warning">{warning}</Feedback>
 
@@ -457,24 +448,13 @@ function ReasonForm({
           rows={3}
           onChange={(event) => setReason(event.target.value)}
           placeholder={placeholder}
+          aria-invalid={showsReasonError ? true : undefined}
+          aria-describedby={showsReasonError ? "ops-reason-error" : undefined}
         />
+        {showsReasonError ? (
+          <FormError id="ops-reason-error">{OPS_PAYMENT_ERROR_COPY.ops_reason_required}</FormError>
+        ) : null}
       </FormField>
-
-      <div className="record-actions">
-        <Button type="button" variant="outline" size="sm" onClick={onDone}>
-          Batal
-        </Button>
-        <Button
-          type="button"
-          variant="primary"
-          size="sm"
-          disabled={reason.trim().length === 0}
-          loading={submitting}
-          onClick={() => void submit()}
-        >
-          {submitLabel}
-        </Button>
-      </div>
-    </div>
+    </form>
   );
 }

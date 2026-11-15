@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Feedback, FormTextarea } from "@/components/ui";
-import { useModal, useToast } from "@/components/ui/primitives";
+import { Button, Feedback, FormField, FormLabel, FormTextareaWithLimit } from "@/components/ui";
+import { useModal, useModalTask, useToast, type ModalOutcome } from "@/components/ui/primitives";
 import {
   SESSION_MISMATCH_CODE,
   SESSION_MISMATCH_MESSAGE,
@@ -22,6 +22,7 @@ type CTAState = "open" | "closed" | "not_yet_open";
 
 type Props = {
   competitionId: string;
+  competitionTitle: string;
   ctaState: CTAState;
   initialRegistration: Registration | null;
   expectedUserId: string;
@@ -84,48 +85,55 @@ const describeRegisterAgain = (
   return "Anda dapat mendaftar lagi selama pendaftaran masih dibuka.";
 };
 
-// Self-contained modal body: collects the required cancellation reason and renders its own
-// confirm/cancel buttons (the modal is opened with no footer actions).
+const CANCEL_FORM_ID = "cancel-registration-form";
+
+const REASON_MISSING_MESSAGE = "Alasan belum diisi. Tulis alasan pembatalan Anda.";
+
+// The pop-up footer submits this form. An empty reason shows the field error and sends nothing.
 function CancelReasonForm({
+  competitionTitle,
   onConfirm,
-  onCancel,
 }: {
-  onConfirm: (reason: string) => void;
-  onCancel: () => void;
+  competitionTitle: string;
+  onConfirm: (reason: string) => Promise<ModalOutcome>;
 }) {
+  const runModalTask = useModalTask();
   const [reason, setReason] = useState("");
+  const [hasTriedToSubmit, setHasTriedToSubmit] = useState(false);
   const trimmed = reason.trim();
+  const reasonError = hasTriedToSubmit && trimmed.length === 0 ? REASON_MISSING_MESSAGE : undefined;
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setHasTriedToSubmit(true);
+    if (trimmed.length === 0) return;
+    void runModalTask(() => onConfirm(trimmed));
+  };
+
   return (
-    <div className="stack-md">
-      <p className="muted-copy">Tuliskan alasan pembatalan pendaftaran Anda. Alasan wajib diisi.</p>
-      <FormTextarea
-        value={reason}
-        onChange={(e) => setReason(e.target.value)}
-        rows={4}
-        maxLength={500}
-        placeholder="Alasan pembatalan"
-        aria-label="Alasan pembatalan"
-      />
-      <div className="modal-actions">
-        <Button type="button" onClick={onCancel} variant="outline" size="sm">
-          Kembali
-        </Button>
-        <Button
-          type="button"
-          disabled={trimmed.length === 0}
-          onClick={() => onConfirm(trimmed)}
-          variant="primary"
-          size="sm"
-        >
-          Batalkan pendaftaran
-        </Button>
-      </div>
-    </div>
+    <form id={CANCEL_FORM_ID} noValidate onSubmit={submit} className="stack-md">
+      <p>{`Pendaftaran Anda di ${competitionTitle} akan dibatalkan.`}</p>
+      <FormField>
+        <FormLabel htmlFor="cancel-registration-reason" required>
+          Alasan pembatalan
+        </FormLabel>
+        <FormTextareaWithLimit
+          id="cancel-registration-reason"
+          value={reason}
+          onChange={(event) => setReason(event.target.value)}
+          rows={4}
+          maxLength={500}
+          placeholder="Contoh: jadwal saya bertabrakan"
+          error={reasonError}
+        />
+      </FormField>
+    </form>
   );
 }
 
 export function IndividualRegistrationSection({
   competitionId,
+  competitionTitle,
   ctaState,
   initialRegistration,
   expectedUserId,
@@ -135,7 +143,7 @@ export function IndividualRegistrationSection({
   registerAgainClosedByPaymentProof,
 }: Props) {
   const router = useRouter();
-  const { openModal, closeModal } = useModal();
+  const { openModal } = useModal();
   const { addToast } = useToast();
   const [registration, setRegistration] = useState<Registration | null>(initialRegistration);
   const [loading, setLoading] = useState(false);
@@ -162,10 +170,8 @@ export function IndividualRegistrationSection({
     }
   };
 
-  const submitCancel = async (reason: string) => {
-    if (!registration) return;
-    closeModal();
-    setLoading(true);
+  const submitCancel = async (reason: string): Promise<ModalOutcome> => {
+    if (!registration) return { ok: false, message: messageFor("registration_not_found") };
     try {
       const res = await sessionFetch(
         expectedUserId,
@@ -181,26 +187,25 @@ export function IndividualRegistrationSection({
         error?: { code?: string };
       };
       if (!res.ok || !body.registration) {
-        addToast({ type: "error", message: messageFor(body.error?.code) });
-      } else {
-        setRegistration(body.registration);
-        addToast({ type: "success", message: "Pendaftaran dibatalkan." });
-        router.refresh();
+        return { ok: false, message: messageFor(body.error?.code) };
       }
+      setRegistration(body.registration);
+      addToast({ type: "success", message: "Pendaftaran dibatalkan." });
+      router.refresh();
+      return { ok: true };
     } catch {
-      addToast({ type: "error", message: "Terjadi kesalahan jaringan. Coba lagi." });
-    } finally {
-      setLoading(false);
+      return { ok: false, message: "Terjadi kesalahan jaringan. Coba lagi." };
     }
   };
 
   const handleCancel = () => {
     if (!registration) return;
     openModal({
-      title: "Batalkan pendaftaran",
-      closeable: true,
-      actions: [],
-      body: <CancelReasonForm onConfirm={submitCancel} onCancel={closeModal} />,
+      title: "Batalkan pendaftaran Anda?",
+      wide: true,
+      formId: CANCEL_FORM_ID,
+      body: <CancelReasonForm competitionTitle={competitionTitle} onConfirm={submitCancel} />,
+      actions: [{ label: "Kembali" }, { label: "Batalkan pendaftaran", variant: "primary" }],
     });
   };
 

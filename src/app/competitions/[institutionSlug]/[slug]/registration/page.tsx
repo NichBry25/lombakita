@@ -143,6 +143,7 @@ export default async function CompetitionRegistrationPage({
       {supportsIndividual && (
         <IndividualRegistrationSection
           competitionId={competition.id}
+          competitionTitle={competition.title}
           ctaState={competition.ctaState}
           initialRegistration={
             initialRegistration

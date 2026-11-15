@@ -9,7 +9,7 @@
 // withholding is observable.
 
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 
 // The router only, and deliberately nothing else. A sibling component test in this repo also mocks
 // `@/components/ui`; doing that here would replace the very buttons whose presence and absence this
@@ -137,19 +137,54 @@ describe("OrganiserPaymentQueue", () => {
 // the only thing asserting it survives at all. It is the one sentence that stops an organiser
 // verifying on the strength of a screenshot: the platform never sees this money and cannot check.
 describe("what the verify confirmation tells the reviewer", () => {
-  it("says the money must be visible in the institution's own account first", () => {
+  it("says the money must be visible in the institution's own account before verifying", () => {
     renderQueue([proof()]);
     fireEvent.click(screen.getByRole("button", { name: "Verifikasi" }));
 
-    expect(screen.getByText(/mutasi rekening lembaga Anda/)).toBeTruthy();
-    expect(screen.getByText(/Lombakita tidak dapat memeriksanya/)).toBeTruthy();
+    expect(screen.getByText(/mutasi rekening institusi Anda sebelum memverifikasi/)).toBeTruthy();
   });
 
-  it("says the verdict cannot be undone by the organiser who made it", () => {
+  it("says only the Lombakita team can correct the verdict afterwards", () => {
     renderQueue([proof()]);
     fireEvent.click(screen.getByRole("button", { name: "Verifikasi" }));
 
-    expect(screen.getByText(/tidak dapat Anda batalkan sendiri/)).toBeTruthy();
+    expect(screen.getByText(/koreksi hanya dapat dilakukan oleh tim Lombakita/)).toBeTruthy();
+  });
+
+  it("links the payment terms from the pop-up and starts focus on the safe choice", () => {
+    renderQueue([proof()]);
+    fireEvent.click(screen.getByRole("button", { name: "Verifikasi" }));
+
+    const dialog = screen.getByRole("dialog");
+    const termsLink = within(dialog).getByRole("link", { name: "Baca ketentuan pembayaran" });
+    expect(termsLink.getAttribute("href")).toBe("/syarat-ketentuan#biaya-pendaftaran");
+    expect(document.activeElement?.textContent).toBe("Batal");
+  });
+});
+
+describe("the reject pop-up", () => {
+  it("is always enabled: an empty reason shows the field error on press and sends nothing", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    renderQueue([proof()]);
+    fireEvent.click(screen.getByRole("button", { name: "Tolak pembayaran" }));
+
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByRole("heading", { name: "Tolak bukti transfer?" })).toBeTruthy();
+    const mainButton = within(dialog).getByRole("button", {
+      name: "Tolak pembayaran",
+    }) as HTMLButtonElement;
+    expect(mainButton.disabled).toBe(false);
+
+    fireEvent.click(mainButton);
+
+    expect(
+      await within(dialog).findByText(
+        "Penolakan harus menyertakan alasan agar peserta tahu apa yang perlu diperbaiki.",
+      ),
+    ).toBeTruthy();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
   });
 });
 

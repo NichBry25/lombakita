@@ -998,9 +998,9 @@ export const InstitutionCompetitionEditShell = ({
       if (code === "competition_close_waits_for_transfer_review") {
         openModal({
           title: "Perubahan belum dapat disimpan",
-          closeable: true,
-          body: <p className="muted-copy">{message}</p>,
-          actions: [{ label: "Mengerti", variant: "primary", autoClose: true, onClick: () => {} }],
+          alert: true,
+          body: <p>{message}</p>,
+          actions: [{ label: "Mengerti", variant: "primary" }],
         });
         return { status: "failed" };
       }
@@ -1013,10 +1013,10 @@ export const InstitutionCompetitionEditShell = ({
             code === "competition_field_immutable"
               ? "Bidang tidak dapat diubah"
               : "Perubahan ditolak",
-          closeable: true,
+          alert: true,
           body: (
             <div className="stack-sm">
-              <p className="muted-copy">
+              <p>
                 {code === "competition_field_immutable"
                   ? "Bidang berikut tidak dapat diubah setelah kompetisi diterbitkan:"
                   : "Perubahan berikut tidak dapat disimpan setelah kompetisi terbit:"}
@@ -1032,7 +1032,7 @@ export const InstitutionCompetitionEditShell = ({
               </p>
             </div>
           ),
-          actions: [{ label: "Mengerti", variant: "primary", autoClose: true, onClick: () => {} }],
+          actions: [{ label: "Mengerti", variant: "primary" }],
         });
         addToast({ type: "error", message });
         return { status: "failed" };
@@ -1226,22 +1226,12 @@ export const InstitutionCompetitionEditShell = ({
 
   const confirmLeavingUnsavedChanges = (leave: () => void) => {
     openModal({
-      title: "Perubahan belum tersimpan",
-      body: "Anda memiliki perubahan yang belum disimpan. Yakin ingin meninggalkan halaman ini?",
-      closeable: true,
+      title: "Keluar tanpa menyimpan?",
+      body: "Perubahan di halaman ini belum tersimpan dan akan hilang jika Anda keluar.",
+      alert: true,
       actions: [
-        {
-          label: "Tinggalkan",
-          variant: "danger",
-          autoClose: true,
-          onClick: leave,
-        },
-        {
-          label: "Tetap di sini",
-          variant: "secondary",
-          autoClose: true,
-          onClick: () => {},
-        },
+        { label: "Tetap di sini" },
+        { label: "Buang perubahan", variant: "primary", onClick: leave },
       ],
     });
   };

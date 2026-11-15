@@ -27,6 +27,7 @@ const renderCancelledCard = (overrides: {
     <UIPrimitivesProvider>
       <IndividualRegistrationSection
         competitionId="comp-1"
+        competitionTitle="Seed Hackathon Nusantara"
         ctaState={overrides.ctaState}
         initialRegistration={{ id: "reg-1", status: "cancelled" }}
         expectedUserId="user-1"
@@ -90,6 +91,7 @@ describe("the cancelled registration card", () => {
       <UIPrimitivesProvider>
         <IndividualRegistrationSection
           competitionId="comp-1"
+          competitionTitle="Seed Hackathon Nusantara"
           ctaState="open"
           initialRegistration={{ id: "reg-1", status: "confirmed" }}
           expectedUserId="user-1"
@@ -102,7 +104,7 @@ describe("the cancelled registration card", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Batalkan pendaftaran" }));
-    fireEvent.change(screen.getByLabelText("Alasan pembatalan"), {
+    fireEvent.change(screen.getByLabelText(/Alasan pembatalan/), {
       target: { value: "jadwal bentrok" },
     });
     const confirmButtons = screen.getAllByRole("button", { name: "Batalkan pendaftaran" });
@@ -127,6 +129,7 @@ describe("the register button's refusals", () => {
       <UIPrimitivesProvider>
         <IndividualRegistrationSection
           competitionId="comp-1"
+          competitionTitle="Seed Hackathon Nusantara"
           ctaState="open"
           initialRegistration={null}
           expectedUserId="user-1"
@@ -145,5 +148,77 @@ describe("the register button's refusals", () => {
         "Anda pemilik atau staf penyelenggara kompetisi ini, jadi tidak dapat ikut mendaftar.",
       ),
     ).toBeTruthy();
+  });
+});
+
+describe("the cancel pop-up", () => {
+  it("names the competition, counts the reason, and an empty reason shows the field error and sends nothing", async () => {
+    vi.mocked(sessionFetch).mockClear();
+    render(
+      <UIPrimitivesProvider>
+        <IndividualRegistrationSection
+          competitionId="comp-1"
+          competitionTitle="Seed Hackathon Nusantara"
+          ctaState="open"
+          initialRegistration={{ id: "reg-1", status: "confirmed" }}
+          expectedUserId="user-1"
+          modeLabel="Daftar"
+          cancellationClosedByPaymentProof={false}
+          registrationWithheld={false}
+          registerAgainClosedByPaymentProof={false}
+        />
+      </UIPrimitivesProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Batalkan pendaftaran" }));
+
+    expect(screen.getByRole("heading", { name: "Batalkan pendaftaran Anda?" })).toBeTruthy();
+    expect(
+      screen.getByText("Pendaftaran Anda di Seed Hackathon Nusantara akan dibatalkan."),
+    ).toBeTruthy();
+    expect(screen.getByText("0 / 500")).toBeTruthy();
+
+    const confirmButtons = screen.getAllByRole("button", { name: "Batalkan pendaftaran" });
+    const mainButton = confirmButtons[confirmButtons.length - 1]! as HTMLButtonElement;
+    expect(mainButton.disabled).toBe(false);
+    fireEvent.click(mainButton);
+
+    expect(
+      await screen.findByText("Alasan belum diisi. Tulis alasan pembatalan Anda."),
+    ).toBeTruthy();
+    expect(sessionFetch).not.toHaveBeenCalled();
+  });
+
+  it("stays open and shows the failure inside when the server refuses, so the person can retry", async () => {
+    vi.mocked(sessionFetch).mockClear();
+    vi.mocked(sessionFetch).mockResolvedValueOnce({
+      ok: false,
+      json: async () => ({ error: { code: "cancellation_window_closed" } }),
+    } as unknown as Response);
+    render(
+      <UIPrimitivesProvider>
+        <IndividualRegistrationSection
+          competitionId="comp-1"
+          competitionTitle="Seed Hackathon Nusantara"
+          ctaState="open"
+          initialRegistration={{ id: "reg-1", status: "confirmed" }}
+          expectedUserId="user-1"
+          modeLabel="Daftar"
+          cancellationClosedByPaymentProof={false}
+          registrationWithheld={false}
+          registerAgainClosedByPaymentProof={false}
+        />
+      </UIPrimitivesProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Batalkan pendaftaran" }));
+    fireEvent.change(screen.getByLabelText(/Alasan pembatalan/), {
+      target: { value: "jadwal bentrok" },
+    });
+    const confirmButtons = screen.getAllByRole("button", { name: "Batalkan pendaftaran" });
+    fireEvent.click(confirmButtons[confirmButtons.length - 1]!);
+
+    expect(await screen.findByText("Batas waktu pembatalan telah terlewat.")).toBeTruthy();
+    expect(screen.getByRole("dialog")).toBeTruthy();
   });
 });

@@ -9,6 +9,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import { Slider } from "@/components/ui";
 import {
   CROPPED_IMAGE_MIME_TYPE,
   CROPPED_IMAGE_QUALITY,
@@ -19,18 +20,27 @@ const MAX_ZOOM = 3;
 const KEYBOARD_PAN_STEP = 8;
 const KEYBOARD_PAN_STEP_LARGE = 32;
 
+// The crop area is 496 by 320 in a 560 pop-up and scales with the pop-up on a phone, keeping this
+// ratio (the CSS token --crop-area-ratio is the same 31 / 20). The guide is drawn at its desktop
+// size in that area and scales by the same factor, so a 4:1 cover guide is 464 by 116 and an
+// avatar guide 280 by 280.
+const CROP_AREA_WIDTH = 496;
+const CROP_AREA_HEIGHT = 320;
+const CROP_AREA_RATIO = CROP_AREA_WIDTH / CROP_AREA_HEIGHT;
+const GUIDE_WIDTH_BY_SHAPE = { blob: 280, rect: 464 } as const;
+
 export type ImageCropApi = { getCropped: () => Promise<File | null> };
 
 type Offset = { x: number; y: number };
 
-// A pan + zoom cropper rendered inside the shared modal. The image is sized to cover the frame at
-// zoom 1; the user drags to reposition and uses the slider to zoom. The parent reads the result
-// through `apiRef.current.getCropped()` (wired to the modal's save action) so no crop state has to
-// leak back up.
+// A pan + zoom cropper rendered inside the shared modal. The image is sized to cover the crop area
+// at zoom 1; the user drags to reposition and uses the slider to zoom. What is saved is the region
+// the guide frames, in image coordinates. The parent reads the result through
+// `apiRef.current.getCropped()` (wired to the modal's save action) so no crop state has to leak
+// back up.
 //
-// The viewport is measured rather than fixed because the frame ratio varies: a 4:1 banner at a
-// usable height would be wider than the modal, so the element takes the width it is given and the
-// crop math follows the measurement.
+// The area is measured rather than fixed because it scales with the pop-up on a phone, so the crop
+// math follows the measurement.
 export function ImageCropEditor({
   src,
   fileName,
@@ -39,17 +49,17 @@ export function ImageCropEditor({
   shape = "blob",
   zoomLabel = "Perbesar",
   panLabel = "Area pemotongan gambar",
-  hint = "Seret gambar, atau gunakan tombol panah, untuk menyesuaikan posisi.",
+  hint = "Seret gambar atau pakai tombol panah untuk mengatur posisi. Hanya bagian di dalam bingkai yang akan disimpan.",
 }: {
   src: string;
   fileName: string;
+  // The saved image's size. Its ratio is the guide's ratio.
   frame: ImageFrame;
   apiRef: { current: ImageCropApi | null };
-  // Corner treatment of the crop window. `blob` matches the organic avatar mask; `rect` is the
-  // squared-off frame a wide banner reads as.
+  // Shape of the guide. `blob` is the organic avatar shape; `rect` is the 4:1 cover.
   shape?: "blob" | "rect";
   zoomLabel?: string;
-  // Accessible name of the crop window itself, which is focusable so it can be panned by keyboard.
+  // Accessible name of the crop area itself, which is focusable so it can be panned by keyboard.
   panLabel?: string;
   hint?: string;
 }) {
@@ -61,7 +71,9 @@ export function ImageCropEditor({
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState<Offset>({ x: 0, y: 0 });
 
-  const viewportHeight = viewportWidth / frame.aspectRatio;
+  const viewportHeight = viewportWidth / CROP_AREA_RATIO;
+  const guideWidth = (viewportWidth * GUIDE_WIDTH_BY_SHAPE[shape]) / CROP_AREA_WIDTH;
+  const guideHeight = guideWidth / frame.aspectRatio;
 
   // Smallest scale at which the image still covers the frame in both axes.
   const coverScale = useCallback(
@@ -121,7 +133,7 @@ export function ImageCropEditor({
     if (!el || viewportWidth === 0 || !el.complete || el.naturalWidth === 0) return;
     const w = el.naturalWidth;
     const h = el.naturalHeight;
-    const vh = viewportWidth / frame.aspectRatio;
+    const vh = viewportWidth / CROP_AREA_RATIO;
 
     if (!natural) {
       setNatural({ w, h });
@@ -135,10 +147,10 @@ export function ImageCropEditor({
       x: Math.min(0, Math.max(viewportWidth - w * factor, current.x)),
       y: Math.min(0, Math.max(vh - h * factor, current.y)),
     }));
-    // `scale` and `offset` are deliberately not dependencies: this runs on a frame-size change, not
+    // `scale` and `offset` are deliberately not dependencies: this runs on an area-size change, not
     // on every user zoom or drag (those already clamp themselves).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewportWidth, frame.aspectRatio, centre, coverScale, natural]);
+  }, [viewportWidth, centre, coverScale, natural]);
 
   const drag = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
 
@@ -203,9 +215,27 @@ export function ImageCropEditor({
 
   // Latest crop state for the imperative getCropped (which is created once). Mirrored via an
   // effect rather than assigned during render (refs must not be written while rendering).
-  const stateRef = useRef({ natural, baseScale, scale, offset, viewportWidth, viewportHeight });
+  const stateRef = useRef({
+    natural,
+    baseScale,
+    scale,
+    offset,
+    viewportWidth,
+    viewportHeight,
+    guideWidth,
+    guideHeight,
+  });
   useEffect(() => {
-    stateRef.current = { natural, baseScale, scale, offset, viewportWidth, viewportHeight };
+    stateRef.current = {
+      natural,
+      baseScale,
+      scale,
+      offset,
+      viewportWidth,
+      viewportHeight,
+      guideWidth,
+      guideHeight,
+    };
   });
 
   useEffect(() => {
@@ -215,10 +245,12 @@ export function ImageCropEditor({
         const s = stateRef.current;
         if (!el || !s.natural || s.viewportWidth === 0) return null;
         const factor = s.baseScale * s.scale;
-        const sx = -s.offset.x / factor;
-        const sy = -s.offset.y / factor;
-        const sWidth = s.viewportWidth / factor;
-        const sHeight = s.viewportHeight / factor;
+        const guideLeft = (s.viewportWidth - s.guideWidth) / 2;
+        const guideTop = (s.viewportHeight - s.guideHeight) / 2;
+        const sx = (guideLeft - s.offset.x) / factor;
+        const sy = (guideTop - s.offset.y) / factor;
+        const sWidth = s.guideWidth / factor;
+        const sHeight = s.guideHeight / factor;
         const canvas = document.createElement("canvas");
         canvas.width = frame.outputWidth;
         canvas.height = frame.outputHeight;
@@ -240,10 +272,12 @@ export function ImageCropEditor({
 
   return (
     <div className="image-crop">
+      <p className="image-crop-hint" id={hintId}>
+        {hint}
+      </p>
       <div
         ref={viewportRef}
-        className={`image-crop-viewport image-crop-viewport-${shape}`}
-        style={{ aspectRatio: String(frame.aspectRatio) }}
+        className="image-crop-viewport"
         tabIndex={0}
         role="group"
         aria-label={panLabel}
@@ -263,22 +297,20 @@ export function ImageCropEditor({
           onLoad={onLoad}
           style={{ left: offset.x, top: offset.y, width: dispW, height: dispH }}
         />
-      </div>
-      {/* The wrapping label names the slider; an aria-label here would only repeat it. */}
-      <label className="image-crop-zoom">
-        <span>{zoomLabel}</span>
-        <input
-          type="range"
-          min={1}
-          max={MAX_ZOOM}
-          step={0.01}
-          value={scale}
-          onChange={(e) => onZoom(parseFloat(e.target.value))}
+        <div
+          className={`image-crop-guide image-crop-guide-${shape}`}
+          aria-hidden="true"
+          style={{ width: guideWidth, height: guideHeight }}
         />
-      </label>
-      <p className="image-crop-hint" id={hintId}>
-        {hint}
-      </p>
+      </div>
+      <Slider
+        label={zoomLabel}
+        min={1}
+        max={MAX_ZOOM}
+        step={0.01}
+        value={scale}
+        onChange={onZoom}
+      />
     </div>
   );
 }

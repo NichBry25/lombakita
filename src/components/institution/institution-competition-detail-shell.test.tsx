@@ -142,7 +142,7 @@ const decideToCancel = async () => {
   expect(controls, "expected exactly one closed-dialog control").toHaveLength(1);
   fireEvent.click(controls[0]!);
 
-  const dialog = await screen.findByRole("dialog");
+  const dialog = await screen.findByRole("alertdialog");
   fireEvent.click(within(dialog).getByRole("button", { name: label }));
 };
 

@@ -29,6 +29,7 @@ const renderIndividual = (cancellationClosedByPaymentProof: boolean) =>
     <UIPrimitivesProvider>
       <IndividualRegistrationSection
         competitionId="comp-1"
+        competitionTitle="Seed Hackathon Nusantara"
         ctaState="open"
         initialRegistration={{ id: "reg-1", status: "confirmed" }}
         expectedUserId="user-1"
@@ -190,6 +191,7 @@ const renderIndividualEntry = (registrationWithheld: boolean) =>
     <UIPrimitivesProvider>
       <IndividualRegistrationSection
         competitionId="comp-1"
+        competitionTitle="Seed Hackathon Nusantara"
         ctaState="open"
         initialRegistration={null}
         expectedUserId="user-1"

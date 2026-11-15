@@ -1,10 +1,11 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState, type FormEvent } from "react";
 import {
   Button,
   EmptyState,
   Feedback,
+  FormError,
   FormLabel,
   FormTextarea,
   PageHeader,
@@ -12,7 +13,7 @@ import {
   SelectField,
   Skeleton,
 } from "@/components/ui";
-import { useModal, useToast } from "@/components/ui/primitives";
+import { useModal, useModalTask, useToast, type ModalOutcome } from "@/components/ui/primitives";
 import { LocalDate } from "@/components/ui/local-date";
 import { emailDeliveryWarning } from "@/lib/email/delivery-notice";
 import { NETWORK_ERROR_MESSAGE } from "@/lib/errors/error-copy";
@@ -72,11 +73,13 @@ const AVAILABLE_TRANSITIONS: Record<VerificationStatus, ValidTransition[]> = {
   rejected: [{ label: "Tinjau ulang", targetStatus: "under_review" }],
 };
 
+const REJECT_INSTITUTION_FORM_ID = "reject-institution-form";
+
+// The pop-up footer submits this form. An empty reason shows the field error and sends nothing.
 function RejectInstitutionForm({
   institutionId,
   displayName,
   isRevocation,
-  onClose,
   onSuccess,
 }: {
   institutionId: string;
@@ -84,36 +87,29 @@ function RejectInstitutionForm({
   // A revocation takes a badge away that was already granted, so it says so plainly and names what
   // it does not do — ops should not reach for it expecting a takedown.
   isRevocation: boolean;
-  onClose: () => void;
   onSuccess: () => void;
 }) {
   const { addToast } = useToast();
+  const runModalTask = useModalTask();
   const [reason, setReason] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [hasTriedToSubmit, setHasTriedToSubmit] = useState(false);
+  const trimmedReason = reason.trim();
+  const reasonMissingMessage = isRevocation
+    ? "Alasan pencabutan wajib diisi."
+    : "Alasan penolakan wajib diisi.";
+  const showsReasonError = hasTriedToSubmit && trimmedReason.length === 0;
 
-  const submit = async () => {
-    if (!reason.trim()) {
-      addToast({
-        type: "error",
-        message: isRevocation ? "Alasan pencabutan wajib diisi." : "Alasan penolakan wajib diisi.",
-      });
-      return;
-    }
-    setBusy(true);
+  const sendRejection = async (): Promise<ModalOutcome> => {
     try {
       const res = await fetch(`/api/admin/institutions/${institutionId}/verify`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ targetStatus: "rejected", reason: reason.trim() }),
+        body: JSON.stringify({ targetStatus: "rejected", reason: trimmedReason }),
       });
       const data = await res.json();
       if (!res.ok) {
         const fallback = isRevocation ? REVOKE_FALLBACK : REJECT_FALLBACK;
-        addToast({
-          type: "error",
-          message: resolveVerificationRefusalMessage(data?.error, fallback),
-        });
-        return;
+        return { ok: false, message: resolveVerificationRefusalMessage(data?.error, fallback) };
       }
 
       // The status change is committed either way, so a failed notice is a warning on a success.
@@ -122,17 +118,22 @@ function RejectInstitutionForm({
         addToast({ type: "error", message: deliveryWarning });
       }
 
-      onClose();
       onSuccess();
+      return { ok: true };
     } catch {
-      addToast({ type: "error", message: "Terjadi kesalahan jaringan." });
-    } finally {
-      setBusy(false);
+      return { ok: false, message: "Terjadi kesalahan jaringan." };
     }
   };
 
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setHasTriedToSubmit(true);
+    if (trimmedReason.length === 0) return;
+    void runModalTask(sendRejection);
+  };
+
   return (
-    <div className="stack-md">
+    <form id={REJECT_INSTITUTION_FORM_ID} noValidate onSubmit={submit} className="stack-md">
       <p className="muted-copy">
         <strong>{displayName}</strong>
       </p>
@@ -154,25 +155,22 @@ function RejectInstitutionForm({
           value={reason}
           onChange={(e) => setReason(e.target.value)}
           rows={3}
+          aria-invalid={showsReasonError ? true : undefined}
+          aria-describedby={showsReasonError ? "reject-reason-error" : undefined}
           placeholder={
             isRevocation ? "Masukkan alasan pencabutan..." : "Masukkan alasan penolakan..."
           }
         />
+        {showsReasonError ? (
+          <FormError id="reject-reason-error">{reasonMissingMessage}</FormError>
+        ) : null}
       </div>
-      <div className="modal-actions">
-        <Button variant="outline" onClick={onClose} disabled={busy}>
-          Batal
-        </Button>
-        <Button variant="primary" loading={busy} onClick={() => void submit()}>
-          {isRevocation ? "Cabut verifikasi" : "Tolak institusi"}
-        </Button>
-      </div>
-    </div>
+    </form>
   );
 }
 
 export default function AdminInstitutionsPage() {
-  const { openModal, closeModal } = useModal();
+  const { openModal } = useModal();
   const { addToast } = useToast();
   const [rows, setRows] = useState<InstitutionRow[]>([]);
   const [total, setTotal] = useState(0);
@@ -259,19 +257,20 @@ export default function AdminInstitutionsPage() {
     // Both actions PATCH to 'rejected' with a reason; only the institution's current status says
     // whether this is a first denial or the withdrawal of a badge already granted.
     const isRevocation = currentStatus === "verified";
+    const mainLabel = isRevocation ? "Cabut verifikasi" : "Tolak institusi";
     openModal({
-      title: isRevocation ? "Cabut verifikasi" : "Tolak institusi",
+      title: mainLabel,
+      wide: true,
+      formId: REJECT_INSTITUTION_FORM_ID,
       body: (
         <RejectInstitutionForm
           institutionId={id}
           displayName={displayName}
           isRevocation={isRevocation}
-          onClose={closeModal}
           onSuccess={() => void fetchInstitutions()}
         />
       ),
-      actions: [],
-      closeable: true,
+      actions: [{ label: "Batal" }, { label: mainLabel, variant: "primary" }],
     });
   };
 

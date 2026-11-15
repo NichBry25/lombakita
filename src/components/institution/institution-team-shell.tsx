@@ -13,7 +13,7 @@ import {
   SelectField,
   Skeleton,
 } from "@/components/ui";
-import { useModal, useToast } from "@/components/ui/primitives";
+import { useModal, useToast, type ModalOutcome } from "@/components/ui/primitives";
 import { LocalDate } from "@/components/ui/local-date";
 import { getInstitutionRoleLabel } from "@/lib/access/role-labels";
 import { errorMessageFor } from "@/lib/errors/error-copy";
@@ -109,7 +109,7 @@ export const InstitutionTeamShell = ({
   const [identifier, setIdentifier] = useState("");
   const [inviteRole, setInviteRole] = useState<MemberRole>("institution_staff");
   const { addToast } = useToast();
-  const { openModal, closeModal } = useModal();
+  const { openModal } = useModal();
 
   const loadMembers = useCallback(async () => {
     setIsLoadingMembers(true);
@@ -181,9 +181,8 @@ export const InstitutionTeamShell = ({
     void loadMembers();
   };
 
-  const removeMember = async (membershipId: string) => {
-    setPendingAction(`${membershipId}:remove`);
-
+  // The confirm pop-up shows the waiting and the failure, so this reports an outcome.
+  const removeMember = async (membershipId: string): Promise<ModalOutcome> => {
     const response = await fetch(
       `${membersUrl(institutionSlug)}/${encodeURIComponent(membershipId)}`,
       {
@@ -192,31 +191,27 @@ export const InstitutionTeamShell = ({
       },
     );
 
-    setPendingAction(null);
-
     if (!response.ok) {
       const code = await readErrorCode(response);
-      addToast({
-        type: "error",
-        message: errorMessageFor(code, TEAM_ERROR_COPY, TEAM_FALLBACK.remove),
-      });
-      return;
+      return { ok: false, message: errorMessageFor(code, TEAM_ERROR_COPY, TEAM_FALLBACK.remove) };
     }
 
     addToast({ type: "success", message: "Anggota berhasil dihapus." });
     void loadMembers();
+    return { ok: true };
   };
 
   const confirmRemoveMember = (member: Member) => {
     openModal({
       title: "Hapus anggota ini?",
       body: `${member.name ?? member.email} akan dihapus dari institusi. Tindakan ini tidak dapat dibatalkan.`,
+      alert: true,
       actions: [
-        { label: "Batal", variant: "secondary", onClick: closeModal },
+        { label: "Batal" },
         {
-          label: "Hapus",
-          variant: "danger",
-          onClick: () => void removeMember(member.membershipId),
+          label: "Hapus anggota",
+          variant: "primary",
+          onClick: () => removeMember(member.membershipId),
         },
       ],
     });
@@ -350,7 +345,6 @@ export const InstitutionTeamShell = ({
                               icon="trash"
                               label={`Hapus anggota ${member.name ?? member.email}`}
                               variant="outline"
-                              loading={pendingAction === `${member.membershipId}:remove`}
                               disabled={isActing}
                               onClick={() => confirmRemoveMember(member)}
                             />

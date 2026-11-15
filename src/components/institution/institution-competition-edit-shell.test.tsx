@@ -614,7 +614,7 @@ describe("InstitutionCompetitionEditShell after publish", () => {
       },
     });
     fireEvent.click(saveButton());
-    const dialog = await screen.findByRole("dialog");
+    const dialog = await screen.findByRole("alertdialog");
 
     expect({
       title: within(dialog).queryByText("Perubahan belum dapat disimpan") !== null,
@@ -649,7 +649,7 @@ describe("InstitutionCompetitionEditShell after publish", () => {
     expect({
       toast: toast.textContent,
       fallback: screen.queryByText("Perubahan gagal disimpan. Coba lagi."),
-      dialog: screen.queryByRole("dialog"),
+      dialog: screen.queryByRole("alertdialog"),
     }).toEqual({
       toast: "Kompetisi ini baru saja diubah atau diterbitkan. Muat ulang halaman lalu coba lagi.",
       fallback: null,
@@ -1484,11 +1484,11 @@ describe("InstitutionCompetitionEditShell steps", () => {
     );
 
     expect(notPrevented).toBe(false);
-    const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText("Perubahan belum tersimpan")).toBeTruthy();
+    const dialog = await screen.findByRole("alertdialog");
+    expect(within(dialog).getByText("Keluar tanpa menyimpan?")).toBeTruthy();
     expect(mockPush).not.toHaveBeenCalled();
 
-    fireEvent.click(within(dialog).getByRole("button", { name: "Tinggalkan" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Buang perubahan" }));
 
     expect(transitionMessage("Membuka bagian kompetisi…")).toBe(true);
     expect(mockPush).toHaveBeenCalledWith(`${EDIT_URL}?langkah=3`);
@@ -1532,7 +1532,7 @@ describe("InstitutionCompetitionEditShell steps", () => {
     );
 
     expect(notPrevented).toBe(true);
-    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByRole("alertdialog")).toBeNull();
     expect(document.querySelector(".page-transition")).toBeNull();
   });
 
@@ -1548,7 +1548,7 @@ describe("InstitutionCompetitionEditShell steps", () => {
     const notPrevented = fireEvent.click(current);
 
     expect(notPrevented).toBe(true);
-    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByRole("alertdialog")).toBeNull();
   });
 
   it("opens the status actions from the back control of every published section", async () => {
@@ -1975,8 +1975,8 @@ describe("InstitutionCompetitionEditShell steps", () => {
       });
       clickPreviousStepArrow();
 
-      const dialog = await screen.findByRole("dialog");
-      expect(within(dialog).getByText("Perubahan belum tersimpan")).toBeTruthy();
+      const dialog = await screen.findByRole("alertdialog");
+      expect(within(dialog).getByText("Keluar tanpa menyimpan?")).toBeTruthy();
       expect(mockPush).not.toHaveBeenCalled();
       fireEvent.click(within(dialog).getByRole("button", { name: "Tetap di sini" }));
       expect(inputValue("Nama tahapan")).toBe("Penyisihan");
@@ -1992,7 +1992,7 @@ describe("InstitutionCompetitionEditShell steps", () => {
       clickPreviousStepArrow();
 
       expect(mockPush).toHaveBeenCalledWith(`${EDIT_URL}?langkah=2`);
-      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(screen.queryByRole("alertdialog")).toBeNull();
     });
 
     it("asks before another section opens with an unsaved tag", async () => {
@@ -2006,8 +2006,8 @@ describe("InstitutionCompetitionEditShell steps", () => {
       );
 
       expect(notPrevented).toBe(false);
-      const dialog = await screen.findByRole("dialog");
-      expect(within(dialog).getByText("Perubahan belum tersimpan")).toBeTruthy();
+      const dialog = await screen.findByRole("alertdialog");
+      expect(within(dialog).getByText("Keluar tanpa menyimpan?")).toBeTruthy();
       expect(mockPush).not.toHaveBeenCalled();
     });
 
@@ -2524,8 +2524,8 @@ describe("InstitutionCompetitionEditShell steps", () => {
         await screen.findByText("Tag belum tersimpan. Pilih tag dari daftar yang tersedia."),
       ).toBeTruthy();
       fireEvent.click(screen.getByRole("button", { name: /^Kembali ke Lomba Contoh/ }));
-      const dialog = await screen.findByRole("dialog");
-      fireEvent.click(within(dialog).getByRole("button", { name: "Tinggalkan" }));
+      const dialog = await screen.findByRole("alertdialog");
+      fireEvent.click(within(dialog).getByRole("button", { name: "Buang perubahan" }));
 
       expect(mockPush).toHaveBeenCalledWith(
         "/institution/institusi-contoh/competitions/lomba-contoh-2026",
@@ -2610,8 +2610,8 @@ describe("InstitutionCompetitionEditShell steps", () => {
       expect(await screen.findByText(/^Hadiah belum tersimpan\./)).toBeTruthy();
       await waitFor(() => expect(document.querySelector(".page-transition")).toBeNull());
       clickPreviousStepArrow();
-      const dialog = await screen.findByRole("dialog");
-      fireEvent.click(within(dialog).getByRole("button", { name: "Tinggalkan" }));
+      const dialog = await screen.findByRole("alertdialog");
+      fireEvent.click(within(dialog).getByRole("button", { name: "Buang perubahan" }));
       expect(mockPush).toHaveBeenCalledWith(`${EDIT_URL}?langkah=3`);
 
       view.rerender(shellWithPartsAt(3));
@@ -2665,7 +2665,7 @@ describe("InstitutionCompetitionEditShell steps", () => {
       );
       fireEvent.click(screen.getByRole("button", { name: /^Kembali ke Lomba Contoh/ }));
 
-      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(screen.queryByRole("alertdialog")).toBeNull();
     });
 
     it("clears a dropped blank prize when the reload after its save fails", async () => {

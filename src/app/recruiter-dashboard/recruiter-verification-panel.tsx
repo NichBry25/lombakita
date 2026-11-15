@@ -3,7 +3,7 @@
 import { ChangeEvent, FormEvent, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Card, Feedback, FormInput, FormLabel, Icon, IconButton } from "@/components/ui";
-import { useModal, useToast } from "@/components/ui/primitives";
+import { useModal, useToast, type ModalOutcome } from "@/components/ui/primitives";
 import { LocalDate } from "@/components/ui/local-date";
 import { errorMessageFor } from "@/lib/errors/error-copy";
 import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
@@ -127,7 +127,7 @@ export function RecruiterVerificationPanel({
 }: PanelProps) {
   const router = useRouter();
   const { addToast } = useToast();
-  const { openModal, closeModal } = useModal();
+  const { openModal } = useModal();
   const [busy, setBusy] = useState(false);
 
   // Prefilled from the last attempt so a recruiter revising after a rejection only changes what
@@ -138,9 +138,6 @@ export function RecruiterVerificationPanel({
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadBusy, setUploadBusy] = useState(false);
-  // Each attached document owns its own delete control, so the id keeps the spinner on the
-  // pressed one rather than every row at once.
-  const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileSelect = (event: ChangeEvent<HTMLInputElement>) => {
@@ -244,8 +241,8 @@ export function RecruiterVerificationPanel({
     }
   };
 
-  const deleteDocument = async (document: DocumentEntry) => {
-    setDeletingDocumentId(document.id);
+  // The confirm pop-up shows the waiting and the failure, so this reports an outcome.
+  const deleteDocument = async (document: DocumentEntry): Promise<ModalOutcome> => {
     try {
       const response = await sessionFetch(
         userId,
@@ -255,19 +252,17 @@ export function RecruiterVerificationPanel({
 
       if (!response.ok) {
         const code = await readErrorCode(response);
-        addToast({
-          type: "error",
+        return {
+          ok: false,
           message: errorMessageFor(code, REFUSAL_COPY.delete, REFUSAL_FALLBACK.delete),
-        });
-        return;
+        };
       }
 
       addToast({ type: "success", message: "Dokumen dihapus." });
       router.refresh();
+      return { ok: true };
     } catch {
-      addToast({ type: "error", message: "Dokumen gagal dihapus karena gangguan koneksi." });
-    } finally {
-      setDeletingDocumentId(null);
+      return { ok: false, message: "Dokumen gagal dihapus karena gangguan koneksi." };
     }
   };
 
@@ -280,13 +275,10 @@ export function RecruiterVerificationPanel({
           dapat dikembalikan dan peninjau tidak akan melihatnya lagi.
         </p>
       ),
+      alert: true,
       actions: [
-        { label: "Batal", variant: "secondary", onClick: closeModal },
-        {
-          label: "Hapus",
-          variant: "danger",
-          onClick: () => void deleteDocument(document),
-        },
+        { label: "Batal" },
+        { label: "Hapus", variant: "primary", onClick: () => deleteDocument(document) },
       ],
     });
   };
@@ -334,8 +326,8 @@ export function RecruiterVerificationPanel({
     }
   };
 
-  const withdrawSubmission = async () => {
-    setBusy(true);
+  // The confirm pop-up shows the waiting and the failure, so this reports an outcome.
+  const withdrawSubmission = async (): Promise<ModalOutcome> => {
     try {
       const response = await sessionFetch(userId, "/api/v1/recruiter/me/verification/withdraw", {
         method: "POST",
@@ -343,19 +335,17 @@ export function RecruiterVerificationPanel({
 
       if (!response.ok) {
         const code = await readErrorCode(response);
-        addToast({
-          type: "error",
+        return {
+          ok: false,
           message: errorMessageFor(code, REFUSAL_COPY.withdraw, REFUSAL_FALLBACK.withdraw),
-        });
-        return;
+        };
       }
 
       addToast({ type: "success", message: "Permohonan ditarik. Anda dapat memperbaikinya." });
       window.location.reload();
+      return { ok: true };
     } catch {
-      addToast({ type: "error", message: "Penarikan gagal karena gangguan koneksi." });
-    } finally {
-      setBusy(false);
+      return { ok: false, message: "Penarikan gagal karena gangguan koneksi." };
     }
   };
 
@@ -369,16 +359,10 @@ export function RecruiterVerificationPanel({
           ulang dari waktu pengiriman baru.
         </p>
       ),
+      alert: true,
       actions: [
-        { label: "Batal", variant: "secondary", onClick: closeModal },
-        {
-          label: "Tarik permohonan",
-          variant: "danger",
-          onClick: () => {
-            closeModal();
-            void withdrawSubmission();
-          },
-        },
+        { label: "Batal" },
+        { label: "Tarik permohonan", variant: "primary", onClick: withdrawSubmission },
       ],
     });
   };
@@ -421,7 +405,6 @@ export function RecruiterVerificationPanel({
                     variant="outline"
                     label={`Hapus ${document.originalFileName}`}
                     icon="trash"
-                    loading={deletingDocumentId === document.id}
                     onClick={() => confirmDeleteDocument(document)}
                   />
                 </div>
@@ -549,7 +532,7 @@ export function RecruiterVerificationPanel({
           Data dan dokumen terkunci selama peninjauan berlangsung, agar peninjau menilai berkas yang
           sama dengan yang Anda kirim. Untuk mengubahnya, tarik permohonan Anda lebih dulu.
         </p>
-        <Button type="button" variant="outline" loading={busy} onClick={confirmWithdraw}>
+        <Button type="button" variant="outline" onClick={confirmWithdraw}>
           Tarik permohonan
         </Button>
       </section>
