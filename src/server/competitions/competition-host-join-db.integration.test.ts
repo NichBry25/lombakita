@@ -437,6 +437,18 @@ const invitationStatusOf = async (tx: Tx, invitationId: string): Promise<string>
   return row!.status;
 };
 
+const invitationIdTo = async (
+  tx: Tx,
+  teamId: string,
+  email: string,
+): Promise<string | undefined> => {
+  const [row] = await tx
+    .select({ id: teamInvitations.id })
+    .from(teamInvitations)
+    .where(and(eq(teamInvitations.teamId, teamId), eq(teamInvitations.invitedEmail, email)));
+  return row?.id;
+};
+
 const teamStatusOf = async (tx: Tx, teamId: string): Promise<string> => {
   const [row] = await tx.select({ status: teams.status }).from(teams).where(eq(teams.id, teamId));
   return row!.status;
@@ -451,6 +463,20 @@ const outcomesFor = async <T>(
   plainMember: await outcomeOf(people.plainMember),
   otherHost: await outcomeOf(people.otherHost),
 });
+
+const inviteThenAccept = async (tx: Tx, captainId: string, teamId: string, person: SeededUser) => {
+  const invite = await inviteViaRoute(tx, captainId, teamId, person.username);
+  const invitationId = await invitationIdTo(tx, teamId, person.email);
+  const accept =
+    invitationId === undefined ? null : await acceptViaRoute(tx, person.id, invitationId);
+  return {
+    invite,
+    invites: await invitesTo(tx, teamId, person.email),
+    accept,
+    seats: await activeSeatsOf(tx, teamId, person.id),
+    invitation: invitationId === undefined ? null : await invitationStatusOf(tx, invitationId),
+  };
+};
 
 describe.skipIf(skipWithoutDatabase)(
   "the owner and staff of a competition's institution cannot join it, through the real routes",
@@ -491,7 +517,7 @@ describe.skipIf(skipWithoutDatabase)(
       });
     });
 
-    it("refuses a captain's invite to the owner or staff into a forming team, and invites a plain member and another institution's owner", async () => {
+    it("sends a captain's invite to the owner or staff into a forming team as to anyone and refuses their accept, and a plain member and another institution's owner join", async () => {
       await inRollback(async (tx) => {
         const { competitionId, people } = await seedCompetition(tx);
         const teamId = await seedTeam(tx, {
@@ -501,21 +527,34 @@ describe.skipIf(skipWithoutDatabase)(
           status: "forming",
         });
 
-        const seen = await outcomesFor(people, async (person) => ({
-          ...(await inviteViaRoute(tx, people.captain.id, teamId, person.username)),
-          invites: await invitesTo(tx, teamId, person.email),
-        }));
+        const seen = await outcomesFor(people, (person) =>
+          inviteThenAccept(tx, people.captain.id, teamId, person),
+        );
 
+        const refused = {
+          invite: { status: 201, code: undefined },
+          invites: 1,
+          accept: { status: 403, code: "team_host_of_competition" },
+          seats: 0,
+          invitation: "pending",
+        };
+        const joined = {
+          invite: { status: 201, code: undefined },
+          invites: 1,
+          accept: { status: 200, code: undefined },
+          seats: 1,
+          invitation: "accepted",
+        };
         expect(seen).toEqual({
-          owner: { status: 422, code: "team_invitee_host_of_competition", invites: 0 },
-          staff: { status: 422, code: "team_invitee_host_of_competition", invites: 0 },
-          plainMember: { status: 201, code: undefined, invites: 1 },
-          otherHost: { status: 201, code: undefined, invites: 1 },
+          owner: refused,
+          staff: refused,
+          plainMember: joined,
+          otherHost: joined,
         });
       });
     });
 
-    it("refuses a captain's invite to the owner or staff into a registered free team, and invites a plain member and another institution's owner", async () => {
+    it("sends a captain's invite to the owner or staff into a registered free team as to anyone and refuses their accept, and a plain member and another institution's owner join with their own registration", async () => {
       await inRollback(async (tx) => {
         const { competitionId, people } = await seedCompetition(tx);
         const teamId = await seedTeam(tx, {
@@ -526,15 +565,31 @@ describe.skipIf(skipWithoutDatabase)(
         });
 
         const seen = await outcomesFor(people, async (person) => ({
-          ...(await inviteViaRoute(tx, people.captain.id, teamId, person.username)),
-          invites: await invitesTo(tx, teamId, person.email),
+          ...(await inviteThenAccept(tx, people.captain.id, teamId, person)),
+          registrations: await confirmedRegistrationsOf(tx, competitionId, person.id),
         }));
 
+        const refused = {
+          invite: { status: 201, code: undefined },
+          invites: 1,
+          accept: { status: 403, code: "team_host_of_competition" },
+          seats: 0,
+          invitation: "pending",
+          registrations: 0,
+        };
+        const joined = {
+          invite: { status: 201, code: undefined },
+          invites: 1,
+          accept: { status: 200, code: undefined },
+          seats: 1,
+          invitation: "accepted",
+          registrations: 1,
+        };
         expect(seen).toEqual({
-          owner: { status: 422, code: "team_invitee_host_of_competition", invites: 0 },
-          staff: { status: 422, code: "team_invitee_host_of_competition", invites: 0 },
-          plainMember: { status: 201, code: undefined, invites: 1 },
-          otherHost: { status: 201, code: undefined, invites: 1 },
+          owner: refused,
+          staff: refused,
+          plainMember: joined,
+          otherHost: joined,
         });
       });
     });

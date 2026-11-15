@@ -100,22 +100,6 @@ describe("the team section's refusals", () => {
     expect(document.body.textContent).not.toContain("user-cap");
   });
 
-  it("says why the captain cannot invite an owner or staff member of the competition's institution", async () => {
-    renderTeam(CAPTAIN);
-    stubRefusal("team_invitee_host_of_competition", 422);
-
-    fireEvent.change(screen.getByPlaceholderText("Username atau Email"), {
-      target: { value: "pemilik" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Undang" }));
-
-    expect(
-      await screen.findByText(
-        "Orang ini pemilik atau staf penyelenggara kompetisi ini, jadi tidak dapat diundang ke tim.",
-      ),
-    ).toBeTruthy();
-  });
-
   it("says why the captain cannot register a team holding an owner or staff member of the competition's institution", async () => {
     renderTeam(CAPTAIN);
     stubRefusal("team_member_host_of_competition", 422);
@@ -124,7 +108,7 @@ describe("the team section's refusals", () => {
 
     expect(
       await screen.findByText(
-        "Tim ini memiliki anggota yang merupakan pemilik atau staf penyelenggara kompetisi ini, jadi tim belum dapat didaftarkan.",
+        "Tim ini memiliki anggota yang merupakan pemilik atau staf penyelenggara kompetisi ini, jadi tim belum dapat didaftarkan. Keluarkan anggota tersebut, lalu daftarkan tim lagi.",
       ),
     ).toBeTruthy();
   });

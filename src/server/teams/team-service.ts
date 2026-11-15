@@ -569,20 +569,6 @@ const assertInviteeNotOnTeamOrInvited = async (
   }
 };
 
-const assertInviteeNotCompetitionHost = async (
-  tx: DbOrTx,
-  recipient: TeamInviteRecipient,
-  competitionId: string,
-): Promise<void> => {
-  if (recipient.targetUserId === null) return;
-  if (await isCompetitionHost(recipient.targetUserId, competitionId, tx)) {
-    throw new TeamError(
-      "team_invitee_host_of_competition",
-      "The owner and staff of the competition's institution cannot be invited to a team in it",
-    );
-  }
-};
-
 const insertTeamInvitation = async (
   tx: DbOrTx,
   input: {
@@ -677,7 +663,6 @@ const inviteToRegisteredTeam = async (
     const limits = await assertRegisteredFreeTeamOpen(tx, team.id, now);
     await assertTeamHasRoomForInvite(tx, team.id, limits.maxTeamSize);
     await assertInviteeNotOnTeamOrInvited(tx, team.id, recipient.invitedEmail);
-    await assertInviteeNotCompetitionHost(tx, recipient, team.competitionId);
     return insertTeamInvitation(tx, {
       teamId: team.id,
       invitedByUserId: userId,
@@ -698,7 +683,6 @@ const inviteToRegisteredTeam = async (
 //   - capacity: (active roster + pending invitations) < maxTeamSize
 //   - no existing pending invitation to this email for this team
 //   - no existing active membership for an account holding this email on this team
-//   - the invitee is not an owner or staff member of the competition's institution
 export const inviteTeamMember = async (
   userId: string,
   teamId: string,
@@ -734,7 +718,6 @@ export const inviteTeamMember = async (
     const competition = assertCompetitionTeamPlayable(lockedCompetition, now);
     await assertTeamHasRoomForInvite(tx, team.id, competition.maxTeamSize);
     await assertInviteeNotOnTeamOrInvited(tx, team.id, recipient.invitedEmail);
-    await assertInviteeNotCompetitionHost(tx, recipient, team.competitionId);
     return insertTeamInvitation(tx, {
       teamId: team.id,
       invitedByUserId: userId,

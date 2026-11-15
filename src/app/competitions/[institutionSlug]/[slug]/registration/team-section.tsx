@@ -95,7 +95,7 @@ const TEAM_ERROR_COPY: SurfaceCopy = {
   team_candidate_already_member: "Anda sudah tergabung dalam tim untuk kompetisi ini.",
   team_host_of_competition: COMPETITION_HOST_CANNOT_JOIN_MESSAGE,
   team_member_host_of_competition:
-    "Tim ini memiliki anggota yang merupakan pemilik atau staf penyelenggara kompetisi ini, jadi tim belum dapat didaftarkan.",
+    "Tim ini memiliki anggota yang merupakan pemilik atau staf penyelenggara kompetisi ini, jadi tim belum dapat didaftarkan. Keluarkan anggota tersebut, lalu daftarkan tim lagi.",
   team_at_capacity: "Tim telah mencapai kapasitas maksimum.",
   team_invite_already_pending: "Undangan untuk orang ini masih menunggu jawaban.",
   team_invite_not_found: "Undangan tidak ditemukan. Muat ulang halaman.",
@@ -120,8 +120,6 @@ const TEAM_ERROR_COPY: SurfaceCopy = {
 const TEAM_INVITE_ERROR_COPY: SurfaceCopy = {
   ...TEAM_ERROR_COPY,
   team_candidate_already_member: "Orang ini sudah ada di tim.",
-  team_invitee_host_of_competition:
-    "Orang ini pemilik atau staf penyelenggara kompetisi ini, jadi tidak dapat diundang ke tim.",
 };
 
 const CREATE_TEAM_FALLBACK = "Gagal membuat tim. Coba lagi.";

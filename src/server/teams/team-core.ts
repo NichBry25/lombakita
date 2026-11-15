@@ -42,7 +42,6 @@ export type TeamErrorCode =
   | "team_invite_candidate_required"
   // The owner and staff of the competition's institution run it, so they cannot take part in it.
   | "team_host_of_competition"
-  | "team_invitee_host_of_competition"
   | "team_member_host_of_competition"
   | "team_membership_not_found"
   | "team_captain_cannot_leave"
@@ -93,7 +92,6 @@ const STATUS_BY_CODE: Record<TeamErrorCode, number> = {
   team_invite_email_mismatch: 403,
   team_invite_candidate_required: 403,
   team_host_of_competition: 403,
-  team_invitee_host_of_competition: 422,
   team_member_host_of_competition: 422,
   team_membership_not_found: 404,
   team_captain_cannot_leave: 422,

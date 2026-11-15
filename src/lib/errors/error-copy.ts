@@ -20,7 +20,8 @@ export const NETWORK_ERROR_MESSAGE = "Gagal mengirim permintaan karena gangguan 
 export const GOOGLE_EMAIL_UNVERIFIED_MESSAGE =
   "Google belum memverifikasi email ini, sehingga akun tidak dapat dibuat dengan Google. Daftar dengan email dan password, lalu masukkan kode verifikasi yang kami kirim ke email Anda.";
 
-// Shown wherever an owner or staff member of a competition's institution is refused a place in it.
+// Both the competition page's note to its institution's owner and staff, and the refusal they get
+// when they try to take a place in the competition.
 export const COMPETITION_HOST_CANNOT_JOIN_MESSAGE =
   "Anda pemilik atau staf penyelenggara kompetisi ini, jadi tidak dapat ikut mendaftar.";
 

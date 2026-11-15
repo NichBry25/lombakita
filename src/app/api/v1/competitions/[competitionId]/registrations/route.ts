@@ -18,8 +18,8 @@ type RouteContext = { params: Promise<{ competitionId: string }> };
 
 export async function POST(request: Request, context: RouteContext): Promise<Response> {
   try {
-    // Auth + role=candidate gate before any DB access. institution_owner, institution_staff,
-    // platform_ops, finance_ops all receive 403 here.
+    // The owner and staff of the competition's institution pass this gate when they hold the
+    // candidate role, and createIndividualRegistration refuses them.
     const session = await requireSessionRole(["candidate"]);
     assertSessionMatchesExpectedUser(request, session);
     const { competitionId } = await context.params;

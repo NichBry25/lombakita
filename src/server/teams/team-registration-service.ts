@@ -295,8 +295,8 @@ const assertCaptainAccess = (
   }
 };
 
-// A member who became an owner or staff member of the competition's institution after joining keeps
-// the seat, and the team cannot register while they hold it.
+// Refuses the registration while any member it would register, the captain included, is an owner
+// or staff member of the competition's institution, whenever they became one.
 const assertNoCompetitionHostOnTeam = async (
   tx: DbOrTx,
   userIds: readonly string[],
