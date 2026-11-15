@@ -787,12 +787,13 @@ svg {
 }
 
 /*
- * Exception: the glass search bars are light sub-surfaces sitting on the palm band, so a button
- * inside them needs the palm (not paper) treatment to contrast. Restore it.
+ * Exception: the glass panels are their own surface, light in the light theme and Deep Palm in
+ * the dark theme, so a button inside one follows the theme ink rather than the band's paper.
  */
-.glass-focus .ui-button[data-variant="outline"] {
-  border-color: var(--brand-palm);
-  color: var(--brand-palm);
+.glass-focus .ui-button[data-variant="outline"],
+.glass-focus .ui-button[data-variant="link"] {
+  border-color: var(--color-ink);
+  color: var(--color-ink);
 }
 
 .ui-button[data-full-width="true"] {
@@ -2963,14 +2964,30 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   white-space: nowrap;
   pointer-events: none;
   opacity: 0;
-  transform: translateX(-50%);
-  transition: opacity var(--duration-fast) var(--ease-primary) 0ms;
+  transform: translateX(-50%) scale(0);
+  transition:
+    opacity var(--duration-fast) var(--ease-primary) 0ms,
+    transform 0s 0ms;
+}
+
+.site-header .ui-icon-button[data-tooltip]::after {
+  inset-inline-start: auto;
+  inset-inline-end: 0;
+  transform: translateX(0) scale(0);
 }
 
 .ui-icon-button[data-tooltip]:hover::after,
 .ui-icon-button[data-tooltip]:focus-visible::after {
   opacity: 1;
-  transition-delay: 400ms;
+  transform: translateX(-50%) scale(1);
+  transition:
+    opacity var(--duration-fast) var(--ease-primary) 400ms,
+    transform 0s 400ms;
+}
+
+.site-header .ui-icon-button[data-tooltip]:hover::after,
+.site-header .ui-icon-button[data-tooltip]:focus-visible::after {
+  transform: translateX(0) scale(1);
 }
 
 /* ---- Page-level sticky form action bar (global Save + Back) ---- */
