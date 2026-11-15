@@ -5,7 +5,7 @@ import { INDEXABLE_ROBOTS } from "@/config/indexable-routes";
 
 const TITLE = "Kontak · Lombakita";
 const DESCRIPTION =
-  "Identitas badan usaha, alamat, email, dan telepon resmi yang mengoperasikan Lombakita.";
+  "Cara menghubungi tim Lombakita melalui email dukungan untuk pertanyaan, keluhan, atau sengketa terkait layanan.";
 
 export const metadata: Metadata = {
   title: TITLE,
@@ -29,15 +29,15 @@ export default function ContactPage() {
         <div className="content-shell document-hero-inner">
           <h1>Kontak</h1>
           <p>
-            Lombakita dioperasikan oleh badan usaha di bawah ini. Gunakan email resmi di bawah ini
-            untuk pertanyaan, keluhan, atau sengketa terkait layanan.
+            Lombakita dioperasikan oleh tim Lombakita. Gunakan email di bawah ini untuk pertanyaan,
+            keluhan, atau sengketa terkait layanan.
           </p>
         </div>
       </section>
 
       <div className="page-shell document-page">
         <section className="stack-md">
-          <h2 className="section-title">Identitas penyelenggara sistem</h2>
+          <h2 className="section-title">Kontak tim Lombakita</h2>
           <dl className="detail-grid">
             <div>
               <dt>Email</dt>

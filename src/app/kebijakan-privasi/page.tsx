@@ -270,7 +270,7 @@ export default function PrivacyPage() {
           <p>
             Kebijakan ini dapat berubah seiring perubahan produk. Versi dan tanggal berlaku
             tercantum di bagian atas halaman ini. Ketentuan penggunaan layanan ada pada halaman{" "}
-            <Link href="/syarat-ketentuan">Syarat & Ketentuan</Link>, dan keterangan badan usaha ada
+            <Link href="/syarat-ketentuan">Syarat & Ketentuan</Link>, dan email tim Lombakita ada
             pada halaman <Link href="/kontak">Kontak</Link>.
           </p>
         </section>

@@ -2,12 +2,9 @@
  * How a reader reaches Lombakita, stated once.
  *
  * Every surface that names the way to reach the team reads from here: the site footer, the contact
- * page, the about page, the terms and the privacy policy. A second literal copy of the address is
- * the defect this module exists to prevent, because the copy that nobody remembers to update is
- * the one a reader eventually finds.
- *
- * The site publishes no company name, street address, telephone number or business registration
- * number. supportEmail is the one written channel.
+ * page, the about page, the terms and the privacy policy. A second literal copy of the support
+ * email is the defect this module exists to prevent, because the copy that nobody remembers to
+ * update is the one a reader eventually finds.
  */
 export const COMPANY = {
   supportEmail: "dukungan@lombakita.com",

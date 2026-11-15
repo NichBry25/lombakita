@@ -43,11 +43,13 @@ describe("ContactPage", () => {
     expect(html).not.toMatch(/\b\d{13}\b/);
   });
 
-  // The page shows an email row and a telephone row, so the description search engines display
-  // must name both. The Open Graph description is the same string, not a second copy to drift.
-  it("describes both the email and the telephone the page shows", () => {
-    expect(metadata.description).toMatch(/email/i);
-    expect(metadata.description).toMatch(/telepon/i);
+  // The page shows an email row only, so the description search engines display names the email
+  // and no telephone. The Open Graph description is the same string, not a second copy to drift.
+  it("describes the email the page shows and no telephone", () => {
+    expect(metadata.description).toBe(
+      "Cara menghubungi tim Lombakita melalui email dukungan untuk pertanyaan, keluhan, atau sengketa terkait layanan.",
+    );
+    expect(metadata.description).not.toMatch(/telepon/i);
     expect(metadata.openGraph?.description).toBe(metadata.description);
   });
 

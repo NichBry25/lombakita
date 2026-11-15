@@ -108,9 +108,7 @@ describe("AboutPage", () => {
 
   it("declares its metadata", () => {
     expect(metadata.title).toBe("Tentang · Lombakita");
-    expect(metadata.description).toBe(
-      "Apa itu Lombakita, cara mendaftar kompetisi, biaya, dan identitas badan usaha yang mengoperasikannya.",
-    );
+    expect(metadata.description).toBe("Apa itu Lombakita, cara mendaftar kompetisi, dan biayanya.");
     expect(metadata.robots).toMatchObject({ index: true, follow: true });
     expect(metadata.alternates?.canonical).toBe("/tentang");
   });
