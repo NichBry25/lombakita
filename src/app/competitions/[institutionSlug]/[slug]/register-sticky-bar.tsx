@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
+import { FormActionBar } from "@/components/ui";
 
 type RegisterStickyBarProps = {
   targetId: string;
@@ -27,11 +28,12 @@ export function RegisterStickyBar({ targetId, children }: RegisterStickyBarProps
   }, [targetId]);
 
   return (
-    <div
-      className="glass-chrome register-sticky-bar"
-      data-visible={targetWhollyOnScreen ? "false" : "true"}
+    <FormActionBar
+      variant="register"
+      className="register-sticky-bar"
+      isVisible={!targetWhollyOnScreen}
     >
       {children}
-    </div>
+    </FormActionBar>
   );
 }

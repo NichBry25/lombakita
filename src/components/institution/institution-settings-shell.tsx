@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  BarNote,
   Button,
   FormActionBar,
   FormInput,
@@ -26,6 +27,7 @@ import { INSTITUTION_STATUS_LABELS } from "@/lib/institutions/status-labels";
 import { formatDisplayToken } from "@/lib/text/capitalize";
 import { errorMessageFor } from "@/lib/errors/error-copy";
 import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
+import { hasUnsavedFields } from "@/lib/ui/unsaved-fields";
 import type { InstitutionType } from "@/server/db/schema";
 
 type SocialPlatform = "linkedin" | "github" | "instagram" | "x" | "website";
@@ -139,6 +141,10 @@ export const InstitutionSettingsShell = ({
   const [institutionType, setInstitutionType] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  // What the server last returned for the identity form. The bar's Simpan saves only these two
+  // fields, so only they decide whether the bar says "Belum disimpan".
+  const [savedIdentity, setSavedIdentity] = useState({ displayName: "", slug: "" });
+  const hasUnsavedChanges = hasUnsavedFields({ displayName, slug }, savedIdentity);
 
   // Public organizer profile — an independent sub-form with its own Save (§13.1 group 1).
   const [about, setAbout] = useState("");
@@ -156,6 +162,10 @@ export const InstitutionSettingsShell = ({
   const applyInstitution = useCallback((data: InstitutionSettingsResponse) => {
     setDisplayName(data.institution.displayName);
     setSlug(data.institution.slug);
+    setSavedIdentity({
+      displayName: data.institution.displayName,
+      slug: data.institution.slug,
+    });
     setStatus(data.institution.status);
     setIsPersonal(data.institution.institutionType === "personal");
     setInstitutionType(data.institution.institutionType);
@@ -548,6 +558,7 @@ export const InstitutionSettingsShell = ({
         />
         {!isLoading ? (
           <div className="form-action-bar-end">
+            {hasUnsavedChanges ? <BarNote>Belum disimpan</BarNote> : null}
             <Button
               type="button"
               onClick={() => saveIdentity()}

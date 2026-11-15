@@ -519,6 +519,35 @@
   --duration-modal: 150ms;
   --modal-rise: 8px;
 
+  /*
+   * Bottom bar: one floating glass panel. The panel is 644 wide (the form column) and 80 high,
+   * 16 from the bottom edge. The register bar is narrower and holds one 52 px button. The glow
+   * behind the panel is sized for an 80 px bar.
+   */
+  --bar-width: 40.25rem;
+  --bar-register-width: 33.75rem;
+  --bar-height: var(--space-20);
+  --bar-offset: var(--space-4);
+  --bar-offset-phone: var(--space-3);
+  --bar-padding-start: var(--space-3);
+  --bar-padding-register: var(--space-3-5);
+  --bar-gap: var(--space-3);
+  --bar-glow-spread-inline: 2.25rem;
+  --bar-glow-spread-above: 1rem;
+  --bar-glow-spread-below: 1.375rem;
+  --bar-glow-blur: 1.75rem;
+  --bar-toast-gap: var(--space-3);
+  --duration-bar: var(--duration-modal);
+  --bar-rise: var(--modal-rise);
+  --bar-note-halo: 1rem;
+  --bar-note-dot: 0.5rem;
+  --bar-note-gap: var(--space-2-5);
+  --bar-note-ink: var(--color-ink-soft);
+  --bar-note-strong-ink: var(--color-ink);
+  --bar-note-halo-fill: var(--brand-peach);
+  --bar-note-dot-fill: var(--brand-terracotta);
+  --reasons-list-indent: 1.125rem;
+
   /* Character counter row under a text area with a limit. */
   --form-message-row-height: 1.25rem;
 
@@ -663,4 +692,9 @@
   --modal-fill: #12403a;
   --modal-edge: #2e6157;
   --modal-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+
+  /* On the dark glass the note text is the page ink, and the halo and dot take the tangerine. */
+  --bar-note-ink: var(--color-ink);
+  --bar-note-halo-fill: color-mix(in srgb, var(--brand-tangerine) 26%, transparent);
+  --bar-note-dot-fill: var(--brand-tangerine);
 }

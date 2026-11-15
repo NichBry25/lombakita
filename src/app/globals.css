@@ -3794,38 +3794,153 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   transform: translateX(0) scale(1);
 }
 
-/* ---- Page-level sticky form action bar (global Save + Back) ---- */
+/*
+ * Bottom bar: one floating glass panel with one control at the left and at most one Utama at the
+ * right. The outer element only positions the bar and carries the glow, so the glow sits behind
+ * the glass and not on top of it. The panel inside is the glass.
+ */
 .form-action-bar {
   position: sticky;
-  inset-block-end: var(--space-3);
+  inset-block-end: var(--bar-offset);
   z-index: var(--z-sticky-tabs);
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-3);
+  width: var(--bar-width);
+  /* Centres on the page column, and overhangs it evenly where the column is narrower. */
+  margin-inline: calc((100% - var(--bar-width)) / 2);
   margin-block-start: var(--space-5);
-  padding: var(--space-3) var(--space-4);
-  padding-block-end: max(var(--space-3), env(safe-area-inset-bottom));
-  border-radius: var(--radius-card);
+}
+
+.form-action-bar[data-variant="register"] {
+  position: fixed;
+  inset-inline: var(--space-0);
+  width: var(--bar-register-width);
+  margin: var(--space-0) auto;
+  transition:
+    opacity var(--duration-bar) var(--ease-primary),
+    transform var(--duration-bar) var(--ease-primary),
+    visibility var(--space-0) var(--duration-bar);
+}
+
+.form-action-bar[data-variant="register"][data-visible="false"] {
+  visibility: hidden;
+  opacity: 0;
+  transform: translateY(var(--bar-rise));
+  pointer-events: none;
+}
+
+.form-action-bar[data-variant="register"][data-visible="true"] {
+  visibility: visible;
+  opacity: 1;
+  transform: translateY(0);
+  transition-delay: 0s;
+}
+
+.form-action-bar::before {
+  content: "";
+  position: absolute;
+  inset: calc(-1 * var(--bar-glow-spread-above)) calc(-1 * var(--bar-glow-spread-inline))
+    calc(-1 * var(--bar-glow-spread-below));
+  z-index: calc(-1 * var(--z-content));
+  border-radius: var(--radius-feature);
+  background: var(--glow-peach);
+  filter: blur(var(--bar-glow-blur));
+  pointer-events: none;
+}
+
+.form-action-bar-panel {
+  display: flex;
+  box-sizing: border-box;
+  height: var(--bar-height);
+  align-items: center;
+  gap: var(--bar-gap);
+  padding: var(--space-4) var(--space-4) var(--space-4) var(--bar-padding-start);
+  border-radius: var(--radius-feature);
+  box-shadow: var(--shadow-glass);
+}
+
+.form-action-bar[data-variant="register"] .form-action-bar-panel {
+  padding: var(--bar-padding-register);
 }
 
 .form-action-bar .form-action-bar-end {
-  margin-inline-start: auto;
   display: inline-flex;
-  /* A flex item's `min-width` defaults to `auto`, so this group could not shrink below the
-     combined width of its buttons, and `nowrap` meant it could not lay them out on two lines
-     either. At 360px it was 318px wide inside a 292px content box and simply hung out of the bar.
-     Wrapping is what the bar's own `flex-wrap` already assumes for its children. */
   min-width: 0;
-  flex-wrap: wrap;
   align-items: center;
-  /* Keeps a wrapped second line aligned with the bar's trailing edge rather than drifting left. */
   justify-content: flex-end;
-  gap: var(--space-3);
+  gap: var(--bar-gap);
+  margin-inline-start: auto;
 }
 
-.form-action-bar .record-meta[data-dirty="true"] {
-  color: var(--color-warning-text);
+/* The bar sits at the bottom of the screen, so a tooltip opens above its control and starts at the
+   control's own edge, where the panel's side margin leaves room for it. */
+.form-action-bar .ui-icon-button[data-tooltip]::after {
+  inset-block: auto calc(100% + var(--space-2));
+  inset-inline-start: var(--space-0);
+  transform: translateX(0) scale(0);
+}
+
+.form-action-bar .ui-icon-button[data-tooltip]:hover::after,
+.form-action-bar .ui-icon-button[data-tooltip]:focus-visible::after {
+  transform: translateX(0) scale(1);
+}
+
+/* The register bar floats over the page and its footer, so only the sticky bars need the room. */
+.page-shell:has(.form-action-bar:not([data-variant="register"])) {
+  padding-block-end: calc(var(--bar-height) + (var(--bar-offset) * 2));
+}
+
+.bar-note {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--bar-note-gap);
+  margin: var(--space-0);
+  color: var(--bar-note-ink);
+  font-size: var(--text-body-sm);
+  font-weight: 500;
+}
+
+.bar-note strong {
+  color: var(--bar-note-strong-ink);
+  font-weight: 700;
+}
+
+.bar-note-halo {
+  display: grid;
+  width: var(--bar-note-halo);
+  height: var(--bar-note-halo);
+  flex: none;
+  place-items: center;
+  border-radius: var(--radius-circle);
+  background: var(--bar-note-halo-fill);
+}
+
+.bar-note-dot {
+  width: var(--bar-note-dot);
+  height: var(--bar-note-dot);
+  border-radius: var(--radius-circle);
+  background: var(--bar-note-dot-fill);
+}
+
+/* The step 5 notice: a lead sentence and one line per reason. It sits 24 px under the step line
+   and 16 px above the first summary card, inside a grid that spaces its children 32 px apart. */
+.publish-reasons-notice {
+  margin-block: calc(var(--space-6) - var(--space-8)) calc(var(--space-4) - var(--space-8));
+}
+
+.publish-reasons-list {
+  display: grid;
+  gap: var(--space-1);
+  margin: var(--space-0);
+  padding-inline-start: var(--reasons-list-indent);
+}
+
+/* A link ends its reason's sentence, so it takes the sentence's line instead of a 44 px row. */
+.publish-reasons-list .ui-button[data-variant="link"] {
+  display: inline;
+  min-height: var(--space-0);
+  padding: var(--space-0);
+  font-size: inherit;
+  line-height: inherit;
 }
 
 .competition-grid {
@@ -4496,31 +4611,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   text-align: center;
 }
 
-.register-sticky-bar {
-  display: none;
-}
-
-.register-sticky-bar[data-visible="true"] {
-  position: fixed;
-  inset-inline: var(--space-0);
-  inset-block-end: var(--space-0);
-  z-index: var(--z-sticky-tabs);
-  display: grid;
-  justify-items: center;
-  padding: var(--space-3) var(--page-padding) max(var(--space-3), env(safe-area-inset-bottom));
-}
-
-.register-sticky-bar > * {
-  max-width: var(--content-narrow);
-}
-
-body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
-  inset-block-end: calc(
-    var(--control-height-lg) + (var(--space-3) * 2) +
-      max(var(--space-3), env(safe-area-inset-bottom))
-  );
-}
-
 .detail-verification-panel {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -5170,7 +5260,8 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
 .toast-region {
   position: fixed;
   inset-inline-end: var(--space-7);
-  inset-block-end: var(--space-7);
+  /* A bottom bar on screen sets --toast-bar-lift to keep the region above its top edge. */
+  inset-block-end: var(--toast-bar-lift, var(--space-7));
   z-index: var(--z-toast);
   display: flex;
   width: min(var(--content-toast), calc(100% - (var(--space-4) * 2)));
@@ -7291,10 +7382,6 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
     grid-row: 1;
   }
 
-  .register-sticky-bar[data-visible="true"] {
-    padding-inline: var(--page-padding-mobile);
-  }
-
   .competition-grid,
   .institution-card-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -7479,6 +7566,25 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
     padding: var(--space-8) var(--page-padding-mobile) var(--space-12);
   }
 
+  /* The bar is 16 from each side of the screen and 12 above the safe area. */
+  .form-action-bar {
+    inset-block-end: calc(var(--bar-offset-phone) + env(safe-area-inset-bottom));
+    width: auto;
+    justify-self: stretch;
+    margin-inline: calc(var(--bar-offset) - var(--page-padding-mobile));
+  }
+
+  .form-action-bar[data-variant="register"] {
+    inset-inline: var(--bar-offset);
+    width: auto;
+    margin-inline: var(--space-0);
+  }
+
+  /* A glow reaching past the screen edge would make the page scroll sideways. */
+  .form-action-bar:not([data-variant="register"])::before {
+    inset-inline: calc(-1 * var(--bar-offset));
+  }
+
   .section-heading,
   .record-row {
     align-items: flex-start;
@@ -7546,7 +7652,7 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
 
   .toast-region {
     inset-inline: var(--space-4);
-    inset-block-end: calc(var(--space-4) + env(safe-area-inset-bottom));
+    inset-block-end: var(--toast-bar-lift, calc(var(--space-4) + env(safe-area-inset-bottom)));
     width: auto;
   }
 

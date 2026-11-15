@@ -32,6 +32,7 @@ import {
 import { loadInstitutionVerificationSummaryBySlug } from "@/server/institution-workspace/institution-service";
 import { isCompetitionHost } from "@/server/competitions/competition-access";
 import { RegisterStickyBar } from "./register-sticky-bar";
+import { shouldShowRegisterBar } from "./register-bar-rule";
 import { RegistrationButton } from "./registration-button";
 import { candidateRoleOfferPath } from "./candidate-role-offer-path";
 import { SaveButton } from "./save-button";
@@ -790,7 +791,13 @@ export default async function CompetitionDetailPage({
             </>
           ) : null}
         </aside>
-        {!isHostOfCompetition ? (
+        {!isHostOfCompetition &&
+        shouldShowRegisterBar({
+          ctaState: competition.ctaState,
+          isCancelled: competition.cancelledAt !== null,
+          isSignedIn: Boolean(session?.user),
+          isCandidate,
+        }) ? (
           <RegisterStickyBar targetId="register-actions">
             <RegistrationButton
               ctaState={competition.ctaState}

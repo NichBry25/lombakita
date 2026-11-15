@@ -349,13 +349,6 @@ const GATE_CASES: GateCase[] = [
     expectedHttpStatus: 403,
   },
   {
-    code: "competition_invalid_transition",
-    // Already published, and everything else about it is publishable — so the state machine's lack
-    // of an edge from `published` back to `published` is the one question that fails.
-    seed: (tx) => seedFixture(tx, { status: "published" }),
-    expectedHttpStatus: 422,
-  },
-  {
     code: "competition_recruiter_not_trusted",
     seed: (tx) => seedFixture(tx, { actorTier: "minimal" }),
     expectedHttpStatus: 403,
@@ -410,9 +403,14 @@ describe.skipIf(skipWithoutDatabase)(
       contactGateState.skipGate = false;
     });
 
-    it("covers every blocker code the module declares", () => {
+    // The transition code is the one the endpoint gives a published competition and readiness
+    // does not report, so it has its own test below.
+    it("covers every blocker code the module declares, except the transition code", () => {
       const exercised = GATE_CASES.map((gate) => gate.code).sort();
-      expect(exercised).toEqual([...COMPETITION_PUBLISH_BLOCKER_CODES].sort());
+      const reportedByReadiness = COMPETITION_PUBLISH_BLOCKER_CODES.filter(
+        (code) => code !== "competition_invalid_transition",
+      );
+      expect(exercised).toEqual([...reportedByReadiness].sort());
     });
 
     for (const gate of GATE_CASES) {
@@ -490,13 +488,11 @@ describe.skipIf(skipWithoutDatabase)("a competition that can publish", () => {
     });
   });
 
-  // The transition is one of the questions readiness answers, in the publish path's own position:
-  // straight after the access gate, before any publish-only guard (competition-service.ts:855-861).
-  // So an already-published competition is reported as blocked, and the endpoint refuses that same
-  // attempt with the same code. The row is published through the real route rather than seeded with
-  // `status: 'published'`, so it carries the `published_at` production writes and both answers are
-  // read from one row.
-  it("blocks an already-published competition with the transition code, and the endpoint refuses", async () => {
+  // A published competition has no publish control, so readiness names no reason for it, while the
+  // endpoint still refuses the attempt with the transition code. The row is published through the
+  // real route rather than seeded with `status: 'published'`, so it carries the `published_at`
+  // production writes and both answers are read from one row.
+  it("names no reason for an already-published competition, and the endpoint still refuses", async () => {
     await inRollback(async (tx) => {
       const fixture = await seedFixture(tx, { feeAmount: null });
 
@@ -504,7 +500,7 @@ describe.skipIf(skipWithoutDatabase)("a competition that can publish", () => {
       expect(first.status).toBe(200);
 
       const readiness = await readinessFor(fixture.actorUserId, fixture.competitionId, tx);
-      expect(readiness.blockers).toEqual(["competition_invalid_transition"]);
+      expect(readiness.blockers).toEqual([]);
       expect(readiness.canPublish).toBe(false);
 
       const second = await publishViaRoute(fixture, fixture.actorUserId, tx);

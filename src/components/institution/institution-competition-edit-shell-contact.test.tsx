@@ -4,7 +4,7 @@
 // and in section 1 of a published competition Simpan saves it. The harness is the one of
 // institution-competition-edit-shell.test.tsx.
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { UIPrimitivesProvider } from "@/components/ui/primitives";
 import { PageTransitionProvider } from "@/components/ui/page-transition";
@@ -22,6 +22,13 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: mockPush, replace: mockReplace }),
   usePathname: () => "/institution/institusi-contoh/competitions/lomba-contoh-2026/edit",
 }));
+
+// jsdom does no layout, so it has no scrollIntoView; a failed Lanjut or Simpan scrolls to the first error.
+beforeAll(() => {
+  if (!Element.prototype.scrollIntoView) {
+    Element.prototype.scrollIntoView = () => {};
+  }
+});
 
 // The vitest config clears no mocks between tests.
 beforeEach(() => {
@@ -145,9 +152,9 @@ describe("the contact part in the edit shell", () => {
     expect((field as HTMLInputElement).value).toBe("0812-3456-7890");
     await waitFor(() => expect(publishButton().hasAttribute("disabled")).toBe(false));
     expect(screen.queryByText(CONTACT_MISSING_REASON)).toBeNull();
-    expect(readinessNote()?.textContent).toContain(
-      "Siap diterbitkan. Kontak tersimpan saat Anda menekan Terbitkan.",
-    );
+    // Nothing blocks publishing, so the bar holds Terbitkan and no sentence.
+    expect(readinessNote()).toBeNull();
+    expect(screen.queryByText("Draf belum bisa diterbitkan.")).toBeNull();
 
     fireEvent.click(publishButton());
 
@@ -167,7 +174,11 @@ describe("the contact part in the edit shell", () => {
     const field = await screen.findByLabelText(/^Nomor WhatsApp(?: \* \(wajib\)| \(opsional\))?$/);
     expect((field as HTMLInputElement).value).toBe("");
     expect(screen.queryByRole("button", { name: "Terbitkan" })).toBeNull();
-    expect(readinessNote()?.textContent).toContain(CONTACT_MISSING_REASON);
+    // The notice names the reason, and the bar says only that publishing is not possible yet.
+    expect(screen.getByText(CONTACT_MISSING_REASON)).toBeTruthy();
+    expect(document.querySelector(".form-action-bar-panel .bar-note")?.textContent).toBe(
+      "Belum bisa diterbitkan",
+    );
     expect(screen.queryByRole("link", { name: "Isi kontak" })).toBeNull();
   });
 
@@ -220,12 +231,14 @@ describe("the contact part in the edit shell", () => {
 
     await waitFor(() => expect(calls).toHaveLength(6));
     expect(calls[4]).toBe(COMPETITION_URL);
+    // The toast says the same sentence, so the notice's list is read by itself.
+    const reasonsList = () => document.querySelector(".publish-reasons-list")?.textContent;
     await waitFor(() =>
-      expect(readinessNote()?.textContent).toContain(
+      expect(reasonsList()).toContain(
         "Akun Anda belum menjadi penyelenggara terverifikasi. Selesaikan verifikasi penyelenggara untuk dapat menerbitkan kompetisi.",
       ),
     );
-    expect(readinessNote()?.textContent).not.toContain(CONTACT_MISSING_REASON);
+    expect(reasonsList()).not.toContain(CONTACT_MISSING_REASON);
   });
 
   it("keeps the contact in section 1 of a published competition and saves it with Simpan", async () => {

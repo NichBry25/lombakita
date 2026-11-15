@@ -3,6 +3,7 @@
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  BarNote,
   Button,
   FormActionBar,
   FormInput,
@@ -18,6 +19,7 @@ import {
   SESSION_MISMATCH_CODE,
   SESSION_MISMATCH_MESSAGE,
 } from "@/lib/session/session-fetch";
+import { hasUnsavedFields } from "@/lib/ui/unsaved-fields";
 
 const OCCUPATION_OPTIONS = [
   { value: "school_student", label: "Pelajar (SMA/SMK/sederajat)" },
@@ -48,10 +50,16 @@ export const CandidateProfileEditor = ({ expectedUserId, initial }: Props) => {
   const [occupation, setOccupation] = useState(initial.occupation);
   const [dateOfBirth, setDateOfBirth] = useState(initial.dateOfBirth);
   const [isSaving, setIsSaving] = useState(false);
+  const [savedValues, setSavedValues] = useState<CandidateProfileFormValues>(initial);
+  const hasUnsavedChanges = hasUnsavedFields(
+    { fullName, phoneNumber, occupation, dateOfBirth },
+    savedValues,
+  );
 
   const onSubmit = async (event?: FormEvent<HTMLFormElement>) => {
     event?.preventDefault();
     setIsSaving(true);
+    const sentValues = { fullName, phoneNumber, occupation, dateOfBirth };
 
     try {
       const res = await sessionFetch(expectedUserId, "/api/v1/candidate/me/profile", {
@@ -75,6 +83,7 @@ export const CandidateProfileEditor = ({ expectedUserId, initial }: Props) => {
         return;
       }
 
+      setSavedValues(sentValues);
       addToast({ type: "success", message: "Data kandidat berhasil disimpan." });
       router.refresh();
     } catch {
@@ -149,6 +158,7 @@ export const CandidateProfileEditor = ({ expectedUserId, initial }: Props) => {
           onClick={() => router.push("/candidate-dashboard")}
         />
         <div className="form-action-bar-end">
+          {hasUnsavedChanges ? <BarNote>Belum disimpan</BarNote> : null}
           <Button
             type="button"
             onClick={() => onSubmit()}

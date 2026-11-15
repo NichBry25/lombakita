@@ -15,6 +15,8 @@ import {
 } from "@/components/ui";
 import { StepIndicator } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
+import { useConfirmLeavingUnsavedChanges } from "@/components/institution/use-confirm-leaving-unsaved-changes";
+import { hasUnsavedFields } from "@/lib/ui/unsaved-fields";
 import {
   COMPETITION_STEP_COUNT,
   COMPETITION_STEP_TITLES,
@@ -50,9 +52,6 @@ const extractErrorMessage = async (response: Response): Promise<string> => {
 
 type CreatedCompetition = { id: string; slug: string };
 
-// "next" opens step 2 of the new draft; "exit" returns to the competition list.
-type CreateAction = "next" | "exit";
-
 export const InstitutionCompetitionCreateShell = ({
   institutionSlug,
   expectedUserId,
@@ -66,11 +65,15 @@ export const InstitutionCompetitionCreateShell = ({
   const [category, setCategory] = useState<string>("");
   const [description, setDescription] = useState("");
   const [tags, setTags] = useState<string[]>([]);
-  const [pendingAction, setPendingAction] = useState<CreateAction | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
   const { addToast } = useToast();
   const { runAndNavigate } = usePageTransition();
+  const confirmLeavingUnsavedChanges = useConfirmLeavingUnsavedChanges();
   const router = useRouter();
   const backHref = `/institution/${institutionSlug}/competitions`;
+  // Nothing is saved on this page until "Lanjut" creates the draft, so anything typed is unsaved.
+  const hasUnsavedChanges =
+    hasUnsavedFields({ title, slug, category, description }, {}) || tags.length > 0;
 
   // Resolves to the new draft, or to null when the create failed and its toast is shown.
   const createDraft = async (): Promise<CreatedCompetition | null> => {
@@ -118,29 +121,35 @@ export const InstitutionCompetitionCreateShell = ({
 
   // Institution-side competition pages are slug-keyed, so the draft is opened by its slug. A draft
   // whose tags were not saved reopens at step 1, where the tags are.
-  const createAndOpen = async (action: CreateAction): Promise<boolean> => {
-    setPendingAction(action);
+  const createAndOpen = async (): Promise<boolean> => {
+    setIsCreating(true);
     const created = await createDraft();
     if (!created) {
-      setPendingAction(null);
+      setIsCreating(false);
       return false;
     }
     const tagsSaved = await saveSelectedTags(created.id);
     const draftStep = tagsSaved ? 2 : 1;
-    const destination =
-      action === "exit" && tagsSaved
-        ? backHref
-        : getCompetitionStepHref(institutionSlug, created.slug, draftStep);
-    router.replace(destination);
+    router.replace(getCompetitionStepHref(institutionSlug, created.slug, draftStep));
     return true;
   };
 
-  const onCreate = (action: CreateAction) => {
+  const onCreate = () => {
     if (category === "") {
       addToast({ type: "error", message: "Pilih kategori kompetisi." });
       return;
     }
-    void runAndNavigate(() => createAndOpen(action), { message: "Membuat kompetisi…" });
+    void runAndNavigate(createAndOpen, { message: "Membuat kompetisi…" });
+  };
+
+  const goBackToList = () => router.push(backHref);
+
+  const onBack = () => {
+    if (!hasUnsavedChanges) {
+      goBackToList();
+      return;
+    }
+    confirmLeavingUnsavedChanges(goBackToList);
   };
 
   return (
@@ -155,7 +164,7 @@ export const InstitutionCompetitionCreateShell = ({
       <form
         onSubmit={(event) => {
           event.preventDefault();
-          onCreate("next");
+          onCreate();
         }}
         className="content-section stack-md"
       >
@@ -212,24 +221,10 @@ export const InstitutionCompetitionCreateShell = ({
           size="back"
           icon="arrow-left"
           label="Kembali ke Kompetisi"
-          onClick={() => router.push(backHref)}
+          onClick={onBack}
         />
         <div className="form-action-bar-end">
-          <Button
-            variant="outline"
-            type="button"
-            onClick={() => onCreate("exit")}
-            loading={pendingAction === "exit"}
-            disabled={pendingAction !== null}
-          >
-            Simpan dan keluar
-          </Button>
-          <Button
-            type="button"
-            onClick={() => onCreate("next")}
-            loading={pendingAction === "next"}
-            disabled={pendingAction !== null}
-          >
+          <Button type="button" onClick={onCreate} loading={isCreating}>
             Lanjut
           </Button>
         </div>

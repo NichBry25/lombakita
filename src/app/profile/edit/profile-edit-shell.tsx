@@ -5,7 +5,9 @@ import { useRouter } from "next/navigation";
 import type { OwnerProfileResponse, ProfileFieldValue } from "@/server/user-profile/profile-core";
 import { errorMessageFor } from "@/lib/errors/error-copy";
 import { sessionFetch } from "@/lib/session/session-fetch";
+import { hasUnsavedFields } from "@/lib/ui/unsaved-fields";
 import {
+  BarNote,
   Button,
   FormActionBar,
   FormInput,
@@ -106,10 +108,18 @@ export function ProfileEditShell({ profile, expectedUserId }: Props) {
     profile.bannerUrl.status === "populated" ? profile.bannerUrl.value : null;
 
   const [saving, setSaving] = useState(false);
+  const [savedFields, setSavedFields] = useState({
+    username: profile.username,
+    displayName: fieldValue(profile.displayName),
+    bio: fieldValue(profile.bio),
+    location: fieldValue(profile.location),
+  });
+  const hasUnsavedChanges = hasUnsavedFields({ username, displayName, bio, location }, savedFields);
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
     setSaving(true);
+    const sentFields = { username, displayName, bio, location };
 
     const payload = {
       username: username.trim(),
@@ -137,6 +147,7 @@ export function ProfileEditShell({ profile, expectedUserId }: Props) {
       } else {
         // A success answer whose body is not JSON still ends in the connection catch below.
         await res.json();
+        setSavedFields(sentFields);
         addToast({ type: "success", message: "Profil berhasil disimpan." });
         // Re-fetch the /profile server component so it shows the just-saved values.
         router.refresh();
@@ -208,6 +219,7 @@ export function ProfileEditShell({ profile, expectedUserId }: Props) {
           onClick={() => router.push("/profile")}
         />
         <div className="form-action-bar-end">
+          {hasUnsavedChanges ? <BarNote>Belum disimpan</BarNote> : null}
           <Button
             type="button"
             onClick={() => handleSubmit()}

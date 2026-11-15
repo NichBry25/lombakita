@@ -131,13 +131,17 @@ describe("the competition page's offer of the participant role", () => {
     });
   });
 
-  it("offers a host the participant role page from both register buttons", async () => {
+  it("offers a signed-in account that is not a candidate the participant role page from the page's own register button only", async () => {
     const html = await renderPageFor("recruiter", ["recruiter"]);
 
-    expect(roleOfferIn(html)).toEqual({
-      rolePageLinks: 2,
-      offerLinks: 2,
+    expect({
+      ...roleOfferIn(html),
+      stickyBars: html.split("register-sticky-bar").length - 1,
+    }).toEqual({
+      rolePageLinks: 1,
+      offerLinks: 1,
       onlyCandidatesNote: false,
+      stickyBars: 0,
     });
   });
 });

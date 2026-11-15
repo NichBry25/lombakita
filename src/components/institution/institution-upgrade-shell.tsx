@@ -74,7 +74,6 @@ export const InstitutionUpgradeShell = ({
 
   const nameFieldId = useId();
   const nameHintId = `${nameFieldId}-hint`;
-  const blockedNoticeId = useId();
 
   const [targetType, setTargetType] = useState<FullInstitutionType>("company");
   const [displayName, setDisplayName] = useState("");
@@ -218,13 +217,6 @@ export const InstitutionUpgradeShell = ({
             </FormHelp>
           </span>
         </div>
-
-        {!canUpgrade && (
-          <span id={blockedNoticeId} className="sr-only">
-            Peningkatan institusi hanya tersedia untuk penyelenggara terverifikasi. Selesaikan
-            verifikasi akun Anda terlebih dahulu.
-          </span>
-        )}
       </section>
 
       <FormActionBar>
@@ -235,17 +227,13 @@ export const InstitutionUpgradeShell = ({
           label="Kembali"
           onClick={() => router.push(`/institution/${institutionSlug}`)}
         />
-        <div className="form-action-bar-end">
-          <Button
-            type="button"
-            disabled={!canUpgrade}
-            onClick={confirmUpgrade}
-            leadingIcon={<Icon name="building" />}
-            aria-describedby={canUpgrade ? undefined : blockedNoticeId}
-          >
-            Tingkatkan institusi
-          </Button>
-        </div>
+        {canUpgrade ? (
+          <div className="form-action-bar-end">
+            <Button type="button" onClick={confirmUpgrade} leadingIcon={<Icon name="building" />}>
+              Tingkatkan institusi
+            </Button>
+          </div>
+        ) : null}
       </FormActionBar>
     </main>
   );

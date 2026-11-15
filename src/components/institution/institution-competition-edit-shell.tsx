@@ -12,9 +12,12 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+  BarNote,
   Button,
+  ButtonLink,
   CheckboxField,
   EmptyState,
+  Feedback,
   FormActionBar,
   FormError,
   FormInput,
@@ -27,9 +30,12 @@ import {
   SelectField,
   Skeleton,
   StepIndicator,
+  findInvalidFields,
+  focusFirstInvalidField,
   usePageTransition,
 } from "@/components/ui";
 import { useModal, useToast } from "@/components/ui/primitives";
+import { useConfirmLeavingUnsavedChanges } from "@/components/institution/use-confirm-leaving-unsaved-changes";
 import {
   COMPETITION_EDITOR_PART_LABELS,
   COMPETITION_EDITOR_PART_ORDER,
@@ -65,6 +71,7 @@ import {
   getPublishBlockerReason,
   resolvePublishReasonHref,
   resolvePublishRefusalToastText,
+  type PublishBlockerReason,
 } from "@/components/institution/competition-publish-messages";
 import type { CompetitionPublishReadiness } from "@/server/competitions/competition-publish-readiness";
 import {
@@ -241,6 +248,20 @@ const getTimelineFieldError = (
   errors: CompetitionTimelineError[],
   field: CompetitionTimelineField,
 ): string | null => errors.find((error) => error.field === field)?.message ?? null;
+
+// The sentences for the problems this form can see by itself. The toast of a refused save or
+// Terbitkan and the notice on step 5 say them in the same words.
+const UNSAVED_PUBLISH_REASON = "Simpan perubahan sebelum menerbitkan kompetisi.";
+const missingFieldsPublishReason = (fieldLabels: string[]): string =>
+  `Lengkapi bidang wajib sebelum menerbitkan: ${fieldLabels.join(", ")}.`;
+const outOfOrderScheduleSentence = (message: string): string =>
+  `Perbaiki urutan jadwal: ${message}`;
+
+type PublishReason = {
+  key: string;
+  text: string;
+  link: PublishBlockerReason["link"];
+};
 
 const snapshotEquals = (a: FormSnapshot, b: FormSnapshot): boolean =>
   a.title === b.title &&
@@ -523,6 +544,7 @@ export const InstitutionCompetitionEditShell = ({
 }) => {
   const router = useRouter();
   const { openModal } = useModal();
+  const confirmLeavingUnsavedChanges = useConfirmLeavingUnsavedChanges();
   const { addToast } = useToast();
   const { begin, end, runAndNavigate } = usePageTransition();
 
@@ -606,6 +628,17 @@ export const InstitutionCompetitionEditShell = ({
   // Which of "Lanjut" and "Simpan dan keluar" is running, so the spinner lands on the pressed one.
   const [pendingStepAction, setPendingStepAction] = useState<"next" | "exit" | null>(null);
 
+  // A save that stops on fields in error says how many, in a line only screen readers get, and
+  // moves focus to the first of them. The focus waits for the render that enables the form again,
+  // because a field of a disabled fieldset cannot take focus.
+  const editFormRef = useRef<HTMLFormElement>(null);
+  const [invalidFieldsMessage, setInvalidFieldsMessage] = useState("");
+  const [errorFocusRequest, setErrorFocusRequest] = useState(0);
+  useEffect(() => {
+    if (errorFocusRequest === 0) return;
+    focusFirstInvalidField(editFormRef.current);
+  }, [errorFocusRequest]);
+
   // Every step change drops what was typed and not saved, so a value left on another step is never
   // sent by a later save. Step 5 may open with a suggested contact, which Terbitkan saves.
   const [renderedStep, setRenderedStep] = useState(step);
@@ -678,7 +711,6 @@ export const InstitutionCompetitionEditShell = ({
     competition?.status === "published" && savedSnapshot !== null
       ? findBrokenPublishLocks(savedSnapshot, currentSnapshot())
       : [];
-  const publishLockIsBroken = brokenPublishLocks.length > 0;
   const clientPublishIsBlocked =
     hasUnsavedChanges ||
     missingPublishFields.length > 0 ||
@@ -717,6 +749,37 @@ export const InstitutionCompetitionEditShell = ({
     });
 
   const publishIsBlocked = clientPublishIsBlocked || serverBlockers.length > 0;
+
+  // Every reason publishing is blocked, one item each, for the notice on step 5: the server's
+  // first, then this form's own.
+  const clientPublishReasons: PublishReason[] = [
+    ...timelineErrors.map(({ message }, index) => ({
+      key: `timeline-${index}`,
+      text: outOfOrderScheduleSentence(message),
+      link: null,
+    })),
+    ...(hasUnsavedChanges ? [{ key: "unsaved", text: UNSAVED_PUBLISH_REASON, link: null }] : []),
+    ...(missingPublishFields.length > 0
+      ? [
+          {
+            key: "missing-fields",
+            text: missingFieldsPublishReason(missingPublishFields),
+            link: null,
+          },
+        ]
+      : []),
+    ...(registrationEndIsPast
+      ? [{ key: "registration-end-past", text: REGISTRATION_END_PAST_MESSAGE, link: null }]
+      : []),
+  ];
+  const publishReasons: PublishReason[] = [
+    ...serverPublishReasons.map(({ code, text, link }) => ({ key: code, text, link })),
+    ...clientPublishReasons,
+  ];
+  // The review bar counts the missing fields only when they are all that blocks publishing.
+  const onlyMissingFieldsBlockPublishing =
+    missingPublishFields.length > 0 && publishReasons.length === 1;
+
   // "siap diterbitkan" is a claim the control has to be able to back, so it is the default only
   // while the control is enabled. When a server refusal is what blocks, that refusal is on screen
   // above this line instead of a sentence here — there is always one, because a block with no client
@@ -726,7 +789,7 @@ export const InstitutionCompetitionEditShell = ({
     : "Semua perubahan tersimpan dan siap diterbitkan";
   let editorStatusMessage: string | null = publishIsBlocked ? null : readyStatusMessage;
   if (timelineIsInvalid) {
-    editorStatusMessage = `Perbaiki urutan jadwal: ${timelineErrors[0]?.message}`;
+    editorStatusMessage = outOfOrderScheduleSentence(timelineErrors[0]?.message ?? "");
   } else if (hasUnsavedChanges) {
     editorStatusMessage = "Simpan perubahan sebelum menerbitkan";
   } else if (missingPublishFields.length > 0) {
@@ -924,7 +987,7 @@ export const InstitutionCompetitionEditShell = ({
     if (timelineIsInvalid) {
       addToast({
         type: "error",
-        message: `Perbaiki urutan jadwal: ${timelineErrors.map(({ message }) => message).join(" ")}`,
+        message: outOfOrderScheduleSentence(timelineErrors.map(({ message }) => message).join(" ")),
       });
       return { status: "failed" };
     }
@@ -1087,10 +1150,19 @@ export const InstitutionCompetitionEditShell = ({
     }
   };
 
-  const onSaveSection = (event?: React.FormEvent<HTMLFormElement>) => {
+  const reportFieldsInError = () => {
+    const fieldCount = findInvalidFields(editFormRef.current).length;
+    if (fieldCount === 0) return;
+    setInvalidFieldsMessage(`Periksa ${fieldCount} isian`);
+    setErrorFocusRequest((request) => request + 1);
+  };
+
+  const onSaveSection = async (event?: React.FormEvent<HTMLFormElement>) => {
     event?.preventDefault();
     if (isSubmitting) return;
-    void saveCurrentStep();
+    setInvalidFieldsMessage("");
+    const savedValues = await saveCurrentStep();
+    if (!savedValues) reportFieldsInError();
   };
 
   const listHref = `/institution/${institutionSlug}/competitions`;
@@ -1102,12 +1174,14 @@ export const InstitutionCompetitionEditShell = ({
     if (isSubmitting) return;
     if (activeStep === null || activeStep === COMPETITION_STEP_COUNT) return;
     const nextStep = (activeStep + 1) as CompetitionStep;
+    setInvalidFieldsMessage("");
     setPendingStepAction("next");
     begin("Menyimpan kompetisi…");
     const savedValues = await saveCurrentStep();
     setPendingStepAction(null);
     if (!savedValues) {
       end();
+      reportFieldsInError();
       return;
     }
     router.push(getCompetitionStepHref(institutionSlug, savedValues.slug, nextStep));
@@ -1140,11 +1214,11 @@ export const InstitutionCompetitionEditShell = ({
         type: "error",
         message: clientPublishIsBlocked
           ? timelineIsInvalid
-            ? `Perbaiki urutan jadwal: ${timelineErrors.map(({ message }) => message).join(" ")}`
+            ? outOfOrderScheduleSentence(timelineErrors.map(({ message }) => message).join(" "))
             : hasUnsavedChanges
-              ? "Simpan perubahan sebelum menerbitkan kompetisi."
+              ? UNSAVED_PUBLISH_REASON
               : missingPublishFields.length > 0
-                ? `Lengkapi bidang wajib sebelum menerbitkan: ${missingPublishFields.join(", ")}.`
+                ? missingFieldsPublishReason(missingPublishFields)
                 : REGISTRATION_END_PAST_MESSAGE
           : (serverPublishReasons[0]?.text ?? "Kompetisi belum dapat diterbitkan saat ini."),
       });
@@ -1222,18 +1296,6 @@ export const InstitutionCompetitionEditShell = ({
     const previousStep = (activeStep - 1) as CompetitionStep;
     begin("Membuka langkah sebelumnya…");
     router.push(getCompetitionStepHref(institutionSlug, savedCompetitionSlug, previousStep));
-  };
-
-  const confirmLeavingUnsavedChanges = (leave: () => void) => {
-    openModal({
-      title: "Keluar tanpa menyimpan?",
-      body: "Perubahan di halaman ini belum tersimpan dan akan hilang jika Anda keluar.",
-      alert: true,
-      actions: [
-        { label: "Tetap di sini" },
-        { label: "Buang perubahan", variant: "primary", onClick: leave },
-      ],
-    });
   };
 
   const handleBack = () => {
@@ -1543,6 +1605,133 @@ export const InstitutionCompetitionEditShell = ({
     stepPartsNode
   );
 
+  const reviewBarNote = onlyMissingFieldsBlockPublishing ? (
+    <>
+      <strong>{missingPublishFields.length}</strong> isian belum lengkap
+    </>
+  ) : (
+    "Belum bisa diterbitkan"
+  );
+
+  // Step 1 leaves to the list with the back arrow. The later steps have the arrow in the step row,
+  // so the bar holds the door instead: it saves the step first, except on step 5 where nothing
+  // can be unsaved.
+  const draftStepBarStart =
+    activeStep === 1 ? (
+      <IconButton
+        variant="plain"
+        size="back"
+        icon="arrow-left"
+        label="Kembali ke Kompetisi"
+        onClick={handleBack}
+      />
+    ) : activeStep === COMPETITION_STEP_COUNT ? (
+      <IconButtonLink
+        href={listHref}
+        icon="door-open"
+        variant="outline"
+        label="Keluar dari editor"
+      />
+    ) : (
+      <IconButton
+        variant="outline"
+        icon="door-open"
+        label="Simpan dan keluar"
+        onClick={onSaveAndExit}
+        loading={pendingStepAction === "exit"}
+        disabled={isSubmitting}
+      />
+    );
+  const draftStepBarEnd =
+    activeStep === COMPETITION_STEP_COUNT ? (
+      publishIsBlocked ? (
+        <BarNote>{reviewBarNote}</BarNote>
+      ) : (
+        <Button
+          type="button"
+          onClick={onPublishAndOpenManagement}
+          loading={isPublishing}
+          disabled={isSubmitting}
+        >
+          Terbitkan
+        </Button>
+      )
+    ) : (
+      <Button
+        type="button"
+        onClick={onNextStep}
+        loading={pendingStepAction === "next"}
+        disabled={isSubmitting}
+      >
+        Lanjut
+      </Button>
+    );
+  const draftStepBar = (
+    <FormActionBar>
+      {draftStepBarStart}
+      <div className="form-action-bar-end">{draftStepBarEnd}</div>
+    </FormActionBar>
+  );
+
+  // A published competition has no publish control, and the server names no publish reason for it.
+  const savedEditorBar = (
+    <FormActionBar>
+      <IconButton
+        icon="arrow-left"
+        variant="plain"
+        size="back"
+        label={`Kembali ke ${competition.title}`}
+        onClick={handleBack}
+      />
+      {isEditable ? (
+        <div className="form-action-bar-end">
+          <Button
+            type="button"
+            onClick={() => onSaveSection()}
+            loading={isSubmitting}
+            leadingIcon={<Icon name="save" />}
+          >
+            Simpan
+          </Button>
+        </div>
+      ) : null}
+    </FormActionBar>
+  );
+
+  // Only the whole-page editor (no step in the URL) shows a draft's Simpan and Terbitkan together.
+  const wholePageDraftBar = (
+    <FormActionBar>
+      <IconButton
+        icon="arrow-left"
+        variant="plain"
+        size="back"
+        label={`Kembali ke ${competition.title}`}
+        onClick={handleBack}
+      />
+      <div className="form-action-bar-end">
+        {publishReadinessNote}
+        <Button
+          type="button"
+          onClick={() => onSaveSection()}
+          loading={isSubmitting}
+          leadingIcon={<Icon name="save" />}
+        >
+          Simpan
+        </Button>
+        <Button
+          variant="outline"
+          type="button"
+          onClick={onPublish}
+          loading={isPublishing}
+          disabled={isSubmitting || publishIsBlocked}
+          aria-describedby="publish-readiness-message"
+        >
+          Terbitkan
+        </Button>
+      </div>
+    </FormActionBar>
+  );
+
   return (
     <main className="page-shell app-page competition-form-page">
       <PageHeader title={competition.title} titleMark={publishedStatusPill} />
@@ -1556,8 +1745,43 @@ export const InstitutionCompetitionEditShell = ({
         />
       ) : null}
 
+      <p role="status" className="sr-only">
+        {invalidFieldsMessage}
+      </p>
+
+      {isDraftStep && activeStep === COMPETITION_STEP_COUNT && publishIsBlocked ? (
+        <Feedback
+          tone="warning"
+          lead="Draf belum bisa diterbitkan."
+          className="publish-reasons-notice"
+        >
+          <ul className="publish-reasons-list">
+            {publishReasons.map((reason) => (
+              <li key={reason.key}>
+                {reason.text}
+                {reason.link ? (
+                  <>
+                    {" "}
+                    <ButtonLink
+                      variant="link"
+                      href={resolvePublishReasonHref(reason.link.kind, {
+                        institutionSlug,
+                        competitionSlug: savedCompetitionSlug,
+                      })}
+                    >
+                      {reason.link.label}
+                    </ButtonLink>
+                  </>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </Feedback>
+      ) : null}
+
       {!isEditable || activeStep === 5 ? null : (
         <form
+          ref={editFormRef}
           onSubmit={isDraftStep ? onStepFormSubmit : onSaveSection}
           className="competition-edit-form"
         >
@@ -1922,96 +2146,7 @@ export const InstitutionCompetitionEditShell = ({
         )}
       </CompetitionEditorPartsContext.Provider>
 
-      {!isDraftStep ? (
-        <FormActionBar>
-          <IconButton
-            icon="arrow-left"
-            variant="plain"
-            size="back"
-            label={`Kembali ke ${competition.title}`}
-            onClick={handleBack}
-          />
-          {isEditable ? (
-            <div className="form-action-bar-end">
-              {publishReadinessNote}
-              <Button
-                type="button"
-                onClick={() => onSaveSection()}
-                loading={isSubmitting}
-                disabled={isSubmitting || timelineIsInvalid || publishLockIsBroken}
-                leadingIcon={<Icon name="save" />}
-              >
-                Simpan
-              </Button>
-              {isDraft ? (
-                <Button
-                  variant="outline"
-                  type="button"
-                  onClick={onPublish}
-                  loading={isPublishing}
-                  disabled={isSubmitting || publishIsBlocked}
-                  aria-describedby="publish-readiness-message"
-                >
-                  Terbitkan
-                </Button>
-              ) : null}
-            </div>
-          ) : null}
-        </FormActionBar>
-      ) : (
-        <FormActionBar>
-          <IconButton
-            variant="plain"
-            size="back"
-            icon="arrow-left"
-            label={activeStep === 1 ? "Kembali ke Kompetisi" : "Kembali ke langkah sebelumnya"}
-            onClick={handleBack}
-          />
-          <div className="form-action-bar-end">
-            {publishReadinessNote}
-            {activeStep === 5 ? (
-              <>
-                <IconButtonLink
-                  href={listHref}
-                  icon="door-open"
-                  variant="outline"
-                  label="Keluar dari editor"
-                />
-                {publishIsBlocked ? null : (
-                  <Button
-                    type="button"
-                    onClick={onPublishAndOpenManagement}
-                    loading={isPublishing}
-                    disabled={isSubmitting}
-                  >
-                    Terbitkan
-                  </Button>
-                )}
-              </>
-            ) : (
-              <>
-                <Button
-                  variant="outline"
-                  type="button"
-                  onClick={onSaveAndExit}
-                  loading={pendingStepAction === "exit"}
-                  disabled={isSubmitting}
-                >
-                  Simpan dan keluar
-                </Button>
-                <Button
-                  type="button"
-                  onClick={onNextStep}
-                  loading={pendingStepAction === "next"}
-                  disabled={isSubmitting}
-                >
-                  Lanjut
-                </Button>
-              </>
-            )}
-          </div>
-        </FormActionBar>
-      )}
+      {isDraftStep ? draftStepBar : isDraft ? wholePageDraftBar : savedEditorBar}
     </main>
   );
 };

@@ -19,7 +19,7 @@
 // A6: a successful read clears the unknown state even when the response omits the optional
 // `publishReadiness` key.
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { SESSION_MISMATCH_MESSAGE } from "@/lib/session/session-fetch";
 import { NETWORK_ERROR_MESSAGE } from "@/lib/errors/error-copy";
@@ -44,6 +44,13 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: mockPush, replace: mockReplace }),
   usePathname: () => "/institution/institusi-contoh/competitions/lomba-contoh-2026/edit",
 }));
+
+// jsdom does no layout, so it has no scrollIntoView; a failed Lanjut or Simpan scrolls to the first error.
+beforeAll(() => {
+  if (!Element.prototype.scrollIntoView) {
+    Element.prototype.scrollIntoView = () => {};
+  }
+});
 
 // The vitest config clears no mocks between tests.
 beforeEach(() => {
@@ -404,7 +411,26 @@ describe("InstitutionCompetitionEditShell after publish", () => {
       line: document.getElementById("min-team-size-lock")?.getAttribute("role"),
       saveDisabled: saveButton().hasAttribute("disabled"),
       requests: vi.mocked(fetch).mock.calls.length,
-    }).toEqual({ line: "alert", saveDisabled: true, requests: 1 });
+    }).toEqual({ line: "alert", saveDisabled: false, requests: 1 });
+  });
+
+  it("moves focus to the first field in error and says how many when Simpan is pressed with one", async () => {
+    const scrollIntoView = vi.spyOn(Element.prototype, "scrollIntoView");
+    stubFetchSequence([loadPublishedTeam]);
+    mount();
+    await screen.findByRole("button", { name: "Simpan" });
+
+    const minTeamSize = screen.getByLabelText(/^Min\. anggota tim/);
+    fireEvent.change(minTeamSize, { target: { value: "4" } });
+    fireEvent.click(saveButton());
+
+    await waitFor(() => expect(document.activeElement).toBe(minTeamSize));
+    expect({
+      status: document.querySelector('p.sr-only[role="status"]')?.textContent,
+      scrolledTo: scrollIntoView.mock.contexts[0],
+      requests: vi.mocked(fetch).mock.calls.length,
+    }).toEqual({ status: "Periksa 1 isian", scrolledTo: minTeamSize, requests: 1 });
+    scrollIntoView.mockRestore();
   });
 
   it("sends a lowered team minimum and a raised team maximum of a published competition", async () => {
@@ -444,7 +470,7 @@ describe("InstitutionCompetitionEditShell after publish", () => {
       text: document.getElementById("registration-end-lock")?.textContent,
       saveDisabled: saveButton().hasAttribute("disabled"),
       requests: vi.mocked(fetch).mock.calls.length,
-    }).toEqual({ line: "alert", text: CLOSE_REASON, saveDisabled: true, requests: 1 });
+    }).toEqual({ line: "alert", text: CLOSE_REASON, saveDisabled: false, requests: 1 });
   });
 
   it("holds back an earlier event start of a published competition and says why", async () => {
@@ -463,7 +489,7 @@ describe("InstitutionCompetitionEditShell after publish", () => {
       text: document.getElementById("event-start-lock")?.textContent,
       saveDisabled: saveButton().hasAttribute("disabled"),
       requests: vi.mocked(fetch).mock.calls.length,
-    }).toEqual({ line: "alert", text: START_REASON, saveDisabled: true, requests: 1 });
+    }).toEqual({ line: "alert", text: START_REASON, saveDisabled: false, requests: 1 });
   });
 
   it("locks the right to cancel of a published competition that allows it, and holds back a larger cutoff", async () => {
@@ -500,7 +526,7 @@ describe("InstitutionCompetitionEditShell after publish", () => {
       cancelReason: CANCEL_REASON,
       cutoffReason: CUTOFF_REASON,
       raisedLine: "alert",
-      raisedSaveDisabled: true,
+      raisedSaveDisabled: false,
       loweredLine: null,
       loweredSaveDisabled: false,
     });
@@ -593,7 +619,7 @@ describe("InstitutionCompetitionEditShell after publish", () => {
     }).toEqual({
       line: "alert",
       text: "Setelah acara dimulai, tanggal berakhir acara hanya dapat diundur.",
-      saveDisabled: true,
+      saveDisabled: false,
       requests: 1,
     });
   });
@@ -753,7 +779,7 @@ describe("InstitutionCompetitionEditShell publish readiness", () => {
     const publishedWithClosedWindow = () =>
       okJson({
         competition: { ...COMPETITION, status: "published", ...closedRegistrationWindow() },
-        publishReadiness: { canPublish: false, blockers: ["competition_invalid_transition"] },
+        publishReadiness: { canPublish: false, blockers: [] },
       });
 
     it("flags the field on a draft, with the message as the field's own error", async () => {
@@ -801,16 +827,35 @@ describe("InstitutionCompetitionEditShell publish readiness", () => {
 
       // A published competition has no Terbitkan control, so wait on its Simpan.
       await screen.findByRole("button", { name: "Simpan" });
-      await waitFor(() =>
-        expect(
-          screen.getByText("Hanya kompetisi berstatus draf yang dapat diterbitkan."),
-        ).toBeTruthy(),
-      );
 
+      expect(
+        screen.queryByText("Hanya kompetisi berstatus draf yang dapat diterbitkan."),
+      ).toBeNull();
       expect(registrationEndField().getAttribute("aria-invalid")).toBeNull();
       expect(registrationEndFieldError()).toBeNull();
       expect(statusLine()?.textContent ?? "").not.toContain(REGISTRATION_END_PAST_MESSAGE);
       expect(screen.queryByText(REGISTRATION_END_PAST_MESSAGE)).toBeNull();
+    });
+
+    it("shows no publish reason in the save bar of a published competition, whatever the server sent", async () => {
+      stubFetchSequence([
+        () =>
+          okJson({
+            competition: { ...COMPETITION, status: "published" },
+            publishReadiness: { canPublish: false, blockers: ["competition_invalid_transition"] },
+          }),
+      ]);
+
+      mount();
+
+      await screen.findByRole("button", { name: "Simpan" });
+      fireEvent.change(screen.getByLabelText(/^Judul/), { target: { value: "Lomba Contoh Baru" } });
+
+      expect({
+        reason: screen.queryByText("Hanya kompetisi berstatus draf yang dapat diterbitkan."),
+        unsavedHint: screen.queryByText(/Simpan perubahan sebelum menerbitkan/),
+        note: document.getElementById("publish-readiness-message"),
+      }).toEqual({ reason: null, unsavedHint: null, note: null });
     });
 
     // The ordering error blocks saving as well, so it must read the same for every status and must
@@ -1078,17 +1123,58 @@ describe("InstitutionCompetitionEditShell steps", () => {
     render(shellAt(step));
 
     const next = await screen.findByRole("button", { name: "Lanjut" });
-    const saveAndExit = screen.getByRole("button", { name: "Simpan dan keluar" });
-    const backLabel = step === 1 ? "Kembali ke Kompetisi" : "Kembali ke langkah sebelumnya";
-    const expectedBackArrows = step === 1 ? 1 : 2;
-    expect(screen.getAllByRole("button", { name: backLabel })).toHaveLength(expectedBackArrows);
     expect(next.getAttribute("data-variant")).toBe("primary");
-    expect(saveAndExit.getAttribute("data-variant")).toBe("outline");
     expect(screen.queryByRole("button", { name: "Simpan" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Terbitkan" })).toBeNull();
-    expect(readinessNote()?.textContent).toContain(
-      "Semua perubahan tersimpan dan siap diterbitkan",
+    // The bar says nothing about publishing or errors: the door or the back arrow, and "Lanjut".
+    expect(readinessNote()).toBeNull();
+    expect(screen.queryByText(/siap diterbitkan/)).toBeNull();
+    const barControls = [
+      ...document.querySelectorAll(
+        ".form-action-bar-panel .ui-icon-button, .form-action-bar-panel .ui-button",
+      ),
+    ].map((control) => control.getAttribute("aria-label") ?? control.textContent);
+    if (step === 1) {
+      // Step 1 has no door and no arrow in the step row: the bar holds the back arrow.
+      expect(barControls).toEqual(["Kembali ke Kompetisi", "Lanjut"]);
+      expect(screen.queryByRole("button", { name: "Kembali ke langkah sebelumnya" })).toBeNull();
+      return;
+    }
+    const door = screen.getByRole("button", { name: "Simpan dan keluar" });
+    expect(barControls).toEqual(["Simpan dan keluar", "Lanjut"]);
+    expect(door.getAttribute("data-variant")).toBe("outline");
+    expect(door.textContent).toBe("");
+    // The step row holds the one back arrow of steps 2 to 4.
+    expect(screen.getAllByRole("button", { name: "Kembali ke langkah sebelumnya" })).toHaveLength(
+      1,
     );
+    expect(screen.queryByRole("button", { name: "Kembali ke Kompetisi" })).toBeNull();
+  });
+
+  it("keeps the bar to the door and Lanjut when a date is out of order, and focuses the field", async () => {
+    stubFetchSequence([() => loadOk(READY)]);
+
+    render(shellAt(3));
+
+    const next = await screen.findByRole("button", { name: "Lanjut" });
+    const registrationEnd = screen.getByLabelText(/Pendaftaran berakhir/);
+    fireEvent.change(registrationEnd, {
+      target: {
+        value: toLocalInput(new Date(new Date(COMPETITION.registrationStartAt).getTime() - DAY)),
+      },
+    });
+    fireEvent.click(next);
+
+    await waitFor(() => expect(document.activeElement).toBe(registrationEnd));
+    expect({
+      status: document.querySelector('p.sr-only[role="status"]')?.textContent,
+      saves: patchBodies().length,
+      barText: document.querySelector(".form-action-bar-panel")?.textContent,
+      barControls: document.querySelectorAll(
+        ".form-action-bar-panel .ui-button, .form-action-bar-panel .ui-icon-button",
+      ).length,
+    }).toEqual({ status: "Periksa 1 isian", saves: 0, barText: "Lanjut", barControls: 2 });
+    expect(mockPush).not.toHaveBeenCalled();
   });
 
   it("shows step 5 with its summary and its own bar", async () => {
@@ -1114,11 +1200,77 @@ describe("InstitutionCompetitionEditShell steps", () => {
     expect(exit.getAttribute("href")).toBe(LIST_URL);
     expect(exit.getAttribute("data-variant")).toBe("outline");
     expect(screen.getAllByRole("button", { name: "Kembali ke langkah sebelumnya" })).toHaveLength(
-      2,
+      1,
     );
     expect(screen.queryByRole("button", { name: "Lanjut" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Simpan dan keluar" })).toBeNull();
-    expect(readinessNote()).not.toBeNull();
+    expect(readinessNote()).toBeNull();
+    expect(screen.queryByText("Draf belum bisa diterbitkan.")).toBeNull();
+  });
+
+  describe("the step 5 notice and review bar", () => {
+    const notice = () =>
+      screen.queryByText("Draf belum bisa diterbitkan.")?.closest(".feedback") ?? null;
+    const reasonLines = () =>
+      [...(notice()?.querySelectorAll("li") ?? [])].map((item) => item.textContent?.trim());
+    const barNote = () => document.querySelector(".form-action-bar-panel .bar-note")?.textContent;
+
+    it("counts the missing fields in the bar when they are all that blocks publishing", async () => {
+      const competition = {
+        ...COMPETITION,
+        title: "Lomba Contoh 2026",
+        category: null,
+        mode: null,
+      };
+      stubFetchSequence([() => okJson({ competition, publishReadiness: BLOCKED_BY_CHECKLIST })]);
+
+      render(shellAt(5));
+
+      await screen.findByText("Draf belum bisa diterbitkan.");
+      expect(barNote()).toBe("2 isian belum lengkap");
+      expect(screen.queryByRole("button", { name: "Terbitkan" })).toBeNull();
+      expect(reasonLines()).toEqual(["Lengkapi bidang wajib sebelum menerbitkan: Kategori, Mode."]);
+    });
+
+    it("lists each reason on its own line and says only that it cannot be published when more than fields block it", async () => {
+      const competition = { ...COMPETITION, category: null };
+      stubFetchSequence([
+        () =>
+          okJson({
+            competition,
+            publishReadiness: {
+              canPublish: false,
+              blockers: [
+                "competition_publish_validation_failed",
+                "competition_institution_not_verified",
+              ],
+            },
+          }),
+      ]);
+
+      render(shellAt(5));
+
+      await screen.findByText("Draf belum bisa diterbitkan.");
+      expect(barNote()).toBe("Belum bisa diterbitkan");
+      expect(screen.queryByRole("button", { name: "Terbitkan" })).toBeNull();
+      expect(reasonLines()).toEqual([
+        `${UNVERIFIED_REASON} Ajukan verifikasi`,
+        "Lengkapi bidang wajib sebelum menerbitkan: Kategori.",
+      ]);
+      expect(screen.getByRole("link", { name: "Ajukan verifikasi" }).getAttribute("href")).toBe(
+        "/institution/institusi-contoh/verification",
+      );
+      expect(screen.getByRole("link", { name: "Keluar dari editor" })).toBeTruthy();
+    });
+
+    it("leaves out the notice and offers Terbitkan when nothing blocks publishing", async () => {
+      stubFetchSequence([() => loadOk(READY)]);
+
+      render(shellAt(5));
+
+      await screen.findByRole("button", { name: "Terbitkan" });
+      expect({ notice: notice(), note: barNote() }).toEqual({ notice: null, note: undefined });
+    });
   });
 
   it("opens a section of a published competition opened at a step", async () => {
@@ -1297,13 +1449,13 @@ describe("InstitutionCompetitionEditShell steps", () => {
     fireEvent.click(
       screen.getByRole("checkbox", { name: "Izinkan peserta membatalkan pendaftaran sendiri" }),
     );
-    expect(readinessNote()?.textContent).toContain("Simpan perubahan sebelum menerbitkan");
 
     view.rerender(shellAt(5));
 
+    // Step 5 offers Terbitkan, so the unsaved change of step 4 blocks nothing there.
     await screen.findByRole("button", { name: "Terbitkan" });
-    expect(readinessNote()).not.toBeNull();
-    expect(readinessNote()?.textContent).not.toContain("Simpan perubahan sebelum menerbitkan");
+    expect(screen.queryByText("Draf belum bisa diterbitkan.")).toBeNull();
+    expect(screen.queryByText(/Simpan perubahan sebelum menerbitkan/)).toBeNull();
   });
 
   it("opens the next step at the slug step 1 just saved", async () => {
@@ -2023,14 +2175,15 @@ describe("InstitutionCompetitionEditShell steps", () => {
       expect(unloadIsPrevented()).toBe(true);
     });
 
-    it("asks to save before publishing while a part has unsaved changes", async () => {
+    it("says nothing about publishing in the bar while a part has unsaved changes", async () => {
       stubFetchRoutes(partRoutes());
 
       render(shellWithPartsAt(1));
 
       fireEvent.click(await screen.findByRole("checkbox", { name: FIRST_TAG }));
 
-      expect(readinessNote()?.textContent).toContain("Simpan perubahan sebelum menerbitkan");
+      expect(readinessNote()).toBeNull();
+      expect(screen.queryByText(/Simpan perubahan sebelum menerbitkan/)).toBeNull();
     });
 
     it("saves a published section in which only a part changed", async () => {
@@ -2052,9 +2205,7 @@ describe("InstitutionCompetitionEditShell steps", () => {
         eligibilityNote: "Terbuka untuk umum.",
       });
       expect(screen.getAllByText("Perubahan tersimpan.")).toHaveLength(1);
-      await waitFor(() =>
-        expect(readinessNote()?.textContent).not.toContain("Simpan perubahan sebelum menerbitkan"),
-      );
+      await waitFor(() => expect(unloadIsPrevented()).toBe(false));
 
       fireEvent.click(saveButton());
 
@@ -2497,9 +2648,7 @@ describe("InstitutionCompetitionEditShell steps", () => {
       expect(
         await screen.findByRole("heading", { level: 1, name: /^Lomba Contoh Baru/ }),
       ).toBeTruthy();
-      await waitFor(() =>
-        expect(readinessNote()?.textContent).not.toContain("Simpan perubahan sebelum menerbitkan"),
-      );
+      await waitFor(() => expect(unloadIsPrevented()).toBe(false));
       fireEvent.click(screen.getByRole("button", { name: /^Kembali ke Lomba Contoh/ }));
 
       expect(mockPush).toHaveBeenCalledWith(
@@ -2581,9 +2730,7 @@ describe("InstitutionCompetitionEditShell steps", () => {
         paymentWindowDays: 3,
         feeDisclosureAcknowledged: true,
       });
-      await waitFor(() =>
-        expect(readinessNote()?.textContent).not.toContain("Simpan perubahan sebelum menerbitkan"),
-      );
+      await waitFor(() => expect(unloadIsPrevented()).toBe(false));
 
       fireEvent.click(saveButton());
 
@@ -2660,9 +2807,7 @@ describe("InstitutionCompetitionEditShell steps", () => {
           ) as HTMLInputElement[]
         ).map((input) => input.value),
       ).toEqual(["Penyisihan Daring"]);
-      await waitFor(() =>
-        expect(readinessNote()?.textContent).not.toContain("Simpan perubahan sebelum menerbitkan"),
-      );
+      await waitFor(() => expect(unloadIsPrevented()).toBe(false));
       fireEvent.click(screen.getByRole("button", { name: /^Kembali ke Lomba Contoh/ }));
 
       expect(screen.queryByRole("alertdialog")).toBeNull();

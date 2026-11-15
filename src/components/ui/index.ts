@@ -1,6 +1,8 @@
 export { Button, ButtonLink, IconButton, IconButtonLink } from "./button";
 export type { ButtonSize, ButtonVariant, IconButtonSize, IconButtonVariant } from "./button";
 export { FormActionBar } from "./form-action-bar";
+export { BarNote } from "./bar-note";
+export { findInvalidFields, focusFirstInvalidField } from "./invalid-fields";
 export { SelectField } from "./select-field";
 export type { SelectFieldOption } from "./select-field";
 export { Card, DetailList, Fact, LinkCard, PageSection, Panel } from "./card";
