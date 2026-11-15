@@ -206,6 +206,11 @@ describe("refusals", () => {
       message: 'probe "first": key "detector.timeout" is not in the probe list shape',
     },
     {
+      name: "an empty reached",
+      damage: withDetector({ reached: "" }),
+      message: 'probe "first": key "detector.reached" is an empty string',
+    },
+    {
       name: "a reached that is not a regular expression",
       damage: withDetector({ reached: "(" }),
       message: 'probe "first": key "detector.reached" is not a valid regular expression',
@@ -272,7 +277,16 @@ describe("running a list through the harness", () => {
       runGit(repository, ["config", "user.name", "probe"]);
       writeFileSync(join(repository, TRACKED_FILE), "before: 1\n");
       runGit(repository, ["add", TRACKED_FILE]);
-      runGit(repository, ["commit", "--quiet", "-m", "one tracked file"]);
+      runGit(repository, [
+        "-c",
+        "commit.gpgsign=false",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "commit",
+        "--quiet",
+        "-m",
+        "one tracked file",
+      ]);
       return body(repository);
     });
 
@@ -325,6 +339,18 @@ describe("running a list through the harness", () => {
       const result = runListIn(repository, listWithDetector("process.exit(0)"));
       expect(result.status).not.toBe(0);
       expect(result.stderr).toContain("NOT PROVEN: marker probe");
+      expect(treeIsClean(repository)).toBe(true);
+    });
+  });
+
+  it("stops before any probe when the detector already fails at HEAD, and leaves the tree clean", () => {
+    withTemporaryRepository((repository) => {
+      const alwaysRed = 'console.log("FAIL always"); process.exit(1);';
+      const result = runListIn(repository, listWithDetector(alwaysRed));
+      const stdoutLines = result.stdout.split("\n");
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toMatch(/^Error: CONTROL:/m);
+      expect(stdoutLines.some((line) => line.startsWith("RED"))).toBe(false);
       expect(treeIsClean(repository)).toBe(true);
     });
   });

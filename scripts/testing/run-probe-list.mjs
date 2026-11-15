@@ -93,7 +93,7 @@ const requireDetector = (owner, detector) => {
   if (!isStringList(detector.args))
     refuse(`${owner}: key "detector.args" must be a list of strings`);
   if (detector.reached === undefined) return;
-  requireString(owner, detector.reached, "detector.reached");
+  requireNonEmptyString(owner, detector.reached, "detector.reached");
   try {
     new RegExp(detector.reached);
   } catch {
