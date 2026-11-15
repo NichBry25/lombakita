@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, type RefObject } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, type MouseEvent, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import {
   useModalState,
@@ -57,7 +57,11 @@ const focusTargetFor = (dialog: HTMLElement | null, config: ModalConfig): HTMLEl
     const [firstFieldOrControl] = getFocusable(dialog.querySelector<HTMLElement>(".modal-body"));
     return firstFieldOrControl ?? dialog;
   }
-  return dialog.querySelector<HTMLElement>(`[data-modal-focus="${wanted}"]`) ?? dialog;
+  const wantedControl = dialog.querySelector<HTMLElement>(`[data-modal-focus="${wanted}"]`);
+  if (wantedControl) return wantedControl;
+  if (wanted === "safe")
+    return dialog.querySelector<HTMLElement>('[data-modal-focus="main"]') ?? dialog;
+  return dialog;
 };
 
 // The page behind a pop-up stops being reachable by keyboard and screen reader, and stops
@@ -86,6 +90,41 @@ function useInertPageBehind(isOpen: boolean, backdropRef: RefObject<HTMLElement 
   }, [isOpen, backdropRef]);
 }
 
+// A trigger that left the page (a success removed it) or cannot take focus hands focus to the
+// page's main landmark, so the next Tab starts from the content instead of the top of the document.
+const moveFocusToMainLandmark = () => {
+  const main = document.querySelector<HTMLElement>("main");
+  if (!main) return;
+  if (!main.hasAttribute("tabindex")) main.setAttribute("tabindex", "-1");
+  main.focus();
+};
+
+const returnFocusTo = (trigger: HTMLElement | null) => {
+  if (trigger?.isConnected) {
+    trigger.focus();
+    if (document.activeElement === trigger) return;
+  }
+  moveFocusToMainLandmark();
+};
+
+// Focus goes back to the control that opened the pop-up once the pop-up has closed.
+function useReturnFocusAfterClose(isOpen: boolean) {
+  const triggerRef = useRef<HTMLElement | null>(null);
+
+  // A layout effect runs before every passive effect of the same commit, so the trigger is read
+  // before the pop-up moves focus and before the page behind goes inert.
+  useLayoutEffect(() => {
+    if (isOpen) triggerRef.current = document.activeElement as HTMLElement | null;
+  }, [isOpen]);
+
+  // Call this hook after useInertPageBehind: cleanups run in call order, and the trigger cannot
+  // take focus while the page behind it is still inert.
+  useEffect(() => {
+    if (!isOpen) return;
+    return () => returnFocusTo(triggerRef.current);
+  }, [isOpen]);
+}
+
 export function Modal() {
   const { config, closeModal, runTask, isPending, failureMessage } = useModalState();
   const titleId = useId();
@@ -93,11 +132,9 @@ export function Modal() {
 
   const dialogRef = useRef<HTMLDivElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
-  // The element that had focus before the dialog opened, so focus can return to it on close.
-  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
   const isOpen = config !== null;
 
-  const actions = config?.actions ?? [];
+  const actions: ModalAction[] = config?.actions ?? [];
   const mainAction = actions.find(isMainAction);
   const safeActions = actions.filter(isSafeAction);
 
@@ -105,6 +142,12 @@ export function Modal() {
     if (!mainAction) return;
     const onClick = mainAction.onClick;
     void runTask(async (): Promise<ModalTaskResult> => onClick?.());
+  };
+
+  // The main button stays enabled while its action runs so it keeps focus, so a second press of a
+  // submit button has to be stopped here. A button with an onClick is stopped by runTask.
+  const stopSubmitWhilePending = (event: MouseEvent<HTMLButtonElement>) => {
+    if (isPending) event.preventDefault();
   };
 
   const runSafeAction = (action: SafeAction) => {
@@ -137,20 +180,14 @@ export function Modal() {
     doSafeChoiceRef.current = doSafeChoice;
   });
 
-  // Move focus into the dialog on open and return it to the trigger on close. Keyed on the config,
-  // so replacing one open pop-up with another saves the same trigger and moves focus again.
+  // Keyed on the config, so replacing one open pop-up with another moves focus again.
   useEffect(() => {
     if (!config) return;
-
-    previouslyFocusedRef.current = document.activeElement as HTMLElement | null;
     focusTargetFor(dialogRef.current, config)?.focus();
-
-    return () => {
-      previouslyFocusedRef.current?.focus?.();
-    };
   }, [config]);
 
   useInertPageBehind(isOpen, backdropRef);
+  useReturnFocusAfterClose(isOpen);
 
   // Trap Tab within the dialog and do the safe choice on Escape while open.
   useEffect(() => {
@@ -218,10 +255,11 @@ export function Modal() {
       size="md"
       className="modal-main-action"
       loading={isPending}
+      keepFocusWhileLoading
       data-modal-focus="main"
       fullWidth={layout === "stack"}
       {...(config.formId
-        ? { type: "submit" as const, form: config.formId }
+        ? { type: "submit" as const, form: config.formId, onClick: stopSubmitWhilePending }
         : { onClick: runMainAction })}
     >
       {mainAction.label}

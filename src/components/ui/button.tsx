@@ -28,6 +28,9 @@ type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   size?: ButtonSize;
   fullWidth?: boolean;
   loading?: boolean;
+  // While loading, report the button as unavailable with aria-disabled instead of the disabled
+  // attribute, so keyboard focus stays on it. The caller must ignore presses while it waits.
+  keepFocusWhileLoading?: boolean;
   leadingIcon?: ReactNode;
 };
 
@@ -63,6 +66,7 @@ export function Button({
   size = "md",
   fullWidth = false,
   loading = false,
+  keepFocusWhileLoading = false,
   leadingIcon,
   className,
   children,
@@ -71,6 +75,7 @@ export function Button({
   ...buttonProps
 }: ButtonProps) {
   const buttonRef = useWidthLockedWhileLoading(loading);
+  const reportsUnavailableByAria = loading && keepFocusWhileLoading;
 
   return (
     <button
@@ -83,7 +88,8 @@ export function Button({
       data-full-width={fullWidth ? "true" : undefined}
       data-loading={loading ? "true" : undefined}
       aria-busy={loading || undefined}
-      disabled={disabled || loading}
+      aria-disabled={reportsUnavailableByAria ? true : buttonProps["aria-disabled"]}
+      disabled={disabled || (loading && !keepFocusWhileLoading)}
     >
       {loading ? <Spinner size={size === "lg" ? "md" : "sm"} /> : leadingIcon}
       <span>{children}</span>

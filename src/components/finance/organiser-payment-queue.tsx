@@ -311,16 +311,17 @@ export function OrganiserPaymentQueue({ institutionSlug, competitionId, proofs }
   );
 }
 
+const rejectFormId = (proofId: string) => `reject-form-${proofId}`;
+
 /**
  * The rejection reason, and the organiser's decision about whether the candidate may try again.
  *
  * Resubmission defaults to ALLOWED. Barring it strands the payer until platform_ops intervenes, so
  * it is opt-in: a reviewer who simply wants a clearer photograph must not have to notice a checkbox
  * in order to avoid ending someone's registration.
+ *
+ * The pop-up footer submits this form. An empty reason shows the field error and sends nothing.
  */
-const rejectFormId = (proofId: string) => `reject-form-${proofId}`;
-
-// The pop-up footer submits this form. An empty reason shows the field error and sends nothing.
 function RejectForm({
   proof,
   onSubmit,

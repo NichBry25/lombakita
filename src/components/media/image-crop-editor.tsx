@@ -33,6 +33,50 @@ export type ImageCropApi = { getCropped: () => Promise<File | null> };
 
 type Offset = { x: number; y: number };
 
+type CropShape = "blob" | "rect";
+
+export type ImageRegion = { x: number; y: number; width: number; height: number };
+
+// Smallest scale at which the image still covers the frame in both axes.
+const coverScale = (w: number, h: number, vw: number, vh: number) => Math.max(vw / w, vh / h);
+
+const guideSizeFor = (viewportWidth: number, shape: CropShape, aspectRatio: number) => {
+  const width = (viewportWidth * GUIDE_WIDTH_BY_SHAPE[shape]) / CROP_AREA_WIDTH;
+  return { width, height: width / aspectRatio };
+};
+
+// The rectangle the centred guide frames, in the image's own pixels. `offset` is where the image's
+// top left sits in the crop area, and `zoom` multiplies the scale that makes the image cover it.
+export function guideRegionInImage({
+  imageWidth,
+  imageHeight,
+  zoom,
+  offset,
+  viewportWidth,
+  shape,
+  aspectRatio,
+}: {
+  imageWidth: number;
+  imageHeight: number;
+  zoom: number;
+  offset: Offset;
+  viewportWidth: number;
+  shape: CropShape;
+  aspectRatio: number;
+}): ImageRegion {
+  const viewportHeight = viewportWidth / CROP_AREA_RATIO;
+  const guide = guideSizeFor(viewportWidth, shape, aspectRatio);
+  const factor = coverScale(imageWidth, imageHeight, viewportWidth, viewportHeight) * zoom;
+  const guideLeft = (viewportWidth - guide.width) / 2;
+  const guideTop = (viewportHeight - guide.height) / 2;
+  return {
+    x: (guideLeft - offset.x) / factor,
+    y: (guideTop - offset.y) / factor,
+    width: guide.width / factor,
+    height: guide.height / factor,
+  };
+}
+
 // A pan + zoom cropper rendered inside the shared modal. The image is sized to cover the crop area
 // at zoom 1; the user drags to reposition and uses the slider to zoom. What is saved is the region
 // the guide frames, in image coordinates. The parent reads the result through
@@ -57,7 +101,7 @@ export function ImageCropEditor({
   frame: ImageFrame;
   apiRef: { current: ImageCropApi | null };
   // Shape of the guide. `blob` is the organic avatar shape; `rect` is the 4:1 cover.
-  shape?: "blob" | "rect";
+  shape?: CropShape;
   zoomLabel?: string;
   // Accessible name of the crop area itself, which is focusable so it can be panned by keyboard.
   panLabel?: string;
@@ -72,13 +116,10 @@ export function ImageCropEditor({
   const [offset, setOffset] = useState<Offset>({ x: 0, y: 0 });
 
   const viewportHeight = viewportWidth / CROP_AREA_RATIO;
-  const guideWidth = (viewportWidth * GUIDE_WIDTH_BY_SHAPE[shape]) / CROP_AREA_WIDTH;
-  const guideHeight = guideWidth / frame.aspectRatio;
-
-  // Smallest scale at which the image still covers the frame in both axes.
-  const coverScale = useCallback(
-    (w: number, h: number, vw: number, vh: number) => Math.max(vw / w, vh / h),
-    [],
+  const { width: guideWidth, height: guideHeight } = guideSizeFor(
+    viewportWidth,
+    shape,
+    frame.aspectRatio,
   );
 
   const baseScale = natural ? coverScale(natural.w, natural.h, viewportWidth, viewportHeight) : 1;
@@ -106,13 +147,10 @@ export function ImageCropEditor({
     return () => observer.disconnect();
   }, []);
 
-  const centre = useCallback(
-    (w: number, h: number, vw: number, vh: number) => {
-      const bs = coverScale(w, h, vw, vh);
-      return { x: (vw - w * bs) / 2, y: (vh - h * bs) / 2 };
-    },
-    [coverScale],
-  );
+  const centre = useCallback((w: number, h: number, vw: number, vh: number) => {
+    const bs = coverScale(w, h, vw, vh);
+    return { x: (vw - w * bs) / 2, y: (vh - h * bs) / 2 };
+  }, []);
 
   const onLoad = () => {
     const el = imgRef.current;
@@ -150,7 +188,7 @@ export function ImageCropEditor({
     // `scale` and `offset` are deliberately not dependencies: this runs on an area-size change, not
     // on every user zoom or drag (those already clamp themselves).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewportWidth, centre, coverScale, natural]);
+  }, [viewportWidth, centre, natural]);
 
   const drag = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
 
@@ -215,27 +253,10 @@ export function ImageCropEditor({
 
   // Latest crop state for the imperative getCropped (which is created once). Mirrored via an
   // effect rather than assigned during render (refs must not be written while rendering).
-  const stateRef = useRef({
-    natural,
-    baseScale,
-    scale,
-    offset,
-    viewportWidth,
-    viewportHeight,
-    guideWidth,
-    guideHeight,
-  });
+  const aspectRatio = frame.aspectRatio;
+  const stateRef = useRef({ natural, scale, offset, viewportWidth, shape, aspectRatio });
   useEffect(() => {
-    stateRef.current = {
-      natural,
-      baseScale,
-      scale,
-      offset,
-      viewportWidth,
-      viewportHeight,
-      guideWidth,
-      guideHeight,
-    };
+    stateRef.current = { natural, scale, offset, viewportWidth, shape, aspectRatio };
   });
 
   useEffect(() => {
@@ -244,19 +265,31 @@ export function ImageCropEditor({
         const el = imgRef.current;
         const s = stateRef.current;
         if (!el || !s.natural || s.viewportWidth === 0) return null;
-        const factor = s.baseScale * s.scale;
-        const guideLeft = (s.viewportWidth - s.guideWidth) / 2;
-        const guideTop = (s.viewportHeight - s.guideHeight) / 2;
-        const sx = (guideLeft - s.offset.x) / factor;
-        const sy = (guideTop - s.offset.y) / factor;
-        const sWidth = s.guideWidth / factor;
-        const sHeight = s.guideHeight / factor;
+        const region = guideRegionInImage({
+          imageWidth: s.natural.w,
+          imageHeight: s.natural.h,
+          zoom: s.scale,
+          offset: s.offset,
+          viewportWidth: s.viewportWidth,
+          shape: s.shape,
+          aspectRatio: s.aspectRatio,
+        });
         const canvas = document.createElement("canvas");
         canvas.width = frame.outputWidth;
         canvas.height = frame.outputHeight;
         const ctx = canvas.getContext("2d");
         if (!ctx) return null;
-        ctx.drawImage(el, sx, sy, sWidth, sHeight, 0, 0, frame.outputWidth, frame.outputHeight);
+        ctx.drawImage(
+          el,
+          region.x,
+          region.y,
+          region.width,
+          region.height,
+          0,
+          0,
+          frame.outputWidth,
+          frame.outputHeight,
+        );
         const blob = await new Promise<Blob | null>((resolve) =>
           canvas.toBlob(resolve, CROPPED_IMAGE_MIME_TYPE, CROPPED_IMAGE_QUALITY),
         );

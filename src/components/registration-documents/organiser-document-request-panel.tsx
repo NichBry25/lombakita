@@ -6,6 +6,7 @@ import {
   Button,
   CheckboxField,
   Feedback,
+  FormError,
   FormInput,
   FormLabel,
   FormTextarea,
@@ -446,6 +447,16 @@ const rejectFormId = (requestId: string) => `reject-document-form-${requestId}`;
 
 const EXTEND_FORM_ID = "extend-document-deadline-form";
 
+const REJECT_NOTE_REQUIRED_MESSAGE = "Alasan penolakan wajib diisi.";
+const DEADLINE_REQUIRED_MESSAGE = "Tenggat wajib diisi.";
+
+// An empty or half-typed datetime-local value is an invalid date, and toISOString throws on one.
+const toIsoDeadlineOrNull = (localValue: string): string | null => {
+  const date = new Date(localValue);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
+};
+
 function RejectForm({
   request,
   onSubmit,
@@ -457,21 +468,28 @@ function RejectForm({
   const [note, setNote] = useState("");
   const [allowReupload, setAllowReupload] = useState(true);
   const [dueAt, setDueAt] = useState(defaultDeadlineValue);
+  const [hasTriedToSubmit, setHasTriedToSubmit] = useState(false);
+  const trimmedNote = note.trim();
+  const dueAtIso = toIsoDeadlineOrNull(dueAt);
+  const noteIsInvalid = trimmedNote.length === 0;
+  const deadlineIsInvalid = allowReupload && dueAtIso === null;
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    setHasTriedToSubmit(true);
+    if (noteIsInvalid || deadlineIsInvalid) return;
     const body = {
       action: "review",
       verdict: "reject",
-      note: note.trim(),
+      note: trimmedNote,
       allowReupload,
-      ...(allowReupload ? { dueAt: new Date(dueAt).toISOString() } : {}),
+      ...(allowReupload && dueAtIso ? { dueAt: dueAtIso } : {}),
     };
     void runModalTask(() => onSubmit(body));
   };
 
   return (
-    <form id={rejectFormId(request.id)} className="auth-form" onSubmit={submit}>
+    <form id={rejectFormId(request.id)} className="auth-form" noValidate onSubmit={submit}>
       <p className="muted-copy">
         Alasan ini ditampilkan kepada peserta sebagai isi halaman, bukan notifikasi sesaat.
       </p>
@@ -485,6 +503,7 @@ function RejectForm({
           value={note}
           onChange={(event) => setNote(event.target.value)}
           maxLength={2000}
+          error={hasTriedToSubmit && noteIsInvalid ? REJECT_NOTE_REQUIRED_MESSAGE : undefined}
           required
         />
       </div>
@@ -513,8 +532,15 @@ function RejectForm({
             type="datetime-local"
             value={dueAt}
             onChange={(event) => setDueAt(event.target.value)}
+            aria-invalid={hasTriedToSubmit && deadlineIsInvalid ? true : undefined}
+            aria-describedby={
+              hasTriedToSubmit && deadlineIsInvalid ? `reject-due-error-${request.id}` : undefined
+            }
             required
           />
+          {hasTriedToSubmit && deadlineIsInvalid ? (
+            <FormError id={`reject-due-error-${request.id}`}>{DEADLINE_REQUIRED_MESSAGE}</FormError>
+          ) : null}
         </div>
       ) : null}
     </form>
@@ -524,15 +550,19 @@ function RejectForm({
 function DeadlineForm({ onSubmit }: { onSubmit: (dueAtIso: string) => Promise<ModalOutcome> }) {
   const runModalTask = useModalTask();
   const [dueAt, setDueAt] = useState(defaultDeadlineValue);
+  const [hasTriedToSubmit, setHasTriedToSubmit] = useState(false);
+  const dueAtIso = toIsoDeadlineOrNull(dueAt);
+  const showsDeadlineError = hasTriedToSubmit && dueAtIso === null;
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const dueAtIso = new Date(dueAt).toISOString();
+    setHasTriedToSubmit(true);
+    if (dueAtIso === null) return;
     void runModalTask(() => onSubmit(dueAtIso));
   };
 
   return (
-    <form id={EXTEND_FORM_ID} className="auth-form" onSubmit={submit}>
+    <form id={EXTEND_FORM_ID} className="auth-form" noValidate onSubmit={submit}>
       <div className="form-field">
         <FormLabel htmlFor="extend-due" required>
           Tenggat baru
@@ -542,8 +572,13 @@ function DeadlineForm({ onSubmit }: { onSubmit: (dueAtIso: string) => Promise<Mo
           type="datetime-local"
           value={dueAt}
           onChange={(event) => setDueAt(event.target.value)}
+          aria-invalid={showsDeadlineError ? true : undefined}
+          aria-describedby={showsDeadlineError ? "extend-due-error" : undefined}
           required
         />
+        {showsDeadlineError ? (
+          <FormError id="extend-due-error">{DEADLINE_REQUIRED_MESSAGE}</FormError>
+        ) : null}
       </div>
     </form>
   );

@@ -12,36 +12,49 @@ export type ModalTaskResult = ModalOutcome | void;
 // footer). A main action may be async: the pop-up stays open and shows it is waiting until the task
 // settles, then closes on success or shows the failure inside itself. A safe choice runs at once
 // and closes the pop-up.
-export type ModalAction =
-  | {
-      label: string;
-      variant: "primary";
-      onClick?: () => ModalTaskResult | Promise<ModalTaskResult>;
-    }
-  | {
-      label: string;
-      variant?: "safe";
-      onClick?: () => void;
-    };
+type MainModalAction = {
+  label: string;
+  variant: "primary";
+  onClick?: () => ModalTaskResult | Promise<ModalTaskResult>;
+};
 
-export interface ModalConfig {
+type SafeModalAction = {
+  label: string;
+  variant?: "safe";
+  onClick?: () => void;
+};
+
+export type ModalAction = MainModalAction | SafeModalAction;
+
+// The main button of a form pop-up submits the form, so it cannot carry a click handler too.
+type FormSubmitModalAction = {
+  label: string;
+  variant: "primary";
+  onClick?: never;
+};
+
+type ModalConfigFields = {
   title: string;
   body: ReactNode;
-  // One main action and up to two safe choices. The first safe choice is what Esc and a tap
-  // outside do. A pop-up with only a main action (Informasi) uses that one instead.
-  actions: ModalAction[];
   onClose?: () => void;
-  // The main button submits this form from the footer, so the form itself lives in `body`.
-  formId?: string;
   // 560 wide instead of 480. Also means the pop-up holds a field or an image, so a tap outside
   // never closes it and typed text is not lost.
   wide?: boolean;
   // Rendered as role="alertdialog": destructive confirms and pop-ups that report a failure.
   alert?: boolean;
   // Where focus lands on open. Defaults to the first field when `formId` is set, the safe choice
-  // for an `alert`, and the main action otherwise.
+  // for an `alert` (the main action when it has none), and the main action otherwise.
   initialFocus?: "safe" | "main" | "field";
-}
+};
+
+// One main action and up to two safe choices. The first safe choice is what Esc and a tap
+// outside do. A pop-up with only a main action (Informasi) uses that one instead. With a `formId`
+// the main button submits that form from the footer, so the form itself lives in `body`.
+export type ModalConfig = ModalConfigFields &
+  (
+    | { formId?: undefined; actions: ModalAction[] }
+    | { formId: string; actions: Array<SafeModalAction | FormSubmitModalAction> }
+  );
 
 interface ModalContextValue {
   openModal: (config: ModalConfig) => void;

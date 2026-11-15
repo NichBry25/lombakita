@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 
-import { render, screen, act, waitFor } from "@testing-library/react";
+import { useState } from "react";
+import { render, screen, act, waitFor, fireEvent } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { ModalProvider, useModal } from "./modal-context";
+import { ModalProvider, useModal, useModalTask } from "./modal-context";
 import { Modal } from "./modal";
 
 // Renders the provider + the Modal surface, and exposes openModal to the test via a trigger button
@@ -164,6 +165,21 @@ describe("Modal — footer, focus and waiting", () => {
     );
 
     expect(document.activeElement?.textContent).toBe("Batal");
+  });
+
+  it("starts focus on the only button of an information pop-up that reports a failure", () => {
+    const { openModal } = renderModal();
+    act(() =>
+      openModal({
+        title: "Gagal",
+        body: "Body",
+        alert: true,
+        actions: [{ label: "Mengerti", variant: "primary" }],
+      }),
+    );
+
+    expect(screen.queryByRole("alertdialog")).not.toBeNull();
+    expect(document.activeElement?.textContent).toBe("Mengerti");
   });
 
   it("starts focus on the main action of a positive confirm and of an information pop-up", () => {
@@ -372,4 +388,165 @@ describe("Modal — footer, focus and waiting", () => {
     expect(task).toHaveBeenCalledTimes(2);
     expect(screen.queryByRole("dialog")).toBeNull();
   });
+
+  it("keeps focus on the main button while its action runs and after it fails", async () => {
+    const { openModal } = renderModal();
+    let finish: (outcome: { ok: false; message: string }) => void = () => {};
+    const task = vi.fn(
+      () => new Promise<{ ok: false; message: string }>((resolve) => (finish = resolve)),
+    );
+    act(() =>
+      openModal({
+        title: "Verifikasi?",
+        body: "Body",
+        actions: [{ label: "Batal" }, { label: "Verifikasi", variant: "primary", onClick: task }],
+      }),
+    );
+    const main = screen.getByRole("button", { name: "Verifikasi" }) as HTMLButtonElement;
+    act(() => main.focus());
+
+    act(() => main.click());
+
+    expect(document.activeElement).toBe(main);
+    expect(main.disabled).toBe(false);
+    expect(main.getAttribute("aria-disabled")).toBe("true");
+    expect(main.getAttribute("aria-busy")).toBe("true");
+
+    act(() => main.click());
+    expect(task).toHaveBeenCalledOnce();
+
+    await act(async () => finish({ ok: false, message: "Koneksi terputus." }));
+
+    expect(document.activeElement).toBe(main);
+    expect(main.getAttribute("aria-disabled")).toBeNull();
+    expect(main.getAttribute("aria-busy")).toBeNull();
+  });
+
+  it("ignores a second press of the submit button while the form's task runs", async () => {
+    let finish: () => void = () => {};
+    const task = vi.fn(() => new Promise<void>((resolve) => (finish = resolve)));
+    const submitted = vi.fn();
+    function TaskForm() {
+      const runTask = useModalTask();
+      return (
+        <form
+          id="alasan-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            submitted();
+            void runTask(task);
+          }}
+        />
+      );
+    }
+    const { openModal } = renderModal();
+    act(() =>
+      openModal({
+        title: "Formulir",
+        body: <TaskForm />,
+        wide: true,
+        formId: "alasan-form",
+        actions: [{ label: "Batal" }, { label: "Kirim", variant: "primary" }],
+      }),
+    );
+    const main = screen.getByRole("button", { name: "Kirim" });
+
+    const firstPressWasAllowed = fireEvent.click(main);
+    const secondPressWasAllowed = fireEvent.click(main);
+
+    expect(firstPressWasAllowed).toBe(true);
+    expect(secondPressWasAllowed).toBe(false);
+    expect(submitted).toHaveBeenCalledOnce();
+    expect(task).toHaveBeenCalledOnce();
+
+    await act(async () => finish());
+  });
+});
+
+// jsdom has no inert: this refuses focus inside an inert subtree the way a browser does, so a
+// test can tell whether focus was restored before or after the page behind became reachable again.
+const withBrowserLikeInertFocus = (run: () => void) => {
+  const originalFocus = HTMLElement.prototype.focus;
+  const focusSpy = vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (
+    this: HTMLElement,
+    options?: FocusOptions,
+  ) {
+    if (this.closest("[inert]")) return;
+    originalFocus.call(this, options);
+  });
+  try {
+    run();
+  } finally {
+    focusSpy.mockRestore();
+  }
+};
+
+type TriggerFate = "removed" | "disabled";
+
+function ClosingChangesTrigger({ fate }: { fate: TriggerFate }) {
+  const { openModal } = useModal();
+  const [triggerState, setTriggerState] = useState<"ready" | TriggerFate>("ready");
+  return (
+    <main data-testid="page-main">
+      {triggerState === "removed" ? null : (
+        <button
+          type="button"
+          data-testid="changing-trigger"
+          disabled={triggerState === "disabled"}
+          onClick={() =>
+            openModal({
+              title: "Konfirmasi",
+              body: "Body",
+              actions: [{ label: "Batal" }],
+              onClose: () => setTriggerState(fate),
+            })
+          }
+        >
+          Buka
+        </button>
+      )}
+    </main>
+  );
+}
+
+describe("Modal — focus after closing", () => {
+  it("returns focus to the trigger only after the page behind is no longer inert", () => {
+    withBrowserLikeInertFocus(() => {
+      const { openModal } = renderModal();
+      const trigger = screen.getByTestId("trigger");
+
+      act(() => openModal({ title: "Konfirmasi", body: "Body", actions: [{ label: "Batal" }] }));
+      expect(trigger.closest("[inert]")).not.toBeNull();
+
+      press("Escape");
+
+      expect(trigger.closest("[inert]")).toBeNull();
+      expect(document.activeElement).toBe(trigger);
+    });
+  });
+
+  it.each<TriggerFate>(["removed", "disabled"])(
+    "moves focus to the main landmark when the trigger is %s by the time the pop-up closes",
+    (fate) => {
+      withBrowserLikeInertFocus(() => {
+        render(
+          <ModalProvider>
+            <ClosingChangesTrigger fate={fate} />
+            <Modal />
+          </ModalProvider>,
+        );
+        const main = screen.getByTestId("page-main");
+        const trigger = screen.getByTestId("changing-trigger");
+        act(() => trigger.focus());
+        act(() => trigger.click());
+        expect(main.hasAttribute("tabindex")).toBe(false);
+
+        press("Escape");
+
+        expect(main.closest("[inert]")).toBeNull();
+        expect(document.activeElement).toBe(main);
+        expect(main.getAttribute("tabindex")).toBe("-1");
+      });
+    },
+  );
 });

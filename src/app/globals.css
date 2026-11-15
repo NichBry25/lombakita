@@ -1071,7 +1071,7 @@ svg {
 }
 
 .ui-button:disabled:not([data-loading="true"]),
-.ui-button[aria-disabled="true"],
+.ui-button[aria-disabled="true"]:not([data-loading="true"]),
 .primary-button:disabled,
 .action-chip:disabled {
   border-color: var(--color-disabled-border);
