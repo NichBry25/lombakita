@@ -819,8 +819,8 @@ const runDeidentificationWrites = async (
   const retainedKeys = await findReferencedPaymentInstructionKeys(tx);
 
   // Read BEFORE the host sign-up rows are deleted below. A sign-up number is never checked, so
-  // only an approved sign-up counts: a reviewer has seen it. A draft, pending or rejected one
-  // could name another host's number unseen and clear that host's contact from every competition.
+  // only an approved sign-up counts: a reviewer accepted it. A draft, pending or rejected one could
+  // name another host's number and clear that host's contact from every competition.
   const ownSignupNumbers = await tx
     .select({ mobileNumber: recruiterVerificationSubmissions.mobileNumber })
     .from(recruiterVerificationSubmissions)

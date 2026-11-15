@@ -102,8 +102,8 @@ export default function TermsPage() {
             nomor WhatsApp, nomor telepon, atau alamat email. Dengan menerbitkan, penyelenggara
             menyetujui kontak itu tampil untuk umum di halaman kompetisi dan dapat muncul di mesin
             pencari. Kontak itu dihapus dari kompetisi jika akun yang memakai email tersebut
-            dihapus, atau jika akun yang sudah disetujui sebagai penyelenggara dengan nomor tersebut
-            dihapus.
+            dihapus, atau jika akun yang pendaftaran penyelenggaranya dengan nomor tersebut sudah
+            disetujui dihapus.
           </p>
         </section>
 
