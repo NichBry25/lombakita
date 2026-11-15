@@ -49,16 +49,22 @@ const renderEntry = (callbackUrl?: string) =>
   );
 
 const chooseRole = (label: string) => {
-  fireEvent.click(screen.getByRole("button", { name: new RegExp(label) }));
+  fireEvent.click(screen.getByRole("radio", { name: new RegExp(label) }));
 };
 
 const reachRoleChoice = async (callbackUrl?: string) => {
   renderEntry(callbackUrl);
   fireEvent.click(screen.getByRole("button", { name: /Lanjut dengan email/ }));
-  fireEvent.change(screen.getByLabelText("Email"), { target: { value: EMAIL } });
-  fireEvent.change(screen.getByLabelText("Password"), { target: { value: PASSWORD } });
+  fireEvent.change(screen.getByLabelText(/^Email(?: \* \(wajib\)| \(opsional\))?$/), {
+    target: { value: EMAIL },
+  });
+  fireEvent.change(screen.getByLabelText(/^Password(?: \* \(wajib\)| \(opsional\))?$/), {
+    target: { value: PASSWORD },
+  });
   fireEvent.click(screen.getByRole("button", { name: "Lanjut" }));
-  const confirmPassword = await screen.findByLabelText("Konfirmasi password");
+  const confirmPassword = await screen.findByLabelText(
+    /^Konfirmasi password(?: \* \(wajib\)| \(opsional\))?$/,
+  );
   fireEvent.change(confirmPassword, { target: { value: PASSWORD } });
 };
 
@@ -73,16 +79,26 @@ const reachRecruiterStage = async () => {
 };
 
 const fillCandidateProfile = (fullName: string) => {
-  fireEvent.change(screen.getByLabelText("Nama lengkap"), { target: { value: fullName } });
-  fireEvent.change(screen.getByLabelText("Nomor telepon"), { target: { value: PHONE } });
-  fireEvent.click(screen.getByRole("button", { name: "Status saat ini" }));
+  fireEvent.change(screen.getByLabelText(/^Nama lengkap(?: \* \(wajib\)| \(opsional\))?$/), {
+    target: { value: fullName },
+  });
+  fireEvent.change(screen.getByLabelText(/^Nomor telepon(?: \* \(wajib\)| \(opsional\))?$/), {
+    target: { value: PHONE },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Status saat ini (wajib)" }));
   fireEvent.click(screen.getByRole("option", { name: "Mahasiswa" }));
-  fireEvent.change(screen.getByLabelText("Tanggal lahir"), { target: { value: "2000-01-31" } });
+  fireEvent.change(screen.getByLabelText(/^Tanggal lahir(?: \* \(wajib\)| \(opsional\))?$/), {
+    target: { value: "2000-01-31" },
+  });
 };
 
 const fillRecruiterProfile = (fullName: string) => {
-  fireEvent.change(screen.getByLabelText("Nama lengkap"), { target: { value: fullName } });
-  fireEvent.change(screen.getByLabelText("Nomor ponsel"), { target: { value: PHONE } });
+  fireEvent.change(screen.getByLabelText(/^Nama lengkap(?: \* \(wajib\)| \(opsional\))?$/), {
+    target: { value: fullName },
+  });
+  fireEvent.change(screen.getByLabelText(/^Nomor ponsel(?: \* \(wajib\)| \(opsional\))?$/), {
+    target: { value: PHONE },
+  });
 };
 
 const submitProfile = () => {
@@ -99,7 +115,7 @@ const sentRegisterBody = async () => {
 };
 
 const helpLineFor = (inputId: string) => {
-  const nameInput = screen.getByLabelText("Nama lengkap");
+  const nameInput = screen.getByLabelText(/^Nama lengkap(?: \* \(wajib\)| \(opsional\))?$/);
   const describedBy = nameInput.getAttribute("aria-describedby");
   const helpText = document.getElementById(`${inputId}-help`)?.textContent?.trim();
   return { describedBy, helpText };
@@ -213,9 +229,12 @@ describe("the email sign-up return address and end stage", () => {
     fillCandidateProfile("Andi Saputra");
     submitProfile();
 
-    fireEvent.change(await screen.findByLabelText("Kode verifikasi"), {
-      target: { value: "123456" },
-    });
+    fireEvent.change(
+      await screen.findByLabelText(/^Kode verifikasi(?: \* \(wajib\)| \(opsional\))?$/),
+      {
+        target: { value: "123456" },
+      },
+    );
     fireEvent.click(screen.getByRole("button", { name: "Verifikasi" }));
 
     await waitFor(() =>
@@ -237,14 +256,21 @@ describe("the email sign-up return address and end stage", () => {
     });
     renderEntry(RETURN_PATH);
     fireEvent.click(screen.getByRole("button", { name: /Lanjut dengan email/ }));
-    fireEvent.change(screen.getByLabelText("Email"), { target: { value: EMAIL } });
-    fireEvent.change(screen.getByLabelText("Password"), { target: { value: PASSWORD } });
+    fireEvent.change(screen.getByLabelText(/^Email(?: \* \(wajib\)| \(opsional\))?$/), {
+      target: { value: EMAIL },
+    });
+    fireEvent.change(screen.getByLabelText(/^Password(?: \* \(wajib\)| \(opsional\))?$/), {
+      target: { value: PASSWORD },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Lanjut" }));
 
     fireEvent.click(await screen.findByRole("button", { name: "Lengkapi pendaftaran" }));
-    fireEvent.change(await screen.findByLabelText("Konfirmasi password"), {
-      target: { value: PASSWORD },
-    });
+    fireEvent.change(
+      await screen.findByLabelText(/^Konfirmasi password(?: \* \(wajib\)| \(opsional\))?$/),
+      {
+        target: { value: PASSWORD },
+      },
+    );
     chooseRole("Daftar sebagai kandidat");
     fillCandidateProfile("Andi Saputra");
     submitProfile();
@@ -260,7 +286,9 @@ describe("the email sign-up return address and end stage", () => {
 
     submitProfile();
 
-    const codeBox = await screen.findByLabelText("Kode verifikasi");
+    const codeBox = await screen.findByLabelText(
+      /^Kode verifikasi(?: \* \(wajib\)| \(opsional\))?$/,
+    );
     await waitFor(() => expect(document.activeElement).toBe(codeBox));
     const description = document.getElementById(codeBox.getAttribute("aria-describedby") ?? "");
     expect(description?.textContent).toContain(EMAIL);
@@ -277,8 +305,12 @@ describe("the email sign-up return address and end stage", () => {
     });
     renderEntry(RETURN_PATH);
     fireEvent.click(screen.getByRole("button", { name: /Lanjut dengan email/ }));
-    fireEvent.change(screen.getByLabelText("Email"), { target: { value: EMAIL } });
-    fireEvent.change(screen.getByLabelText("Password"), { target: { value: PASSWORD } });
+    fireEvent.change(screen.getByLabelText(/^Email(?: \* \(wajib\)| \(opsional\))?$/), {
+      target: { value: EMAIL },
+    });
+    fireEvent.change(screen.getByLabelText(/^Password(?: \* \(wajib\)| \(opsional\))?$/), {
+      target: { value: PASSWORD },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Lanjut" }));
 
     await waitFor(() =>
@@ -294,9 +326,11 @@ describe("the email sign-up return address and end stage", () => {
     fireEvent.click(screen.getByRole("button", { name: /Lanjut dengan email/ }));
 
     expect(screen.getByText("Password minimal 8 karakter.")).toBeTruthy();
-    expect(screen.getByLabelText("Password").getAttribute("aria-describedby")).toBe(
-      "auth-password-help",
-    );
+    expect(
+      screen
+        .getByLabelText(/^Password(?: \* \(wajib\)| \(opsional\))?$/)
+        .getAttribute("aria-describedby"),
+    ).toBe("auth-password-help");
   });
 });
 
@@ -320,8 +354,12 @@ describe("after a sign-in", () => {
     vi.stubGlobal("location", { ...window.location, assign });
     renderEntry(RETURN_PATH);
     fireEvent.click(screen.getByRole("button", { name: /Lanjut dengan email/ }));
-    fireEvent.change(screen.getByLabelText("Email"), { target: { value: EMAIL } });
-    fireEvent.change(screen.getByLabelText("Password"), { target: { value: PASSWORD } });
+    fireEvent.change(screen.getByLabelText(/^Email(?: \* \(wajib\)| \(opsional\))?$/), {
+      target: { value: EMAIL },
+    });
+    fireEvent.change(screen.getByLabelText(/^Password(?: \* \(wajib\)| \(opsional\))?$/), {
+      target: { value: PASSWORD },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Lanjut" }));
 
     await waitFor(() => expect(assign).toHaveBeenCalledWith(signedInUrl));

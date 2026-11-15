@@ -56,7 +56,7 @@ export const validateCompetitionTimeline = (
     errors.push({
       field: "registrationEndAt",
       relatedField: "registrationStartAt",
-      message: "Pendaftaran berakhir harus setelah pendaftaran mulai.",
+      message: "Harus setelah pendaftaran mulai.",
     });
   }
   if (

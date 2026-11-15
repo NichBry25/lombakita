@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import {
   Button,
   FormActionBar,
+  FormInput,
+  FormLabel,
   IconButton,
   PageHeader,
   SelectField,
@@ -129,12 +131,11 @@ export const InstitutionWorkspaceShell = () => {
       <section className="content-section">
         <form className="stack-md" onSubmit={onSubmit}>
           <div className="form-field">
-            <label className="form-label" htmlFor="institution-display-name">
+            <FormLabel htmlFor="institution-display-name" required>
               Nama institusi
-            </label>
-            <input
+            </FormLabel>
+            <FormInput
               id="institution-display-name"
-              className="form-input"
               autoComplete="organization"
               value={displayName}
               onChange={(event) => setDisplayName(event.target.value)}
@@ -154,12 +155,11 @@ export const InstitutionWorkspaceShell = () => {
           </div>
 
           <div className="form-field">
-            <label className="form-label" htmlFor="institution-slug">
-              Slug (Opsional)
-            </label>
-            <input
+            <FormLabel htmlFor="institution-slug" optional>
+              Slug
+            </FormLabel>
+            <FormInput
               id="institution-slug"
-              className="form-input"
               value={slug}
               onChange={(event) => setSlug(event.target.value)}
               placeholder="universitas-nusantara"

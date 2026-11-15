@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useState } from "react";
-import { Button, Feedback, Icon } from "@/components/ui";
+import { Button, Feedback, FormInput, FormLabel, Icon } from "@/components/ui";
 import {
   describePartLoadFailure,
   useCompetitionEditorPart,
@@ -181,12 +181,11 @@ export const CompetitionContactEditor = ({
             ))}
           </div>
           <div className="form-field">
-            <label className="form-label form-label-required" htmlFor={inputId}>
+            <FormLabel htmlFor={inputId} required>
               {VALUE_LABELS[kind]}
-            </label>
-            <input
+            </FormLabel>
+            <FormInput
               id={inputId}
-              className="form-input"
               type={isNumberKind(kind) ? "tel" : "email"}
               inputMode={isNumberKind(kind) ? "tel" : "email"}
               autoComplete={isNumberKind(kind) ? "tel" : "email"}

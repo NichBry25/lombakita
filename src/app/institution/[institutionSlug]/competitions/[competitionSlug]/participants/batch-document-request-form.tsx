@@ -2,7 +2,14 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, CheckboxField } from "@/components/ui";
+import {
+  Button,
+  CheckboxField,
+  FormInput,
+  FormLabel,
+  FormLabelText,
+  FormTextarea,
+} from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import { resolveDocumentRequestErrorMessage } from "@/lib/registration-documents/document-request-error-copy";
 
@@ -191,9 +198,9 @@ export function BatchDocumentRequestForm({
       {expanded ? (
         <form id="batch-document-request" className="auth-form" onSubmit={submit}>
           <fieldset className="form-field">
-            <legend className="form-label form-label-required">
+            <FormLabelText as="legend" required>
               Peserta ({selected.size} dipilih)
-            </legend>
+            </FormLabelText>
             <div className="record-actions">
               {allEligibleIds.length > 0 ? (
                 <Button type="button" variant="outline" size="sm" onClick={selectAllEligible}>
@@ -241,12 +248,11 @@ export function BatchDocumentRequestForm({
           </fieldset>
 
           <div className="form-field">
-            <label className="form-label form-label-required" htmlFor="batch-title">
+            <FormLabel htmlFor="batch-title" required>
               Dokumen yang diminta
-            </label>
-            <input
+            </FormLabel>
+            <FormInput
               id="batch-title"
-              className="form-input"
               value={title}
               onChange={(event) => setTitle(event.target.value)}
               maxLength={160}
@@ -256,12 +262,11 @@ export function BatchDocumentRequestForm({
           </div>
 
           <div className="form-field">
-            <label className="form-label" htmlFor="batch-instructions">
+            <FormLabel htmlFor="batch-instructions" optional>
               Petunjuk
-            </label>
-            <textarea
+            </FormLabel>
+            <FormTextarea
               id="batch-instructions"
-              className="form-textarea"
               rows={3}
               value={instructions}
               onChange={(event) => setInstructions(event.target.value)}
@@ -271,12 +276,11 @@ export function BatchDocumentRequestForm({
           </div>
 
           <div className="form-field">
-            <label className="form-label form-label-required" htmlFor="batch-due">
+            <FormLabel htmlFor="batch-due" required>
               Tenggat
-            </label>
-            <input
+            </FormLabel>
+            <FormInput
               id="batch-due"
-              className="form-input"
               type="datetime-local"
               value={dueAt}
               onChange={(event) => setDueAt(event.target.value)}

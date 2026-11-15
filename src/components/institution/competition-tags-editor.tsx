@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { CheckboxField, Feedback } from "@/components/ui";
+import { Feedback, TagChoiceChip } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import {
   describePartLoadFailure,
@@ -48,7 +48,7 @@ export const saveCompetitionTags = async (
 };
 
 const TagsSection = ({ children }: { children: ReactNode }) => (
-  <section className="content-section surface-card card-padding stack-md">
+  <section className="content-section tag-section stack-md">
     <div className="stack-xs">
       <h2 className="section-title">Tag</h2>
       <p className="form-help">Pilih label tambahan yang menggambarkan kompetisi ini.</p>
@@ -64,11 +64,11 @@ const TagCheckboxes = ({
   isSelected: (tag: string) => boolean;
   onToggle: (tag: string) => void;
 }) => (
-  <div className="cluster">
+  <div className="tag-choice-list">
     {ALLOWED_COMPETITION_TAGS.map((tag) => (
-      <CheckboxField key={tag} checked={isSelected(tag)} onChange={() => onToggle(tag)}>
+      <TagChoiceChip key={tag} checked={isSelected(tag)} onChange={() => onToggle(tag)}>
         {tag}
-      </CheckboxField>
+      </TagChoiceChip>
     ))}
   </div>
 );

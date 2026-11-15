@@ -5,6 +5,8 @@ import {
   Button,
   EmptyState,
   Feedback,
+  FormInput,
+  FormLabel,
   IconButton,
   PageHeader,
   SelectField,
@@ -380,12 +382,11 @@ export const InstitutionTeamShell = ({
         ) : (
           <form className="institution-invite-form" onSubmit={onInvite}>
             <div className="form-field">
-              <label className="form-label" htmlFor="institution-invite-identifier">
+              <FormLabel htmlFor="institution-invite-identifier" required>
                 Username atau Email
-              </label>
-              <input
+              </FormLabel>
+              <FormInput
                 id="institution-invite-identifier"
-                className="form-input"
                 type="text"
                 placeholder="Username atau Email"
                 value={identifier}

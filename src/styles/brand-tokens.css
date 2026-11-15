@@ -90,6 +90,8 @@
   --color-disabled-surface: #f0ebdd;
   --color-disabled-text: #5c7571;
   --color-disabled-border: #d8d1bf;
+  --color-field-ring: #6b847d;
+  --color-field-readonly: #e4ede4;
   --color-success-surface: #d9ead9;
   --color-success-text: #1c5f52;
   --color-success-border: #9dc2ab;
@@ -224,6 +226,8 @@
   --color-disabled-surface: #12302a;
   --color-disabled-text: #7e958e;
   --color-disabled-border: #24544a;
+  --color-field-ring: #7e9f97;
+  --color-field-readonly: #0a2621;
   --color-success-surface: #12301f;
   --color-success-text: #9bd7ae;
   --color-success-border: #2f5f42;

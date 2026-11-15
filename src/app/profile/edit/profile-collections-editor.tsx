@@ -323,7 +323,9 @@ function ExperienceForm({
         />
       </FormField>
       <FormField>
-        <FormLabel htmlFor={`${uid}-loc`}>Lokasi</FormLabel>
+        <FormLabel htmlFor={`${uid}-loc`} optional>
+          Lokasi
+        </FormLabel>
         <FormInput
           id={`${uid}-loc`}
           value={d.location}
@@ -331,7 +333,9 @@ function ExperienceForm({
         />
       </FormField>
       <FormField>
-        <FormLabel htmlFor={`${uid}-start`}>Mulai</FormLabel>
+        <FormLabel htmlFor={`${uid}-start`} optional>
+          Mulai
+        </FormLabel>
         <FormInput
           id={`${uid}-start`}
           type="month"
@@ -340,7 +344,9 @@ function ExperienceForm({
         />
       </FormField>
       <FormField>
-        <FormLabel htmlFor={`${uid}-end`}>Selesai</FormLabel>
+        <FormLabel htmlFor={`${uid}-end`} optional>
+          Selesai
+        </FormLabel>
         <FormInput
           id={`${uid}-end`}
           type="month"
@@ -357,7 +363,9 @@ function ExperienceForm({
         Masih berjalan
       </CheckboxField>
       <FormField>
-        <FormLabel htmlFor={`${uid}-desc`}>Deskripsi</FormLabel>
+        <FormLabel htmlFor={`${uid}-desc`} optional>
+          Deskripsi
+        </FormLabel>
         <FormTextarea
           id={`${uid}-desc`}
           value={d.description}
@@ -493,7 +501,9 @@ function EducationForm({
         />
       </FormField>
       <FormField>
-        <FormLabel htmlFor={`${uid}-degree`}>Gelar</FormLabel>
+        <FormLabel htmlFor={`${uid}-degree`} optional>
+          Gelar
+        </FormLabel>
         <FormInput
           id={`${uid}-degree`}
           value={d.degree}
@@ -501,7 +511,9 @@ function EducationForm({
         />
       </FormField>
       <FormField>
-        <FormLabel htmlFor={`${uid}-field`}>Jurusan</FormLabel>
+        <FormLabel htmlFor={`${uid}-field`} optional>
+          Jurusan
+        </FormLabel>
         <FormInput
           id={`${uid}-field`}
           value={d.fieldOfStudy}
@@ -509,7 +521,9 @@ function EducationForm({
         />
       </FormField>
       <FormField>
-        <FormLabel htmlFor={`${uid}-start`}>Tahun mulai</FormLabel>
+        <FormLabel htmlFor={`${uid}-start`} optional>
+          Tahun mulai
+        </FormLabel>
         <FormInput
           id={`${uid}-start`}
           type="number"
@@ -518,7 +532,9 @@ function EducationForm({
         />
       </FormField>
       <FormField>
-        <FormLabel htmlFor={`${uid}-end`}>Tahun lulus</FormLabel>
+        <FormLabel htmlFor={`${uid}-end`} optional>
+          Tahun lulus
+        </FormLabel>
         <FormInput
           id={`${uid}-end`}
           type="number"
@@ -723,7 +739,9 @@ function CertificationForm({
         />
       </FormField>
       <FormField>
-        <FormLabel htmlFor={`${uid}-issued`}>Tanggal terbit</FormLabel>
+        <FormLabel htmlFor={`${uid}-issued`} optional>
+          Tanggal terbit
+        </FormLabel>
         <FormInput
           id={`${uid}-issued`}
           type="month"
@@ -732,7 +750,9 @@ function CertificationForm({
         />
       </FormField>
       <FormField>
-        <FormLabel htmlFor={`${uid}-expiry`}>Berlaku sampai</FormLabel>
+        <FormLabel htmlFor={`${uid}-expiry`} optional>
+          Berlaku sampai
+        </FormLabel>
         <FormInput
           id={`${uid}-expiry`}
           type="month"
@@ -741,7 +761,9 @@ function CertificationForm({
         />
       </FormField>
       <FormField>
-        <FormLabel htmlFor={`${uid}-cred-id`}>ID kredensial</FormLabel>
+        <FormLabel htmlFor={`${uid}-cred-id`} optional>
+          ID kredensial
+        </FormLabel>
         <FormInput
           id={`${uid}-cred-id`}
           value={d.credentialId}
@@ -749,7 +771,9 @@ function CertificationForm({
         />
       </FormField>
       <FormField>
-        <FormLabel htmlFor={`${uid}-cred-url`}>URL kredensial</FormLabel>
+        <FormLabel htmlFor={`${uid}-cred-url`} optional>
+          URL kredensial
+        </FormLabel>
         <FormInput
           id={`${uid}-cred-url`}
           value={d.credentialUrl}
@@ -962,10 +986,13 @@ function SocialLinkForm({
   return (
     <div className="pf-editor-form">
       <FormField>
-        <FormLabel htmlFor={`${uid}-platform`}>Platform</FormLabel>
+        <FormLabel htmlFor={`${uid}-platform`} required>
+          Platform
+        </FormLabel>
         <SelectField
           id={`${uid}-platform`}
           label="Platform"
+          required
           value={d.platform}
           onChange={(value) => set({ platform: value as SocialPlatform })}
           options={SOCIAL_PLATFORMS.map((p) => ({ value: p, label: PLATFORM_LABELS[p] }))}

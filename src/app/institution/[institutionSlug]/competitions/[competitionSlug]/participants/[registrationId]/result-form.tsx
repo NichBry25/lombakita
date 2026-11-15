@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import type { CompetitionResultStatus } from "@/server/db/schema";
 import type { ResultErrorCode } from "@/server/participants/result-service";
 import { useToast } from "@/components/ui/primitives";
-import { Button } from "@/components/ui";
+import { Button, FormInput, FormLabelText, FormTextarea } from "@/components/ui";
 
 const RESULT_ERROR_MESSAGES: Partial<Record<ResultErrorCode, string>> = {
   result_registration_not_found: "Pendaftaran tidak ditemukan.",
@@ -146,26 +146,24 @@ export function ResultForm({
 
       <div className="stack-md">
         <label className="form-field">
-          <span className="form-label form-label-required">Label hasil</span>
-          <input
+          <FormLabelText required>Label hasil</FormLabelText>
+          <FormInput
             type="text"
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             placeholder="cth. Juara 1, Finalis, Winner"
             disabled={status === "published"}
-            className="form-input"
           />
           <span className="form-help">Wajib diisi sebelum publikasi.</span>
         </label>
 
         <label className="form-field">
-          <span className="form-label">Catatan hasil (Opsional)</span>
-          <textarea
+          <FormLabelText optional>Catatan hasil</FormLabelText>
+          <FormTextarea
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             rows={4}
             disabled={status === "published"}
-            className="form-textarea"
           />
         </label>
 

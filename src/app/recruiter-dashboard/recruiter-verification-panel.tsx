@@ -2,7 +2,7 @@
 
 import { ChangeEvent, FormEvent, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Feedback, Icon, IconButton } from "@/components/ui";
+import { Button, Feedback, FormInput, FormLabel, Icon, IconButton } from "@/components/ui";
 import { useModal, useToast } from "@/components/ui/primitives";
 import { LocalDate } from "@/components/ui/local-date";
 import { errorMessageFor } from "@/lib/errors/error-copy";
@@ -439,9 +439,9 @@ export function RecruiterVerificationPanel({
     <>
       {renderDocumentList(true)}
       <div className="form-field">
-        <label className="form-label" htmlFor="rv-document">
-          Lampirkan Bukti Afiliasi (Opsional)
-        </label>
+        <FormLabel htmlFor="rv-document" optional>
+          Lampirkan Bukti Afiliasi
+        </FormLabel>
         <div className="pf-media-actions">
           <Button
             type="button"
@@ -480,44 +480,41 @@ export function RecruiterVerificationPanel({
   const renderAffiliationForm = (submitLabel: string) => (
     <form onSubmit={submitForm} className="auth-form">
       <div className="form-field">
-        <label className="form-label form-label-required" htmlFor="rv-full-name">
+        <FormLabel htmlFor="rv-full-name" required>
           Nama lengkap
-        </label>
-        <input
+        </FormLabel>
+        <FormInput
           id="rv-full-name"
           type="text"
           autoComplete="name"
           value={fullName}
           onChange={(event) => setFullName(event.target.value)}
-          className="form-input"
           placeholder="Nama lengkap sesuai identitas"
         />
       </div>
 
       <div className="form-field">
-        <label className="form-label form-label-required" htmlFor="rv-mobile">
+        <FormLabel htmlFor="rv-mobile" required>
           Nomor ponsel
-        </label>
-        <input
+        </FormLabel>
+        <FormInput
           id="rv-mobile"
           type="tel"
           value={mobileNumber}
           onChange={(event) => setMobileNumber(event.target.value)}
-          className="form-input"
           placeholder="Contoh: 0812xxxxxxx"
         />
       </div>
 
       <div className="form-field">
-        <label className="form-label" htmlFor="rv-corporate-email">
-          Email korporat / institusi (Opsional)
-        </label>
-        <input
+        <FormLabel htmlFor="rv-corporate-email" optional>
+          Email korporat / institusi
+        </FormLabel>
+        <FormInput
           id="rv-corporate-email"
           type="email"
           value={corporateEmail}
           onChange={(event) => setCorporateEmail(event.target.value)}
-          className="form-input"
           placeholder="nama@perusahaan.co.id"
         />
         <p className="form-help">Email domain korporat mempercepat antrean peninjauan Anda.</p>

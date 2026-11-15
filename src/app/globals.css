@@ -892,41 +892,46 @@ svg {
 
 .form-label {
   color: var(--color-ink-soft);
-  font-size: var(--text-meta);
+  font-size: var(--text-body-sm);
   font-weight: 600;
   line-height: var(--leading-heading);
 }
 
-.form-label-required::after {
-  margin-inline-start: var(--space-1);
+.form-label-marker {
   color: var(--color-error-text);
-  content: "*";
 }
 
+.form-label-optional {
+  font-weight: 400;
+}
+
+/* The ring is an inset shadow, so the rest ring (1.5px) and the engaged ring (2px) never change the
+   box. Radius 12px and the 16px text belong to the fields only. */
 .form-input,
 .form-select,
 .form-textarea {
   width: 100%;
-  border: var(--border-thin) solid var(--color-line);
-  border-radius: var(--radius-input);
+  border: 0;
+  border-radius: 12px;
   background: var(--color-raised);
+  box-shadow: inset 0 0 0 1.5px var(--color-field-ring);
   color: var(--color-ink);
-  font-size: var(--text-body);
+  font-size: var(--text-search);
   transition:
     background-color var(--duration-fast) var(--ease-primary),
-    border-color var(--duration-fast) var(--ease-primary),
     box-shadow var(--duration-fast) var(--ease-primary);
 }
 
 .form-input,
 .form-select {
   min-height: var(--control-height-md);
-  padding-inline: var(--space-3);
+  padding-inline: var(--space-4);
 }
 
 .form-textarea {
-  min-height: calc(var(--control-height-lg) * 2.25);
-  padding: var(--space-3);
+  min-height: 6.5rem;
+  padding: var(--space-3) var(--space-4);
+  line-height: 1.5;
   resize: vertical;
 }
 
@@ -938,37 +943,79 @@ svg {
 .form-input:hover:not(:disabled):not([readonly]),
 .form-select:hover:not(:disabled),
 .form-textarea:hover:not(:disabled):not([readonly]) {
-  border-color: var(--color-ink-faint);
+  box-shadow: inset 0 0 0 var(--border-strong) var(--color-ink);
 }
 
 .form-input:focus-visible,
 .form-select:focus-visible,
 .form-textarea:focus-visible {
-  border-color: var(--focus-color);
-  outline: none;
-  box-shadow: 0 0 0 var(--focus-width) var(--focus-halo);
+  outline: var(--focus-width) solid var(--focus-color);
+  outline-offset: var(--border-strong);
+  box-shadow: inset 0 0 0 var(--border-strong) var(--focus-color);
+}
+
+.form-input[aria-invalid="true"],
+.form-select[aria-invalid="true"],
+.form-textarea[aria-invalid="true"] {
+  box-shadow: inset 0 0 0 var(--border-strong) var(--color-error-text);
 }
 
 .form-input:disabled,
 .form-select:disabled,
 .form-textarea:disabled {
-  border-color: var(--color-disabled-border);
   background: var(--color-disabled-surface);
+  box-shadow: inset 0 0 0 var(--border-thin) var(--color-disabled-border);
   color: var(--color-disabled-text);
 }
 
 .form-input-readonly,
 .form-input[readonly],
 .form-textarea[readonly] {
-  border-color: var(--color-disabled-border);
-  background: var(--color-inset);
+  background: var(--color-field-readonly);
+  box-shadow: none;
+  color: var(--color-ink);
+}
+
+.form-input-lock-wrap {
+  position: relative;
+  display: block;
+}
+
+.form-input-lock-wrap .form-input {
+  padding-inline-end: calc(var(--space-4) + var(--space-5) + var(--space-2));
+}
+
+.form-input-lock {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: var(--space-4);
+  width: var(--space-5);
+  height: var(--space-5);
+  margin-block: auto;
   color: var(--color-ink-soft);
+  pointer-events: none;
+}
+
+.form-password-wrap {
+  position: relative;
+  display: block;
+}
+
+.form-password-wrap .form-password-input {
+  padding-inline-end: calc(var(--touch-target) + var(--space-2));
+}
+
+.form-password-wrap .form-password-toggle {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: var(--space-1);
+  margin-block: auto;
 }
 
 .form-help,
 .form-error {
   margin: var(--space-0);
-  font-size: var(--text-meta);
+  font-size: var(--text-body-sm);
 }
 
 .form-help {
@@ -994,13 +1041,41 @@ svg {
 }
 
 .form-error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
   color: var(--color-error-text);
+  font-weight: 500;
+}
+
+.form-error-icon {
+  width: var(--space-4);
+  height: var(--space-4);
+  margin-block-start: 0.125rem;
 }
 
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-5);
+}
+
+/* In a row of two fields every field keeps one message line under it, so an error under one never
+   moves its neighbour. A field alone in its row, and every field once the grid is one column,
+   keeps no such line. */
+.form-grid > .form-field:not(:has(.form-help, .form-error))::after {
+  min-height: 1.25rem;
+  content: "";
+}
+
+.form-grid > .form-field:last-child:nth-child(odd)::after {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .form-grid > .form-field:not(:has(.form-help, .form-error))::after {
+    display: none;
+  }
 }
 
 /* A field whose explanation reads beside it rather than beneath it. Spans the full form-grid
@@ -2566,36 +2641,30 @@ button.header-nav-link {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  min-height: 44px;
-  padding: var(--space-2) var(--space-4);
-  border: 1px solid var(--color-line);
+  min-height: var(--touch-target);
+  padding: var(--space-2) 1.125rem;
+  border: 0;
   border-radius: var(--radius-control);
-  background: var(--color-surface);
+  background: var(--color-raised);
   color: var(--color-ink);
   font-family: var(--font-body);
+  font-size: var(--text-body);
   font-weight: 500;
-  box-shadow: var(--shadow-sm);
+  box-shadow: inset 0 0 0 1.5px var(--color-field-ring);
   cursor: pointer;
   transition:
-    border-color var(--duration-fast) ease,
+    background-color var(--duration-fast) ease,
     box-shadow var(--duration-fast) ease;
 }
 
-.filter-dropdown-trigger:hover {
-  border-color: var(--color-ink-soft);
+.filter-dropdown-trigger:hover,
+.filter-dropdown-trigger[aria-expanded="true"] {
+  box-shadow: inset 0 0 0 var(--border-strong) var(--color-ink);
 }
 
-/* Active (non-default) selection: palm border + tangerine accent dot. Never tangerine text. */
 .filter-dropdown-trigger[data-active="true"] {
-  border-color: var(--color-ink);
-}
-
-.filter-dropdown-trigger[data-active="true"]::before {
-  content: "";
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: var(--radius-circle);
-  background: var(--brand-tangerine);
+  background: var(--color-hover-surface);
+  box-shadow: inset 0 0 0 var(--border-strong) var(--color-ink);
 }
 
 .filter-dropdown-chevron {
@@ -2608,45 +2677,47 @@ button.header-nav-link {
 
 .filter-dropdown-trigger:focus-visible {
   outline: var(--focus-width) solid var(--focus-color);
-  outline-offset: var(--focus-offset);
-  box-shadow: 0 0 0 6px var(--focus-halo);
+  outline-offset: var(--border-strong);
 }
 
-/* Menu panel — focus-glass surface, but a near-opaque fill (the .glass-focus 88% is too
-   see-through over cards). Keeps the blur for a subtle frost; theme-aware via the glass
-   opaque fallback. */
 .filter-dropdown-menu {
   position: absolute;
   top: calc(100% + var(--space-2));
   left: 0;
   z-index: var(--z-dropdown);
-  min-width: 12rem;
-  max-height: 20rem;
+  width: 16.5rem;
+  max-width: calc(100vw - var(--space-6) * 2);
+  max-height: calc(var(--touch-target) * 7 + var(--space-3));
   overflow-y: auto;
   margin: 0;
-  padding: var(--space-1);
+  padding: var(--space-1-5);
   list-style: none;
-  border: 1px solid var(--glass-structure-line);
-  border-radius: var(--radius-card);
-  background: color-mix(in srgb, var(--glass-focus-fallback) 97%, transparent);
+  border: var(--border-thin) solid var(--color-line);
+  border-radius: 16px;
+  background: var(--color-raised);
   box-shadow: var(--shadow-glass);
 }
 
 .filter-dropdown-option {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: var(--space-2);
-  min-height: 44px;
+  min-height: var(--touch-target);
   padding: var(--space-2) var(--space-3);
-  border-radius: calc(var(--radius-card) - var(--space-1));
+  border-radius: 10px;
   color: var(--color-ink);
+  font-size: var(--text-body);
   cursor: pointer;
 }
 
-.filter-dropdown-option:hover,
-.filter-dropdown-option:focus-visible {
+.filter-dropdown-option:hover {
   background: var(--color-hover-surface);
-  outline: none;
+}
+
+.filter-dropdown-option:focus-visible {
+  outline: var(--border-strong) solid var(--focus-color);
+  outline-offset: calc(-1 * var(--border-strong));
 }
 
 .filter-dropdown-option[data-selected="true"] {
@@ -2656,8 +2727,13 @@ button.header-nav-link {
 
 .filter-dropdown-option-check {
   display: inline-flex;
-  width: 1rem;
+  width: var(--space-4);
   color: var(--color-ink);
+}
+
+.filter-dropdown-option-check .ui-icon {
+  width: var(--space-4);
+  height: var(--space-4);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2681,33 +2757,33 @@ button.header-nav-link {
   gap: var(--space-2);
   width: 100%;
   min-height: var(--control-height-md);
-  padding-inline: var(--space-3);
-  border: var(--border-thin) solid var(--color-line);
-  border-radius: var(--radius-input);
+  padding-inline: var(--space-4);
+  border: 0;
+  border-radius: 12px;
   background: var(--color-raised);
+  box-shadow: inset 0 0 0 1.5px var(--color-field-ring);
   color: var(--color-ink);
   font-family: var(--font-body);
-  font-size: var(--text-body);
+  font-size: var(--text-search);
   text-align: start;
   cursor: pointer;
-  transition:
-    border-color var(--duration-fast) var(--ease-primary),
-    box-shadow var(--duration-fast) var(--ease-primary);
+  transition: box-shadow var(--duration-fast) var(--ease-primary);
 }
 
-.select-field-trigger:hover:not(:disabled) {
-  border-color: var(--color-ink-soft);
+.select-field-trigger:hover:not(:disabled),
+.select-field-trigger[aria-expanded="true"] {
+  box-shadow: inset 0 0 0 var(--border-strong) var(--color-ink);
 }
 
 .select-field-trigger:focus-visible {
-  border-color: var(--focus-color);
-  outline: none;
-  box-shadow: 0 0 0 var(--focus-width) var(--focus-halo);
+  outline: var(--focus-width) solid var(--focus-color);
+  outline-offset: var(--border-strong);
+  box-shadow: inset 0 0 0 var(--border-strong) var(--focus-color);
 }
 
 .select-field-trigger:disabled {
-  border-color: var(--color-disabled-border);
   background: var(--color-disabled-surface);
+  box-shadow: inset 0 0 0 var(--border-thin) var(--color-disabled-border);
   color: var(--color-disabled-text);
   cursor: not-allowed;
 }
@@ -2724,6 +2800,8 @@ button.header-nav-link {
 
 .select-field-chevron {
   flex: none;
+  width: var(--space-5);
+  height: var(--space-5);
   transition: transform var(--duration-fast) var(--ease-primary);
 }
 
@@ -2731,44 +2809,45 @@ button.header-nav-link {
   transform: rotate(180deg);
 }
 
-/* Never narrower than its trigger, but free to grow past it: a trigger sized by an `auto`
-   grid column is often narrower than the longest option label, and pinning both edges to the
-   trigger clipped that label. Clamped so a long label wraps instead of running off-screen. */
+/* The menu is the field's width and shows at most 6.5 rows, so a half row tells the reader it
+   scrolls. */
 .select-field-menu {
   position: absolute;
   top: calc(100% + var(--space-2));
   inset-inline-start: 0;
-  inset-inline-end: auto;
   z-index: var(--z-dropdown);
-  width: max-content;
-  min-width: 100%;
-  max-width: min(24rem, calc(100vw - var(--space-6) * 2));
-  max-height: 18rem;
+  width: 100%;
+  max-height: calc(var(--touch-target) * 6.5 + var(--space-3));
   overflow-y: auto;
   margin: 0;
-  padding: var(--space-1);
+  padding: var(--space-1-5);
   list-style: none;
-  border: 1px solid var(--glass-structure-line);
-  border-radius: var(--radius-card);
-  background: color-mix(in srgb, var(--glass-focus-fallback) 97%, transparent);
+  border: var(--border-thin) solid var(--color-line);
+  border-radius: 16px;
+  background: var(--color-raised);
   box-shadow: var(--shadow-glass);
 }
 
 .select-field-option {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: var(--space-2);
   min-height: var(--touch-target);
   padding: var(--space-2) var(--space-3);
-  border-radius: calc(var(--radius-card) - var(--space-1));
+  border-radius: 10px;
   color: var(--color-ink);
+  font-size: var(--text-body);
   cursor: pointer;
 }
 
-.select-field-option:hover,
-.select-field-option:focus-visible {
+.select-field-option:hover {
   background: var(--color-hover-surface);
-  outline: none;
+}
+
+.select-field-option:focus-visible {
+  outline: var(--border-strong) solid var(--focus-color);
+  outline-offset: calc(-1 * var(--border-strong));
 }
 
 .select-field-option[data-selected="true"] {
@@ -2778,8 +2857,13 @@ button.header-nav-link {
 
 .select-field-option-check {
   display: inline-flex;
-  width: 1rem;
+  width: var(--space-4);
   color: var(--color-ink);
+}
+
+.select-field-option-check .ui-icon {
+  width: var(--space-4);
+  height: var(--space-4);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -3903,63 +3987,113 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
   gap: var(--space-3);
 }
 
-.auth-method-button,
-.auth-role-option {
+/* The choice card ("Kartu pilihan") and the method card share one card shell. The choice card picks
+   one option, with a round indicator. The method card navigates, with a Deep Palm ring and a
+   chevron. */
+.choice-card,
+.auth-method-button {
   width: 100%;
-  min-height: var(--control-height-lg);
-  border: var(--border-thin) solid var(--color-line);
-  border-radius: var(--radius-card);
+  min-height: 5.25rem;
+  padding: var(--space-4) 1.125rem;
+  border: 0;
+  border-radius: 16px;
   background: var(--color-raised);
+  box-shadow: inset 0 0 0 1.5px var(--color-field-ring);
   color: var(--color-ink);
   cursor: pointer;
   text-align: start;
   transition:
     background-color var(--duration-fast) var(--ease-primary),
-    border-color var(--duration-fast) var(--ease-primary),
-    box-shadow var(--duration-fast) var(--ease-primary),
-    transform var(--duration-fast) var(--ease-primary);
+    box-shadow var(--duration-fast) var(--ease-primary);
 }
 
-.auth-method-button:hover:not(:disabled),
-.auth-role-option:hover:not(:disabled) {
-  border-color: var(--color-ink-faint);
-  background: var(--color-inset);
-  box-shadow: var(--shadow-md);
-  transform: translateY(var(--motion-lift-control));
+.choice-card:focus-visible,
+.auth-method-button:focus-visible {
+  outline: var(--focus-width) solid var(--focus-color);
+  outline-offset: var(--border-strong);
 }
 
-.auth-method-button:disabled,
-.auth-role-option:disabled {
-  border-color: var(--color-disabled-border);
+.choice-card:hover:not(:disabled),
+.choice-card[aria-checked="true"] {
+  box-shadow: inset 0 0 0 var(--border-strong) var(--color-ink);
+}
+
+.choice-card[aria-checked="true"] {
+  background: var(--color-hover-surface);
+}
+
+.choice-card:disabled,
+.auth-method-button:disabled {
   background: var(--color-disabled-surface);
+  box-shadow: inset 0 0 0 var(--border-thin) var(--color-disabled-border);
   color: var(--color-disabled-text);
+  cursor: not-allowed;
 }
 
-.auth-method-button {
+.choice-card {
   display: grid;
-  grid-template-columns: var(--touch-target) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) var(--space-6);
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
 }
 
-.auth-method-button > span:last-child,
-.auth-role-option {
+.choice-card-text,
+.auth-method-button > span:nth-child(2) {
   display: grid;
   gap: var(--space-1);
 }
 
-.auth-method-button strong,
-.auth-role-option strong {
+.choice-card-text strong,
+.auth-method-button strong {
   font-size: var(--text-body);
   font-weight: 600;
 }
 
-.auth-method-button small,
-.auth-role-option span {
+.choice-card-text span,
+.auth-method-button small {
   color: var(--color-ink-soft);
-  font-size: var(--text-meta);
+  font-size: var(--text-body-sm);
   font-weight: 400;
+}
+
+.choice-card-indicator {
+  display: grid;
+  width: var(--space-6);
+  height: var(--space-6);
+  place-items: center;
+  border-radius: var(--radius-circle);
+  background: var(--color-raised);
+  box-shadow: inset 0 0 0 1.5px var(--color-field-ring);
+  color: var(--color-raised);
+}
+
+.choice-card[aria-checked="true"] .choice-card-indicator {
+  background: var(--color-ink);
+  box-shadow: none;
+}
+
+.choice-card-indicator .ui-icon {
+  width: var(--space-4);
+  height: var(--space-4);
+  opacity: 0;
+}
+
+.choice-card[aria-checked="true"] .choice-card-indicator .ui-icon {
+  opacity: 1;
+}
+
+.auth-method-button {
+  display: grid;
+  grid-template-columns: var(--touch-target) minmax(0, 1fr) var(--space-4);
+  align-items: center;
+  gap: var(--space-3);
+  box-shadow: inset 0 0 0 1.5px var(--color-ink);
+}
+
+.auth-method-button-chevron {
+  width: var(--space-4);
+  height: var(--space-4);
+  transform: rotate(-90deg);
 }
 
 .auth-provider-mark {
@@ -3986,10 +4120,6 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
 .auth-stage-panel > p:first-of-type {
   margin: var(--space-0);
   color: var(--color-ink-soft);
-}
-
-.auth-role-option {
-  padding: var(--space-4);
 }
 
 .auth-state {
@@ -5586,11 +5716,6 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
   gap: var(--space-3);
 }
 
-.competition-list-controls .select-field {
-  width: auto;
-  min-width: var(--control-select-min);
-}
-
 .management-competition-list {
   display: grid;
   gap: var(--space-3);
@@ -5764,12 +5889,128 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
   cursor: default;
 }
 
-/* One box for every checkbox in the app. .pf-editor-check differs only in typography. */
+/* One box for every checkbox in the app. .pf-editor-check differs only in typography. The input is
+   the box, and the check glyph is laid over it, so the browser still owns state and keyboard. */
+.checkbox-field {
+  position: relative;
+  font-size: var(--text-search);
+}
+
 .checkbox-field input {
+  flex: none;
+  width: var(--space-6);
+  height: var(--space-6);
+  margin: 0;
+  border-radius: 6px;
+  background: var(--color-raised);
+  box-shadow: inset 0 0 0 1.5px var(--color-field-ring);
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) var(--ease-primary),
+    box-shadow var(--duration-fast) var(--ease-primary);
+}
+
+.checkbox-field input:hover:not(:disabled) {
+  box-shadow: inset 0 0 0 var(--border-strong) var(--color-ink);
+}
+
+.checkbox-field input:checked {
+  background: var(--color-ink);
+  box-shadow: none;
+}
+
+.checkbox-field input:focus-visible {
+  outline: var(--focus-width) solid var(--focus-color);
+  outline-offset: var(--border-strong);
+}
+
+.checkbox-field input:disabled {
+  background: var(--color-disabled-surface);
+  box-shadow: inset 0 0 0 var(--border-thin) var(--color-disabled-border);
+  cursor: not-allowed;
+}
+
+.checkbox-field-check {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: var(--space-1);
   width: var(--space-4);
   height: var(--space-4);
-  flex-shrink: 0;
-  accent-color: var(--brand-palm);
+  margin-block: auto;
+  color: var(--color-raised);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.checkbox-field input:checked ~ .checkbox-field-check {
+  opacity: 1;
+}
+
+/* The tags section has no card around it, so its spacing groups it. */
+.tag-section .section-title {
+  font-size: 1.5rem;
+}
+
+.tag-choice-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+/* One tag choice, drawn as a pill. The real checkbox lies invisibly over the whole pill. */
+.tag-choice-chip {
+  position: relative;
+  display: inline-flex;
+  min-height: var(--touch-target);
+  align-items: center;
+  gap: var(--space-2);
+  padding-inline: 1.125rem;
+  border-radius: var(--radius-pill);
+  background: var(--color-raised);
+  box-shadow: inset 0 0 0 1.5px var(--color-field-ring);
+  color: var(--color-ink);
+  font-size: var(--text-body);
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) var(--ease-primary),
+    box-shadow var(--duration-fast) var(--ease-primary);
+}
+
+.tag-choice-chip input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.tag-choice-chip:hover {
+  box-shadow: inset 0 0 0 var(--border-strong) var(--color-ink);
+}
+
+.tag-choice-chip:has(input:checked) {
+  background: var(--color-hover-surface);
+  box-shadow: inset 0 0 0 var(--border-strong) var(--color-ink);
+}
+
+.tag-choice-chip:has(input:focus-visible) {
+  outline: var(--focus-width) solid var(--focus-color);
+  outline-offset: var(--border-strong);
+}
+
+.tag-choice-chip-check {
+  display: none;
+  width: var(--space-4);
+  height: var(--space-4);
+}
+
+.tag-choice-chip:has(input:checked) .tag-choice-chip-check {
+  display: block;
 }
 
 .competition-policy-fieldset .checkbox-field {
@@ -5851,12 +6092,8 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
   border-radius: var(--radius-card);
 }
 
-.participant-filter-toolbar .select-field-trigger {
-  border-radius: calc(var(--radius-card) - var(--space-3));
-}
-
-.participant-filter-toolbar .form-field {
-  min-width: var(--control-select-min);
+.participant-filter-toolbar {
+  align-items: center;
 }
 
 .participant-summary {
@@ -5970,10 +6207,6 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
   gap: var(--space-3);
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-card);
-}
-
-.admin-filter-toolbar .select-field-trigger {
-  border-radius: calc(var(--radius-card) - var(--space-2));
 }
 
 .admin-filter-toolbar .select-field {
@@ -6492,7 +6725,8 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
   .filter-dropdown-menu {
     left: 0;
     right: 0;
-    min-width: 0;
+    width: auto;
+    max-width: none;
   }
 
   .admin-nav {
@@ -6680,7 +6914,6 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
     flex-direction: column;
   }
 
-  .participant-filter-toolbar .form-field,
   .export-toolbar .ui-button,
   .competition-edit-actions .ui-button {
     width: 100%;

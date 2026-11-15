@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Button, IconButton } from "@/components/ui";
+import { Button, FormInput, FormLabel, IconButton } from "@/components/ui";
 import { useModal, useToast } from "@/components/ui/primitives";
 import { LocalDate } from "@/components/ui/local-date";
 import { getAppRoleLabel } from "@/lib/access/role-labels";
@@ -140,8 +140,7 @@ function NoteRow({ note, onSaved }: { note: NoteItem; onSaved: () => void }) {
     <li className="moderation-note-row">
       {editing ? (
         <div className="moderation-note-edit">
-          <input
-            className="form-input"
+          <FormInput
             aria-label="Edit catatan"
             value={editText}
             onChange={(e) => setEditText(e.target.value)}
@@ -236,8 +235,7 @@ function NotesPanel({
     <div className="moderation-notes-panel">
       <strong>Catatan internal</strong>
       <div className="moderation-note-form">
-        <input
-          className="form-input"
+        <FormInput
           placeholder="Tambah catatan…"
           aria-label="Tambah catatan internal"
           value={noteInput}
@@ -271,8 +269,7 @@ function ActionForm({
   const [busy, setBusy] = useState(false);
   return (
     <div className="moderation-action-form">
-      <input
-        className="form-input"
+      <FormInput
         placeholder="Alasan…"
         aria-label={`Alasan ${buttonLabel}`}
         value={reason}
@@ -438,24 +435,22 @@ function DeidentifyAction({ account, onDone }: { account: UserResult; onDone: ()
   return (
     <div className="stack-sm moderation-deidentify-form">
       <div className="form-field">
-        <label className="form-label" htmlFor="deidentify-confirm-username">
+        <FormLabel htmlFor="deidentify-confirm-username" required>
           Ketik nama pengguna akun untuk konfirmasi
-        </label>
-        <input
+        </FormLabel>
+        <FormInput
           id="deidentify-confirm-username"
-          className="form-input"
           value={confirmUsername}
           autoComplete="off"
           onChange={(e) => setConfirmUsername(e.target.value)}
         />
       </div>
       <div className="form-field">
-        <label className="form-label" htmlFor="deidentify-reason">
+        <FormLabel htmlFor="deidentify-reason" required>
           Alasan (contoh: permintaan melalui email tanggal 28 September 2026)
-        </label>
-        <input
+        </FormLabel>
+        <FormInput
           id="deidentify-reason"
-          className="form-input"
           value={reason}
           autoComplete="off"
           maxLength={500}
@@ -554,12 +549,11 @@ function UserPanel({ initialEmail }: { initialEmail?: string }) {
         </div>
       </div>
       <div className="moderation-lookup-form">
-        <label htmlFor="user-lookup-email" className="form-label">
+        <FormLabel htmlFor="user-lookup-email" required>
           Email
-        </label>
-        <input
+        </FormLabel>
+        <FormInput
           id="user-lookup-email"
-          className="form-input"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           placeholder="user@example.com"
@@ -681,12 +675,11 @@ function InstitutionPanel() {
         </div>
       </div>
       <div className="moderation-lookup-form">
-        <label htmlFor="institution-lookup-slug" className="form-label">
+        <FormLabel htmlFor="institution-lookup-slug" required>
           Slug / Nama
-        </label>
-        <input
+        </FormLabel>
+        <FormInput
           id="institution-lookup-slug"
-          className="form-input"
           value={slug}
           onChange={(e) => setSlug(e.target.value)}
           placeholder="nama-institusi atau Nama Institusi"

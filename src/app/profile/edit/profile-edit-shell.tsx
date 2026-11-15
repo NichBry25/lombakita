@@ -5,7 +5,16 @@ import { useRouter } from "next/navigation";
 import type { OwnerProfileResponse, ProfileFieldValue } from "@/server/user-profile/profile-core";
 import { errorMessageFor } from "@/lib/errors/error-copy";
 import { sessionFetch } from "@/lib/session/session-fetch";
-import { Button, FormActionBar, Icon, IconButton } from "@/components/ui";
+import {
+  Button,
+  FormActionBar,
+  FormInput,
+  FormLabel,
+  FormLabelText,
+  FormTextarea,
+  Icon,
+  IconButton,
+} from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import { ProfileCollectionsEditor } from "./profile-collections-editor";
 import { AvatarUpload, BannerUpload, ResumeSection } from "./profile-media-controls";
@@ -58,25 +67,23 @@ function FieldInput({
 }) {
   return (
     <div className="form-field profile-edit-field">
-      <label className="form-label" htmlFor={`profile-${name}`}>
+      <FormLabel htmlFor={`profile-${name}`} optional>
         {label}
-      </label>
+      </FormLabel>
       {multiline ? (
-        <textarea
+        <FormTextarea
           id={`profile-${name}`}
           name={name}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="form-textarea"
         />
       ) : (
-        <input
+        <FormInput
           id={`profile-${name}`}
           name={name}
           type="text"
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="form-input"
         />
       )}
     </div>
@@ -149,15 +156,14 @@ export function ProfileEditShell({ profile, expectedUserId }: Props) {
             </div>
           </div>
           <div className="form-field profile-edit-field">
-            <label className="form-label" htmlFor="profile-username">
+            <FormLabel htmlFor="profile-username" required>
               Username
-            </label>
-            <input
+            </FormLabel>
+            <FormInput
               id="profile-username"
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              className="form-input"
             />
           </div>
         </section>
@@ -177,11 +183,11 @@ export function ProfileEditShell({ profile, expectedUserId }: Props) {
           <FieldInput label="Bio" name="bio" value={bio} onChange={setBio} multiline />
           <FieldInput label="Lokasi" name="location" value={location} onChange={setLocation} />
           <div className="form-field profile-edit-field">
-            <span className="form-label">Foto profil</span>
+            <FormLabelText optional>Foto profil</FormLabelText>
             <AvatarUpload expectedUserId={expectedUserId} currentUrl={currentAvatarUrl} />
           </div>
           <div className="form-field profile-edit-field">
-            <span className="form-label">Sampul profil</span>
+            <FormLabelText optional>Sampul profil</FormLabelText>
             <BannerUpload expectedUserId={expectedUserId} currentUrl={currentBannerUrl} />
           </div>
         </section>

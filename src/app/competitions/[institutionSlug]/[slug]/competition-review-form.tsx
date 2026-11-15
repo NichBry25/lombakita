@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, SelectField } from "@/components/ui";
+import { Button, FormLabel, FormTextarea, SelectField } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import { errorMessageFor } from "@/lib/errors/error-copy";
 import { sessionFetch } from "@/lib/session/session-fetch";
@@ -79,12 +79,13 @@ export function CompetitionReviewForm({ competitionId, expectedUserId, initialRe
   return (
     <form className="stack-sm" onSubmit={onSubmit}>
       <div className="form-field">
-        <label className="form-label" htmlFor="review-rating">
+        <FormLabel htmlFor="review-rating" required>
           Penilaian
-        </label>
+        </FormLabel>
         <SelectField
           id="review-rating"
           label="Penilaian"
+          required
           value={String(rating)}
           onChange={(value) => setRating(Number(value))}
           options={[5, 4, 3, 2, 1].map((value) => ({
@@ -94,12 +95,11 @@ export function CompetitionReviewForm({ competitionId, expectedUserId, initialRe
         />
       </div>
       <div className="form-field">
-        <label className="form-label" htmlFor="review-body">
-          Ulasan (Opsional)
-        </label>
-        <textarea
+        <FormLabel htmlFor="review-body" optional>
+          Ulasan
+        </FormLabel>
+        <FormTextarea
           id="review-body"
-          className="form-textarea"
           rows={3}
           value={body}
           maxLength={2000}

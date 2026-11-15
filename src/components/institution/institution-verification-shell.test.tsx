@@ -41,7 +41,7 @@ const mount = () =>
   );
 
 const attachDocumentAndSubmit = async () => {
-  const input = await screen.findByLabelText("SK pendirian");
+  const input = await screen.findByLabelText(/^SK pendirian(?: \* \(wajib\)| \(opsional\))?$/);
   const file = new File(["%PDF-1.4"], "sk-pendirian.pdf", { type: "application/pdf" });
   fireEvent.change(input, { target: { files: [file] } });
   fireEvent.click(screen.getByRole("button", { name: "Kirim dokumen" }));

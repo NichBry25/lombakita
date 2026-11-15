@@ -5,6 +5,10 @@ import { useRouter } from "next/navigation";
 import {
   Button,
   FormActionBar,
+  FormInput,
+  FormLabel,
+  FormLabelText,
+  FormTextarea,
   Icon,
   IconButton,
   PageHeader,
@@ -359,12 +363,11 @@ export const InstitutionSettingsShell = ({
         ) : (
           <form className="stack-md" onSubmit={saveIdentity}>
             <div className="form-field">
-              <label className="form-label" htmlFor="institution-settings-display-name">
+              <FormLabel htmlFor="institution-settings-display-name" required={!isPersonal}>
                 Nama institusi
-              </label>
-              <input
+              </FormLabel>
+              <FormInput
                 id="institution-settings-display-name"
-                className={isPersonal ? "form-input form-input-readonly" : "form-input"}
                 value={displayName}
                 onChange={(event) => setDisplayName(event.target.value)}
                 readOnly={isPersonal}
@@ -378,12 +381,11 @@ export const InstitutionSettingsShell = ({
             </div>
 
             <div className="form-field">
-              <label className="form-label" htmlFor="institution-settings-slug">
+              <FormLabel htmlFor="institution-settings-slug" required={!isPersonal}>
                 Slug
-              </label>
-              <input
+              </FormLabel>
+              <FormInput
                 id="institution-settings-slug"
-                className={isPersonal ? "form-input form-input-readonly" : "form-input"}
                 value={slug}
                 onChange={(event) => setSlug(event.target.value)}
                 readOnly={isPersonal}
@@ -398,12 +400,9 @@ export const InstitutionSettingsShell = ({
             </div>
 
             <div className="form-field">
-              <label className="form-label" htmlFor="institution-settings-status">
-                Status awal platform
-              </label>
-              <input
+              <FormLabel htmlFor="institution-settings-status">Status awal platform</FormLabel>
+              <FormInput
                 id="institution-settings-status"
-                className="form-input form-input-readonly"
                 value={INSTITUTION_STATUS_LABELS[status]}
                 readOnly
               />
@@ -433,7 +432,7 @@ export const InstitutionSettingsShell = ({
 
           <form className="stack-md" onSubmit={saveProfile}>
             <div className="form-field">
-              <span className="form-label">Logo</span>
+              <FormLabelText optional>Logo</FormLabelText>
               <InstitutionLogoUpload
                 expectedUserId={expectedUserId}
                 institutionSlug={activeSlug}
@@ -442,7 +441,7 @@ export const InstitutionSettingsShell = ({
             </div>
 
             <div className="form-field">
-              <span className="form-label">Sampul</span>
+              <FormLabelText optional>Sampul</FormLabelText>
               <InstitutionBannerUpload
                 expectedUserId={expectedUserId}
                 institutionSlug={activeSlug}
@@ -451,12 +450,11 @@ export const InstitutionSettingsShell = ({
             </div>
 
             <div className="form-field">
-              <label className="form-label" htmlFor="institution-profile-about">
+              <FormLabel htmlFor="institution-profile-about" optional>
                 Tentang
-              </label>
-              <textarea
+              </FormLabel>
+              <FormTextarea
                 id="institution-profile-about"
-                className="form-textarea"
                 rows={5}
                 value={about}
                 maxLength={2000}
@@ -468,12 +466,11 @@ export const InstitutionSettingsShell = ({
             </div>
 
             <div className="form-field">
-              <label className="form-label" htmlFor="institution-profile-contact-name">
+              <FormLabel htmlFor="institution-profile-contact-name" optional>
                 Nama Narahubung
-              </label>
-              <input
+              </FormLabel>
+              <FormInput
                 id="institution-profile-contact-name"
-                className="form-input"
                 value={contactName}
                 maxLength={160}
                 onChange={(event) => setContactName(event.target.value)}
@@ -481,12 +478,11 @@ export const InstitutionSettingsShell = ({
             </div>
 
             <div className="form-field">
-              <label className="form-label" htmlFor="institution-profile-contact-email">
+              <FormLabel htmlFor="institution-profile-contact-email" optional>
                 Email Narahubung
-              </label>
-              <input
+              </FormLabel>
+              <FormInput
                 id="institution-profile-contact-email"
-                className="form-input"
                 type="email"
                 value={contactEmail}
                 maxLength={254}
@@ -495,12 +491,11 @@ export const InstitutionSettingsShell = ({
             </div>
 
             <div className="form-field">
-              <label className="form-label" htmlFor="institution-profile-contact-phone">
+              <FormLabel htmlFor="institution-profile-contact-phone" optional>
                 Telepon Narahubung
-              </label>
-              <input
+              </FormLabel>
+              <FormInput
                 id="institution-profile-contact-phone"
-                className="form-input"
                 value={contactPhone}
                 maxLength={40}
                 onChange={(event) => setContactPhone(event.target.value)}
@@ -510,12 +505,11 @@ export const InstitutionSettingsShell = ({
             <fieldset className="form-field">
               {SOCIAL_PLATFORMS.map(({ platform, label, placeholder }) => (
                 <div className="form-field" key={platform}>
-                  <label className="form-label" htmlFor={`institution-profile-social-${platform}`}>
+                  <FormLabel htmlFor={`institution-profile-social-${platform}`} optional>
                     {label}
-                  </label>
-                  <input
+                  </FormLabel>
+                  <FormInput
                     id={`institution-profile-social-${platform}`}
-                    className="form-input"
                     type="url"
                     value={socials[platform]}
                     placeholder={placeholder}

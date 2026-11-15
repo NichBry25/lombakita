@@ -174,6 +174,7 @@ export function FeeRuleForm() {
           <SelectField
             id="fee-rule-scope"
             label="Cakupan aturan biaya"
+            required
             options={SCOPE_OPTIONS}
             value={scope}
             onChange={setScope}
@@ -203,6 +204,7 @@ export function FeeRuleForm() {
           <SelectField
             id="fee-rule-currency"
             label="Mata uang aturan biaya"
+            required
             options={CURRENCY_OPTIONS}
             value={currency}
             onChange={setCurrency}
@@ -230,7 +232,9 @@ export function FeeRuleForm() {
         </FormField>
 
         <FormField>
-          <FormLabel htmlFor="fee-rule-flat">Biaya tetap</FormLabel>
+          <FormLabel htmlFor="fee-rule-flat" optional>
+            Biaya tetap
+          </FormLabel>
           <FormInput
             id="fee-rule-flat"
             type="number"
@@ -244,7 +248,9 @@ export function FeeRuleForm() {
         </FormField>
 
         <FormField>
-          <FormLabel htmlFor="fee-rule-minimum">Biaya minimum</FormLabel>
+          <FormLabel htmlFor="fee-rule-minimum" optional>
+            Biaya minimum
+          </FormLabel>
           <FormInput
             id="fee-rule-minimum"
             type="number"
@@ -258,7 +264,9 @@ export function FeeRuleForm() {
         </FormField>
 
         <FormField>
-          <FormLabel htmlFor="fee-rule-maximum">Biaya maksimum</FormLabel>
+          <FormLabel htmlFor="fee-rule-maximum" optional>
+            Biaya maksimum
+          </FormLabel>
           <FormInput
             id="fee-rule-maximum"
             type="number"
@@ -285,7 +293,9 @@ export function FeeRuleForm() {
         </FormField>
 
         <FormField>
-          <FormLabel htmlFor="fee-rule-effective-to">Berlaku sampai</FormLabel>
+          <FormLabel htmlFor="fee-rule-effective-to" optional>
+            Berlaku sampai
+          </FormLabel>
           <FormInput
             id="fee-rule-effective-to"
             type="datetime-local"

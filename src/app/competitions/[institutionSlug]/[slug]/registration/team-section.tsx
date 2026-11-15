@@ -11,7 +11,7 @@ import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
 import { getTeamRoleLabel } from "@/lib/access/role-labels";
 import { formatDisplayToken } from "@/lib/text/capitalize";
 import { useModal, useToast } from "@/components/ui/primitives";
-import { Button, Feedback, Icon, IconButton } from "@/components/ui";
+import { Button, Feedback, FormInput, FormTextarea, Icon, IconButton } from "@/components/ui";
 import { LocalDate } from "@/components/ui/local-date";
 
 type Member = {
@@ -242,13 +242,12 @@ function CreateTeamForm(props: Props) {
         <p className="muted-copy">Anda akan menjadi kapten setelah membuat tim.</p>
       </div>
       <form onSubmit={onSubmit} className="team-inline-form">
-        <input
+        <FormInput
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Nama tim"
           required
-          className="form-input"
         />
         <Button type="submit" loading={busy} variant="primary" size="md">
           Buat tim
@@ -274,14 +273,13 @@ function TeamCancelReasonForm({
         Tim akan kembali ke tahap pembentukan dan semua pendaftaran tim dibatalkan. Tuliskan alasan
         pembatalan (wajib diisi).
       </p>
-      <textarea
+      <FormTextarea
         value={reason}
         onChange={(e) => setReason(e.target.value)}
         rows={4}
         maxLength={500}
         placeholder="Alasan pembatalan"
         aria-label="Alasan pembatalan"
-        className="form-textarea"
       />
       <div className="modal-actions">
         <Button type="button" onClick={onCancel} variant="outline" size="sm">
@@ -711,14 +709,13 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
         <>
           <h3 className="team-subheading">Undang anggota</h3>
           <form onSubmit={onInvite} className="team-inline-form">
-            <input
+            <FormInput
               type="text"
               value={inviteIdentifier}
               onChange={(e) => setInviteIdentifier(e.target.value)}
               placeholder="Username atau Email"
               required
               disabled={busy || atCapacity}
-              className="form-input"
             />
             <Button
               type="submit"

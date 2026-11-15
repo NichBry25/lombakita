@@ -5,6 +5,8 @@ import {
   Button,
   EmptyState,
   Feedback,
+  FormLabel,
+  FormTextarea,
   PageHeader,
   Pagination,
   SelectField,
@@ -144,15 +146,14 @@ function RejectInstitutionForm({
         </Feedback>
       )}
       <div className="form-field">
-        <label htmlFor="reject-reason-textarea" className="form-label form-label-required">
+        <FormLabel htmlFor="reject-reason-textarea" required>
           {isRevocation ? "Alasan pencabutan" : "Alasan penolakan"}
-        </label>
-        <textarea
+        </FormLabel>
+        <FormTextarea
           id="reject-reason-textarea"
           value={reason}
           onChange={(e) => setReason(e.target.value)}
           rows={3}
-          className="form-textarea"
           placeholder={
             isRevocation ? "Masukkan alasan pencabutan..." : "Masukkan alasan penolakan..."
           }
@@ -317,9 +318,7 @@ export default function AdminInstitutionsPage() {
 
       {/* Filter */}
       <div className="admin-filter-toolbar glass-chrome">
-        <label htmlFor="institution-status-filter" className="form-label">
-          Filter
-        </label>
+        <FormLabel htmlFor="institution-status-filter">Filter</FormLabel>
         <SelectField
           id="institution-status-filter"
           label="Filter"

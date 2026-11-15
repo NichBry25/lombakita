@@ -2,7 +2,15 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, FormActionBar, Icon, IconButton, SelectField } from "@/components/ui";
+import {
+  Button,
+  FormActionBar,
+  FormInput,
+  FormLabel,
+  Icon,
+  IconButton,
+  SelectField,
+} from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import {
   readErrorCode,
@@ -80,39 +88,38 @@ export const CandidateProfileEditor = ({ expectedUserId, initial }: Props) => {
     <>
       <form onSubmit={onSubmit} className="auth-form">
         <div className="form-field">
-          <label className="form-label form-label-required" htmlFor="candidate-full-name">
+          <FormLabel htmlFor="candidate-full-name" required>
             Nama lengkap
-          </label>
-          <input
+          </FormLabel>
+          <FormInput
             id="candidate-full-name"
             type="text"
             autoComplete="name"
             value={fullName}
             onChange={(event) => setFullName(event.target.value)}
-            className="form-input"
           />
         </div>
 
         <div className="form-field">
-          <label className="form-label form-label-required" htmlFor="candidate-phone">
+          <FormLabel htmlFor="candidate-phone" required>
             Nomor telepon
-          </label>
-          <input
+          </FormLabel>
+          <FormInput
             id="candidate-phone"
             type="tel"
             value={phoneNumber}
             onChange={(event) => setPhoneNumber(event.target.value)}
-            className="form-input"
           />
         </div>
 
         <div className="form-field">
-          <label className="form-label form-label-required" htmlFor="candidate-occupation">
+          <FormLabel htmlFor="candidate-occupation" required>
             Status saat ini
-          </label>
+          </FormLabel>
           <SelectField
             id="candidate-occupation"
             label="Status saat ini"
+            required
             value={occupation}
             placeholder="Pilih status Anda"
             options={[...OCCUPATION_OPTIONS]}
@@ -121,15 +128,14 @@ export const CandidateProfileEditor = ({ expectedUserId, initial }: Props) => {
         </div>
 
         <div className="form-field">
-          <label className="form-label form-label-required" htmlFor="candidate-dob">
+          <FormLabel htmlFor="candidate-dob" required>
             Tanggal lahir
-          </label>
-          <input
+          </FormLabel>
+          <FormInput
             id="candidate-dob"
             type="date"
             value={dateOfBirth}
             onChange={(event) => setDateOfBirth(event.target.value)}
-            className="form-input"
           />
         </div>
       </form>

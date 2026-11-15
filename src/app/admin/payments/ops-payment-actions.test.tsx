@@ -54,7 +54,9 @@ describe("what the operator is told when a cancellation is refused", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Batalkan kompetisi" }));
     const dialog = within(screen.getByRole("dialog"));
-    fireEvent.change(dialog.getByLabelText("Alasan"), { target: { value: "acara dibatalkan" } });
+    fireEvent.change(dialog.getByLabelText(/^Alasan(?: \* \(wajib\)| \(opsional\))?$/), {
+      target: { value: "acara dibatalkan" },
+    });
     fireEvent.click(dialog.getByRole("button", { name: "Batalkan kompetisi" }));
 
     await waitFor(() => {

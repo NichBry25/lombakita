@@ -5,8 +5,12 @@ import { signIn } from "next-auth/react";
 import {
   Button,
   ButtonLink,
+  ChoiceCard,
+  FormInput,
+  FormLabel,
   Icon,
   IconButton,
+  PasswordField,
   SelectField,
   StepIndicator,
   usePageTransition,
@@ -683,6 +687,7 @@ export const AuthEntry = ({
                 <strong>Lanjut dengan Google</strong>
                 <small>Gunakan akun Google yang terhubung dengan email Anda.</small>
               </span>
+              <Icon name="chevron-down" className="auth-method-button-chevron" />
             </button>
           ) : null}
           <button
@@ -699,6 +704,7 @@ export const AuthEntry = ({
               <strong>Lanjut dengan email &amp; password</strong>
               <small>Masuk atau buat akun dengan alamat email Anda.</small>
             </span>
+            <Icon name="chevron-down" className="auth-method-button-chevron" />
           </button>
         </div>
       ) : null}
@@ -706,26 +712,25 @@ export const AuthEntry = ({
       {method === "credentials" && stage === "entry" ? (
         <form onSubmit={onSubmitEntry} className="auth-form">
           <div className="form-field">
-            <label className="form-label form-label-required" htmlFor="auth-email">
+            <FormLabel htmlFor="auth-email" required>
               Email
-            </label>
-            <input
+            </FormLabel>
+            <FormInput
               id="auth-email"
               name="email"
               type="email"
               required
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-              className="form-input"
               placeholder="nama@kampus.ac.id"
             />
           </div>
 
           <div className="form-field">
             <div className="auth-label-row">
-              <label className="form-label form-label-required" htmlFor="auth-password">
+              <FormLabel htmlFor="auth-password" required>
                 Password
-              </label>
+              </FormLabel>
               <ButtonLink
                 variant="link"
                 size="sm"
@@ -734,14 +739,12 @@ export const AuthEntry = ({
                 Lupa password?
               </ButtonLink>
             </div>
-            <input
+            <PasswordField
               id="auth-password"
               name="password"
-              type="password"
               required
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              className="form-input"
               placeholder="Masukkan password"
               aria-describedby="auth-password-help"
             />
@@ -822,10 +825,10 @@ export const AuthEntry = ({
           </p>
 
           <div className="form-field">
-            <label className="form-label form-label-required" htmlFor="auth-verification-code">
+            <FormLabel htmlFor="auth-verification-code" required>
               Kode verifikasi
-            </label>
-            <input
+            </FormLabel>
+            <FormInput
               ref={verificationCodeInputRef}
               id="auth-verification-code"
               name="code"
@@ -837,7 +840,6 @@ export const AuthEntry = ({
               required
               value={verificationCode}
               onChange={(event) => setVerificationCode(event.target.value.replace(/\D/g, ""))}
-              className="form-input"
               aria-describedby="auth-verification-code-status"
             />
           </div>
@@ -888,35 +890,30 @@ export const AuthEntry = ({
           )}
 
           <div className="form-field">
-            <label className="form-label form-label-required" htmlFor="auth-confirm-password">
+            <FormLabel htmlFor="auth-confirm-password" required>
               Konfirmasi password
-            </label>
-            <input
+            </FormLabel>
+            <PasswordField
               id="auth-confirm-password"
               name="confirmPassword"
-              type="password"
               autoComplete="new-password"
               value={confirmPassword}
               onChange={(event) => setConfirmPassword(event.target.value)}
-              className="form-input"
               placeholder="Ulangi password Anda"
             />
           </div>
 
-          <div className="auth-role-list">
+          <div className="auth-role-list" role="radiogroup" aria-label="Peran">
             {SIGNUP_ROLES.map((entry) => (
-              <button
+              <ChoiceCard
                 key={entry.role}
-                type="button"
+                title={entry.label}
+                description={entry.hint}
                 disabled={isSubmitting}
-                onClick={() => {
+                onSelect={() => {
                   void onPickSignupRole(entry.role);
                 }}
-                className="auth-role-option"
-              >
-                <strong>{entry.label}</strong>
-                <span>{entry.hint}</span>
-              </button>
+              />
             ))}
           </div>
 
@@ -934,16 +931,15 @@ export const AuthEntry = ({
           <p>Lengkapi data kandidat Anda. Data ini bisa diubah nanti di dasbor Anda.</p>
 
           <div className="form-field">
-            <label className="form-label form-label-required" htmlFor="candidate-full-name">
+            <FormLabel htmlFor="candidate-full-name" required>
               Nama lengkap
-            </label>
-            <input
+            </FormLabel>
+            <FormInput
               id="candidate-full-name"
               type="text"
               autoComplete="name"
               value={fullName}
               onChange={(event) => setFullName(event.target.value)}
-              className="form-input"
               placeholder="Nama lengkap sesuai identitas"
               aria-describedby="candidate-full-name-help"
             />
@@ -953,26 +949,26 @@ export const AuthEntry = ({
           </div>
 
           <div className="form-field">
-            <label className="form-label form-label-required" htmlFor="candidate-phone">
+            <FormLabel htmlFor="candidate-phone" required>
               Nomor telepon
-            </label>
-            <input
+            </FormLabel>
+            <FormInput
               id="candidate-phone"
               type="tel"
               value={phoneNumber}
               onChange={(event) => setPhoneNumber(event.target.value)}
-              className="form-input"
               placeholder="Contoh: 0812xxxxxxx"
             />
           </div>
 
           <div className="form-field">
-            <label className="form-label form-label-required" htmlFor="candidate-occupation">
+            <FormLabel htmlFor="candidate-occupation" required>
               Status saat ini
-            </label>
+            </FormLabel>
             <SelectField
               id="candidate-occupation"
               label="Status saat ini"
+              required
               value={occupation}
               placeholder="Pilih status Anda"
               options={[...OCCUPATION_OPTIONS]}
@@ -981,15 +977,14 @@ export const AuthEntry = ({
           </div>
 
           <div className="form-field">
-            <label className="form-label form-label-required" htmlFor="candidate-dob">
+            <FormLabel htmlFor="candidate-dob" required>
               Tanggal lahir
-            </label>
-            <input
+            </FormLabel>
+            <FormInput
               id="candidate-dob"
               type="date"
               value={dateOfBirth}
               onChange={(event) => setDateOfBirth(event.target.value)}
-              className="form-input"
             />
           </div>
 
@@ -1014,16 +1009,15 @@ export const AuthEntry = ({
           </p>
 
           <div className="form-field">
-            <label className="form-label form-label-required" htmlFor="recruiter-full-name">
+            <FormLabel htmlFor="recruiter-full-name" required>
               Nama lengkap
-            </label>
-            <input
+            </FormLabel>
+            <FormInput
               id="recruiter-full-name"
               type="text"
               autoComplete="name"
               value={fullName}
               onChange={(event) => setFullName(event.target.value)}
-              className="form-input"
               placeholder="Nama lengkap sesuai identitas"
               aria-describedby="recruiter-full-name-help"
             />
@@ -1033,29 +1027,27 @@ export const AuthEntry = ({
           </div>
 
           <div className="form-field">
-            <label className="form-label form-label-required" htmlFor="recruiter-mobile">
+            <FormLabel htmlFor="recruiter-mobile" required>
               Nomor ponsel
-            </label>
-            <input
+            </FormLabel>
+            <FormInput
               id="recruiter-mobile"
               type="tel"
               value={recruiterMobile}
               onChange={(event) => setRecruiterMobile(event.target.value)}
-              className="form-input"
               placeholder="Contoh: 0812xxxxxxx"
             />
           </div>
 
           <div className="form-field">
-            <label className="form-label" htmlFor="recruiter-corporate-email">
-              Email korporat / institusi (Opsional)
-            </label>
-            <input
+            <FormLabel htmlFor="recruiter-corporate-email" optional>
+              Email korporat / institusi
+            </FormLabel>
+            <FormInput
               id="recruiter-corporate-email"
               type="email"
               value={recruiterCorporateEmail}
               onChange={(event) => setRecruiterCorporateEmail(event.target.value)}
-              className="form-input"
               placeholder="nama@perusahaan.co.id"
             />
             <p className="form-help">

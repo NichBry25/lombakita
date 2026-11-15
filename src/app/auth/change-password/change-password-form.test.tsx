@@ -41,15 +41,18 @@ const renderForm = () =>
 const submitButton = () => screen.getByRole("button", { name: "Ubah password" });
 
 const fillAndSubmit = () => {
-  fireEvent.change(screen.getByLabelText("Password saat ini"), {
+  fireEvent.change(screen.getByLabelText(/^Password saat ini(?: \* \(wajib\)| \(opsional\))?$/), {
     target: { value: "old-password-1" },
   });
-  fireEvent.change(screen.getByLabelText("Password baru"), {
+  fireEvent.change(screen.getByLabelText(/^Password baru(?: \* \(wajib\)| \(opsional\))?$/), {
     target: { value: "new-password-2" },
   });
-  fireEvent.change(screen.getByLabelText("Ulangi password baru"), {
-    target: { value: "new-password-2" },
-  });
+  fireEvent.change(
+    screen.getByLabelText(/^Ulangi password baru(?: \* \(wajib\)| \(opsional\))?$/),
+    {
+      target: { value: "new-password-2" },
+    },
+  );
   fireEvent.click(submitButton());
 };
 

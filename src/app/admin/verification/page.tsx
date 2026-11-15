@@ -2,7 +2,15 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useModal, useToast } from "@/components/ui/primitives";
-import { Button, EmptyState, PageHeader, Skeleton } from "@/components/ui";
+import {
+  Button,
+  EmptyState,
+  FormLabel,
+  FormLabelText,
+  FormTextarea,
+  PageHeader,
+  Skeleton,
+} from "@/components/ui";
 import { LocalDate } from "@/components/ui/local-date";
 import { DOCUMENT_TYPE_LABELS } from "@/server/institution-verification/verification-requirements";
 import { INSTITUTION_TYPE_LABELS } from "@/lib/institutions/type-labels";
@@ -116,7 +124,7 @@ function ReviewPanelBody({
       </p>
 
       <div className="stack-sm">
-        <p className="form-label">Dokumen</p>
+        <FormLabelText as="p">Dokumen</FormLabelText>
         <div className="table-scroll">
           <table className="data-table">
             <thead>
@@ -142,15 +150,14 @@ function ReviewPanelBody({
       </div>
 
       <div className="form-field">
-        <label htmlFor="reviewer-notes-textarea" className="form-label">
-          Catatan reviewer (Opsional)
-        </label>
-        <textarea
+        <FormLabel htmlFor="reviewer-notes-textarea" optional>
+          Catatan reviewer
+        </FormLabel>
+        <FormTextarea
           id="reviewer-notes-textarea"
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           rows={3}
-          className="form-textarea"
           placeholder="Catatan untuk pemilik institusi..."
         />
       </div>

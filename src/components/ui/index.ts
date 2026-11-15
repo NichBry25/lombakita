@@ -8,12 +8,17 @@ export { Feedback } from "./feedback";
 export type { FeedbackTone } from "./feedback";
 export {
   CheckboxField,
+  ChoiceCard,
+  FormError,
   FormField,
   FormHelp,
   FormInput,
   FormLabel,
+  FormLabelText,
   FormSelect,
   FormTextarea,
+  PasswordField,
+  TagChoiceChip,
 } from "./form-controls";
 export { Icon } from "./icon";
 export type { IconName } from "./icon";

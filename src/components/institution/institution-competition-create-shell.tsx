@@ -5,6 +5,9 @@ import { useRouter } from "next/navigation";
 import {
   Button,
   FormActionBar,
+  FormInput,
+  FormLabelText,
+  FormTextarea,
   IconButton,
   PageHeader,
   SelectField,
@@ -157,23 +160,22 @@ export const InstitutionCompetitionCreateShell = ({
         className="content-section stack-md"
       >
         <label className="form-field">
-          <span className="form-label form-label-required">Judul</span>
-          <input
+          <FormLabelText required>Judul</FormLabelText>
+          <FormInput
             type="text"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             required
             minLength={5}
             maxLength={200}
-            className="form-input"
           />
           <span className="form-help">5 sampai 200 karakter.</span>
         </label>
 
         <div className="form-field">
-          <span className="form-label form-label-required" id="create-category-label">
+          <FormLabelText id="create-category-label" required>
             Kategori
-          </span>
+          </FormLabelText>
           <SelectField
             label="Kategori"
             id="create-category-label"
@@ -186,24 +188,18 @@ export const InstitutionCompetitionCreateShell = ({
         </div>
 
         <label className="form-field">
-          <span className="form-label">Deskripsi</span>
-          <textarea
+          <FormLabelText optional>Deskripsi</FormLabelText>
+          <FormTextarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             rows={4}
             maxLength={10000}
-            className="form-textarea"
           />
         </label>
 
         <label className="form-field">
-          <span className="form-label">Slug (opsional)</span>
-          <input
-            type="text"
-            value={slug}
-            onChange={(e) => setSlug(e.target.value)}
-            className="form-input"
-          />
+          <FormLabelText optional>Slug</FormLabelText>
+          <FormInput type="text" value={slug} onChange={(e) => setSlug(e.target.value)} />
           <span className="form-help">Gunakan huruf kecil, angka, dan tanda hubung.</span>
         </label>
       </form>

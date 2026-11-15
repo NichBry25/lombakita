@@ -6,10 +6,10 @@ import {
   Button,
   ButtonLink,
   EmptyState,
+  FilterDropdown,
   Icon,
   IconButtonLink,
   PageHeader,
-  SelectField,
   Skeleton,
 } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
@@ -135,8 +135,8 @@ export const InstitutionCompetitionsShell = ({ institutionSlug }: { institutionS
             <h2>Kompetisi tersimpan</h2>
           </div>
           <div className="competition-list-controls">
-            <SelectField
-              label="Saring kompetisi"
+            <FilterDropdown
+              label="Status"
               options={FILTER_OPTIONS}
               value={filter}
               onChange={(value) => setFilter(value as CompetitionListFilter)}

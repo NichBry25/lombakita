@@ -172,14 +172,18 @@ export function DevPrimitivesClient() {
                 <FormHelp>Gunakan nama publik yang mudah dikenali.</FormHelp>
               </FormField>
               <FormField>
-                <FormLabel htmlFor="dev-category">Kategori</FormLabel>
+                <FormLabel htmlFor="dev-category" optional>
+                  Kategori
+                </FormLabel>
                 <FormSelect id="dev-category" defaultValue="essay">
                   <option value="essay">Esai</option>
                   <option value="business">Bisnis</option>
                 </FormSelect>
               </FormField>
               <FormField>
-                <FormLabel htmlFor="dev-notes">Catatan</FormLabel>
+                <FormLabel htmlFor="dev-notes" optional>
+                  Catatan
+                </FormLabel>
                 <FormTextarea id="dev-notes" placeholder="Tambahkan konteks singkat…" />
               </FormField>
               <FormField>

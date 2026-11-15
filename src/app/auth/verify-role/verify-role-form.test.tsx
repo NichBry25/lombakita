@@ -48,10 +48,10 @@ describe("the account the role form is bound to", () => {
     });
     renderForm(<VerifyRoleForm role="recruiter" expectedUserId="user-42" returnPath={null} />);
 
-    fireEvent.change(screen.getByLabelText("Nama lengkap"), {
+    fireEvent.change(screen.getByLabelText(/^Nama lengkap(?: \* \(wajib\)| \(opsional\))?$/), {
       target: { value: "Andi Saputra" },
     });
-    fireEvent.change(screen.getByLabelText("Nomor ponsel"), {
+    fireEvent.change(screen.getByLabelText(/^Nomor ponsel(?: \* \(wajib\)| \(opsional\))?$/), {
       target: { value: "081234567890" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Selesai" }));
@@ -83,15 +83,17 @@ describe("where the role form goes once the role is added", () => {
   };
 
   const fillCandidateForm = () => {
-    fireEvent.change(screen.getByLabelText("Nama lengkap"), {
+    fireEvent.change(screen.getByLabelText(/^Nama lengkap(?: \* \(wajib\)| \(opsional\))?$/), {
       target: { value: "Andi Saputra" },
     });
-    fireEvent.change(screen.getByLabelText("Nomor telepon"), {
+    fireEvent.change(screen.getByLabelText(/^Nomor telepon(?: \* \(wajib\)| \(opsional\))?$/), {
       target: { value: "081234567890" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Status saat ini" }));
+    fireEvent.click(screen.getByRole("button", { name: "Status saat ini (wajib)" }));
     fireEvent.click(screen.getByRole("option", { name: "Mahasiswa" }));
-    fireEvent.change(screen.getByLabelText("Tanggal lahir"), { target: { value: "2000-01-31" } });
+    fireEvent.change(screen.getByLabelText(/^Tanggal lahir(?: \* \(wajib\)| \(opsional\))?$/), {
+      target: { value: "2000-01-31" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Selesai" }));
   };
 

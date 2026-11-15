@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useSession } from "next-auth/react";
-import { Button, usePageTransition } from "@/components/ui";
+import { Button, FormInput, FormLabel, usePageTransition } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import {
   describeMfaLockout,
@@ -137,10 +137,10 @@ export function MfaChallengeForm({ callbackUrl }: MfaChallengeFormProps) {
 
       {mode === "totp" ? (
         <div className="form-field">
-          <label className="form-label form-label-required" htmlFor="mfa-challenge-code">
+          <FormLabel htmlFor="mfa-challenge-code" required>
             Kode verifikasi
-          </label>
-          <input
+          </FormLabel>
+          <FormInput
             id="mfa-challenge-code"
             type="text"
             inputMode="numeric"
@@ -148,22 +148,20 @@ export function MfaChallengeForm({ callbackUrl }: MfaChallengeFormProps) {
             maxLength={6}
             value={code}
             onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))}
-            className="form-input"
             placeholder="123456"
           />
         </div>
       ) : (
         <div className="form-field">
-          <label className="form-label form-label-required" htmlFor="mfa-challenge-recovery-code">
+          <FormLabel htmlFor="mfa-challenge-recovery-code" required>
             Kode pemulihan
-          </label>
-          <input
+          </FormLabel>
+          <FormInput
             id="mfa-challenge-recovery-code"
             type="text"
             autoComplete="off"
             value={code}
             onChange={(event) => setCode(event.target.value)}
-            className="form-input"
             placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XX"
           />
           <p className="form-help">

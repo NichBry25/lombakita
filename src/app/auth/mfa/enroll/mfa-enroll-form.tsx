@@ -5,6 +5,8 @@ import { useSession } from "next-auth/react";
 import {
   Button,
   CheckboxField,
+  FormInput,
+  FormLabel,
   Icon,
   IconButton,
   StepIndicator,
@@ -258,10 +260,10 @@ export function MfaEnrollForm({
       <hr className="form-separator" />
 
       <div className="form-field">
-        <label className="form-label form-label-required" htmlFor="mfa-enroll-code">
+        <FormLabel htmlFor="mfa-enroll-code" required>
           Kode verifikasi
-        </label>
-        <input
+        </FormLabel>
+        <FormInput
           id="mfa-enroll-code"
           type="text"
           inputMode="numeric"
@@ -269,7 +271,6 @@ export function MfaEnrollForm({
           maxLength={6}
           value={code}
           onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))}
-          className="form-input"
           placeholder="123456"
           aria-describedby="mfa-enroll-code-hint"
         />

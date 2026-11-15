@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Button, CheckboxField } from "@/components/ui";
+import { Button, CheckboxField, FormInput } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import { errorMessageFor } from "@/lib/errors/error-copy";
 
@@ -82,13 +82,13 @@ export function FeaturedRowForm({
       <CheckboxField checked={isFeatured} onChange={(e) => setIsFeatured(e.target.checked)}>
         Unggulan
       </CheckboxField>
-      <input
+      <FormInput
         type="number"
         value={featuredOrder}
         onChange={(e) => setFeaturedOrder(e.target.value)}
         placeholder="Urutan"
         aria-label="Urutan unggulan"
-        className="form-input featured-order-input"
+        className="featured-order-input"
       />
       <Button type="submit" loading={saving} size="sm">
         Simpan

@@ -2,7 +2,7 @@
 
 import { ChangeEvent, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Feedback, Icon, IconButton } from "@/components/ui";
+import { Button, Feedback, FormLabel, Icon, IconButton } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import { LocalDate } from "@/components/ui/local-date";
 import { errorMessageFor } from "@/lib/errors/error-copy";
@@ -355,9 +355,9 @@ function DocumentRequestCard({
 
       {uploadable ? (
         <div className="form-field">
-          <label className="form-label" htmlFor={inputId}>
+          <FormLabel htmlFor={inputId} required>
             Lampirkan dokumen
-          </label>
+          </FormLabel>
           <div className="pf-media-actions">
             <Button
               type="button"

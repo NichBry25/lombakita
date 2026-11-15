@@ -1,7 +1,7 @@
 "use client";
 
 import { ChangeEvent, useEffect, useRef, useState } from "react";
-import { Button, Icon } from "@/components/ui";
+import { Button, FormLabel, Icon } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import { errorMessageFor } from "@/lib/errors/error-copy";
 import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
@@ -247,9 +247,9 @@ export const SubmissionShell = ({
           </div>
 
           <div className="form-field">
-            <label className="form-label" htmlFor={fileInputId}>
+            <FormLabel htmlFor={fileInputId} required>
               Berkas karya
-            </label>
+            </FormLabel>
             <div className="pf-media-actions">
               <Button
                 type="button"

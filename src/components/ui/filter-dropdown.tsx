@@ -25,7 +25,7 @@ export function FilterDropdown({ label, options, value, onChange }: FilterDropdo
   );
   const selected = options[selectedIndex] ?? options[0];
   const isDefault = selectedIndex === 0; // options[0] is the cleared "Semua …" state
-  const triggerLabel = isDefault ? label : (selected?.label ?? label);
+  const triggerLabel = isDefault ? label : `${label}: ${selected?.label}`;
   const accessibleName = isDefault ? label : `${label}: ${selected?.label}`;
 
   useEffect(() => {
@@ -118,11 +118,11 @@ export function FilterDropdown({ label, options, value, onChange }: FilterDropdo
         onKeyDown={onTriggerKeyDown}
       >
         <span className="filter-dropdown-trigger-label">{triggerLabel}</span>
-        <Icon name="chevron-down" size="sm" className="filter-dropdown-chevron" />
+        <Icon name="chevron-down" className="filter-dropdown-chevron" />
       </button>
       {open ? (
         <ul
-          className="filter-dropdown-menu glass-focus"
+          className="filter-dropdown-menu"
           role="listbox"
           aria-label={label}
           ref={listRef}
@@ -138,10 +138,10 @@ export function FilterDropdown({ label, options, value, onChange }: FilterDropdo
               data-selected={index === selectedIndex ? "true" : undefined}
               onClick={() => commit(index)}
             >
+              <span>{option.label}</span>
               <span className="filter-dropdown-option-check" aria-hidden="true">
-                {index === selectedIndex ? <Icon name="check" size="sm" /> : null}
+                {index === selectedIndex ? <Icon name="check" /> : null}
               </span>
-              {option.label}
             </li>
           ))}
         </ul>

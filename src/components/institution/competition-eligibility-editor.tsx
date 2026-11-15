@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Feedback } from "@/components/ui";
+import { Feedback, FormLabel, FormTextarea } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import {
   describePartLoadFailure,
@@ -103,12 +103,11 @@ export const CompetitionEligibilityEditor = ({
       ) : (
         <div className="stack-md">
           <div className="form-field">
-            <label className="form-label" htmlFor="competition-eligibility-note">
+            <FormLabel htmlFor="competition-eligibility-note" optional>
               Catatan kelayakan
-            </label>
-            <textarea
+            </FormLabel>
+            <FormTextarea
               id="competition-eligibility-note"
-              className="form-textarea"
               rows={4}
               value={note}
               maxLength={2000}

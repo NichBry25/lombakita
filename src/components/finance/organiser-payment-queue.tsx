@@ -334,7 +334,9 @@ function RejectForm({
       <p>{`Peserta: ${proof.payerDisplayName}. Alasan akan ditampilkan kepada peserta.`}</p>
 
       <FormField>
-        <FormLabel htmlFor={reasonId}>Alasan penolakan</FormLabel>
+        <FormLabel htmlFor={reasonId} required>
+          Alasan penolakan
+        </FormLabel>
         <FormTextarea
           id={reasonId}
           value={reason}

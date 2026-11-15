@@ -66,7 +66,7 @@ describe("CompetitionContactEditor", () => {
     const fetchSpy = stubFetch(okJson(DRAFT_WITH_NUMBER));
     const { lastReportedPart } = renderEditor();
 
-    const field = await screen.findByLabelText("Nomor WhatsApp");
+    const field = await screen.findByLabelText(/^Nomor WhatsApp(?: \* \(wajib\)| \(opsional\))?$/);
     expect(screen.getByRole("button", { name: "WhatsApp" }).getAttribute("aria-pressed")).toBe(
       "true",
     );
@@ -83,20 +83,22 @@ describe("CompetitionContactEditor", () => {
   it("keeps the typed number when switching to Telepon, and fills the account email for Email", async () => {
     stubFetch(okJson(DRAFT_WITH_NUMBER));
     renderEditor();
-    await screen.findByLabelText("Nomor WhatsApp");
+    await screen.findByLabelText(/^Nomor WhatsApp(?: \* \(wajib\)| \(opsional\))?$/);
 
     fireEvent.click(screen.getByRole("button", { name: "Telepon" }));
-    expect((screen.getByLabelText("Nomor telepon") as HTMLInputElement).value).toBe(
-      "0812-3456-7890",
-    );
+    expect(
+      (screen.getByLabelText(/^Nomor telepon(?: \* \(wajib\)| \(opsional\))?$/) as HTMLInputElement)
+        .value,
+    ).toBe("0812-3456-7890");
     expect(screen.getByRole("button", { name: "Telepon" }).getAttribute("aria-pressed")).toBe(
       "true",
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Email" }));
-    expect((screen.getByLabelText("Alamat email") as HTMLInputElement).value).toBe(
-      "budi@example.test",
-    );
+    expect(
+      (screen.getByLabelText(/^Alamat email(?: \* \(wajib\)| \(opsional\))?$/) as HTMLInputElement)
+        .value,
+    ).toBe("budi@example.test");
   });
 
   it("shows a saved contact as stored, with nothing to save, under the save notice", async () => {
@@ -109,7 +111,7 @@ describe("CompetitionContactEditor", () => {
     );
     const { lastReportedPart } = renderEditor();
 
-    const field = await screen.findByLabelText("Nomor telepon");
+    const field = await screen.findByLabelText(/^Nomor telepon(?: \* \(wajib\)| \(opsional\))?$/);
     expect(screen.getByRole("button", { name: "Telepon" }).getAttribute("aria-pressed")).toBe(
       "true",
     );
@@ -128,7 +130,7 @@ describe("CompetitionContactEditor", () => {
     );
     const { lastReportedPart } = renderEditor();
 
-    const field = await screen.findByLabelText("Nomor WhatsApp");
+    const field = await screen.findByLabelText(/^Nomor WhatsApp(?: \* \(wajib\)| \(opsional\))?$/);
     expect((field as HTMLInputElement).value).toBe("");
     expect(lastReportedPart()?.isDirty).toBe(false);
   });
@@ -139,7 +141,7 @@ describe("CompetitionContactEditor", () => {
       okJson({ contact: { kind: "whatsapp", value: "6281234567890" } }),
     );
     const { lastReportedPart } = renderEditor();
-    await screen.findByLabelText("Nomor WhatsApp");
+    await screen.findByLabelText(/^Nomor WhatsApp(?: \* \(wajib\)| \(opsional\))?$/);
 
     const result = await saveThroughPart(lastReportedPart);
 
@@ -152,9 +154,13 @@ describe("CompetitionContactEditor", () => {
       kind: "whatsapp",
       value: "0812-3456-7890",
     });
-    expect((screen.getByLabelText("Nomor WhatsApp") as HTMLInputElement).value).toBe(
-      "+6281234567890",
-    );
+    expect(
+      (
+        screen.getByLabelText(
+          /^Nomor WhatsApp(?: \* \(wajib\)| \(opsional\))?$/,
+        ) as HTMLInputElement
+      ).value,
+    ).toBe("+6281234567890");
     expect(lastReportedPart()?.isDirty).toBe(false);
   });
 
@@ -167,7 +173,7 @@ describe("CompetitionContactEditor", () => {
       ),
     );
     const { lastReportedPart } = renderEditor();
-    await screen.findByLabelText("Nomor WhatsApp");
+    await screen.findByLabelText(/^Nomor WhatsApp(?: \* \(wajib\)| \(opsional\))?$/);
 
     const result = await saveThroughPart(lastReportedPart);
 
@@ -187,7 +193,7 @@ describe("CompetitionContactEditor", () => {
       }),
     );
     const { lastReportedPart } = renderEditor();
-    const field = await screen.findByLabelText("Nomor WhatsApp");
+    const field = await screen.findByLabelText(/^Nomor WhatsApp(?: \* \(wajib\)| \(opsional\))?$/);
 
     fireEvent.change(field, { target: { value: "" } });
     expect(lastReportedPart()?.isDirty).toBe(true);

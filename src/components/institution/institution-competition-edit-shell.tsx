@@ -17,6 +17,10 @@ import {
   CheckboxField,
   EmptyState,
   FormActionBar,
+  FormError,
+  FormInput,
+  FormLabelText,
+  FormTextarea,
   Icon,
   IconButton,
   IconButtonLink,
@@ -324,9 +328,9 @@ const PublishLockLine = ({
   brokenLocks: PublishLockedField[];
 }) =>
   brokenLocks.includes(field) ? (
-    <span key="error" className="form-error" id={id} role="alert">
+    <FormError key="error" id={id}>
       {PUBLISH_LOCK_REASONS[field]}
-    </span>
+    </FormError>
   ) : (
     <span key="help" className="form-help" id={id}>
       {PUBLISH_LOCK_REASONS[field]}
@@ -1307,6 +1311,10 @@ export const InstitutionCompetitionEditShell = ({
     isPublished && savedSnapshot ? intOrNull(savedSnapshot.minTeamSize) : null;
   const savedMaxTeamSize =
     isPublished && savedSnapshot ? intOrNull(savedSnapshot.maxTeamSize) : null;
+  // The mode fixes the sizes it can: individual is 1 to 1, both starts at 1. A fixed size is a
+  // value that exists and stays, so it reads as read-only.
+  const minTeamSizeIsFixed = mode === "individual" || mode === "both";
+  const maxTeamSizeIsFixed = mode === "individual";
   const showsMinTeamSizeLock = isPublished && mode === "team";
   const showsMaxTeamSizeLock = isPublished && mode !== "individual";
   const cancellationRightIsLocked = isPublished && savedSnapshot?.allowCancellation === true;
@@ -1319,27 +1327,26 @@ export const InstitutionCompetitionEditShell = ({
 
   const titleField = (
     <label className="form-field">
-      <span className="form-label form-label-required">Judul</span>
-      <input
+      <FormLabelText required>Judul</FormLabelText>
+      <FormInput
         type="text"
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         required
         minLength={5}
         maxLength={200}
-        className="form-input"
       />
+      <span className="form-help">5 sampai 200 karakter.</span>
     </label>
   );
   const slugField = (
     <label className="form-field">
-      <span className="form-label">Slug</span>
-      <input
+      <FormLabelText optional>Slug</FormLabelText>
+      <FormInput
         type="text"
         value={slug}
         onChange={(e) => setSlug(e.target.value)}
         disabled={isPublished}
-        className="form-input"
         aria-describedby={isPublished ? "slug-lock" : undefined}
       />
       {isPublished ? (
@@ -1351,22 +1358,21 @@ export const InstitutionCompetitionEditShell = ({
   );
   const descriptionField = (
     <label className="form-field">
-      <span className="form-label form-label-required">Deskripsi</span>
-      <textarea
+      <FormLabelText required>Deskripsi</FormLabelText>
+      <FormTextarea
         value={description}
         onChange={(e) => setDescription(e.target.value)}
         required
         rows={4}
         maxLength={10000}
-        className="form-textarea"
       />
     </label>
   );
   const categoryField = (
     <div className="form-field">
-      <span className="form-label form-label-required" id="competition-category-label">
+      <FormLabelText id="competition-category-label" required>
         Kategori
-      </span>
+      </FormLabelText>
       <SelectField
         label="Kategori"
         id="competition-category-label"
@@ -1403,8 +1409,8 @@ export const InstitutionCompetitionEditShell = ({
   );
   const minimumEntriesField = (
     <label className="form-field">
-      <span className="form-label">Minimum pendaftaran</span>
-      <input
+      <FormLabelText optional={!isPublished}>Minimum pendaftaran</FormLabelText>
+      <FormInput
         type="number"
         value={minimumEntries}
         onChange={(event) => setMinimumEntries(event.target.value)}
@@ -1412,8 +1418,7 @@ export const InstitutionCompetitionEditShell = ({
           if (minimumEntries.trim() === "") setMinimumEntries("0");
         }}
         min={0}
-        disabled={isPublished}
-        className="form-input"
+        readOnly={isPublished}
         aria-describedby="minimum-participation-help"
       />
     </label>
@@ -1426,8 +1431,8 @@ export const InstitutionCompetitionEditShell = ({
   }
   const participantConfirmationField = (
     <label className="form-field">
-      <span className="form-label form-label-required">Konfirmasi peserta</span>
-      <input
+      <FormLabelText required>Konfirmasi peserta</FormLabelText>
+      <FormInput
         type="datetime-local"
         value={participantConfirmation}
         onChange={(event) => setParticipantConfirmation(event.target.value)}
@@ -1435,7 +1440,6 @@ export const InstitutionCompetitionEditShell = ({
         max={evtStart || undefined}
         required
         disabled={isPublished}
-        className="form-input"
         aria-invalid={participantConfirmationError ? true : undefined}
         aria-describedby={
           participantConfirmationError
@@ -1444,9 +1448,9 @@ export const InstitutionCompetitionEditShell = ({
         }
       />
       {participantConfirmationError ? (
-        <span className="form-error" id="participant-confirmation-timeline-error" role="alert">
+        <FormError id="participant-confirmation-timeline-error">
           {participantConfirmationError}
-        </span>
+        </FormError>
       ) : null}
     </label>
   );
@@ -1595,55 +1599,62 @@ export const InstitutionCompetitionEditShell = ({
                 </div>
                 {isPublished ? <p className="form-help">{modeLockReason}</p> : null}
                 <div className="form-field">
-                  <span className="form-label form-label-required" id="competition-mode-label">
+                  <FormLabelText id="competition-mode-label" required={!isPublished}>
                     Mode
-                  </span>
-                  {/* Personal institutions are individual-only. */}
-                  <SelectField
-                    label="Mode"
-                    id="competition-mode-label"
-                    value={mode}
-                    disabled={isPublished}
-                    required
-                    placeholder="Pilih"
-                    options={
-                      isPersonal
-                        ? COMPETITION_MODE_OPTIONS.filter((option) => option.value === "individual")
-                        : [...COMPETITION_MODE_OPTIONS]
-                    }
-                    onChange={(newMode) => {
-                      setMode(newMode);
-                      // Mode-driven team-size behaviour:
-                      //   individual → fixed 1/1, both fields disabled
-                      //   team       → default 2/2, both fields editable
-                      //   both       → min fixed at 1 (disabled), max editable (default 2)
-                      if (newMode === "individual") {
-                        setMinTeamSize("1");
-                        setMaxTeamSize("1");
-                      } else if (newMode === "team") {
-                        setMinTeamSize("2");
-                        setMaxTeamSize("2");
-                      } else if (newMode === "both") {
-                        setMinTeamSize("1");
-                        if (!maxTeamSize || Number.parseInt(maxTeamSize, 10) < 1) {
-                          setMaxTeamSize("2");
-                        }
+                  </FormLabelText>
+                  {isPublished ? (
+                    <FormInput
+                      readOnly
+                      value={getCompetitionModeLabel(mode)}
+                      aria-labelledby="competition-mode-label"
+                    />
+                  ) : (
+                    /* Personal institutions are individual-only. */
+                    <SelectField
+                      label="Mode"
+                      id="competition-mode-label"
+                      value={mode}
+                      required
+                      placeholder="Pilih"
+                      options={
+                        isPersonal
+                          ? COMPETITION_MODE_OPTIONS.filter(
+                              (option) => option.value === "individual",
+                            )
+                          : [...COMPETITION_MODE_OPTIONS]
                       }
-                    }}
-                  />
+                      onChange={(newMode) => {
+                        setMode(newMode);
+                        // Mode-driven team-size behaviour:
+                        //   individual → fixed 1/1, both fields read-only
+                        //   team       → default 2/2, both fields editable
+                        //   both       → min fixed at 1 (read-only), max editable (default 2)
+                        if (newMode === "individual") {
+                          setMinTeamSize("1");
+                          setMaxTeamSize("1");
+                        } else if (newMode === "team") {
+                          setMinTeamSize("2");
+                          setMaxTeamSize("2");
+                        } else if (newMode === "both") {
+                          setMinTeamSize("1");
+                          if (!maxTeamSize || Number.parseInt(maxTeamSize, 10) < 1) {
+                            setMaxTeamSize("2");
+                          }
+                        }
+                      }}
+                    />
+                  )}
                 </div>
                 <div className="form-grid">
                   <label className="form-field">
-                    <span className="form-label">Min. anggota tim</span>
-                    <input
+                    <FormLabelText optional={!minTeamSizeIsFixed}>Min. anggota tim</FormLabelText>
+                    <FormInput
                       type="number"
                       value={minTeamSize}
                       onChange={(e) => setMinTeamSize(e.target.value)}
                       min={mode === "team" ? 2 : 1}
                       max={savedMinTeamSize ?? undefined}
-                      // Min is fixed for individual (1) and both (1); only team allows editing min.
-                      disabled={mode === "individual" || mode === "both"}
-                      className="form-input"
+                      readOnly={minTeamSizeIsFixed}
                       aria-invalid={brokenPublishLocks.includes("minTeamSize") ? true : undefined}
                       aria-describedby={showsMinTeamSizeLock ? "min-team-size-lock" : undefined}
                     />
@@ -1656,15 +1667,13 @@ export const InstitutionCompetitionEditShell = ({
                     ) : null}
                   </label>
                   <label className="form-field">
-                    <span className="form-label">Maks. anggota tim</span>
-                    <input
+                    <FormLabelText optional={!maxTeamSizeIsFixed}>Maks. anggota tim</FormLabelText>
+                    <FormInput
                       type="number"
                       value={maxTeamSize}
                       onChange={(e) => setMaxTeamSize(e.target.value)}
                       min={savedMaxTeamSize ?? 1}
-                      // Max is fixed for individual (1); team and both allow editing max.
-                      disabled={mode === "individual"}
-                      className="form-input"
+                      readOnly={maxTeamSizeIsFixed}
                       aria-invalid={brokenPublishLocks.includes("maxTeamSize") ? true : undefined}
                       aria-describedby={showsMaxTeamSizeLock ? "max-team-size-lock" : undefined}
                     />
@@ -1689,26 +1698,24 @@ export const InstitutionCompetitionEditShell = ({
                 </div>
                 <div className="form-grid">
                   <label className="form-field">
-                    <span className="form-label form-label-required">Pendaftaran mulai</span>
-                    <input
+                    <FormLabelText required>Pendaftaran mulai</FormLabelText>
+                    <FormInput
                       type="datetime-local"
                       value={regStart}
                       onChange={(e) => setRegStart(e.target.value)}
                       max={regEnd || undefined}
                       required
-                      className="form-input"
                     />
                   </label>
                   <label className="form-field">
-                    <span className="form-label form-label-required">Pendaftaran berakhir</span>
-                    <input
+                    <FormLabelText required>Pendaftaran berakhir</FormLabelText>
+                    <FormInput
                       type="datetime-local"
                       value={regEnd}
                       onChange={(e) => setRegEnd(e.target.value)}
                       min={registrationEndFloor || undefined}
                       max={participantConfirmation || evtStart || undefined}
                       required
-                      className="form-input"
                       aria-invalid={
                         registrationEndError || brokenPublishLocks.includes("registrationEndAt")
                           ? true
@@ -1720,13 +1727,9 @@ export const InstitutionCompetitionEditShell = ({
                       )}
                     />
                     {registrationEndError ? (
-                      <span
-                        className="form-error"
-                        id="registration-end-timeline-error"
-                        role="alert"
-                      >
+                      <FormError id="registration-end-timeline-error">
                         {registrationEndError}
-                      </span>
+                      </FormError>
                     ) : null}
                     {isPublished ? (
                       <PublishLockLine
@@ -1737,15 +1740,14 @@ export const InstitutionCompetitionEditShell = ({
                     ) : null}
                   </label>
                   <label className="form-field">
-                    <span className="form-label form-label-required">Acara mulai</span>
-                    <input
+                    <FormLabelText required>Acara mulai</FormLabelText>
+                    <FormInput
                       type="datetime-local"
                       value={evtStart}
                       onChange={(e) => setEvtStart(e.target.value)}
                       min={eventStartFloor || undefined}
                       max={evtEnd || undefined}
                       required
-                      className="form-input"
                       aria-invalid={
                         eventStartError || brokenPublishLocks.includes("eventStartAt")
                           ? true
@@ -1757,9 +1759,7 @@ export const InstitutionCompetitionEditShell = ({
                       )}
                     />
                     {eventStartError ? (
-                      <span className="form-error" id="event-start-timeline-error" role="alert">
-                        {eventStartError}
-                      </span>
+                      <FormError id="event-start-timeline-error">{eventStartError}</FormError>
                     ) : null}
                     {isPublished ? (
                       <PublishLockLine
@@ -1770,15 +1770,14 @@ export const InstitutionCompetitionEditShell = ({
                     ) : null}
                   </label>
                   <label className="form-field">
-                    <span className="form-label form-label-required">Acara berakhir</span>
-                    <input
+                    <FormLabelText required>Acara berakhir</FormLabelText>
+                    <FormInput
                       type="datetime-local"
                       value={evtEnd}
                       onChange={(e) => setEvtEnd(e.target.value)}
                       min={evtStart || undefined}
                       max={resultAnnounce || undefined}
                       required
-                      className="form-input"
                       aria-invalid={
                         eventEndError || brokenPublishLocks.includes("eventEndAt")
                           ? true
@@ -1790,9 +1789,7 @@ export const InstitutionCompetitionEditShell = ({
                       )}
                     />
                     {eventEndError ? (
-                      <span className="form-error" id="event-end-timeline-error" role="alert">
-                        {eventEndError}
-                      </span>
+                      <FormError id="event-end-timeline-error">{eventEndError}</FormError>
                     ) : null}
                     {isPublished ? (
                       <PublishLockLine
@@ -1802,40 +1799,32 @@ export const InstitutionCompetitionEditShell = ({
                       />
                     ) : null}
                   </label>
-                  {/* The hint sits in the grid's second column rather than under the input, so the
-                  field keeps the same height as the four date fields above it. */}
-                  <div className="form-field-with-aside">
-                    <label className="form-field">
-                      <span className="form-label form-label-required">Pengumuman hasil</span>
-                      <input
-                        type="datetime-local"
-                        value={resultAnnounce}
-                        onChange={(e) => setResultAnnounce(e.target.value)}
-                        min={evtEnd || undefined}
-                        required
-                        className="form-input"
-                        aria-invalid={resultAnnouncementError ? true : undefined}
-                        aria-describedby={
-                          resultAnnouncementError
-                            ? "result-announcement-hint result-announcement-timeline-error"
-                            : "result-announcement-hint"
-                        }
-                      />
-                      {resultAnnouncementError ? (
-                        <span
-                          className="form-error"
-                          id="result-announcement-timeline-error"
-                          role="alert"
-                        >
-                          {resultAnnouncementError}
-                        </span>
-                      ) : null}
-                    </label>
-                    <p className="form-field-aside" id="result-announcement-hint">
-                      Wajib diisi sebelum kompetisi diterbitkan agar peserta tahu kapan hasil
-                      keluar.
-                    </p>
-                  </div>
+                  <label className="form-field">
+                    <FormLabelText required>Pengumuman hasil</FormLabelText>
+                    <FormInput
+                      type="datetime-local"
+                      value={resultAnnounce}
+                      onChange={(e) => setResultAnnounce(e.target.value)}
+                      min={evtEnd || undefined}
+                      required
+                      aria-invalid={resultAnnouncementError ? true : undefined}
+                      aria-describedby={
+                        resultAnnouncementError
+                          ? "result-announcement-timeline-error"
+                          : "result-announcement-hint"
+                      }
+                    />
+                    {resultAnnouncementError ? (
+                      <FormError id="result-announcement-timeline-error">
+                        {resultAnnouncementError}
+                      </FormError>
+                    ) : (
+                      <span className="form-help" id="result-announcement-hint">
+                        Wajib diisi sebelum kompetisi diterbitkan agar peserta tahu kapan hasil
+                        keluar.
+                      </span>
+                    )}
+                  </label>
                 </div>
               </section>
             ) : null}
@@ -1891,15 +1880,16 @@ export const InstitutionCompetitionEditShell = ({
                   </p>
                 ) : null}
                 <label className="form-field">
-                  <span className="form-label">Batas pembatalan (hari sebelum acara mulai)</span>
-                  <input
+                  <FormLabelText required={allowCancellation} optional={!allowCancellation}>
+                    Batas pembatalan (hari sebelum acara mulai)
+                  </FormLabelText>
+                  <FormInput
                     type="number"
                     value={cutoffDays}
                     onChange={(e) => setCutoffDays(e.target.value)}
                     min={0}
                     max={savedCutoffDays ?? undefined}
                     disabled={!allowCancellation}
-                    className="form-input"
                     aria-invalid={
                       brokenPublishLocks.includes("cancellationCutoffDays") ? true : undefined
                     }

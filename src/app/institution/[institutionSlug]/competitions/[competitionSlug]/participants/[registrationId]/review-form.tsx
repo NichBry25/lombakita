@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import type { CompetitionRegistrationReviewStatus } from "@/server/db/schema";
 import { REVIEW_STATUS_LABELS, REVIEW_STATUS_ORDER } from "../review-status-labels";
 import { useToast } from "@/components/ui/primitives";
-import { Button, SelectField } from "@/components/ui";
+import { Button, FormLabelText, FormTextarea, SelectField } from "@/components/ui";
 import type { ReviewErrorCode } from "@/server/participants/review-service";
 
 const REVIEW_ERROR_MESSAGES: Partial<Record<ReviewErrorCode, string>> = {
@@ -89,9 +89,10 @@ export function ReviewForm({
         </p>
       )}
       <div className="form-field">
-        <span className="form-label">Status tinjauan</span>
+        <FormLabelText required>Status tinjauan</FormLabelText>
         <SelectField
           label="Status tinjauan"
+          required
           value={status}
           onChange={(value) => setStatus(value as CompetitionRegistrationReviewStatus)}
           options={REVIEW_STATUS_ORDER.map((value) => ({
@@ -102,13 +103,12 @@ export function ReviewForm({
       </div>
 
       <label className="form-field">
-        <span className="form-label">Catatan internal</span>
-        <textarea
+        <FormLabelText optional>Catatan internal</FormLabelText>
+        <FormTextarea
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           rows={5}
           maxLength={5000}
-          className="form-textarea"
         />
       </label>
 

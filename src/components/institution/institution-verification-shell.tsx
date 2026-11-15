@@ -9,6 +9,8 @@ import {
   EmptyState,
   Feedback,
   FormActionBar,
+  FormLabel,
+  FormLabelText,
   Icon,
   IconButton,
   PageHeader,
@@ -362,16 +364,13 @@ export const InstitutionVerificationShell = ({
           </dl>
 
           <div className="verification-documents">
-            <p className="form-label">Dokumen yang dibutuhkan</p>
+            <FormLabelText as="p">Dokumen yang dibutuhkan</FormLabelText>
             {docFields.map((field, i) => (
               <div key={field.documentType} className="form-field verification-document-field">
-                <label
-                  htmlFor={`doc-${field.documentType}`}
-                  className="form-label form-label-required"
-                >
+                <FormLabel htmlFor={`doc-${field.documentType}`} required>
                   {DOCUMENT_TYPE_LABELS[field.documentType] ??
                     formatDisplayToken(field.documentType)}
-                </label>
+                </FormLabel>
                 <input
                   id={`doc-${field.documentType}`}
                   type="file"

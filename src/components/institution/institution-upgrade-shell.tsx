@@ -6,6 +6,8 @@ import {
   Button,
   FormActionBar,
   FormHelp,
+  FormInput,
+  FormLabel,
   Icon,
   IconButton,
   PageHeader,
@@ -207,10 +209,10 @@ export const InstitutionUpgradeShell = ({
         </div>
 
         <div className="form-field">
-          <label htmlFor={nameFieldId} className="form-label form-label-required">
+          <FormLabel htmlFor={nameFieldId} required>
             Nama resmi institusi
-          </label>
-          <input
+          </FormLabel>
+          <FormInput
             id={nameFieldId}
             type="text"
             value={displayName}
@@ -219,7 +221,6 @@ export const InstitutionUpgradeShell = ({
               if (nameInvalid) setNameInvalid(false);
             }}
             placeholder="Contoh: Yayasan Harapan Nusantara"
-            className="form-input"
             required
             aria-required="true"
             aria-invalid={nameInvalid || undefined}

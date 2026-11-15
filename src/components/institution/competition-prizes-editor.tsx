@@ -1,7 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CheckboxField, Feedback, IconButton } from "@/components/ui";
+import {
+  CheckboxField,
+  Feedback,
+  FormInput,
+  FormLabel,
+  FormTextarea,
+  IconButton,
+} from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import {
   describePartLoadFailure,
@@ -183,36 +190,37 @@ export const CompetitionPrizesEditor = ({
           {rows.map((row, index) => (
             <div key={index} className="surface-card card-padding stack-sm">
               <div className="form-field">
-                <label className="form-label" htmlFor={`prize-rank-${index}`}>
+                <FormLabel htmlFor={`prize-rank-${index}`} optional>
                   Tingkat (mis. Juara 1)
-                </label>
-                <input
+                </FormLabel>
+                <FormInput
                   id={`prize-rank-${index}`}
-                  className="form-input"
                   value={row.rankLabel}
                   maxLength={80}
                   onChange={(event) => updateRow(index, { rankLabel: event.target.value })}
                 />
               </div>
               <div className="form-field">
-                <label className="form-label" htmlFor={`prize-title-${index}`}>
+                <FormLabel htmlFor={`prize-title-${index}`} required>
                   Nama hadiah
-                </label>
-                <input
+                </FormLabel>
+                <FormInput
                   id={`prize-title-${index}`}
-                  className="form-input"
                   value={row.title}
                   maxLength={160}
                   onChange={(event) => updateRow(index, { title: event.target.value })}
                 />
               </div>
               <div className="form-field">
-                <label className="form-label" htmlFor={`prize-cash-${index}`}>
+                <FormLabel
+                  htmlFor={`prize-cash-${index}`}
+                  required={!row.isCertificate}
+                  optional={row.isCertificate}
+                >
                   Nominal tunai (Rp)
-                </label>
-                <input
+                </FormLabel>
+                <FormInput
                   id={`prize-cash-${index}`}
-                  className="form-input"
                   type="number"
                   min={0}
                   value={row.cashAmount}
@@ -229,12 +237,11 @@ export const CompetitionPrizesEditor = ({
                 </CheckboxField>
               </div>
               <div className="form-field">
-                <label className="form-label" htmlFor={`prize-desc-${index}`}>
+                <FormLabel htmlFor={`prize-desc-${index}`} optional>
                   Deskripsi
-                </label>
-                <textarea
+                </FormLabel>
+                <FormTextarea
                   id={`prize-desc-${index}`}
-                  className="form-textarea"
                   rows={2}
                   value={row.description}
                   maxLength={1000}

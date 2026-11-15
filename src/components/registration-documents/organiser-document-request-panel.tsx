@@ -2,7 +2,16 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, CheckboxField, Feedback, Icon, IconButton } from "@/components/ui";
+import {
+  Button,
+  CheckboxField,
+  Feedback,
+  FormInput,
+  FormLabel,
+  FormTextarea,
+  Icon,
+  IconButton,
+} from "@/components/ui";
 import { useModal, useToast } from "@/components/ui/primitives";
 import { LocalDate } from "@/components/ui/local-date";
 import {
@@ -370,12 +379,11 @@ export function OrganiserDocumentRequestPanel({
       ) : (
         <form className="auth-form" onSubmit={createRequest}>
           <div className="form-field">
-            <label className="form-label form-label-required" htmlFor="document-request-title">
+            <FormLabel htmlFor="document-request-title" required>
               Dokumen yang diminta
-            </label>
-            <input
+            </FormLabel>
+            <FormInput
               id="document-request-title"
-              className="form-input"
               value={title}
               onChange={(event) => setTitle(event.target.value)}
               maxLength={160}
@@ -385,12 +393,11 @@ export function OrganiserDocumentRequestPanel({
           </div>
 
           <div className="form-field">
-            <label className="form-label" htmlFor="document-request-instructions">
+            <FormLabel htmlFor="document-request-instructions" optional>
               Petunjuk
-            </label>
-            <textarea
+            </FormLabel>
+            <FormTextarea
               id="document-request-instructions"
-              className="form-textarea"
               rows={3}
               value={instructions}
               onChange={(event) => setInstructions(event.target.value)}
@@ -403,12 +410,11 @@ export function OrganiserDocumentRequestPanel({
           </div>
 
           <div className="form-field">
-            <label className="form-label form-label-required" htmlFor="document-request-due">
+            <FormLabel htmlFor="document-request-due" required>
               Tenggat
-            </label>
-            <input
+            </FormLabel>
+            <FormInput
               id="document-request-due"
-              className="form-input"
               type="datetime-local"
               value={dueAt}
               onChange={(event) => setDueAt(event.target.value)}
@@ -459,12 +465,11 @@ function RejectForm({
         Alasan ini ditampilkan kepada peserta sebagai isi halaman, bukan notifikasi sesaat.
       </p>
       <div className="form-field">
-        <label className="form-label form-label-required" htmlFor={`reject-note-${request.id}`}>
+        <FormLabel htmlFor={`reject-note-${request.id}`} required>
           Alasan penolakan
-        </label>
-        <textarea
+        </FormLabel>
+        <FormTextarea
           id={`reject-note-${request.id}`}
-          className="form-textarea"
           rows={3}
           value={note}
           onChange={(event) => setNote(event.target.value)}
@@ -489,12 +494,11 @@ function RejectForm({
 
       {allowReupload ? (
         <div className="form-field">
-          <label className="form-label form-label-required" htmlFor={`reject-due-${request.id}`}>
+          <FormLabel htmlFor={`reject-due-${request.id}`} required>
             Tenggat baru
-          </label>
-          <input
+          </FormLabel>
+          <FormInput
             id={`reject-due-${request.id}`}
-            className="form-input"
             type="datetime-local"
             value={dueAt}
             onChange={(event) => setDueAt(event.target.value)}
@@ -532,12 +536,11 @@ function DeadlineForm({
   return (
     <form className="auth-form" onSubmit={submit}>
       <div className="form-field">
-        <label className="form-label form-label-required" htmlFor="extend-due">
+        <FormLabel htmlFor="extend-due" required>
           Tenggat baru
-        </label>
-        <input
+        </FormLabel>
+        <FormInput
           id="extend-due"
-          className="form-input"
           type="datetime-local"
           value={dueAt}
           onChange={(event) => setDueAt(event.target.value)}

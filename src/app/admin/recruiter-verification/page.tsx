@@ -7,6 +7,8 @@ import {
   CheckboxField,
   EmptyState,
   Feedback,
+  FormInput,
+  FormLabel,
   Icon,
   PageHeader,
   Skeleton,
@@ -247,13 +249,12 @@ export default function RecruiterVerificationQueuePage() {
       body: (
         <>
           <div className="form-field">
-            <label className="form-label form-label-required" htmlFor="reject-reason">
+            <FormLabel htmlFor="reject-reason" required>
               Alasan penolakan
-            </label>
-            <input
+            </FormLabel>
+            <FormInput
               id="reject-reason"
               type="text"
-              className="form-input"
               required
               aria-describedby="reject-reason-help"
               onChange={(event) => {

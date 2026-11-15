@@ -447,7 +447,9 @@ function ReasonForm({
       <Feedback tone="warning">{warning}</Feedback>
 
       <FormField>
-        <FormLabel htmlFor="ops-reason">Alasan</FormLabel>
+        <FormLabel htmlFor="ops-reason" required>
+          Alasan
+        </FormLabel>
         <FormTextarea
           id="ops-reason"
           value={reason}

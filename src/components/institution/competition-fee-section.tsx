@@ -1,7 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Card, CheckboxField, Feedback, Skeleton } from "@/components/ui";
+import {
+  Card,
+  CheckboxField,
+  Feedback,
+  FormInput,
+  FormLabel,
+  FormLabelText,
+  Skeleton,
+} from "@/components/ui";
 import {
   describePartLoadFailure,
   useCompetitionEditorPart,
@@ -142,19 +150,18 @@ function WindowOnlyFeeFields({
         {feeAmount > 0 ? (
           <>
             <div className="form-field">
-              <span className="form-label">Biaya per pendaftaran</span>
+              <FormLabelText>Biaya per pendaftaran</FormLabelText>
               <p className="data-text">
                 {formatRupiah(feeAmount, pricing.feeCurrency ?? CURRENCY)}
               </p>
             </div>
 
             <div className="form-field">
-              <label className="form-label" htmlFor="fee-window">
+              <FormLabel htmlFor="fee-window" required>
                 Batas waktu pembayaran (hari)
-              </label>
-              <input
+              </FormLabel>
+              <FormInput
                 id="fee-window"
-                className="form-input"
                 inputMode="numeric"
                 value={windowDays}
                 maxLength={3}
@@ -377,7 +384,7 @@ function OwnerFeeForm({
       </div>
 
       <div className="stack-md">
-        <span className="form-label">Jenis pendaftaran</span>
+        <FormLabelText>Jenis pendaftaran</FormLabelText>
         <CheckboxField
           id="fee-paid"
           checked={isPaid}
@@ -395,12 +402,11 @@ function OwnerFeeForm({
         {isPaid ? (
           <>
             <div className="form-field">
-              <label className="form-label" htmlFor="fee-amount">
+              <FormLabel htmlFor="fee-amount" required>
                 Biaya per pendaftaran
-              </label>
-              <input
+              </FormLabel>
+              <FormInput
                 id="fee-amount"
-                className="form-input"
                 inputMode="numeric"
                 value={amountText}
                 maxLength={12}
@@ -414,12 +420,11 @@ function OwnerFeeForm({
             </div>
 
             <div className="form-field">
-              <label className="form-label" htmlFor="fee-window">
+              <FormLabel htmlFor="fee-window" required>
                 Batas waktu pembayaran (hari)
-              </label>
-              <input
+              </FormLabel>
+              <FormInput
                 id="fee-window"
-                className="form-input"
                 inputMode="numeric"
                 value={windowDays}
                 maxLength={3}
@@ -442,7 +447,7 @@ function OwnerFeeForm({
               </Feedback>
             ) : (
               <Card variant="inset" className="stack-sm">
-                <p className="form-label">Rincian per pendaftaran</p>
+                <FormLabelText as="p">Rincian per pendaftaran</FormLabelText>
                 <dl className="detail-grid">
                   <div>
                     <dt>Dibayar peserta</dt>

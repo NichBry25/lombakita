@@ -1,7 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button, Feedback, Icon, Skeleton } from "@/components/ui";
+import {
+  Button,
+  Feedback,
+  FormInput,
+  FormLabel,
+  FormLabelText,
+  FormTextarea,
+  Icon,
+  Skeleton,
+} from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import { errorMessageFor } from "@/lib/errors/error-copy";
 import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
@@ -205,6 +214,9 @@ export function PaymentInstructionsSection({
     );
   }
 
+  // The server refuses missing bank details only when no QRIS is on file.
+  const bankDetailsRequired = form.qrisR2Key === null;
+
   return (
     <section className="content-section surface-card card-padding">
       <div className="section-heading">
@@ -226,12 +238,15 @@ export function PaymentInstructionsSection({
 
       <form className="stack-md" onSubmit={save}>
         <div className="form-field">
-          <label className="form-label" htmlFor="pi-bank-name">
+          <FormLabel
+            htmlFor="pi-bank-name"
+            required={bankDetailsRequired}
+            optional={!bankDetailsRequired}
+          >
             Nama bank
-          </label>
-          <input
+          </FormLabel>
+          <FormInput
             id="pi-bank-name"
-            className="form-input"
             value={form.bankName ?? ""}
             maxLength={120}
             placeholder="Bank Mandiri"
@@ -240,12 +255,15 @@ export function PaymentInstructionsSection({
         </div>
 
         <div className="form-field">
-          <label className="form-label" htmlFor="pi-account-number">
+          <FormLabel
+            htmlFor="pi-account-number"
+            required={bankDetailsRequired}
+            optional={!bankDetailsRequired}
+          >
             Nomor rekening
-          </label>
-          <input
+          </FormLabel>
+          <FormInput
             id="pi-account-number"
-            className="form-input"
             // `inputMode` rather than `type="number"`: an account number is a digit STRING, and a
             // numeric input drops leading zeros and offers a spinner that can silently change it.
             inputMode="numeric"
@@ -258,12 +276,15 @@ export function PaymentInstructionsSection({
         </div>
 
         <div className="form-field">
-          <label className="form-label" htmlFor="pi-account-holder">
+          <FormLabel
+            htmlFor="pi-account-holder"
+            required={bankDetailsRequired}
+            optional={!bankDetailsRequired}
+          >
             Nama pemilik rekening
-          </label>
-          <input
+          </FormLabel>
+          <FormInput
             id="pi-account-holder"
-            className="form-input"
             value={form.accountHolderName ?? ""}
             maxLength={160}
             placeholder="Yayasan Seed Academy"
@@ -279,9 +300,9 @@ export function PaymentInstructionsSection({
             `<input type="file">` wearing `.form-input` renders the browser's own control, which is
             the one thing no other control on this page does. */}
         <div className="form-field">
-          <span className="form-label" id="pi-qris-label">
+          <FormLabelText id="pi-qris-label" optional>
             QRIS
-          </span>
+          </FormLabelText>
           <div className="pf-media-actions">
             <Button
               type="button"
@@ -318,12 +339,11 @@ export function PaymentInstructionsSection({
         </div>
 
         <div className="form-field">
-          <label className="form-label" htmlFor="pi-note">
+          <FormLabel htmlFor="pi-note" optional>
             Catatan untuk peserta
-          </label>
-          <textarea
+          </FormLabel>
+          <FormTextarea
             id="pi-note"
-            className="form-textarea"
             rows={3}
             value={form.instructionsNote ?? ""}
             maxLength={500}

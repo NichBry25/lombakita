@@ -151,7 +151,9 @@ const lookUp = async (user: ConsoleUser) => {
   renderConsole();
 
   const panel = within(userPanel());
-  fireEvent.change(panel.getByLabelText("Email"), { target: { value: user.email } });
+  fireEvent.change(panel.getByLabelText(/^Email(?: \* \(wajib\)| \(opsional\))?$/), {
+    target: { value: user.email },
+  });
   fireEvent.click(panel.getByRole("button", { name: "Cari" }));
 
   // The name renders as the `<strong>` of the result block, so it is the one text node that proves
@@ -167,11 +169,18 @@ const requestTo = (url: string): SentRequest | undefined => sent.find((r) => r.u
 // Filling the two fields the de-identification action requires. The values are the ones the fixture
 // holds, so a body assertion below reads as "what the operator typed" rather than as a constant.
 const fillDeidentifyForm = () => {
-  fireEvent.change(screen.getByLabelText("Ketik nama pengguna akun untuk konfirmasi"), {
-    target: { value: "bela_rahma" },
-  });
   fireEvent.change(
-    screen.getByLabelText("Alasan (contoh: permintaan melalui email tanggal 28 September 2026)"),
+    screen.getByLabelText(
+      /^Ketik nama pengguna akun untuk konfirmasi(?: \* \(wajib\)| \(opsional\))?$/,
+    ),
+    {
+      target: { value: "bela_rahma" },
+    },
+  );
+  fireEvent.change(
+    screen.getByLabelText(
+      /^Alasan \(contoh: permintaan melalui email tanggal 28 September 2026\)(?: \* \(wajib\)| \(opsional\))?$/,
+    ),
     { target: { value: "permintaan pemilik" } },
   );
 };
@@ -279,9 +288,15 @@ describe("de-identifying an account", () => {
   it("asks for the username and the reason before it offers the confirmation", async () => {
     await lookUp(userFixture());
 
-    expect(screen.getByLabelText("Ketik nama pengguna akun untuk konfirmasi")).toBeTruthy();
     expect(
-      screen.getByLabelText("Alasan (contoh: permintaan melalui email tanggal 28 September 2026)"),
+      screen.getByLabelText(
+        /^Ketik nama pengguna akun untuk konfirmasi(?: \* \(wajib\)| \(opsional\))?$/,
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByLabelText(
+        /^Alasan \(contoh: permintaan melalui email tanggal 28 September 2026\)(?: \* \(wajib\)| \(opsional\))?$/,
+      ),
     ).toBeTruthy();
   });
 
@@ -289,11 +304,18 @@ describe("de-identifying an account", () => {
     await lookUp(userFixture());
     actionResponse = () => jsonResponse({ objectsDeleted: 7 });
 
-    fireEvent.change(screen.getByLabelText("Ketik nama pengguna akun untuk konfirmasi"), {
-      target: { value: "bela_rahma" },
-    });
     fireEvent.change(
-      screen.getByLabelText("Alasan (contoh: permintaan melalui email tanggal 28 September 2026)"),
+      screen.getByLabelText(
+        /^Ketik nama pengguna akun untuk konfirmasi(?: \* \(wajib\)| \(opsional\))?$/,
+      ),
+      {
+        target: { value: "bela_rahma" },
+      },
+    );
+    fireEvent.change(
+      screen.getByLabelText(
+        /^Alasan \(contoh: permintaan melalui email tanggal 28 September 2026\)(?: \* \(wajib\)| \(opsional\))?$/,
+      ),
       { target: { value: "permintaan pemilik" } },
     );
     fireEvent.click(screen.getByRole("button", { name: "Hapus data akun" }));
@@ -324,9 +346,14 @@ describe("de-identifying an account", () => {
   it("names the looked-up account at the top of the confirmation, whatever was typed", async () => {
     await lookUp(userFixture());
 
-    fireEvent.change(screen.getByLabelText("Ketik nama pengguna akun untuk konfirmasi"), {
-      target: { value: "someone_else" },
-    });
+    fireEvent.change(
+      screen.getByLabelText(
+        /^Ketik nama pengguna akun untuk konfirmasi(?: \* \(wajib\)| \(opsional\))?$/,
+      ),
+      {
+        target: { value: "someone_else" },
+      },
+    );
     fireEvent.click(screen.getByRole("button", { name: "Hapus data akun" }));
 
     expect(screen.getByText(/^Akun @bela_rahma akan dihapus\. Nama, email, profil/)).toBeTruthy();
@@ -497,7 +524,9 @@ describe("what the console tells the operator when a lookup or an institution ac
     renderConsole();
 
     const panel = within(userPanel());
-    fireEvent.change(panel.getByLabelText("Email"), { target: { value: "nobody@example.test" } });
+    fireEvent.change(panel.getByLabelText(/^Email(?: \* \(wajib\)| \(opsional\))?$/), {
+      target: { value: "nobody@example.test" },
+    });
     fireEvent.click(panel.getByRole("button", { name: "Cari" }));
 
     await waitFor(() => {

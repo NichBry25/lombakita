@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Feedback } from "@/components/ui";
+import { Button, Feedback, FormTextarea } from "@/components/ui";
 import { useModal, useToast } from "@/components/ui/primitives";
 import {
   SESSION_MISMATCH_CODE,
@@ -98,14 +98,13 @@ function CancelReasonForm({
   return (
     <div className="stack-md">
       <p className="muted-copy">Tuliskan alasan pembatalan pendaftaran Anda. Alasan wajib diisi.</p>
-      <textarea
+      <FormTextarea
         value={reason}
         onChange={(e) => setReason(e.target.value)}
         rows={4}
         maxLength={500}
         placeholder="Alasan pembatalan"
         aria-label="Alasan pembatalan"
-        className="form-textarea"
       />
       <div className="modal-actions">
         <Button type="button" onClick={onCancel} variant="outline" size="sm">

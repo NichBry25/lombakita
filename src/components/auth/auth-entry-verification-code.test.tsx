@@ -53,7 +53,12 @@ const renderEntry = () =>
   );
 
 const typeInto = (label: string, value: string) => {
-  fireEvent.change(screen.getByLabelText(label), { target: { value } });
+  const labelWithoutMarker = (content: string) =>
+    content.replace(/ \* \(wajib\)$| \(opsional\)$/, "");
+  fireEvent.change(
+    screen.getByLabelText((content) => labelWithoutMarker(content) === label),
+    { target: { value } },
+  );
 };
 
 const submitEmailAndPassword = (password: string = PASSWORD) => {
@@ -75,10 +80,10 @@ const RECRUITER_VERIFY_BODY = {
 };
 
 const fillHostSignUpForm = async (confirmPassword: string = PASSWORD) => {
-  await screen.findByLabelText("Konfirmasi password");
+  await screen.findByLabelText(/^Konfirmasi password(?: \* \(wajib\)| \(opsional\))?$/);
   typeInto("Konfirmasi password", confirmPassword);
-  fireEvent.click(screen.getByRole("button", { name: /Daftar sebagai penyelenggara/ }));
-  await screen.findByLabelText("Nomor ponsel");
+  fireEvent.click(screen.getByRole("radio", { name: /Daftar sebagai penyelenggara/ }));
+  await screen.findByLabelText(/^Nomor ponsel(?: \* \(wajib\)| \(opsional\))?$/);
   typeInto("Nama lengkap", "Rina Pratama");
   typeInto("Nomor ponsel", "0812345678");
   fireEvent.click(screen.getByRole("button", { name: "Selesai" }));
@@ -104,7 +109,7 @@ const reachCodeStageFromVerifyNotice = async () => {
   submitEmailAndPassword();
   fireEvent.click(await screen.findByRole("button", { name: "Lengkapi pendaftaran" }));
   await fillHostSignUpForm();
-  await screen.findByLabelText("Kode verifikasi");
+  await screen.findByLabelText(/^Kode verifikasi(?: \* \(wajib\)| \(opsional\))?$/);
 };
 
 beforeEach(() => {
@@ -123,14 +128,18 @@ describe("verifying an email address with a code on the sign-in page", () => {
     answer("/api/v1/auth/register", 200, { email: ADDRESS });
     await signUpAsRecruiter();
 
-    expect(await screen.findByLabelText("Kode verifikasi")).toBeTruthy();
+    expect(
+      await screen.findByLabelText(/^Kode verifikasi(?: \* \(wajib\)| \(opsional\))?$/),
+    ).toBeTruthy();
   });
 
   it("moves focus to the code box when the code stage opens", async () => {
     answer("/api/v1/auth/register", 200, { email: ADDRESS });
     await signUpAsRecruiter();
 
-    const codeBox = await screen.findByLabelText("Kode verifikasi");
+    const codeBox = await screen.findByLabelText(
+      /^Kode verifikasi(?: \* \(wajib\)| \(opsional\))?$/,
+    );
     await waitFor(() => {
       expect(document.activeElement).toBe(codeBox);
     });
@@ -193,7 +202,7 @@ describe("verifying an email address with a code on the sign-in page", () => {
     await reachCodeStageFromVerifyNotice();
 
     expect(postedBodyTo("/api/v1/auth/register/resend")).toEqual({ email: ADDRESS });
-    expect(screen.getByLabelText("Kode verifikasi")).toBeTruthy();
+    expect(screen.getByLabelText(/^Kode verifikasi(?: \* \(wajib\)| \(opsional\))?$/)).toBeTruthy();
   });
 
   it("sends the code with the typed password and signs in", async () => {
@@ -216,7 +225,7 @@ describe("verifying an email address with a code on the sign-in page", () => {
     answer("/api/v1/auth/register", 200, { email: ADDRESS });
     answer("/api/v1/auth/register/verify", 200, { verify: { email: ADDRESS } });
     await signUpAsRecruiter();
-    await screen.findByLabelText("Kode verifikasi");
+    await screen.findByLabelText(/^Kode verifikasi(?: \* \(wajib\)| \(opsional\))?$/);
 
     submitCode("123456");
 
@@ -243,7 +252,9 @@ describe("verifying an email address with a code on the sign-in page", () => {
     ).toBeTruthy();
     await fillHostSignUpForm();
 
-    expect(await screen.findByLabelText("Kode verifikasi")).toBeTruthy();
+    expect(
+      await screen.findByLabelText(/^Kode verifikasi(?: \* \(wajib\)| \(opsional\))?$/),
+    ).toBeTruthy();
     expect(postedBodyTo("/api/v1/auth/register/resend")).toEqual({ email: ADDRESS });
     expect(postedBodyTo("/api/v1/auth/register")).toBeUndefined();
   });
@@ -257,7 +268,9 @@ describe("verifying an email address with a code on the sign-in page", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Kirim kode verifikasi" }));
 
-    expect(await screen.findByLabelText("Kode verifikasi")).toBeTruthy();
+    expect(
+      await screen.findByLabelText(/^Kode verifikasi(?: \* \(wajib\)| \(opsional\))?$/),
+    ).toBeTruthy();
     expect(postedBodyTo("/api/v1/auth/register/resend")).toEqual({ email: ADDRESS });
   });
 
@@ -279,13 +292,17 @@ describe("verifying an email address with a code on the sign-in page", () => {
   it("empties the sign-up form when the person goes back to the email step", async () => {
     answer("/api/v1/auth/register", 200, { email: ADDRESS });
     await signUpAsRecruiter();
-    await screen.findByLabelText("Kode verifikasi");
+    await screen.findByLabelText(/^Kode verifikasi(?: \* \(wajib\)| \(opsional\))?$/);
 
     fireEvent.click(screen.getByRole("button", { name: "Kembali" }));
 
-    const emailField = (await screen.findByLabelText("Email")) as HTMLInputElement;
+    const emailField = (await screen.findByLabelText(
+      /^Email(?: \* \(wajib\)| \(opsional\))?$/,
+    )) as HTMLInputElement;
     expect(emailField.value).toBe(ADDRESS);
-    const passwordField = screen.getByLabelText("Password") as HTMLInputElement;
+    const passwordField = screen.getByLabelText(
+      /^Password(?: \* \(wajib\)| \(opsional\))?$/,
+    ) as HTMLInputElement;
     expect(passwordField.value).toBe("");
 
     answer("/api/v1/auth/identify", 200, { state: "unverified" });
@@ -294,23 +311,31 @@ describe("verifying an email address with a code on the sign-in page", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Lengkapi pendaftaran" }));
 
     const confirmPasswordField = (await screen.findByLabelText(
-      "Konfirmasi password",
+      /^Konfirmasi password(?: \* \(wajib\)| \(opsional\))?$/,
     )) as HTMLInputElement;
     expect(confirmPasswordField.value).toBe("");
 
     typeInto("Konfirmasi password", PASSWORD);
-    fireEvent.click(screen.getByRole("button", { name: /Daftar sebagai kandidat/ }));
+    fireEvent.click(screen.getByRole("radio", { name: /Daftar sebagai kandidat/ }));
 
-    const phoneNumberField = (await screen.findByLabelText("Nomor telepon")) as HTMLInputElement;
-    const candidateNameField = screen.getByLabelText("Nama lengkap") as HTMLInputElement;
+    const phoneNumberField = (await screen.findByLabelText(
+      /^Nomor telepon(?: \* \(wajib\)| \(opsional\))?$/,
+    )) as HTMLInputElement;
+    const candidateNameField = screen.getByLabelText(
+      /^Nama lengkap(?: \* \(wajib\)| \(opsional\))?$/,
+    ) as HTMLInputElement;
     expect(candidateNameField.value).toBe("");
     expect(phoneNumberField.value).toBe("");
 
     fireEvent.click(screen.getByRole("button", { name: "Kembali" }));
-    fireEvent.click(await screen.findByRole("button", { name: /Daftar sebagai penyelenggara/ }));
+    fireEvent.click(await screen.findByRole("radio", { name: /Daftar sebagai penyelenggara/ }));
 
-    const mobileNumberField = (await screen.findByLabelText("Nomor ponsel")) as HTMLInputElement;
-    const hostNameField = screen.getByLabelText("Nama lengkap") as HTMLInputElement;
+    const mobileNumberField = (await screen.findByLabelText(
+      /^Nomor ponsel(?: \* \(wajib\)| \(opsional\))?$/,
+    )) as HTMLInputElement;
+    const hostNameField = screen.getByLabelText(
+      /^Nama lengkap(?: \* \(wajib\)| \(opsional\))?$/,
+    ) as HTMLInputElement;
     expect(mobileNumberField.value).toBe("");
     expect(hostNameField.value).toBe("");
   });
@@ -321,7 +346,7 @@ describe("verifying an email address with a code on the sign-in page", () => {
       error: { code: "verification_code_daily_limit", message: "Too many wrong codes" },
     });
     await signUpAsRecruiter();
-    await screen.findByLabelText("Kode verifikasi");
+    await screen.findByLabelText(/^Kode verifikasi(?: \* \(wajib\)| \(opsional\))?$/);
 
     submitCode("123456");
 
@@ -365,7 +390,9 @@ describe("verifying an email address with a code on the sign-in page", () => {
         "Data pendaftaran belum sesuai. Periksa kembali isian Anda, lalu lanjutkan lagi.",
       ),
     ).toBeTruthy();
-    const mobileNumberField = (await screen.findByLabelText("Nomor ponsel")) as HTMLInputElement;
+    const mobileNumberField = (await screen.findByLabelText(
+      /^Nomor ponsel(?: \* \(wajib\)| \(opsional\))?$/,
+    )) as HTMLInputElement;
     expect(mobileNumberField.value).toBe("0812345678");
   });
 });

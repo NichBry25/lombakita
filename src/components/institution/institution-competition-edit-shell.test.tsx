@@ -206,9 +206,14 @@ describe("InstitutionCompetitionEditShell save body", () => {
       name: "Izinkan peserta membatalkan pendaftaran sendiri",
     });
     fireEvent.click(cancellationCheckbox);
-    fireEvent.change(screen.getByLabelText("Batas pembatalan (hari sebelum acara mulai)"), {
-      target: { value: "3" },
-    });
+    fireEvent.change(
+      screen.getByLabelText(
+        /^Batas pembatalan \(hari sebelum acara mulai\)(?: \* \(wajib\)| \(opsional\))?$/,
+      ),
+      {
+        target: { value: "3" },
+      },
+    );
     fireEvent.click(cancellationCheckbox);
     fireEvent.click(saveButton());
     await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledTimes(3));
@@ -520,7 +525,7 @@ describe("InstitutionCompetitionEditShell after publish", () => {
     {
       state: "a published competition in both mode",
       competition: { ...PUBLISHED_TEAM, mode: "both", minTeamSize: 1, maxTeamSize: 4 },
-      min: ["form-label", "form-input"],
+      min: ["form-label", "form-input-lock-wrap"],
       max: ["form-label", "form-input", "form-help"],
     },
     {
@@ -538,7 +543,7 @@ describe("InstitutionCompetitionEditShell after publish", () => {
         minTeamSize: 1,
         maxTeamSize: 4,
       },
-      min: ["form-label", "form-input"],
+      min: ["form-label", "form-input-lock-wrap"],
       max: ["form-label", "form-input"],
     },
   ])(
@@ -730,7 +735,7 @@ describe("InstitutionCompetitionEditShell publish readiness", () => {
   });
 
   describe("a registration end that is already past", () => {
-    const ORDERING_MESSAGE = "Pendaftaran berakhir harus setelah pendaftaran mulai.";
+    const ORDERING_MESSAGE = "Harus setelah pendaftaran mulai.";
 
     // The three places the message can appear, read separately so that one rendering cannot be
     // mistaken for another.
@@ -995,9 +1000,11 @@ describe("InstitutionCompetitionEditShell steps", () => {
   const indicatorLine = () => document.querySelector(".step-indicator-text")?.textContent;
   const sectionHeadings = () =>
     screen.queryAllByRole("heading", { level: 2 }).map((heading) => heading.textContent);
+  const withoutMarker = (labelText: string | null) =>
+    labelText?.replace(/ \* \(wajib\)$| \(opsional\)$/, "") ?? null;
   const fieldLabels = () =>
-    [...document.querySelectorAll(".competition-edit-form .form-label")].map(
-      (label) => label.textContent,
+    [...document.querySelectorAll(".competition-edit-form .form-label")].map((label) =>
+      withoutMarker(label.textContent),
     );
   const readinessNote = () => document.getElementById("publish-readiness-message");
   const sectionNav = () => screen.getByRole("navigation", { name: "Bagian kompetisi" });
@@ -1726,20 +1733,32 @@ describe("InstitutionCompetitionEditShell steps", () => {
       </UIPrimitivesProvider>
     );
 
-    const inputValue = (label: string) => (screen.getByLabelText(label) as HTMLInputElement).value;
+    const inputValue = (label: string) =>
+      (screen.getByLabelText((content) => withoutMarker(content) === label) as HTMLInputElement)
+        .value;
 
     const addPrizeTitled = async (title: string) => {
       fireEvent.click(await screen.findByRole("button", { name: "Tambah hadiah" }));
-      fireEvent.change(screen.getByLabelText("Nama hadiah"), { target: { value: title } });
-      fireEvent.change(screen.getByLabelText("Nominal tunai (Rp)"), {
-        target: { value: "100000" },
+      fireEvent.change(screen.getByLabelText(/^Nama hadiah(?: \* \(wajib\)| \(opsional\))?$/), {
+        target: { value: title },
       });
+      fireEvent.change(
+        screen.getByLabelText(/^Nominal tunai \(Rp\)(?: \* \(wajib\)| \(opsional\))?$/),
+        {
+          target: { value: "100000" },
+        },
+      );
     };
 
     const changeFeeWindowWithAcknowledgement = async () => {
-      fireEvent.change(await screen.findByLabelText("Batas waktu pembayaran (hari)"), {
-        target: { value: "5" },
-      });
+      fireEvent.change(
+        await screen.findByLabelText(
+          /^Batas waktu pembayaran \(hari\)(?: \* \(wajib\)| \(opsional\))?$/,
+        ),
+        {
+          target: { value: "5" },
+        },
+      );
       fireEvent.click(screen.getByRole("checkbox", { name: /menyetujui/ }));
     };
 
@@ -1890,12 +1909,16 @@ describe("InstitutionCompetitionEditShell steps", () => {
       render(shellWithPartsAt(4, false));
 
       await screen.findByRole("button", { name: "Lanjut" });
-      const windowInput = await screen.findByLabelText("Batas waktu pembayaran (hari)");
+      const windowInput = await screen.findByLabelText(
+        /^Batas waktu pembayaran \(hari\)(?: \* \(wajib\)| \(opsional\))?$/,
+      );
       const amount = document.querySelector("p.data-text");
       expect(amount?.textContent).toBe(formatRupiah(150_000, "IDR"));
       expect(amount?.previousElementSibling?.textContent).toBe("Biaya per pendaftaran");
       expect(screen.queryByRole("checkbox", { name: "Pendaftaran berbayar" })).toBeNull();
-      expect(screen.queryByLabelText("Biaya per pendaftaran")).toBeNull();
+      expect(
+        screen.queryByLabelText(/^Biaya per pendaftaran(?: \* \(wajib\)| \(opsional\))?$/),
+      ).toBeNull();
       expect(screen.queryByRole("checkbox", { name: /menyetujui/ })).toBeNull();
       fireEvent.change(windowInput, { target: { value: "5" } });
       fireEvent.click(screen.getByRole("button", { name: "Lanjut" }));
@@ -1940,7 +1963,9 @@ describe("InstitutionCompetitionEditShell steps", () => {
       render(shellWithPartsAt(3));
 
       fireEvent.click(await screen.findByRole("button", { name: "Tambah tahapan" }));
-      fireEvent.change(screen.getByLabelText("Nama tahapan"), { target: { value: "Penyisihan" } });
+      fireEvent.change(screen.getByLabelText(/^Nama tahapan(?: \* \(wajib\)| \(opsional\))?$/), {
+        target: { value: "Penyisihan" },
+      });
       fireEvent.click(screen.getByRole("button", { name: "Kembali" }));
 
       const dialog = await screen.findByRole("dialog");
@@ -2006,9 +2031,12 @@ describe("InstitutionCompetitionEditShell steps", () => {
 
       render(shellWithPartsAt(2));
 
-      fireEvent.change(await screen.findByLabelText("Catatan kelayakan"), {
-        target: { value: "Terbuka untuk umum." },
-      });
+      fireEvent.change(
+        await screen.findByLabelText(/^Catatan kelayakan(?: \* \(wajib\)| \(opsional\))?$/),
+        {
+          target: { value: "Terbuka untuk umum." },
+        },
+      );
       fireEvent.click(saveButton());
 
       expect(await screen.findByText("Perubahan tersimpan.")).toBeTruthy();
@@ -2120,17 +2148,25 @@ describe("InstitutionCompetitionEditShell steps", () => {
       {
         refusal: "no amount",
         edit: () =>
-          fireEvent.change(screen.getByLabelText("Biaya per pendaftaran"), {
-            target: { value: "" },
-          }),
+          fireEvent.change(
+            screen.getByLabelText(/^Biaya per pendaftaran(?: \* \(wajib\)| \(opsional\))?$/),
+            {
+              target: { value: "" },
+            },
+          ),
         reason: "Isi biaya per pendaftaran.",
       },
       {
         refusal: "no acknowledgement",
         edit: () =>
-          fireEvent.change(screen.getByLabelText("Batas waktu pembayaran (hari)"), {
-            target: { value: "5" },
-          }),
+          fireEvent.change(
+            screen.getByLabelText(
+              /^Batas waktu pembayaran \(hari\)(?: \* \(wajib\)| \(opsional\))?$/,
+            ),
+            {
+              target: { value: "5" },
+            },
+          ),
         reason:
           "Setujui rincian biaya layanan Lombakita sebelum mengaktifkan pendaftaran berbayar.",
       },
@@ -2142,7 +2178,7 @@ describe("InstitutionCompetitionEditShell steps", () => {
         render(shellWithPartsAt(4));
 
         await screen.findByRole("button", { name: "Lanjut" });
-        await screen.findByLabelText("Biaya per pendaftaran");
+        await screen.findByLabelText(/^Biaya per pendaftaran(?: \* \(wajib\)| \(opsional\))?$/);
         edit();
         fireEvent.click(screen.getByRole("button", { name: "Lanjut" }));
 
@@ -2199,18 +2235,29 @@ describe("InstitutionCompetitionEditShell steps", () => {
 
       render(shellWithPartsAt(2));
 
-      fireEvent.change(await screen.findByLabelText("Catatan kelayakan"), {
-        target: { value: "Terbuka untuk umum." },
-      });
+      fireEvent.change(
+        await screen.findByLabelText(/^Catatan kelayakan(?: \* \(wajib\)| \(opsional\))?$/),
+        {
+          target: { value: "Terbuka untuk umum." },
+        },
+      );
       fireEvent.click(saveButton());
 
       await waitFor(() => expect(writeKeys(calls)).toContain(`PUT ${COMPETITION_URL}/eligibility`));
-      expect(screen.getByLabelText("Catatan kelayakan").matches(":disabled")).toBe(true);
+      expect(
+        screen
+          .getByLabelText(/^Catatan kelayakan(?: \* \(wajib\)| \(opsional\))?$/)
+          .matches(":disabled"),
+      ).toBe(true);
 
       releaseNote(okJson({}));
 
       await waitFor(() =>
-        expect(screen.getByLabelText("Catatan kelayakan").matches(":disabled")).toBe(false),
+        expect(
+          screen
+            .getByLabelText(/^Catatan kelayakan(?: \* \(wajib\)| \(opsional\))?$/)
+            .matches(":disabled"),
+        ).toBe(false),
       );
       expect(inputValue("Catatan kelayakan")).toBe("Terbuka untuk umum.");
     });
@@ -2221,14 +2268,20 @@ describe("InstitutionCompetitionEditShell steps", () => {
         step: 4 as const,
         addRow: "Tambah hadiah",
         type: () =>
-          fireEvent.change(screen.getByLabelText("Nominal tunai (Rp)"), {
-            target: { value: "500000" },
-          }),
+          fireEvent.change(
+            screen.getByLabelText(/^Nominal tunai \(Rp\)(?: \* \(wajib\)| \(opsional\))?$/),
+            {
+              target: { value: "500000" },
+            },
+          ),
         typedIsKept: () => inputValue("Nominal tunai (Rp)") === "500000",
         clear: () =>
-          fireEvent.change(screen.getByLabelText("Nominal tunai (Rp)"), {
-            target: { value: "" },
-          }),
+          fireEvent.change(
+            screen.getByLabelText(/^Nominal tunai \(Rp\)(?: \* \(wajib\)| \(opsional\))?$/),
+            {
+              target: { value: "" },
+            },
+          ),
         refusal: `Hadiah belum tersimpan. ${PRIZE_TITLE_REASON}`,
         partWrite: `PUT ${COMPETITION_URL}/prizes`,
         blankBody: { prizes: [] },
@@ -2251,12 +2304,14 @@ describe("InstitutionCompetitionEditShell steps", () => {
         step: 3 as const,
         addRow: "Tambah tahapan",
         type: () =>
-          fireEvent.change(screen.getByLabelText("Deskripsi"), {
+          fireEvent.change(screen.getByLabelText(/^Deskripsi(?: \* \(wajib\)| \(opsional\))?$/), {
             target: { value: "Babak awal" },
           }),
         typedIsKept: () => inputValue("Deskripsi") === "Babak awal",
         clear: () =>
-          fireEvent.change(screen.getByLabelText("Deskripsi"), { target: { value: "" } }),
+          fireEvent.change(screen.getByLabelText(/^Deskripsi(?: \* \(wajib\)| \(opsional\))?$/), {
+            target: { value: "" },
+          }),
         refusal: `Tahapan & linimasa belum tersimpan. ${ROUND_TITLE_REASON}`,
         partWrite: `PUT ${COMPETITION_URL}/rounds`,
         blankBody: { rounds: [] },
@@ -2295,7 +2350,9 @@ describe("InstitutionCompetitionEditShell steps", () => {
       render(shellWithPartsAt(4));
 
       fireEvent.click(await screen.findByRole("button", { name: "Tambah hadiah" }));
-      fireEvent.change(screen.getByLabelText("Nama hadiah"), { target: { value: "Medali" } });
+      fireEvent.change(screen.getByLabelText(/^Nama hadiah(?: \* \(wajib\)| \(opsional\))?$/), {
+        target: { value: "Medali" },
+      });
       fireEvent.click(screen.getByRole("button", { name: "Lanjut" }));
 
       expect(
@@ -2481,9 +2538,12 @@ describe("InstitutionCompetitionEditShell steps", () => {
 
         render(shellWithPartsAt(2));
 
-        fireEvent.change(await screen.findByLabelText("Catatan kelayakan"), {
-          target: { value: "Terbuka untuk umum." },
-        });
+        fireEvent.change(
+          await screen.findByLabelText(/^Catatan kelayakan(?: \* \(wajib\)| \(opsional\))?$/),
+          {
+            target: { value: "Terbuka untuk umum." },
+          },
+        );
         fireEvent.click(saveButton());
 
         expect(await screen.findByText("Perubahan tersimpan.")).toBeTruthy();
@@ -2574,20 +2634,24 @@ describe("InstitutionCompetitionEditShell steps", () => {
 
       render(shellWithPartsAt(3));
 
-      const [storedTitle] = await screen.findAllByLabelText("Nama tahapan");
+      const [storedTitle] = await screen.findAllByLabelText(
+        /^Nama tahapan(?: \* \(wajib\)| \(opsional\))?$/,
+      );
       fireEvent.click(screen.getByRole("button", { name: "Tambah tahapan" }));
       fireEvent.change(storedTitle!, { target: { value: "Penyisihan Daring" } });
       fireEvent.click(saveButton());
 
       expect(await screen.findByText("Perubahan tersimpan.")).toBeTruthy();
       const blankTitles = screen
-        .queryAllByLabelText("Nama tahapan")
+        .queryAllByLabelText(/^Nama tahapan(?: \* \(wajib\)| \(opsional\))?$/)
         .filter((input) => (input as HTMLInputElement).value === "");
       expect(blankTitles).toEqual([]);
       expect(
-        (screen.getAllByLabelText("Nama tahapan") as HTMLInputElement[]).map(
-          (input) => input.value,
-        ),
+        (
+          screen.getAllByLabelText(
+            /^Nama tahapan(?: \* \(wajib\)| \(opsional\))?$/,
+          ) as HTMLInputElement[]
+        ).map((input) => input.value),
       ).toEqual(["Penyisihan Daring"]);
       await waitFor(() =>
         expect(readinessNote()?.textContent).not.toContain("Simpan perubahan sebelum menerbitkan"),
@@ -2616,7 +2680,9 @@ describe("InstitutionCompetitionEditShell steps", () => {
 
       render(shellWithPartsAt(4));
 
-      const [storedTitle] = await screen.findAllByLabelText("Nama hadiah");
+      const [storedTitle] = await screen.findAllByLabelText(
+        /^Nama hadiah(?: \* \(wajib\)| \(opsional\))?$/,
+      );
       fireEvent.click(screen.getByRole("button", { name: "Tambah hadiah" }));
       fireEvent.change(storedTitle!, { target: { value: "Medali Emas" } });
       await changeFeeWindowWithAcknowledgement();
@@ -2627,7 +2693,9 @@ describe("InstitutionCompetitionEditShell steps", () => {
           "Biaya pendaftaran belum tersimpan. Periksa biaya, mata uang, dan batas waktu pembayaran lalu coba lagi.",
         ),
       ).toBeTruthy();
-      const titles = screen.getAllByLabelText("Nama hadiah") as HTMLInputElement[];
+      const titles = screen.getAllByLabelText(
+        /^Nama hadiah(?: \* \(wajib\)| \(opsional\))?$/,
+      ) as HTMLInputElement[];
       expect(titles.map((input) => input.value)).toEqual(["Medali Emas"]);
     });
 
@@ -2657,11 +2725,15 @@ describe("InstitutionCompetitionEditShell steps", () => {
           });
         }
         if (step === 2) {
-          expect(screen.queryByLabelText("Catatan kelayakan")).toBeNull();
+          expect(
+            screen.queryByLabelText(/^Catatan kelayakan(?: \* \(wajib\)| \(opsional\))?$/),
+          ).toBeNull();
         }
         if (step === 3) {
           expect(screen.queryByRole("button", { name: "Tambah tahapan" })).toBeNull();
-          expect(screen.queryByLabelText("Nama tahapan")).toBeNull();
+          expect(
+            screen.queryByLabelText(/^Nama tahapan(?: \* \(wajib\)| \(opsional\))?$/),
+          ).toBeNull();
           const deadline = new Date(PUBLISHED.registrationEndAt);
           deadline.setDate(deadline.getDate() + 1);
           deadline.setSeconds(0, 0);
@@ -2673,7 +2745,9 @@ describe("InstitutionCompetitionEditShell steps", () => {
         }
         if (step === 4) {
           expect(screen.queryByRole("button", { name: "Tambah hadiah" })).toBeNull();
-          expect(screen.queryByLabelText("Nama hadiah")).toBeNull();
+          expect(
+            screen.queryByLabelText(/^Nama hadiah(?: \* \(wajib\)| \(opsional\))?$/),
+          ).toBeNull();
           fireEvent.click(
             screen.getByRole("checkbox", {
               name: "Izinkan peserta membatalkan pendaftaran sendiri",
@@ -2716,15 +2790,21 @@ describe("InstitutionCompetitionEditShell steps", () => {
           expect(screen.queryByRole("checkbox", { name: FIRST_TAG })).toBeNull();
         }
         if (step === 2) {
-          expect(screen.queryByLabelText("Catatan kelayakan")).toBeNull();
+          expect(
+            screen.queryByLabelText(/^Catatan kelayakan(?: \* \(wajib\)| \(opsional\))?$/),
+          ).toBeNull();
         }
         if (step === 3) {
           expect(screen.queryByRole("button", { name: "Tambah tahapan" })).toBeNull();
-          expect(screen.queryByLabelText("Nama tahapan")).toBeNull();
+          expect(
+            screen.queryByLabelText(/^Nama tahapan(?: \* \(wajib\)| \(opsional\))?$/),
+          ).toBeNull();
         }
         if (step === 4) {
           expect(screen.queryByRole("button", { name: "Tambah hadiah" })).toBeNull();
-          expect(screen.queryByLabelText("Nama hadiah")).toBeNull();
+          expect(
+            screen.queryByLabelText(/^Nama hadiah(?: \* \(wajib\)| \(opsional\))?$/),
+          ).toBeNull();
         }
       },
     );
@@ -2757,9 +2837,12 @@ describe("InstitutionCompetitionEditShell steps", () => {
 
       render(shellWithPartsAt(3));
 
-      fireEvent.change(await screen.findByLabelText("Nama tahapan"), {
-        target: { value: "Penyisihan Daring" },
-      });
+      fireEvent.change(
+        await screen.findByLabelText(/^Nama tahapan(?: \* \(wajib\)| \(opsional\))?$/),
+        {
+          target: { value: "Penyisihan Daring" },
+        },
+      );
       fireEvent.click(saveButton());
 
       expect(await screen.findByText("Perubahan tersimpan.")).toBeTruthy();
@@ -2769,7 +2852,7 @@ describe("InstitutionCompetitionEditShell steps", () => {
           "Tahapan & linimasa gagal dimuat. Muat ulang halaman lalu coba lagi.",
         ),
       ).toBeTruthy();
-      expect(screen.queryByLabelText("Nama tahapan")).toBeNull();
+      expect(screen.queryByLabelText(/^Nama tahapan(?: \* \(wajib\)| \(opsional\))?$/)).toBeNull();
       expect(screen.queryByRole("button", { name: "Tambah tahapan" })).toBeNull();
 
       fireEvent.click(saveButton());

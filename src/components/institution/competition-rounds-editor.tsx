@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Feedback, IconButton } from "@/components/ui";
+import { Feedback, FormInput, FormLabel, FormTextarea, IconButton } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import {
   describePartLoadFailure,
@@ -195,60 +195,55 @@ export const CompetitionRoundsEditor = ({
           {rows.map((row, index) => (
             <div key={index} className="surface-card card-padding stack-sm">
               <div className="form-field">
-                <label className="form-label" htmlFor={`round-title-${index}`}>
+                <FormLabel htmlFor={`round-title-${index}`} required>
                   Nama tahapan
-                </label>
-                <input
+                </FormLabel>
+                <FormInput
                   id={`round-title-${index}`}
-                  className="form-input"
                   value={row.title}
                   maxLength={160}
                   onChange={(event) => updateRow(index, { title: event.target.value })}
                 />
               </div>
               <div className="form-field">
-                <label className="form-label" htmlFor={`round-platform-${index}`}>
+                <FormLabel htmlFor={`round-platform-${index}`} optional>
                   Format (mis. Online / Offline)
-                </label>
-                <input
+                </FormLabel>
+                <FormInput
                   id={`round-platform-${index}`}
-                  className="form-input"
                   value={row.platformLabel}
                   maxLength={80}
                   onChange={(event) => updateRow(index, { platformLabel: event.target.value })}
                 />
               </div>
               <div className="form-field">
-                <label className="form-label" htmlFor={`round-start-${index}`}>
+                <FormLabel htmlFor={`round-start-${index}`} optional>
                   Mulai
-                </label>
-                <input
+                </FormLabel>
+                <FormInput
                   id={`round-start-${index}`}
-                  className="form-input"
                   type="datetime-local"
                   value={row.startsAt}
                   onChange={(event) => updateRow(index, { startsAt: event.target.value })}
                 />
               </div>
               <div className="form-field">
-                <label className="form-label" htmlFor={`round-end-${index}`}>
+                <FormLabel htmlFor={`round-end-${index}`} optional>
                   Selesai
-                </label>
-                <input
+                </FormLabel>
+                <FormInput
                   id={`round-end-${index}`}
-                  className="form-input"
                   type="datetime-local"
                   value={row.endsAt}
                   onChange={(event) => updateRow(index, { endsAt: event.target.value })}
                 />
               </div>
               <div className="form-field">
-                <label className="form-label" htmlFor={`round-desc-${index}`}>
+                <FormLabel htmlFor={`round-desc-${index}`} optional>
                   Deskripsi
-                </label>
-                <textarea
+                </FormLabel>
+                <FormTextarea
                   id={`round-desc-${index}`}
-                  className="form-textarea"
                   rows={3}
                   value={row.description}
                   maxLength={2000}

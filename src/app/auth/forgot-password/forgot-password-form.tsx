@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import { Button, ButtonLink, Icon } from "@/components/ui";
+import { Button, ButtonLink, FormInput, FormLabel, Icon } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import { COMPANY } from "@/config/company";
 
@@ -114,10 +114,10 @@ export function ForgotPasswordForm({ initialEmail }: ForgotPasswordFormProps) {
       </header>
 
       <div className="form-field">
-        <label className="form-label form-label-required" htmlFor="forgot-password-email">
+        <FormLabel htmlFor="forgot-password-email" required>
           Email
-        </label>
-        <input
+        </FormLabel>
+        <FormInput
           id="forgot-password-email"
           name="email"
           type="email"
@@ -125,7 +125,6 @@ export function ForgotPasswordForm({ initialEmail }: ForgotPasswordFormProps) {
           required
           value={email}
           onChange={(event) => setEmail(event.target.value)}
-          className="form-input"
         />
       </div>
 

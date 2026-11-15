@@ -183,9 +183,12 @@ describe("CompetitionFeeSection", () => {
     await mountWith(PAID);
 
     fireEvent.click(acknowledgement());
-    fireEvent.change(screen.getByLabelText("Biaya per pendaftaran"), {
-      target: { value: "1500000" },
-    });
+    fireEvent.change(
+      screen.getByLabelText(/^Biaya per pendaftaran(?: \* \(wajib\)| \(opsional\))?$/),
+      {
+        target: { value: "1500000" },
+      },
+    );
 
     expect(await saveReportedFee()).toEqual({ ok: false, errorMessage: DISCLOSURE_REASON });
     expect(putCalls()).toEqual([]);
@@ -225,9 +228,12 @@ describe("CompetitionFeeSection", () => {
     expect(screen.queryByRole("button", { name: /Simpan biaya pendaftaran/ })).toBeNull();
     expect(lastReportedFeePart().isDirty).toBe(false);
 
-    fireEvent.change(screen.getByLabelText("Batas waktu pembayaran (hari)"), {
-      target: { value: "5" },
-    });
+    fireEvent.change(
+      screen.getByLabelText(/^Batas waktu pembayaran \(hari\)(?: \* \(wajib\)| \(opsional\))?$/),
+      {
+        target: { value: "5" },
+      },
+    );
     expect(lastReportedFeePart().isDirty).toBe(true);
 
     fireEvent.click(acknowledgement());
@@ -311,9 +317,12 @@ describe("CompetitionFeeSection", () => {
   it("reports a saved fee as saved when the reload body cannot be read", async () => {
     await mountWith(PAID);
 
-    fireEvent.change(screen.getByLabelText("Batas waktu pembayaran (hari)"), {
-      target: { value: "5" },
-    });
+    fireEvent.change(
+      screen.getByLabelText(/^Batas waktu pembayaran \(hari\)(?: \* \(wajib\)| \(opsional\))?$/),
+      {
+        target: { value: "5" },
+      },
+    );
     fireEvent.click(acknowledgement());
     vi.stubGlobal(
       "fetch",
@@ -354,11 +363,17 @@ describe("CompetitionFeeSection", () => {
     const amount = document.querySelector("p.data-text");
     expect(amount?.textContent).toBe(formatRupiah(150_000, "IDR"));
     expect(amount?.previousElementSibling?.textContent).toBe("Biaya per pendaftaran");
-    expect((screen.getByLabelText("Batas waktu pembayaran (hari)") as HTMLInputElement).value).toBe(
-      "3",
-    );
+    expect(
+      (
+        screen.getByLabelText(
+          /^Batas waktu pembayaran \(hari\)(?: \* \(wajib\)| \(opsional\))?$/,
+        ) as HTMLInputElement
+      ).value,
+    ).toBe("3");
     expect(screen.queryByRole("checkbox", { name: "Pendaftaran berbayar" })).toBeNull();
-    expect(screen.queryByLabelText("Biaya per pendaftaran")).toBeNull();
+    expect(
+      screen.queryByLabelText(/^Biaya per pendaftaran(?: \* \(wajib\)| \(opsional\))?$/),
+    ).toBeNull();
     expect(screen.queryByRole("checkbox", { name: /menyetujui/ })).toBeNull();
     expect(
       screen.getByText(
@@ -371,9 +386,12 @@ describe("CompetitionFeeSection", () => {
   it("sends only the window for a staff member and then reports no change", async () => {
     await mountWith(PAID, false);
 
-    fireEvent.change(screen.getByLabelText("Batas waktu pembayaran (hari)"), {
-      target: { value: "5" },
-    });
+    fireEvent.change(
+      screen.getByLabelText(/^Batas waktu pembayaran \(hari\)(?: \* \(wajib\)| \(opsional\))?$/),
+      {
+        target: { value: "5" },
+      },
+    );
     expect(lastReportedFeePart().isDirty).toBe(true);
 
     vi.stubGlobal(
@@ -403,9 +421,12 @@ describe("CompetitionFeeSection", () => {
   it("names a fee that is no longer on when a staff save is refused", async () => {
     await mountWith(PAID, false);
 
-    fireEvent.change(screen.getByLabelText("Batas waktu pembayaran (hari)"), {
-      target: { value: "5" },
-    });
+    fireEvent.change(
+      screen.getByLabelText(/^Batas waktu pembayaran \(hari\)(?: \* \(wajib\)| \(opsional\))?$/),
+      {
+        target: { value: "5" },
+      },
+    );
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -446,8 +467,11 @@ describe("CompetitionFeeSection", () => {
 
     expect({
       amount: document.querySelector("p.data-text")?.textContent,
-      windowDays: (screen.getByLabelText("Batas waktu pembayaran (hari)") as HTMLInputElement)
-        .value,
+      windowDays: (
+        screen.getByLabelText(
+          /^Batas waktu pembayaran \(hari\)(?: \* \(wajib\)| \(opsional\))?$/,
+        ) as HTMLInputElement
+      ).value,
       paidToggle: screen.queryByRole("checkbox", { name: "Pendaftaran berbayar" }),
       consent: screen.queryByRole("checkbox", { name: /menyetujui/ }),
       reason: screen.getByRole("status").textContent,
@@ -465,9 +489,12 @@ describe("CompetitionFeeSection", () => {
   it("moves only the window for the owner of a published competition and then reports no change", async () => {
     await mountWith(LOCKED_PAID);
 
-    fireEvent.change(screen.getByLabelText("Batas waktu pembayaran (hari)"), {
-      target: { value: "5" },
-    });
+    fireEvent.change(
+      screen.getByLabelText(/^Batas waktu pembayaran \(hari\)(?: \* \(wajib\)| \(opsional\))?$/),
+      {
+        target: { value: "5" },
+      },
+    );
     expect(lastReportedFeePart().isDirty).toBe(true);
 
     vi.stubGlobal(
@@ -500,7 +527,9 @@ describe("CompetitionFeeSection", () => {
 
     expect({
       free: screen.queryByText("Pendaftaran gratis.") !== null,
-      windowField: screen.queryByLabelText("Batas waktu pembayaran (hari)"),
+      windowField: screen.queryByLabelText(
+        /^Batas waktu pembayaran \(hari\)(?: \* \(wajib\)| \(opsional\))?$/,
+      ),
       reason: screen.getByRole("status").textContent,
       isDirty: lastReportedFeePart().isDirty,
     }).toEqual({ free: true, windowField: null, reason: PRICE_REASON, isDirty: false });
@@ -511,7 +540,9 @@ describe("CompetitionFeeSection", () => {
 
     expect({
       free: screen.queryByText("Pendaftaran gratis.") !== null,
-      windowField: screen.queryByLabelText("Batas waktu pembayaran (hari)"),
+      windowField: screen.queryByLabelText(
+        /^Batas waktu pembayaran \(hari\)(?: \* \(wajib\)| \(opsional\))?$/,
+      ),
       reason: screen.getByRole("status").textContent,
       isDirty: lastReportedFeePart().isDirty,
     }).toEqual({ free: true, windowField: null, reason: PRICE_REASON, isDirty: false });

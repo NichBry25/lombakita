@@ -141,7 +141,7 @@ describe("the contact part in the edit shell", () => {
 
     render(shellWithContactAt(5, CONTACT_MISSING));
 
-    const field = await screen.findByLabelText("Nomor WhatsApp");
+    const field = await screen.findByLabelText(/^Nomor WhatsApp(?: \* \(wajib\)| \(opsional\))?$/);
     expect((field as HTMLInputElement).value).toBe("0812-3456-7890");
     await waitFor(() => expect(publishButton().hasAttribute("disabled")).toBe(false));
     expect(screen.queryByText(CONTACT_MISSING_REASON)).toBeNull();
@@ -164,7 +164,7 @@ describe("the contact part in the edit shell", () => {
 
     render(shellWithContactAt(5, CONTACT_MISSING));
 
-    const field = await screen.findByLabelText("Nomor WhatsApp");
+    const field = await screen.findByLabelText(/^Nomor WhatsApp(?: \* \(wajib\)| \(opsional\))?$/);
     expect((field as HTMLInputElement).value).toBe("");
     expect(screen.queryByRole("button", { name: "Terbitkan" })).toBeNull();
     expect(readinessNote()?.textContent).toContain(CONTACT_MISSING_REASON);
@@ -184,7 +184,7 @@ describe("the contact part in the edit shell", () => {
 
     render(shellWithContactAt(5, CONTACT_MISSING));
 
-    await screen.findByLabelText("Nomor WhatsApp");
+    await screen.findByLabelText(/^Nomor WhatsApp(?: \* \(wajib\)| \(opsional\))?$/);
     await waitFor(() => expect(publishButton().hasAttribute("disabled")).toBe(false));
     fireEvent.click(publishButton());
 
@@ -214,7 +214,7 @@ describe("the contact part in the edit shell", () => {
 
     render(shellWithContactAt(5, CONTACT_MISSING));
 
-    await screen.findByLabelText("Nomor WhatsApp");
+    await screen.findByLabelText(/^Nomor WhatsApp(?: \* \(wajib\)| \(opsional\))?$/);
     await waitFor(() => expect(publishButton().hasAttribute("disabled")).toBe(false));
     fireEvent.click(publishButton());
 
@@ -245,7 +245,7 @@ describe("the contact part in the edit shell", () => {
 
     render(shellWithContactAt(1, { canPublish: true, blockers: [] }));
 
-    const field = await screen.findByLabelText("Nomor WhatsApp");
+    const field = await screen.findByLabelText(/^Nomor WhatsApp(?: \* \(wajib\)| \(opsional\))?$/);
     expect((field as HTMLInputElement).value).toBe("");
     expect(
       screen.getByText(

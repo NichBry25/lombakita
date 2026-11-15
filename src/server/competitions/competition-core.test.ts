@@ -256,7 +256,7 @@ describe("parseCompetitionPatchInput", () => {
         registrationStartAt: "2027-06-01T00:00:00Z",
         registrationEndAt: "2027-05-01T00:00:00Z",
       }),
-    ).toThrow(/Pendaftaran berakhir harus setelah pendaftaran mulai/);
+    ).toThrow(/Harus setelah pendaftaran mulai/);
   });
   it("rejects registrationEndAt in the past", () => {
     expect(() =>

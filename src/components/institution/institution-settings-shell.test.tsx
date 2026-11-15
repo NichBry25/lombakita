@@ -86,9 +86,12 @@ describe("the account the settings save is bound to", () => {
       </UIPrimitivesProvider>,
     );
 
-    fireEvent.change(await screen.findByLabelText("Nama institusi"), {
-      target: { value: "Akademi Baru" },
-    });
+    fireEvent.change(
+      await screen.findByLabelText(/^Nama institusi(?: \* \(wajib\)| \(opsional\))?$/),
+      {
+        target: { value: "Akademi Baru" },
+      },
+    );
     fireEvent.click(screen.getByRole("button", { name: "Simpan" }));
 
     await waitFor(() =>
@@ -118,9 +121,12 @@ describe("the account the settings save is bound to", () => {
       </UIPrimitivesProvider>,
     );
 
-    fireEvent.change(await screen.findByLabelText("Nama institusi"), {
-      target: { value: "Akademi Baru" },
-    });
+    fireEvent.change(
+      await screen.findByLabelText(/^Nama institusi(?: \* \(wajib\)| \(opsional\))?$/),
+      {
+        target: { value: "Akademi Baru" },
+      },
+    );
     fireEvent.click(screen.getByRole("button", { name: "Simpan" }));
 
     expect(

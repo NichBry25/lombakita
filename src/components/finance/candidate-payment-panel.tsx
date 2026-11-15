@@ -2,7 +2,7 @@
 
 import { ChangeEvent, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Card, Feedback, Icon } from "@/components/ui";
+import { Button, Card, Feedback, FormLabel, Icon } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import { LocalDate } from "@/components/ui/local-date";
 import { AssentNotice } from "@/components/legal/assent-notice";
@@ -281,9 +281,9 @@ export function CandidatePaymentPanel({
 
       {uploadable ? (
         <div className="form-field">
-          <label className="form-label" htmlFor={inputId}>
+          <FormLabel htmlFor={inputId} required>
             {payment.canResubmitProof ? "Unggah bukti transfer baru" : "Unggah bukti transfer"}
-          </label>
+          </FormLabel>
           <div className="pf-media-actions">
             <Button
               type="button"
