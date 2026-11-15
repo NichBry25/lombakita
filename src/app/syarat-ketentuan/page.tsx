@@ -102,7 +102,7 @@ export default function TermsPage() {
             nomor WhatsApp, nomor telepon, atau alamat email. Dengan menerbitkan, penyelenggara
             menyetujui kontak itu tampil untuk umum di halaman kompetisi dan dapat muncul di mesin
             pencari. Kontak itu dihapus dari kompetisi jika akun yang memakai email tersebut
-            dihapus, atau jika akun yang mendaftar sebagai penyelenggara dengan nomor tersebut
+            dihapus, atau jika akun yang sudah disetujui sebagai penyelenggara dengan nomor tersebut
             dihapus.
           </p>
         </section>

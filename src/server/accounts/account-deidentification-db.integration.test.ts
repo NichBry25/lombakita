@@ -434,7 +434,7 @@ const buildFixture = async (tx: Tx): Promise<Fixture> => {
     userId: f.target,
     fullName: f.targetName,
     mobileNumber: "+628123456789",
-    status: "draft",
+    status: "approved",
   });
 
   await tx.insert(recruiterVerificationDocuments).values({
@@ -2039,14 +2039,14 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
       });
     });
 
-    it("clears a contact written in another form of the account's sign-up number", async () => {
+    it("clears a contact written in another form of the account's approved sign-up number", async () => {
       await inRollback(async (tx) => {
         const f = await buildFixture(tx);
         await tx.insert(recruiterVerificationSubmissions).values({
           userId: f.target,
           fullName: f.targetName,
           mobileNumber: "81234567890",
-          status: "rejected",
+          status: "approved",
         });
         await setContact(tx, f.competition, "phone", "6281234567890");
 
@@ -2277,31 +2277,34 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
       });
     });
 
-    it("clears a contact saved through the editor from a sign-up number written with +0", async () => {
-      await inRollback(async (tx) => {
-        const f = await buildFixture(tx);
-        await tx.insert(recruiterVerificationSubmissions).values({
-          userId: f.target,
-          fullName: f.targetName,
-          mobileNumber: "+0812 3456 7890",
-          status: "rejected",
-        });
-        await setCompetitionOrganizerContactForEditor(
-          f.target,
-          f.competition,
-          { kind: "phone", value: "0812 3456 7890" },
-          tx as unknown as Database,
-        );
-        expect(await readContact(tx, f.competition)).toEqual({
-          kind: "phone",
-          value: "6281234567890",
-        });
+    it.each(["pending_review", "rejected", "draft"] as const)(
+      "keeps a contact saved through the editor when the account's matching sign-up is %s",
+      async (status) => {
+        await inRollback(async (tx) => {
+          const f = await buildFixture(tx);
+          await tx
+            .update(recruiterVerificationSubmissions)
+            .set({ mobileNumber: "+0812 3456 7890", status })
+            .where(eq(recruiterVerificationSubmissions.id, f.recruiterSubmission));
+          const saved = await setCompetitionOrganizerContactForEditor(
+            f.target,
+            f.competition,
+            { kind: "phone", value: "0812 3456 7890" },
+            tx as unknown as Database,
+          );
 
-        await runDeletion(tx, f);
+          await runDeletion(tx, f);
 
-        expect(await readContact(tx, f.competition)).toEqual({ kind: null, value: null });
-      });
-    });
+          expect({
+            saved,
+            afterDeletion: await readContact(tx, f.competition),
+          }).toEqual({
+            saved: { kind: "phone", value: "6281234567890" },
+            afterDeletion: { kind: "phone", value: "6281234567890" },
+          });
+        });
+      },
+    );
 
     it("names every cleared competition and its institution in the audit row", async () => {
       await inRollback(async (tx) => {

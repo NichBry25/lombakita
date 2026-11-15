@@ -818,12 +818,18 @@ const runDeidentificationWrites = async (
   // still names them.
   const retainedKeys = await findReferencedPaymentInstructionKeys(tx);
 
-  // Read BEFORE the host sign-up rows are deleted below. A sign-up number is never checked, so the
-  // clear below can reach a competition of an institution this account never belonged to.
+  // Read BEFORE the host sign-up rows are deleted below. A sign-up number is never checked, so
+  // only an approved sign-up counts: a reviewer has seen it. A draft, pending or rejected one
+  // could name another host's number unseen and clear that host's contact from every competition.
   const ownSignupNumbers = await tx
     .select({ mobileNumber: recruiterVerificationSubmissions.mobileNumber })
     .from(recruiterVerificationSubmissions)
-    .where(eq(recruiterVerificationSubmissions.userId, accountId));
+    .where(
+      and(
+        eq(recruiterVerificationSubmissions.userId, accountId),
+        eq(recruiterVerificationSubmissions.status, "approved"),
+      ),
+    );
   const ownContactDigits = ownSignupNumbers.flatMap((row) => {
     const digits = toDialDigits(row.mobileNumber);
     return digits === null ? [] : [digits];
@@ -1134,7 +1140,8 @@ const runDeidentificationWrites = async (
   );
 
   // The public contact of every competition that shows this person's own address or one of their
-  // own sign-up numbers, whichever institution runs it. A contact that matches neither stays.
+  // own approved sign-up numbers, whichever institution runs it. A contact that matches neither
+  // stays.
   // Nobody is told, so the audit row names every competition and institution it touched.
   const ownEmailContact = and(
     eq(competitions.organizerContactKind, "email"),

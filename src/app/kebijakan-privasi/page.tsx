@@ -260,9 +260,9 @@ export default function PrivacyPage() {
           </p>
           <p>
             Jika sebuah akun dihapus, kontak yang sama dengan email akun itu atau dengan nomor
-            ponsel dari pendaftaran penyelenggara akun itu dihapus dari setiap kompetisi yang
-            memakainya. Tombol untuk menghubungi penyelenggara tidak tampil lagi sampai
-            penyelenggara mengisi kontak baru.
+            ponsel dari pendaftaran penyelenggara akun itu yang sudah disetujui dihapus dari setiap
+            kompetisi yang memakainya. Tombol untuk menghubungi penyelenggara tidak tampil lagi
+            sampai penyelenggara mengisi kontak baru.
           </p>
         </section>
 
