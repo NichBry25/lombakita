@@ -70,13 +70,16 @@ describe("TermsPage", () => {
   });
 
   it("states that the contact a host chooses is public and goes with the account it belongs to", () => {
-    expect(renderToStaticMarkup(TermsPage())).toContain(
+    const html = renderToStaticMarkup(TermsPage());
+
+    expect(html).toContain(
       "Saat menerbitkan kompetisi, penyelenggara memilih satu kontak untuk peserta, berupa nomor " +
         "WhatsApp, nomor telepon, atau alamat email. Dengan menerbitkan, penyelenggara menyetujui " +
         "kontak itu tampil untuk umum di halaman kompetisi dan dapat muncul di mesin pencari. " +
         "Kontak itu dihapus dari kompetisi jika akun yang memakai email tersebut dihapus, atau jika " +
-        "akun pemilik atau staf institusi penyelenggara yang mendaftar dengan nomor tersebut dihapus.",
+        "akun yang mendaftar sebagai penyelenggara dengan nomor tersebut dihapus.",
     );
+    expect(html).not.toContain("pemilik atau staf");
   });
 
   it("states version 1.2 and the effective date as published", () => {
