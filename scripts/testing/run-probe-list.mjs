@@ -8,6 +8,9 @@
  * Each edit goes through `substituteOnce`, so an anchor that is absent or ambiguous stops the probe
  * before the detector runs. The detector is `fails` from the shared detectors.
  *
+ * Before the first probe, each distinct detector command and args pair runs once through
+ * `requireGreenBeforeProbing`, so a detector that is already red at HEAD stops the run.
+ *
  * Compile, applied, reached, restore and teardown all belong to `runProbes`. This file adds no
  * restore, no git call and no file write, so a probe list cannot do more than the harness does.
  *
@@ -15,8 +18,9 @@
  * `run-probe-list REFUSED: ` on stderr, and the exit code is 2.
  */
 import { readFileSync } from "node:fs";
+import { basename } from "node:path";
 import { pathToFileURL } from "node:url";
-import { runProbes, substituteOnce } from "./guard-probe.mjs";
+import { requireGreenBeforeProbing, runProbes, substituteOnce } from "./guard-probe.mjs";
 import { fails } from "./probes/detectors.mjs";
 
 export const GUARD_CLASSES = ["A1-in", "A1-pre", "A2", "B", "C", "D"];
@@ -55,6 +59,17 @@ const requireString = (owner, value, key) => {
   if (typeof value !== "string") refuse(`${owner}: key "${key}" must be a string`);
 };
 
+const requireNonEmptyString = (owner, value, key) => {
+  requireString(owner, value, key);
+  if (value === "") refuse(`${owner}: key "${key}" is an empty string`);
+};
+
+const requireNoEmptyItems = (owner, items, key) => {
+  items.forEach((item, position) => {
+    if (item === "") refuse(`${owner}: key "${key}[${position}]" is an empty string`);
+  });
+};
+
 const requireNonEmptyList = (owner, value, key) => {
   if (!Array.isArray(value)) refuse(`${owner}: key "${key}" must be a list`);
   if (value.length === 0) refuse(`${owner}: key "${key}" is an empty list`);
@@ -65,6 +80,7 @@ const requireEdit = (owner, edit, position, files) => {
   if (!isPlainObject(edit)) refuse(`${owner}: key "edits[${position}]" must be an object`);
   requireKeys(owner, edit, EDIT_KEYS, where);
   for (const key of EDIT_KEYS.required) requireString(owner, edit[key], `${where}${key}`);
+  requireNonEmptyString(owner, edit.find, `${where}find`);
   if (!files.includes(edit.file)) {
     refuse(`${owner}: key "${where}file" names ${edit.file}, which is not in files`);
   }
@@ -73,7 +89,7 @@ const requireEdit = (owner, edit, position, files) => {
 const requireDetector = (owner, detector) => {
   if (!isPlainObject(detector)) refuse(`${owner}: key "detector" must be an object`);
   requireKeys(owner, detector, DETECTOR_KEYS, "detector.");
-  requireString(owner, detector.command, "detector.command");
+  requireNonEmptyString(owner, detector.command, "detector.command");
   if (!isStringList(detector.args))
     refuse(`${owner}: key "detector.args" must be a list of strings`);
   if (detector.reached === undefined) return;
@@ -90,13 +106,14 @@ const requireProbe = (probe, position) => {
   const owner = label === "" ? `probe #${position + 1}` : `probe "${label}"`;
   if (!isPlainObject(probe)) refuse(`${owner}: must be an object`);
   requireKeys(owner, probe, PROBE_KEYS, "");
-  requireString(owner, probe.name, "name");
-  requireString(owner, probe.harmfulMove, "harmfulMove");
+  requireNonEmptyString(owner, probe.name, "name");
+  requireNonEmptyString(owner, probe.harmfulMove, "harmfulMove");
   if (!GUARD_CLASSES.includes(probe.klass)) {
     refuse(`${owner}: key "klass" must be one of ${GUARD_CLASSES.join(", ")}`);
   }
   requireNonEmptyList(owner, probe.files, "files");
   if (!isStringList(probe.files)) refuse(`${owner}: key "files" must be a list of strings`);
+  requireNoEmptyItems(owner, probe.files, "files");
   if (probe.repo !== undefined) requireString(owner, probe.repo, "repo");
   requireNonEmptyList(owner, probe.edits, "edits");
   probe.edits.forEach((edit, editPosition) => requireEdit(owner, edit, editPosition, probe.files));
@@ -104,6 +121,7 @@ const requireProbe = (probe, position) => {
   if (!isStringList(probe.appliedMarkers)) {
     refuse(`${owner}: key "appliedMarkers" must be a list of strings`);
   }
+  requireNoEmptyItems(owner, probe.appliedMarkers, "appliedMarkers");
   requireDetector(owner, probe.detector);
 };
 
@@ -161,17 +179,34 @@ const pathFromArgs = (args) => {
   return path;
 };
 
+/** The detector commands of the list, each distinct command and args pair once, in list order. */
+const distinctDetectorGates = (list) => {
+  const gates = new Map();
+  for (const spec of list.probes) {
+    const gate = [spec.detector.command, spec.detector.args];
+    gates.set(JSON.stringify(gate), gate);
+  }
+  return [...gates.values()];
+};
+
+const requireDetectorsGreen = (path, list) => {
+  const suite = basename(path);
+  for (const gate of distinctDetectorGates(list)) requireGreenBeforeProbing(suite, [gate]);
+};
+
 const main = async () => {
-  let probes;
+  let path;
+  let list;
   try {
-    const path = pathFromArgs(process.argv.slice(2));
-    probes = buildHarnessProbes(readProbeList(path));
+    path = pathFromArgs(process.argv.slice(2));
+    list = readProbeList(path);
   } catch (error) {
     if (!(error instanceof ProbeListRefusal)) throw error;
     console.error(`run-probe-list REFUSED: ${error.message}`);
     process.exit(REFUSAL_EXIT_CODE);
   }
-  await runProbes(probes);
+  requireDetectorsGreen(path, list);
+  await runProbes(buildHarnessProbes(list));
 };
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) await main();

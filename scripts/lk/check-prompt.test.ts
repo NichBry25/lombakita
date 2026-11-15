@@ -10,9 +10,10 @@
 
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   buildPromptContext,
@@ -80,6 +81,30 @@ describe("routing", () => {
       expect(failuresOf(text, context)).toEqual(["routing:3"]);
     });
   });
+
+  it("fails on line 1 when the first line is wrong", () => {
+    withRoot({}, (context) => {
+      const text = ["Claude", "Tier: 2", "Reviewers: Review A", END_LINE].join("\n");
+      expect(failuresOf(text, context)).toEqual(["routing:1"]);
+    });
+  });
+
+  it("fails on line 2 when the second line is wrong", () => {
+    withRoot({}, (context) => {
+      const text = ["Implementer: Claude", "Level: 2", "Reviewers: Review A", END_LINE].join("\n");
+      expect(failuresOf(text, context)).toEqual(["routing:2"]);
+    });
+  });
+
+  it("fails on the last line when there are fewer than three non-empty lines", () => {
+    withRoot({}, (context) => {
+      const text = ["Implementer: Claude", "", "Tier: 2"].join("\n");
+      expect(failuresOf(text, context)).toEqual(["routing:3", "end:3"]);
+      expect(messagesOf(text, context)[0]).toBe(
+        "non-empty line 3 must start with Reviewers:, found no such line",
+      );
+    });
+  });
 });
 
 describe("end", () => {
@@ -136,7 +161,28 @@ describe("path", () => {
     withRoot(files, (context) => {
       const report = checkPromptText(promptOf("Skip notes/<name>.txt and notes/*.txt."), context);
       expect(report.templates).toBe(2);
-      expect(reportLinesOf(report)).toEqual(["check-prompt: PASS, templates: 2"]);
+      expect(reportLinesOf(report)).toEqual(["check-prompt: PASS, templates: 2, unclassified: 0"]);
+    });
+  });
+
+  it("counts a slash token that is no template, no URL and no root entry, and does not fail it", () => {
+    withRoot(files, (context) => {
+      const text = promptOf(
+        "Choose and/or other/dir/file here.",
+        "Skip https://example.com/x, foo/<bar> and notes/a.txt.",
+      );
+      const report = checkPromptText(text, context);
+      expect(report.findings).toEqual([]);
+      expect(report.unclassified).toBe(2);
+      expect(reportLinesOf(report)).toEqual(["check-prompt: PASS, templates: 0, unclassified: 2"]);
+    });
+  });
+
+  it("fails a path under the work folder of another slug when it does not exist", () => {
+    withRoot(files, (context) => {
+      const text = promptOf("fine", "Read .work/other/03-report.md.");
+      expect(failuresOf(text, context)).toEqual([`path:${bodyLine(1)}`]);
+      expect(messagesOf(text, context)).toEqual([".work/other/03-report.md does not exist"]);
     });
   });
 
@@ -245,6 +291,75 @@ describe("commit", () => {
     expect(failuresOf(text, realRootContext())).toEqual([`commit:${bodyLine(1)}`]);
   });
 
+  describe("a range", () => {
+    const other = "0f1e2d3c4b5a69788796a5b4c3d2e1f001122334";
+
+    it("passes when both ends are commits, or the end is HEAD", () => {
+      const text = promptOf(`Diff ${head}..${head} and ${head}..HEAD.`);
+      expect(failuresOf(text, realRootContext())).toEqual([]);
+    });
+
+    it("fails on the start end alone when only the start is not a commit", () => {
+      const text = promptOf("fine", `Diff ${absentCommit}..HEAD.`);
+      expect(failuresOf(text, realRootContext())).toEqual([`commit:${bodyLine(1)}`]);
+      expect(messagesOf(text, realRootContext())[0]).toContain(absentCommit);
+    });
+
+    it("fails on the end alone when only the end is not a commit", () => {
+      const text = promptOf("fine", `Diff ${head}..${absentCommit}.`);
+      expect(failuresOf(text, realRootContext())).toEqual([`commit:${bodyLine(1)}`]);
+      expect(messagesOf(text, realRootContext())[0]).toContain(absentCommit);
+    });
+
+    it("fails once for each end that is not a commit", () => {
+      const text = promptOf("fine", `Diff ${absentCommit}..${other}.`);
+      expect(failuresOf(text, realRootContext())).toEqual([
+        `commit:${bodyLine(1)}`,
+        `commit:${bodyLine(1)}`,
+      ]);
+    });
+
+    it("leaves a token alone when an end has no commit shape", () => {
+      const text = promptOf("Diff 1234567..HEAD and HEAD..deadbeef.");
+      expect(failuresOf(text, realRootContext())).toEqual([]);
+    });
+  });
+
+  describe("the token length", () => {
+    const sevenChars = "0f1e2d3";
+    const fortyChars = "0123456789abcdef0123456789abcdef01234567";
+
+    it.each([
+      { length: 6, token: sevenChars.slice(0, 6), isCommitToken: false },
+      { length: 7, token: sevenChars, isCommitToken: true },
+      { length: 40, token: fortyChars, isCommitToken: true },
+      { length: 41, token: `${fortyChars}8`, isCommitToken: false },
+    ])("treats a $length character hex token as a commit token: $isCommitToken", (row) => {
+      const failures = failuresOf(promptOf("fine", `At ${row.token}.`), realRootContext());
+      expect(failures).toEqual(row.isCommitToken ? [`commit:${bodyLine(1)}`] : []);
+    });
+  });
+
+  describe("a commit that only the docs repository has", () => {
+    const docsCommit = (): string | undefined => {
+      try {
+        const options = { encoding: "utf8", stdio: "pipe" } as const;
+        const short = execFileSync("git", ["-C", "docs", "rev-parse", "--short", "HEAD"], options);
+        const full = execFileSync("git", ["-C", "docs", "rev-parse", "HEAD"], options);
+        const hasDigitAndLetter = /[0-9]/.test(short) && /[a-f]/.test(short);
+        return (hasDigitAndLetter ? short : full).trim();
+      } catch {
+        return undefined;
+      }
+    };
+    const id = docsCommit();
+    if (id === undefined) console.log("skipped: docs/ is not a git repository here");
+
+    it.skipIf(id === undefined)("passes", () => {
+      expect(failuresOf(promptOf(`Docs at ${id}.`), realRootContext())).toEqual([]);
+    });
+  });
+
   describe("a sha256", () => {
     const content = "digest me\n";
     const digest = createHash("sha256").update(content).digest("hex");
@@ -322,6 +437,27 @@ describe("words", () => {
     });
   });
 
+  it("fails on an END line that has no BEGIN", () => {
+    withRoot(files, (context) => {
+      const text = promptOf("fine", "END RECORDED WORDS");
+      expect(failuresOf(text, context)).toEqual([`words:${bodyLine(1)}`]);
+      expect(messagesOf(text, context)).toEqual(["END RECORDED WORDS has no BEGIN RECORDED WORDS"]);
+    });
+  });
+
+  it("fails on a BEGIN line while a block is open, and the outer block still closes", () => {
+    withRoot(files, (context) => {
+      const text = promptOf(
+        "BEGIN RECORDED WORDS",
+        "decided",
+        "BEGIN RECORDED WORDS",
+        "END RECORDED WORDS",
+      );
+      expect(failuresOf(text, context)).toEqual([`words:${bodyLine(2)}`]);
+      expect(messagesOf(text, context)[0]).toContain("opened at line 4");
+    });
+  });
+
   it("fails on a word after the END line of an earlier block", () => {
     withRoot(files, (context) => {
       const text = promptOf("BEGIN RECORDED WORDS", "decided", "END RECORDED WORDS", "decided");
@@ -345,7 +481,7 @@ describe("the report", () => {
         "FAIL dash line 4: holds U+2014",
         "FAIL end line 5: the last non-empty line must be exactly END OF PROMPT",
         'FAIL words line 5: "decided" outside a BEGIN RECORDED WORDS block',
-        "check-prompt: 3 finding(s), templates: 0",
+        "check-prompt: 3 finding(s), templates: 0, unclassified: 0",
       ]);
     });
   });
@@ -356,6 +492,24 @@ describe("the command line", () => {
     spawnSync("node", ["--import", "tsx", "scripts/lk/check-prompt.ts", ...args], {
       encoding: "utf8",
     });
+
+  const tsxLoader = pathToFileURL(join(process.cwd(), "node_modules/tsx/dist/loader.mjs")).href;
+  const checkerPath = join(process.cwd(), "scripts/lk/check-prompt.ts");
+
+  const checkerIn = (cwd: string, args: string[]) =>
+    spawnSync("node", ["--import", tsxLoader, checkerPath, ...args], { cwd, encoding: "utf8" });
+
+  /** A folder under the repository's own .work, because the checker refuses a prompt outside the cwd. */
+  const withWorkFolder = <T>(body: (folder: string) => T): T => {
+    const parent = join(process.cwd(), ".work");
+    mkdirSync(parent, { recursive: true });
+    const folder = mkdtempSync(join(parent, "lk-check-prompt-"));
+    try {
+      return body(folder);
+    } finally {
+      rmSync(folder, { recursive: true, force: true });
+    }
+  };
 
   const refusalExit = spawnSync(
     "node",
@@ -368,7 +522,7 @@ describe("the command line", () => {
   const lastLineOf = (output: string): string => output.trimEnd().split("\n").pop() ?? "";
 
   const runOnPrompt = (text: string) =>
-    withWorkspace((folder) => {
+    withWorkFolder((folder) => {
       const path = join(folder, "prompt.md");
       writeFileSync(path, text);
       return checker([path]);
@@ -377,18 +531,20 @@ describe("the command line", () => {
   it("exits 0 and prints PASS for a clean prompt", () => {
     const result = runOnPrompt(promptOf("a clean line"));
     expect(result.status).toBe(0);
-    expect(lastLineOf(result.stdout)).toBe("check-prompt: PASS, templates: 0");
+    expect(lastLineOf(result.stdout)).toBe("check-prompt: PASS, templates: 0, unclassified: 0");
   });
 
   it("exits 1 and counts the findings for a prompt with a defect", () => {
     const result = runOnPrompt([...HEAD_LINES, "body"].join("\n"));
     expect(result.status).toBe(1);
     expect(result.stdout).toContain("FAIL end line 4: ");
-    expect(lastLineOf(result.stdout)).toBe("check-prompt: 1 finding(s), templates: 0");
+    expect(lastLineOf(result.stdout)).toBe(
+      "check-prompt: 1 finding(s), templates: 0, unclassified: 0",
+    );
   });
 
   it("refuses a file that is missing, with the exit code of refuse from models", () => {
-    const result = withWorkspace((folder) => checker([join(folder, "absent.md")]));
+    const result = withWorkFolder((folder) => checker([join(folder, "absent.md")]));
     expect(refusalExit).toBe(1);
     expect(result.status).toBe(refusalExit);
     expect(result.stdout).toBe("");
@@ -400,6 +556,33 @@ describe("the command line", () => {
     expect(result.status).toBe(refusalExit);
     expect(result.stdout).toBe("");
     expect(result.stderr).toMatch(/^LK REFUSED: the prompt at .* is empty\n$/);
+  });
+
+  it("refuses a prompt file that is outside the current directory", () => {
+    const result = withWorkspace((folder) => {
+      const path = join(folder, "prompt.md");
+      writeFileSync(path, promptOf("a clean line"));
+      return checker([path]);
+    });
+    expect(result.status).toBe(refusalExit);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toMatch(
+      /^LK REFUSED: the prompt at .*prompt\.md is not inside the current directory .*\n$/,
+    );
+  });
+
+  it("refuses a run from a directory that holds no package.json, whatever the prompt holds", () => {
+    const result = withWorkspace((folder) => {
+      const directory = realpathSync(folder);
+      const path = join(directory, "prompt.md");
+      writeFileSync(path, promptOf("a clean line"));
+      return checkerIn(directory, [path]);
+    });
+    expect(result.status).toBe(refusalExit);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toMatch(
+      /^LK REFUSED: the current directory .* holds no package\.json, so it is not the repository root\n$/,
+    );
   });
 
   it("refuses when no file is given", () => {

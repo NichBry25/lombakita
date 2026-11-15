@@ -5,9 +5,12 @@
  *
  * Every finding is one line `FAIL <check id> line <n>: <what>`. The last line is
  * `check-prompt: <count> finding(s)` and exit 1, or `check-prompt: PASS` and exit 0, each followed
- * by `, templates: <n>`, the number of path-like tokens that hold a placeholder and so were not
- * checked. A prompt file that is missing, empty or not given is refused through `refuse` from
- * ./models: one line starting `LK REFUSED: ` on stderr, exit 1, nothing on stdout.
+ * by `, templates: <n>, unclassified: <n>`. Templates are the path-like tokens that hold a
+ * placeholder and so were not checked. Unclassified are the tokens with a slash that are not a
+ * template, not a URL and do not start with a root entry, so no check read them.
+ * A prompt file that is missing, empty or not given, a working directory without a package.json and
+ * a prompt file outside the working directory are refused through `refuse` from ./models: one line
+ * starting `LK REFUSED: ` on stderr, exit 1, nothing on stdout.
  *
  * The repository root is the current working directory. The slug is the folder name above the
  * prompt file. The checks read a path only when the prompt names it, and a finding prints the token
@@ -17,7 +20,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { LkRefusal, parseCliArgs, refuse } from "./models";
 
@@ -69,6 +72,7 @@ export interface Finding {
 export interface PromptReport {
   findings: Finding[];
   templates: number;
+  unclassified: number;
 }
 
 export interface PromptContext {
@@ -129,6 +133,18 @@ const looksLikePath = (cleaned: string, context: PromptContext): boolean => {
   const firstSegment = cleaned.split("/")[0] ?? "";
   return context.rootEntries.has(firstSegment);
 };
+
+const isUnclassifiedSlashToken = (cleaned: string, context: PromptContext): boolean => {
+  if (!cleaned.includes("/")) return false;
+  if (cleaned.includes(SUBJECT.path.urlMarker)) return false;
+  if (SUBJECT.path.templateCharacters.test(cleaned)) return false;
+  return !looksLikePath(cleaned, context);
+};
+
+const countUnclassifiedSlashTokens = (lines: string[], context: PromptContext): number =>
+  lines
+    .flatMap((text) => rawTokensOf(text))
+    .filter((raw) => isUnclassifiedSlashToken(cleanedToken(raw.text), context)).length;
 
 interface CitedLines {
   first: number;
@@ -310,6 +326,23 @@ const sha256ProblemOnLine = (
   return `the sha256 is not the sha256 of ${only.path}`;
 };
 
+/** The two ends of a token such as `a3bc75b..HEAD`, or undefined when the token is not a range. */
+const rangeEndsOf = (candidate: string): [string, string] | undefined => {
+  const parts = candidate.split("..");
+  if (parts.length !== 2) return undefined;
+  const [start, end] = parts;
+  if (start === undefined || end === undefined) return undefined;
+  if (!isHashLike(start, SUBJECT.commit.hash)) return undefined;
+  if (end !== "HEAD" && !isHashLike(end, SUBJECT.commit.hash)) return undefined;
+  return [start, end];
+};
+
+const commitHashesOf = (candidate: string): string[] => {
+  const ends = rangeEndsOf(candidate);
+  if (ends !== undefined) return ends.filter((end) => end !== "HEAD");
+  return isHashLike(candidate, SUBJECT.commit.hash) ? [candidate] : [];
+};
+
 export const checkCommit = (lines: string[], context: PromptContext): Finding[] => {
   const pathTokens = pathTokensOf(lines, context);
   return lines.flatMap((text, index) => {
@@ -321,11 +354,11 @@ export const checkCommit = (lines: string[], context: PromptContext): Finding[] 
         const problem = sha256ProblemOnLine(candidate, lineTokens, context);
         return problem === undefined ? [] : [finding("commit", number, problem)];
       }
-      if (!isHashLike(candidate, SUBJECT.commit.hash)) return [];
-      if (commitExistsInRootOrDocs(candidate, context)) return [];
-      return [
-        finding("commit", number, `${candidate} is not a commit in the repository root or docs/`),
-      ];
+      return commitHashesOf(candidate)
+        .filter((hash) => !commitExistsInRootOrDocs(hash, context))
+        .map((hash) =>
+          finding("commit", number, `${hash} is not a commit in the repository root or docs/`),
+        );
     });
   });
 };
@@ -341,15 +374,24 @@ const distinctWordsIn = (text: string): string[] => {
   return [...new Set(words)];
 };
 
+const opensWhileOpenMessage = (openedAtLine: number): string =>
+  `${SUBJECT.words.begin} while the block opened at line ${openedAtLine} is still open`;
+
 export const checkWords = (lines: string[], context: PromptContext): Finding[] => {
   const findings: Finding[] = [];
   let openedAtLine: number | undefined;
   lines.forEach((text, index) => {
     if (text === SUBJECT.words.begin) {
-      openedAtLine ??= index + 1;
+      if (openedAtLine === undefined) openedAtLine = index + 1;
+      else findings.push(finding("words", index + 1, opensWhileOpenMessage(openedAtLine)));
       return;
     }
     if (text === SUBJECT.words.end) {
+      if (openedAtLine === undefined) {
+        findings.push(
+          finding("words", index + 1, `${SUBJECT.words.end} has no ${SUBJECT.words.begin}`),
+        );
+      }
       openedAtLine = undefined;
       return;
     }
@@ -380,7 +422,8 @@ export const checkPromptText = (text: string, context: PromptContext): PromptRep
   ];
   findings.sort((left, right) => left.line - right.line);
   const templates = pathTokensOf(lines, context).filter((token) => token.isTemplate).length;
-  return { findings, templates };
+  const unclassified = countUnclassifiedSlashTokens(lines, context);
+  return { findings, templates, unclassified };
 };
 
 export const reportLinesOf = (report: PromptReport): string[] => {
@@ -388,7 +431,8 @@ export const reportLinesOf = (report: PromptReport): string[] => {
     (item) => `FAIL ${item.check} line ${item.line}: ${item.message}`,
   );
   const verdict = report.findings.length === 0 ? "PASS" : `${report.findings.length} finding(s)`;
-  return [...findingLines, `check-prompt: ${verdict}, templates: ${report.templates}`];
+  const counts = `templates: ${report.templates}, unclassified: ${report.unclassified}`;
+  return [...findingLines, `check-prompt: ${verdict}, ${counts}`];
 };
 
 const readPromptFile = (path: string): string => {
@@ -410,12 +454,28 @@ const promptPathFromArgs = (args: string[]): string => {
   return path;
 };
 
+const requireRepositoryRoot = (root: string): void => {
+  if (existsSync(join(root, "package.json"))) return;
+  refuse(`the current directory ${root} holds no package.json, so it is not the repository root`);
+};
+
+const requirePromptInside = (root: string, path: string): void => {
+  const fromRoot = relative(root, resolve(path));
+  const isOutside = fromRoot === "" || fromRoot === ".." || fromRoot.startsWith(`..${sep}`);
+  if (isOutside || isAbsolute(fromRoot)) {
+    refuse(`the prompt at ${path} is not inside the current directory ${root}`);
+  }
+};
+
 const main = (): void => {
   try {
+    const root = process.cwd();
+    requireRepositoryRoot(root);
     const path = promptPathFromArgs(process.argv.slice(2));
+    requirePromptInside(root, path);
     const text = readPromptFile(path);
     const slug = basename(dirname(resolve(path)));
-    const report = checkPromptText(text, buildPromptContext(process.cwd(), slug));
+    const report = checkPromptText(text, buildPromptContext(root, slug));
     console.log(reportLinesOf(report).join("\n"));
     process.exitCode = report.findings.length === 0 ? 0 : 1;
   } catch (error) {

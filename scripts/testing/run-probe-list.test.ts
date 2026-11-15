@@ -7,8 +7,8 @@
  * to a temporary folder that is removed in a `finally`, run through the real command line.
  */
 
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -144,6 +144,36 @@ describe("refusals", () => {
       message: 'probe "first": key "appliedMarkers" is an empty list',
     },
     {
+      name: "an empty name",
+      damage: withProbeKey("name", ""),
+      message: 'probe #1: key "name" is an empty string',
+    },
+    {
+      name: "an empty harmfulMove",
+      damage: withProbeKey("harmfulMove", ""),
+      message: 'probe "first": key "harmfulMove" is an empty string',
+    },
+    {
+      name: "an empty string in files",
+      damage: withProbeKey("files", [""]),
+      message: 'probe "first": key "files[0]" is an empty string',
+    },
+    {
+      name: "an edit with an empty find",
+      damage: withProbeKey("edits", [{ file: "scripts/one.txt", find: "", replace: "b" }]),
+      message: 'probe "first": key "edits[0].find" is an empty string',
+    },
+    {
+      name: "an empty string in appliedMarkers",
+      damage: withProbeKey("appliedMarkers", [""]),
+      message: 'probe "first": key "appliedMarkers[0]" is an empty string',
+    },
+    {
+      name: "an empty detector command",
+      damage: withDetector({ command: "" }),
+      message: 'probe "first": key "detector.command" is an empty string',
+    },
+    {
       name: "a klass outside the list",
       damage: withProbeKey("klass", "E"),
       message: 'probe "first": key "klass" must be one of A1-in, A1-pre, A2, B, C, D',
@@ -223,6 +253,80 @@ describe("refusals", () => {
     expect(result.stderr).toMatch(
       /^run-probe-list REFUSED: the probe list at .* is not valid JSON: /,
     );
+  });
+});
+
+describe("running a list through the harness", () => {
+  const TRACKED_FILE = "probed.yml";
+  const MARKER = "PROBE_MARKER";
+  const RUNNER = join(process.cwd(), "scripts/testing/run-probe-list.mjs");
+
+  const runGit = (cwd: string, args: string[]) =>
+    execFileSync("git", args, { cwd, encoding: "utf8", stdio: "pipe" });
+
+  const withTemporaryRepository = <T>(body: (repository: string) => T): T =>
+    withWorkspace((folder) => {
+      const repository = realpathSync(folder);
+      runGit(repository, ["init", "--quiet"]);
+      runGit(repository, ["config", "user.email", "probe@example.invalid"]);
+      runGit(repository, ["config", "user.name", "probe"]);
+      writeFileSync(join(repository, TRACKED_FILE), "before: 1\n");
+      runGit(repository, ["add", TRACKED_FILE]);
+      runGit(repository, ["commit", "--quiet", "-m", "one tracked file"]);
+      return body(repository);
+    });
+
+  const detectorReadingMarker = [
+    'const text = require("node:fs").readFileSync("probed.yml", "utf8");',
+    `if (text.includes("${MARKER}")) { console.log("FAIL marker present"); process.exit(1); }`,
+  ].join(" ");
+
+  const listWithDetector = (script: string) => ({
+    probes: [
+      {
+        name: "marker probe",
+        klass: "D",
+        harmfulMove: "the marker is written into the tracked file",
+        files: [TRACKED_FILE],
+        edits: [{ file: TRACKED_FILE, find: "before", replace: MARKER }],
+        appliedMarkers: [MARKER],
+        detector: { command: "node", args: ["-e", script] },
+      },
+    ],
+  });
+
+  const runListIn = (repository: string, list: unknown) => {
+    const listPath = join(repository, "list.json");
+    writeFileSync(listPath, JSON.stringify(list));
+    return spawnSync("node", [RUNNER, listPath], { cwd: repository, encoding: "utf8" });
+  };
+
+  const treeIsClean = (repository: string): boolean => {
+    try {
+      runGit(repository, ["diff", "--quiet"]);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  it("runs a probe whose detector goes red, and leaves the tracked file clean", () => {
+    withTemporaryRepository((repository) => {
+      const result = runListIn(repository, listWithDetector(detectorReadingMarker));
+      expect(result.stderr).not.toContain("NOT PROVEN");
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("1/1 probes went red as claimed.");
+      expect(treeIsClean(repository)).toBe(true);
+    });
+  });
+
+  it("reports NOT PROVEN and exits non-zero when the detector stays green, and leaves the tree clean", () => {
+    withTemporaryRepository((repository) => {
+      const result = runListIn(repository, listWithDetector("process.exit(0)"));
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain("NOT PROVEN: marker probe");
+      expect(treeIsClean(repository)).toBe(true);
+    });
   });
 });
 
