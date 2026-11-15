@@ -164,11 +164,10 @@ describe("the fee-setting write path enforces the edit matrix THROUGH the classi
   it("keeps no private copy of either matrix rule", () => {
     const source = read(FEE_SERVICE);
 
-    // The draft hold (assertDraftPriceMayChange) asks two questions of its own: is a registration
-    // that is not cancelled left, and does a transfer await review. The two predicates below answer
-    // other questions: the in-flight one also counts verified transfers, and the free-entrants one
-    // sees only free registrants. Calling either here would hold or release a draft's price on a
-    // rule this path does not have.
+    // The draft hold (assertDraftPriceMayChange) asks one question of its own: is a registration
+    // that is not cancelled left. The two predicates below answer other questions: the in-flight one
+    // counts transfers, and the free-entrants one sees only free registrants. Calling either here
+    // would hold or release a draft's price on a rule this path does not have.
     expect(source).not.toContain("hasCompetitionPaymentInFlight(");
     expect(source).not.toContain("hasActiveFreeRegistrations(");
   });

@@ -1185,13 +1185,13 @@ export const unpublishCompetition = async (
     // the one where the transfer has happened but the organiser has not verified it yet, and the
     // narrower predicate would let exactly that case through.
     //
-    // The message names the escape hatch because there is one: platform_ops cancellation, which
-    // exists so an organiser with a genuine reason is not simply stuck.
+    // The message names the way out, resolving each transfer, because an operator's cancellation
+    // holds to the same block.
     if (await hasCompetitionPaymentInFlight(competitionId, tx)) {
       throw new CompetitionError(
         "competition_unpublish_blocked_payment_in_flight",
         409,
-        "Kompetisi tidak dapat ditarik selama masih ada bukti transfer yang menunggu verifikasi. Hubungi tim Lombakita untuk pembatalan.",
+        "Kompetisi tidak dapat ditarik selama masih ada bukti transfer yang menunggu verifikasi atau sudah diverifikasi. Verifikasi atau tolak dulu setiap bukti yang menunggu. Kompetisi dengan transfer yang sudah diverifikasi tidak dapat ditarik.",
       );
     }
 

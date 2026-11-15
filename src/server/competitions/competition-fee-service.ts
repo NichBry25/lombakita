@@ -29,11 +29,9 @@ import {
   type CompetitionPricing,
 } from "@/server/competitions/competition-service";
 import { enqueueCompetitionEdited } from "@/server/async/enqueue";
-import { hasCompetitionTransferAwaitingReview } from "@/server/finance/paid-registration";
 import {
   COMPETITION_CHANGED_DURING_EDIT_REASON,
   DRAFT_PRICE_HELD_BY_REGISTRATIONS_REASON,
-  DRAFT_PRICE_WAITS_FOR_TRANSFER_REVIEW_REASON,
   PUBLISH_LOCK_REASONS,
 } from "@/lib/competitions/publish-locks";
 
@@ -54,8 +52,7 @@ import {
 //   2. Publish lock:   the competition's status, read under the participation lock and compared
 //                      again by the write. After publish classifyCompetitionEdit refuses a new
 //                      amount or currency, and only the payment window still moves. A draft takes
-//                      any price unless it still holds a non-cancelled registration or a transfer
-//                      awaiting verification.
+//                      any price unless it still holds a non-cancelled registration.
 //   3. Charging:       assertInstitutionVerified. Only for a NON-ZERO fee, so a draft that gate 2
 //                      lets change its price can always go back to free, including for an
 //                      institution whose verification was just revoked. Revocation must not trap
@@ -124,17 +121,17 @@ export const setCompetitionFee = async (
 
   // THE PUBLISH LOCK, decided by the same classifier the ordinary edit path uses.
   //
-  // A draft with nobody registered and no transfer awaiting verification takes any price, and nobody
-  // is told about it. Once the competition is published the classifier refuses any change to the
-  // amount or the currency, and `paymentWindowDays` is threaded in as the value that will actually
-  // be written, so a window moved at an unchanged price is announced rather than refused.
+  // A draft with nobody registered takes any price, and nobody is told about it. Once the
+  // competition is published the classifier refuses any change to the amount or the currency, and
+  // `paymentWindowDays` is threaded in as the value that will actually be written, so a window
+  // moved at an unchanged price is announced rather than refused.
   //
   // ONE TRANSACTION, UNDER THE PARTICIPATION LOCK, from the status read to the write. A candidate
   // registers only on a published competition and takes the same lock to do it, so reading the
   // status under the lock means no one registers at the old price and then owes a new one. The
   // advisory lock is the same one every other path that reasons about the participation set takes:
-  // registration, team registration, participation changes, results, unpublish, and the ops
-  // cancellation hatch.
+  // registration, team registration, participation changes, results, unpublish, the operator's
+  // cancellation, and a proof upload or refile.
   const notify = await db.transaction(async (tx) => {
     await acquireCompetitionParticipationLock(tx, competitionId);
 
@@ -320,10 +317,8 @@ const classifyPricingChange = async (
 };
 
 /**
- * Refuses a new price on a draft that still holds a non-cancelled registration or a transfer
- * awaiting verification. An operator's cancellation returns a published competition to draft and
- * leaves its proofs pending, and a registration still active on a draft would owe a price it never
- * agreed to.
+ * Refuses a new price on a draft that still holds a non-cancelled registration, which would owe a
+ * price it never agreed to.
  */
 const assertDraftPriceMayChange = async (
   competitionId: string,
@@ -335,14 +330,6 @@ const assertDraftPriceMayChange = async (
       "competition_fee_blocked_active_registrations",
       409,
       DRAFT_PRICE_HELD_BY_REGISTRATIONS_REASON,
-      { fields: changedFields },
-    );
-  }
-  if (await hasCompetitionTransferAwaitingReview(competitionId, db)) {
-    throw new CompetitionError(
-      "competition_fee_waits_for_transfer_review",
-      409,
-      DRAFT_PRICE_WAITS_FOR_TRANSFER_REVIEW_REASON,
       { fields: changedFields },
     );
   }

@@ -24,7 +24,6 @@ vi.mock("@/lib/logger", () => ({ logger: { warn: vi.fn(), info: vi.fn(), error: 
 // `manual-lane-db.integration.test.ts`.
 vi.mock("@/server/finance/paid-registration", () => ({
   hasSubmittedPaymentProof: vi.fn().mockResolvedValue(false),
-  hasTransferInFlightOnClosedPublication: vi.fn().mockResolvedValue(false),
   lockPaymentGroupAnchorRow: vi.fn().mockResolvedValue(null),
 }));
 vi.mock("@/server/async/enqueue", () => ({

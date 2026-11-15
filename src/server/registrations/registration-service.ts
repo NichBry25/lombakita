@@ -2,7 +2,7 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/registrations/registration-service");
 
-import { and, desc, eq, isNotNull, isNull, ne, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, ne, sql } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
 import { competitionRegistrations, competitions } from "@/server/db/schema";
 import {
@@ -17,7 +17,6 @@ import { acquireCompetitionParticipationLock } from "@/server/competitions/compe
 import { isCompetitionHost } from "@/server/competitions/competition-access";
 import {
   hasSubmittedPaymentProof,
-  hasTransferInFlightOnClosedPublication,
   lockPaymentGroupAnchorRow,
 } from "@/server/finance/paid-registration";
 import {
@@ -41,16 +40,14 @@ const REGISTRATION_COLUMNS = {
 
 // Pure read for downstream steps (4.5 dashboard, 4.6 submission intake).
 // Returns the candidate's most recent registration row for this competition (any status) in its
-// current publication. When there is none, it returns the newest row of a publication an unpublish
-// closed if a transfer the candidate paid on an ended publication still keeps them out (the payer
-// rule), so the page shows them a cancelled registration; otherwise null. Callers must scope
-// `studentId` to the authenticated session. This helper performs no authorization of its own.
+// current publication, or null when there is none. Callers must scope `studentId` to the
+// authenticated session. This helper performs no authorization of its own.
 export const getStudentRegistration = async (
   studentId: string,
   competitionId: string,
   db: Database = getDb(),
 ): Promise<RegistrationRecord | null> => {
-  const [current] = await db
+  const [row] = await db
     .select(REGISTRATION_COLUMNS)
     .from(competitionRegistrations)
     .where(
@@ -62,24 +59,8 @@ export const getStudentRegistration = async (
     )
     .orderBy(desc(competitionRegistrations.registeredAt))
     .limit(1);
-  if (current) return current;
 
-  const [closed] = await db
-    .select(REGISTRATION_COLUMNS)
-    .from(competitionRegistrations)
-    .where(
-      and(
-        eq(competitionRegistrations.studentId, studentId),
-        eq(competitionRegistrations.competitionId, competitionId),
-        isNotNull(competitionRegistrations.publicationClosedAt),
-      ),
-    )
-    .orderBy(desc(competitionRegistrations.registeredAt))
-    .limit(1);
-  if (closed && (await hasTransferInFlightOnClosedPublication(studentId, competitionId, db))) {
-    return closed;
-  }
-  return null;
+  return row ?? null;
 };
 
 type CompetitionGuardSnapshot = {
@@ -143,8 +124,8 @@ const findActiveRegistration = async (
 
 // A cancelled individual registration that a payment proof was sent for keeps blocking a new one
 // (DEC-0174: the proof, not the competition's price) within its publication. A row whose
-// publication an unpublish closed is not read here. isRegisteringAgainClosedByPayment adds the
-// payer rule for such rows, and the page asks that one.
+// publication an unpublish closed blocks nothing. The page asks the same question with this reader,
+// so the card never offers what the server refuses.
 export const hasPaymentProofOnCancelledIndividualRegistrations = async (
   studentId: string,
   competitionId: string,
@@ -204,34 +185,6 @@ const assertNoPaymentProofOnCancelledIndividualRegistrations = async (
   }
 };
 
-const assertNoTransferInFlightOnClosedPublication = async (
-  studentId: string,
-  competitionId: string,
-  tx: DbOrTx,
-): Promise<void> => {
-  if (await hasTransferInFlightOnClosedPublication(studentId, competitionId, tx)) {
-    throw new RegistrationError(
-      "registration_already_exists",
-      "A transfer for an ended publication of this competition awaits verification or was verified, so it cannot register again",
-      { existingStatus: "cancelled" },
-    );
-  }
-};
-
-// Whether the candidate cannot register again: a proof on a cancelled registration of the current
-// publication, or a transfer they paid on a closed one. The page asks this, so the card never
-// offers what the two refusals in createIndividualRegistration refuse.
-export const isRegisteringAgainClosedByPayment = async (
-  studentId: string,
-  competitionId: string,
-  db: DbOrTx = getDb(),
-): Promise<boolean> => {
-  if (await hasPaymentProofOnCancelledIndividualRegistrations(studentId, competitionId, db)) {
-    return true;
-  }
-  return hasTransferInFlightOnClosedPublication(studentId, competitionId, db);
-};
-
 const assertCompetitionAcceptsIndividualRegistration = (
   competition: CompetitionGuardSnapshot,
   now: Date,
@@ -281,9 +234,8 @@ const assertParticipantCancellationWindowOpen = (
 //   (c) competition.mode === 'individual' or 'both'
 //   (d) registration_deadline (registrationEndAt) not yet passed
 //   (e) eligibility helper returns eligible
-//   (f) no registration that is not cancelled, no cancelled individual one that a payment proof
-//       was sent for, and no transfer the candidate paid that was in flight when its publication
-//       closed and has not been voided since
+//   (f) no registration that is not cancelled, and no cancelled individual one that a payment
+//       proof was sent for
 //   (g) the candidate is not an owner or staff member of the competition's institution
 // The route layer already enforces (auth + role=candidate). This helper does not re-check role
 // because it requires `studentId` as input — callers must pass session.user.id.
@@ -346,7 +298,6 @@ export const createIndividualRegistration = async (
       }
       assertCompetitionAcceptsIndividualRegistration(lockedCompetition, mutationAt);
       await assertNoPaymentProofOnCancelledIndividualRegistrations(studentId, competitionId, tx);
-      await assertNoTransferInFlightOnClosedPublication(studentId, competitionId, tx);
       if (await isCompetitionHost(studentId, competitionId, tx)) {
         throw new RegistrationError(
           "registration_host_of_competition",

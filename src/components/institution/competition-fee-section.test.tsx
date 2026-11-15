@@ -543,11 +543,6 @@ describe("CompetitionFeeSection", () => {
         "Biaya pendaftaran tidak dapat diubah karena kompetisi ini masih memiliki pendaftar aktif. Hubungi tim Lombakita.",
     },
     {
-      code: "competition_fee_waits_for_transfer_review",
-      message:
-        "Biaya pendaftaran belum dapat diubah karena masih ada bukti transfer yang menunggu keputusan. Hubungi tim Lombakita.",
-    },
-    {
       code: "competition_changed_during_edit",
       message:
         "Kompetisi ini baru saja diubah atau diterbitkan. Muat ulang halaman lalu coba lagi.",

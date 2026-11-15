@@ -58,6 +58,10 @@ vi.mock("@/server/teams/team-service", () => ({ disbandEveryTeamOfCompetition })
 vi.mock("@/server/registrations/registration-service", () => ({
   markCompetitionRegistrationsPublicationClosed,
 }));
+const { hasCompetitionPaymentInFlight } = vi.hoisted(() => ({
+  hasCompetitionPaymentInFlight: vi.fn().mockResolvedValue(false),
+}));
+vi.mock("@/server/finance/paid-registration", () => ({ hasCompetitionPaymentInFlight }));
 
 import { cancelCompetitionAsOps, voidPaymentProofAsOps } from "./ops-payment-service";
 import type { Database } from "@/server/db/client";
@@ -81,6 +85,7 @@ beforeEach(() => {
   enqueueCompetitionCancelled.mockResolvedValue(undefined);
   enqueueCompetitionSearchSync.mockResolvedValue(undefined);
   notifyPaymentOutcome.mockResolvedValue(undefined);
+  hasCompetitionPaymentInFlight.mockResolvedValue(false);
 });
 
 const makeTx = (reads: SelectRows[], updateReturns: SelectRows[] = []) => {
@@ -176,6 +181,38 @@ describe("cancelCompetitionAsOps operator integrity", () => {
     expect(inserted).toHaveLength(0);
     expect(markCompetitionRegistrationsPublicationClosed).not.toHaveBeenCalled();
     expect(disbandEveryTeamOfCompetition).not.toHaveBeenCalled();
+  });
+
+  it("refuses while a transfer is in flight, and writes nothing", async () => {
+    hasCompetitionPaymentInFlight.mockResolvedValue(true);
+    const { db, tx, inserted } = makeCancelDb();
+
+    const refusal = (await cancelCompetitionAsOps(OPS_ACTOR_ID, "comp_1", "reason", db, NOW).catch(
+      (error: unknown) => error,
+    )) as { code?: unknown; status?: unknown; message?: unknown };
+
+    expect({
+      refusal: { code: refusal.code, status: refusal.status, message: refusal.message },
+      inFlightReads: hasCompetitionPaymentInFlight.mock.calls,
+      updates: tx.update.mock.calls.length,
+      inserted: inserted.length,
+      marked: markCompetitionRegistrationsPublicationClosed.mock.calls.length,
+      disbanded: disbandEveryTeamOfCompetition.mock.calls.length,
+      enqueued: enqueueCompetitionCancelled.mock.calls.length,
+    }).toEqual({
+      refusal: {
+        code: "ops_competition_payment_in_flight",
+        status: 409,
+        message:
+          "Kompetisi tidak dapat dibatalkan selama masih ada bukti transfer yang menunggu verifikasi atau sudah diverifikasi. Selesaikan dulu setiap bukti yang menunggu: penyelenggara memverifikasi atau menolaknya, atau Anda membatalkan bukti itu. Kompetisi dengan transfer yang sudah diverifikasi tidak dapat dibatalkan.",
+      },
+      inFlightReads: [["comp_1", tx]],
+      updates: 0,
+      inserted: 0,
+      marked: 0,
+      disbanded: 0,
+      enqueued: 0,
+    });
   });
 
   it("validates an empty reason before any database work", async () => {

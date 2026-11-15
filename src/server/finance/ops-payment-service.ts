@@ -22,6 +22,7 @@ import {
 import { assertOperatorIsNotPayer } from "@/server/finance/operator-payer-conflict";
 import { INSTITUTION_CANCELLATION_REASON } from "@/server/competitions/competition-lifecycle";
 import { acquireCompetitionParticipationLock } from "@/server/competitions/competition-participation-lock";
+import { hasCompetitionPaymentInFlight } from "@/server/finance/paid-registration";
 import { disbandEveryTeamOfCompetition } from "@/server/teams/team-service";
 import { markCompetitionRegistrationsPublicationClosed } from "@/server/registrations/registration-service";
 import { enqueueCompetitionCancelled, enqueueCompetitionSearchSync } from "@/server/async/enqueue";
@@ -32,16 +33,16 @@ import {
 } from "@/server/finance/manual-payment-proof-service";
 import { notifyPaymentOutcome } from "@/server/finance/payment-notifications";
 
-// THE DEC-0132 ESCAPE HATCH. One operational surface, two actions, both platform_ops only.
+// THE PLATFORM_OPS PAYMENT ACTIONS. One operational surface, two actions, both platform_ops only.
 //
 // DEC-0132 blocks an ORGANISER from unpublishing while a bukti transfer is in flight, because doing
 // so cancels every registration and would strand a candidate who has already transferred real
-// rupiah. That block has to have a way out, because an organiser with a genuine reason to cancel
-// must not simply be stuck, and this is it: the same decision, made by someone who can also see
-// the money and is accountable for the call.
+// rupiah. The way out is resolving each transfer: the organiser verifies or rejects it, or an
+// operator voids one nobody will rule on. The operator's cancellation below holds to the same
+// block, so no path takes a competition with a transfer in flight back to draft.
 //
-// Both actions are AUDITED and both REQUIRE A REASON, because the whole justification for their
-// existing is that a human took responsibility for overriding a participant protection.
+// Both actions are AUDITED and both REQUIRE A REASON, because each is an operator's decision over an
+// organiser's competition or a payer's transfer, and the reason is the only record of why.
 
 // Both actions are taken by platform_ops, so the event names say platform_ops. Naming them for the
 // finance domain they happen to touch would split one operator's audit trail across two prefixes.
@@ -52,6 +53,7 @@ export type OpsPaymentErrorCode =
   | "ops_reason_required"
   | "ops_competition_not_found"
   | "ops_competition_not_published"
+  | "ops_competition_payment_in_flight"
   | "ops_competition_concurrently_modified";
 
 export class OpsPaymentError extends Error {
@@ -84,11 +86,12 @@ export type OpsCancelCompetitionResult = {
 };
 
 /**
- * Performs the unpublish-as-cancellation an organiser is blocked from, past the DEC-0132 in-flight
- * guard. The SAME terminal outcome as `unpublishCompetition`, made by an accountable operator:
- * the competition returns to draft, every non-cancelled registration is cancelled, the search index
- * drops it, every registration is marked as made in a publication that has ended, every team is
- * disbanded and the participants are told.
+ * Performs the unpublish-as-cancellation on an organiser's behalf. The SAME terminal outcome as
+ * `unpublishCompetition`, made by an accountable operator: the competition returns to draft, every
+ * non-cancelled registration is cancelled, the search index drops it, every registration is marked
+ * as made in a publication that has ended, every team is disbanded and the participants are told.
+ * Refused, as the organiser's unpublish is (DEC-0132), while any transfer on the competition awaits
+ * verification or was verified.
  *
  * Taking the competition down is the point. Cancelling only the registrations would leave the
  * competition live and publicly registerable while everyone already in it had been removed, so a
@@ -99,11 +102,9 @@ export type OpsCancelCompetitionResult = {
  * cascade that cancels every registration. Irreversible: cancelled registrations are terminal
  * (DEC-0070) and nothing here can put them back.
  *
- * Deliberately does NOT clear the in-flight proofs. Voiding a proof is a separate, separately
- * audited decision (`voidPaymentProofAsOps`), and bundling it here would let one click both cancel
- * a competition and silently discard the evidence that someone paid for it. An operator cancelling
- * a competition with outstanding transfers is expected to resolve each of those transfers
- * explicitly.
+ * Never clears a proof. Voiding one is a separate, separately audited decision
+ * (`voidPaymentProofAsOps`), so one click never both cancels a competition and discards the evidence
+ * that someone paid for it.
  *
  * NO FINANCE EVENT IS WRITTEN. Cancelling a competition says nothing about whether any particular
  * transfer arrived, and the ledger only records what is known.
@@ -146,7 +147,17 @@ export const cancelCompetitionAsOps = async (
     if (competition.status !== "published") {
       throw new OpsPaymentError(
         "ops_competition_not_published",
-        `Cannot cancel a competition in '${competition.status}' status. This hatch exists for the withdrawal an organiser is blocked from`,
+        `Cannot cancel a competition in '${competition.status}' status. Only a published competition can be cancelled`,
+      );
+    }
+
+    // DEC-0132: refused while any transfer on the competition awaits verification or was verified,
+    // as the organiser's unpublish is.
+    if (await hasCompetitionPaymentInFlight(competitionId, tx)) {
+      throw new OpsPaymentError(
+        "ops_competition_payment_in_flight",
+        "Kompetisi tidak dapat dibatalkan selama masih ada bukti transfer yang menunggu verifikasi atau sudah diverifikasi. Selesaikan dulu setiap bukti yang menunggu: penyelenggara memverifikasi atau menolaknya, atau Anda membatalkan bukti itu. Kompetisi dengan transfer yang sudah diverifikasi tidak dapat dibatalkan.",
+        409,
       );
     }
 

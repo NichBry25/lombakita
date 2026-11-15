@@ -45,12 +45,15 @@ vi.mock("@/server/storage/r2.client", async (importOriginal) => ({
   headObject: vi.fn(async () => ({ sizeBytes: 2048, contentType: "image/jpeg" })),
   deleteObject: vi.fn(async () => undefined),
 }));
-// The team registration and withdrawal announce themselves on the queue. Replaced so a committed
-// race writes no job to a real queue; every other enqueue in this file is the real one.
+// The team registration and withdrawal, and an operator's cancellation, announce themselves on the
+// queue. Replaced so a committed race writes no job to a real queue; every other enqueue in this
+// file is the real one.
 vi.mock("@/server/async/enqueue", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/server/async/enqueue")>()),
   enqueueRegistrationConfirmed: vi.fn(async () => ({})),
   enqueueRegistrationCancelled: vi.fn(async () => ({})),
+  enqueueCompetitionCancelled: vi.fn(async () => ({})),
+  enqueueCompetitionSearchSync: vi.fn(async () => ({})),
 }));
 import * as schema from "@/server/db/schema";
 
@@ -557,6 +560,9 @@ const purgeMarkedRows = async (): Promise<void> => {
     delete from institution_payment_instructions where institution_id in
       (select id from institutions where slug like ${slug})`;
   await control.sql`
+    delete from platform_ops_audit_logs where target_institution_id in
+      (select id from institutions where slug like ${slug})`;
+  await control.sql`
     delete from institution_memberships where institution_id in
       (select id from institutions where slug like ${slug})`;
   await control.sql`delete from institutions where slug like ${slug}`;
@@ -773,6 +779,46 @@ describe.skipIf(skipWithoutDatabase)("the deadline boundary, under real contenti
     expect(submitted.status).toBe("pending_review");
     expect((await registrationRow(fixture.registrationId)).status).toBe("confirmed");
   });
+
+  it("an upload waits for the participation lock, so it cannot land while the competition is being withdrawn", async () => {
+    const fixture = await seedCommittedFixture();
+    const [barrierPid, racerPid] = await Promise.all([
+      backendPidOf(barrier),
+      backendPidOf(racerOne),
+    ]);
+
+    const [settled] = await withParticipationLockHeld(fixture.competitionId, async (track) => {
+      const run = track(runSubmit(racerOne, fixture));
+      await awaitBlockedBy(racerPid, barrierPid, "the proof upload");
+      return [run] as const;
+    });
+
+    const outcome = await settled;
+    expect(outcome.ok).toBe(true);
+  });
+
+  it("an upload holds the participation lock while it queues on the registration row", async () => {
+    const fixture = await seedCommittedFixture();
+    const [barrierPid, racerPid] = await Promise.all([
+      backendPidOf(barrier),
+      backendPidOf(racerOne),
+    ]);
+
+    const [held] = await withRowHeld(
+      "competition_registrations",
+      fixture.registrationId,
+      async (track) => {
+        track(runSubmit(racerOne, fixture));
+        await awaitBlockedBy(racerPid, barrierPid, "the proof upload");
+        const rows = await control.sql<{ held: number }[]>`
+          select count(*)::int as held from pg_locks
+          where locktype = 'advisory' and granted and pid = ${racerPid}`;
+        return [rows[0]!.held] as const;
+      },
+    );
+
+    expect(held).toBe(1);
+  });
 });
 
 describe.skipIf(skipWithoutDatabase)(
@@ -945,6 +991,48 @@ describe.skipIf(skipWithoutDatabase)(
       expect(proof!.status).toBe("pending_review");
       expect(Number(proof!.resubmission_count)).toBe(0);
     });
+
+    it("a refile waits for the participation lock, so it cannot land while the competition is being withdrawn", async () => {
+      const fixture = await seedCommittedFixture();
+      const proofId = await seedProofInState(fixture, "rejected", true);
+      const [barrierPid, racerPid] = await Promise.all([
+        backendPidOf(barrier),
+        backendPidOf(racerOne),
+      ]);
+
+      const [settled] = await withParticipationLockHeld(fixture.competitionId, async (track) => {
+        const run = track(runReopen(racerOne, fixture, proofId));
+        await awaitBlockedBy(racerPid, barrierPid, "the refile");
+        return [run] as const;
+      });
+
+      const outcome = await settled;
+      expect(outcome.ok).toBe(true);
+    });
+
+    it("a refile holds the participation lock while it queues on the registration row", async () => {
+      const fixture = await seedCommittedFixture();
+      const proofId = await seedProofInState(fixture, "rejected", true);
+      const [barrierPid, racerPid] = await Promise.all([
+        backendPidOf(barrier),
+        backendPidOf(racerOne),
+      ]);
+
+      const [held] = await withRowHeld(
+        "competition_registrations",
+        fixture.registrationId,
+        async (track) => {
+          track(runReopen(racerOne, fixture, proofId));
+          await awaitBlockedBy(racerPid, barrierPid, "the refile");
+          const rows = await control.sql<{ held: number }[]>`
+            select count(*)::int as held from pg_locks
+            where locktype = 'advisory' and granted and pid = ${racerPid}`;
+          return [rows[0]!.held] as const;
+        },
+      );
+
+      expect(held).toBe(1);
+    });
   },
 );
 
@@ -1000,6 +1088,60 @@ describe.skipIf(skipWithoutDatabase)(
 
       const outcome = await settled;
       expect(outcome.ok).toBe(true);
+    });
+  },
+);
+
+describe.skipIf(skipWithoutDatabase)(
+  "an operator's cancellation reads the transfers under the participation lock",
+  () => {
+    it("a transfer committed while the cancellation waits for the lock still refuses it", async () => {
+      const fixture = await seedCommittedFixture();
+      const { cancelCompetitionAsOps } = await import("@/server/finance/ops-payment-service");
+      const operatorName = `${MARKER}_ops_${Date.now()}_${seedCounter++}`;
+      const [operator] = await control.sql<{ id: string }[]>`
+        insert into users (email, username, role, candidate_verified_at)
+        values (
+          ${`${operatorName}@example.test`}, ${operatorName}, 'platform_ops',
+          ${FEE_RULE_FROM.toISOString()}
+        )
+        returning id`;
+      await control.sql`
+        update competitions set status = 'published' where id = ${fixture.competitionId}`;
+      const [barrierPid, racerPid] = await Promise.all([
+        backendPidOf(barrier),
+        backendPidOf(racerOne),
+      ]);
+
+      const [settled] = await withParticipationLockHeld(fixture.competitionId, async (track) => {
+        const run = track(
+          cancelCompetitionAsOps(
+            operator!.id,
+            fixture.competitionId,
+            "penyelenggara tidak dapat menyelenggarakan acara",
+            racerOne.db as never,
+          ),
+        );
+        await awaitBlockedBy(racerPid, barrierPid, "the operator's cancellation");
+        await control.sql`
+          insert into finance_manual_payment_proofs (
+            payment_id, competition_id, submitted_by_user_id, status, r2_key,
+            original_file_name, file_size_bytes, content_type
+          ) values (
+            ${fixture.paymentId}, ${fixture.competitionId}, ${fixture.userId}, 'pending_review',
+            ${`payment-proofs/${fixture.competitionId}/${fixture.paymentId}/bukti.jpg`},
+            'bukti.jpg', 2048, 'image/jpeg'
+          )`;
+        return [run] as const;
+      });
+
+      const outcome = await settled;
+      const [competition] = await control.sql<{ status: string }[]>`
+        select status from competitions where id = ${fixture.competitionId}`;
+      expect({
+        refusal: outcome.ok ? null : errorCodeOf(outcome.error),
+        competitionStatus: competition!.status,
+      }).toEqual({ refusal: "ops_competition_payment_in_flight", competitionStatus: "published" });
     });
   },
 );

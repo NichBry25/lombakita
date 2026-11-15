@@ -912,46 +912,4 @@ describe.skipIf(skipWithoutDatabase)("the price of a draft that still holds a ca
       });
     });
   });
-
-  it("refuses a new price on a draft while a transfer awaits verification, and writes nothing", async () => {
-    await inRollback(async (tx) => {
-      const seed = await seedCompetition(tx, { status: "published", paid: true });
-      const { registrationId } = await seedTransferAwaitingReview(tx, seed);
-      await tx
-        .update(competitionRegistrations)
-        .set({ status: "cancelled", cancellationReason: "withdrew" })
-        .where(eq(competitionRegistrations.id, registrationId));
-      await tx
-        .update(competitions)
-        .set({ status: "draft" })
-        .where(eq(competitions.id, seed.competitionId));
-      const before = await readStored(tx, seed.competitionId);
-
-      const refusal = await refusalOf(
-        priceVia(tx, seed, {
-          feeAmount: 200_000,
-          feeCurrency: "IDR",
-          feeDisclosureAcknowledged: true,
-        }),
-      );
-
-      expect({
-        refusal,
-        stored: await readStored(tx, seed.competitionId),
-        acknowledgements: await countAcknowledgements(tx, seed.competitionId),
-        announced: announcedFields(),
-      }).toEqual({
-        refusal: {
-          code: "competition_fee_waits_for_transfer_review",
-          httpStatus: 409,
-          message:
-            "Biaya pendaftaran belum dapat diubah karena masih ada bukti transfer yang menunggu keputusan. Hubungi tim Lombakita.",
-          fields: ["feeAmount"],
-        },
-        stored: before,
-        acknowledgements: 0,
-        announced: [],
-      });
-    });
-  });
 });

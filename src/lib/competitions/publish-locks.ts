@@ -26,8 +26,5 @@ export const CLOSE_WAITS_FOR_TRANSFER_REVIEW_REASON =
 export const DRAFT_PRICE_HELD_BY_REGISTRATIONS_REASON =
   "Biaya pendaftaran tidak dapat diubah karena kompetisi ini masih memiliki pendaftar aktif. Hubungi tim Lombakita.";
 
-export const DRAFT_PRICE_WAITS_FOR_TRANSFER_REVIEW_REASON =
-  "Biaya pendaftaran belum dapat diubah karena masih ada bukti transfer yang menunggu keputusan. Hubungi tim Lombakita.";
-
 export const COMPETITION_CHANGED_DURING_EDIT_REASON =
   "Kompetisi ini baru saja diubah atau diterbitkan. Muat ulang halaman lalu coba lagi.";

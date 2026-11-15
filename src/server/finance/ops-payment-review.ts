@@ -20,9 +20,9 @@ import {
 
 // WHAT THE ESCAPE HATCH CAN SEE.
 //
-// DEC-0132 blocks an organiser from unpublishing while money is in flight, and platform_ops
-// cancellation is the only way out. A hatch nobody can find is not a hatch, so this read exists to
-// put the blocked competitions in front of the operator rather than making them know an id.
+// DEC-0132 blocks an organiser's unpublish and an operator's cancellation alike while money is in
+// flight, and resolving each transfer is the way out. A list nobody can find is no way out, so this
+// read puts the blocked competitions in front of the operator rather than making them know an id.
 //
 // THE LIST IS BUILT FROM `IN_FLIGHT_PROOF_STATUSES`, the same exported constant
 // `hasCompetitionPaymentInFlight` uses to raise the block. Re-deriving "in flight" here with a
@@ -82,7 +82,10 @@ export type OpsBlockedCompetition = {
   slug: string;
   institutionId: string;
   institutionSlug: string;
-  /** `published` competitions are cancellable; the hatch's CAS refuses anything else. */
+  /**
+   * The operator's cancellation refuses anything but `published`, and refuses a competition on
+   * this list for as long as a transfer on it is in flight.
+   */
   status: string;
   proofs: OpsInFlightProof[];
 };
@@ -90,10 +93,8 @@ export type OpsBlockedCompetition = {
 /**
  * Every competition currently held open by an in-flight bukti transfer, newest proof first.
  *
- * Grouped by competition because the surface's two actions live at different levels: voiding is per
- * proof, cancelling is per competition, and an operator deciding between them needs to see all the
- * outstanding transfers on one competition together. Cancelling with three unresolved proofs is a
- * different decision from cancelling with one.
+ * Grouped by competition because an operator resolving a competition's transfers needs to see all
+ * of them together: the competition can be withdrawn only once none of them is in flight.
  */
 export const loadOpsBlockedCompetitions = async (
   db: Database = getDb(),

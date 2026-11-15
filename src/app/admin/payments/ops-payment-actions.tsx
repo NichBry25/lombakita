@@ -27,6 +27,8 @@ const OPS_PAYMENT_ERROR_COPY: Partial<Record<string, string>> = {
   ops_competition_not_found: "Kompetisi tidak ditemukan.",
   ops_competition_not_published:
     "Kompetisi ini sudah tidak berstatus terbit. Muat ulang halaman untuk melihat status terbaru.",
+  ops_competition_payment_in_flight:
+    "Kompetisi tidak dapat dibatalkan selama masih ada bukti transfer yang menunggu verifikasi atau sudah diverifikasi. Selesaikan dulu setiap bukti yang menunggu: penyelenggara memverifikasi atau menolaknya, atau Anda membatalkan bukti itu. Kompetisi dengan transfer yang sudah diverifikasi tidak dapat dibatalkan.",
   ops_competition_concurrently_modified:
     "Status kompetisi sudah berubah. Muat ulang halaman lalu coba lagi.",
   operator_actor_conflicted:
@@ -83,10 +85,10 @@ export type OpsBarredProofView = {
  * refuses to bundle them for the same reason: one click must not both cancel a competition and
  * discard the evidence that somebody paid for it.
  *
- * NEITHER ACTION IS GUARDED HERE BEYOND WHAT THE SERVICE ENFORCES. This surface is the only way a
- * paid competition can be withdrawn at all, so a gate here that is tighter than platform_ops itself
- * does not make the product safer. It deletes the escape hatch and strands the organiser the block
- * was protecting the candidate from.
+ * NEITHER ACTION IS GUARDED HERE BEYOND WHAT THE SERVICE ENFORCES. The void is the only way to
+ * release a transfer no organiser will rule on, so a gate here tighter than platform_ops itself
+ * would strand the organiser and the payer the block protects. The service refuses the cancellation
+ * while any transfer on the competition is in flight, and the refusal says why.
  */
 export function OpsPaymentActions({
   competitions,

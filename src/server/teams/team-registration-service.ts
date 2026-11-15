@@ -27,7 +27,6 @@ import { isCompetitionHost } from "@/server/competitions/competition-access";
 import {
   findTeamPaymentGroupAnchor,
   hasSubmittedPaymentProof,
-  hasTransferInFlightOnClosedPublication,
   lockPaymentGroupAnchorRow,
 } from "@/server/finance/paid-registration";
 import {
@@ -215,8 +214,8 @@ const assertFreeTeamSeatsWithinSize = (
 // proof, not the competition's price). Asked only of a forming team, whose registrations are all
 // cancelled: one cancelled row stands for the team, because hasSubmittedPaymentProof reads every
 // payment anchored on any row sharing its team_id. Asked of a submitted team it would also count
-// a proof on the payment of its live registration. isTeamRegisterAgainClosedByPayment adds the
-// captain's transfer on a closed publication, and the page asks that one.
+// a proof on the payment of its live registration. The page asks the same question with this
+// reader, so it never offers what the server refuses.
 export const hasFormingTeamSentPaymentProof = async (
   teamId: string,
   competitionId: string,
@@ -249,34 +248,6 @@ const assertFormingTeamSentNoPaymentProof = async (
       "A payment proof was sent for a cancelled registration of this team, so it cannot register again",
     );
   }
-};
-
-// A captain who paid a transfer that was in flight when its publication closed, and that has not
-// been voided since, would pay twice for one place.
-const assertCaptainHoldsNoTransferOnClosedPublication = async (
-  captainUserId: string,
-  competitionId: string,
-  tx: TransactionClient,
-): Promise<void> => {
-  if (await hasTransferInFlightOnClosedPublication(captainUserId, competitionId, tx)) {
-    throw new TeamError(
-      "team_register_again_closed_by_payment_proof",
-      "The captain's transfer for an ended publication of this competition awaits verification or was verified, so the team cannot register",
-    );
-  }
-};
-
-// Whether a forming team cannot register: its own payment proof, or its captain's transfer on a
-// closed publication. The page asks this, so it never offers what the two refusals in
-// submitTeamRegistration refuse.
-export const isTeamRegisterAgainClosedByPayment = async (
-  teamId: string,
-  captainUserId: string,
-  competitionId: string,
-  db: DbOrTx = getDb(),
-): Promise<boolean> => {
-  if (await hasFormingTeamSentPaymentProof(teamId, competitionId, db)) return true;
-  return hasTransferInFlightOnClosedPublication(captainUserId, competitionId, db);
 };
 
 // Assert that the caller is the active captain of this team and that the team belongs to the
@@ -438,7 +409,6 @@ export const submitTeamRegistration = async (
       }
 
       await assertFormingTeamSentNoPaymentProof(teamId, competitionId, tx);
-      await assertCaptainHoldsNoTransferOnClosedPublication(callerUserId, competitionId, tx);
       await assertNoCompetitionHostOnTeam(tx, registrationUserIds, competitionId);
 
       const insertedRows = await tx

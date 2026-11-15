@@ -6,13 +6,11 @@ import { cancelCompetitionAsOps, OpsPaymentError } from "@/server/finance/ops-pa
 
 type RouteParams = { params: Promise<{ competitionId: string }> };
 
-// Cancel a competition on an organiser's behalf, past the DEC-0132 in-flight unpublish block.
-// platform_ops only, MFA-gated by requireSessionRole (DEC-0113 choke point).
-// Body: { reason: string }.
+// Cancel a competition on an organiser's behalf. platform_ops only, MFA-gated by requireSessionRole
+// (DEC-0113 choke point). Body: { reason: string }.
 //
-// This is the escape hatch the organiser-facing block points at: an organiser with a genuine reason
-// to cancel is not stuck, but the decision is made by someone who can see the outstanding transfers
-// and is accountable for it. Outstanding proofs are NOT voided as a side effect. Each is its own
+// Refused, as the organiser's unpublish is (DEC-0132), while any transfer on the competition awaits
+// verification or was verified. Outstanding proofs are NOT voided as a side effect. Each is its own
 // audited decision.
 export async function POST(request: Request, { params }: RouteParams): Promise<Response> {
   try {

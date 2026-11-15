@@ -24,8 +24,8 @@
  *     than the narrower confirmed-paid predicate, because the dangerous window is the one where the
  *     transfer has happened and the organiser has not verified it yet. Class A1-in: the detector is
  *     the refusal's IDENTITY, which is also where the two decisions come apart — 0131 refuses the
- *     candidate's own act, 0132 refuses the organiser's, and the escape hatch named in the 0132
- *     message is platform_ops cancellation rather than the candidate withdrawing.
+ *     candidate's own act, 0132 refuses the organiser's, and the 0132 message names resolving each
+ *     transfer as the way out rather than the candidate withdrawing.
  *
  *   DEC-0133 — the ledger is append-only. There is no database trigger; what holds it is that no
  *     source file under `src/` or `scripts/` can contain a mutation against a finance table, and
@@ -198,7 +198,7 @@ const IN_FLIGHT_REFUSE = [
   "      throw new CompetitionError(",
   '        "competition_unpublish_blocked_payment_in_flight",',
   "        409,",
-  '        "Kompetisi tidak dapat ditarik selama masih ada bukti transfer yang menunggu verifikasi. Hubungi tim Lombakita untuk pembatalan.",',
+  '        "Kompetisi tidak dapat ditarik selama masih ada bukti transfer yang menunggu verifikasi atau sudah diverifikasi. Verifikasi atau tolak dulu setiap bukti yang menunggu. Kompetisi dengan transfer yang sudah diverifikasi tidak dapat ditarik.",',
   "      );",
   "    }",
   "",

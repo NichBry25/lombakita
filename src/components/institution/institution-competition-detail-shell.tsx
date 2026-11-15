@@ -102,7 +102,7 @@ const REFUSAL_COPY: Record<RefusalAction, Partial<Record<string, string>>> = {
     competition_unpublish_blocked_after_participation_confirmation:
       "Kompetisi tidak dapat ditarik setelah tanggal konfirmasi peserta.",
     competition_unpublish_blocked_payment_in_flight:
-      "Kompetisi tidak dapat ditarik selama masih ada bukti transfer yang menunggu verifikasi. Hubungi tim Lombakita untuk pembatalan.",
+      "Kompetisi tidak dapat ditarik selama masih ada bukti transfer yang menunggu verifikasi atau sudah diverifikasi. Verifikasi atau tolak dulu setiap bukti yang menunggu. Kompetisi dengan transfer yang sudah diverifikasi tidak dapat ditarik.",
     competition_unpublish_blocked_after_start:
       "Kompetisi yang sudah dimulai dan masih memiliki peserta tidak dapat ditarik. Ubah data kompetisi sebagai gantinya.",
   },

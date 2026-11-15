@@ -20,6 +20,7 @@ import { foldPaymentEvents } from "@/lib/finance/payment-state";
 import { recordFeeAccrual, recordFeeAccrualReversal } from "@/server/finance/fee-accrual-service";
 import { mintManualPaymentEventKey } from "@/server/finance/idempotency-key";
 import { lockRegistrationRow } from "@/server/finance/paid-registration";
+import { acquireCompetitionParticipationLock } from "@/server/competitions/competition-participation-lock";
 import {
   deleteObject,
   generatePresignedGetUrl,
@@ -606,6 +607,10 @@ export const submitManualPaymentProof = async (
   const created = await db.transaction(async (tx) => {
     const scoped = tx as unknown as Database;
 
+    // DEC-0132: a withdrawal of the competition reads whether a transfer is in flight under this
+    // lock, so a proof never lands between that read and the withdrawal's commit.
+    await acquireCompetitionParticipationLock(tx, competitionId);
+
     const lane = await requireOpenManualLane(scoped, payment.id);
 
     const [created] = await scoped
@@ -997,6 +1002,9 @@ export const reopenManualPaymentProof = async (
 
   const proof = await db.transaction(async (tx) => {
     const scoped = tx as unknown as Database;
+
+    // The same lock a first submission takes, for the same reason.
+    await acquireCompetitionParticipationLock(tx, existing.competitionId);
 
     // THE SAME PRECONDITION THE FIRST SUBMISSION TAKES. A resubmission is a submission. The row it
     // writes is indistinguishable from a first attempt once written, so a condition that refuses one

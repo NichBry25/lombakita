@@ -2,7 +2,7 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/finance/paid-registration");
 
-import { and, eq, gt, gte, inArray, isNotNull, ne, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, ne, sql } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
 import {
   competitionRegistrations,
@@ -299,68 +299,6 @@ export const isRegistrationPaymentInFlight = async (
     .limit(1);
 
   return row !== undefined;
-};
-
-// A proof the host rejected at or after `since`. On a row whose publication closed at `since`, such
-// a proof was still awaiting verification when the publication closed.
-const hasProofRejectedSince = async (
-  paymentId: string,
-  since: Date,
-  db: Database,
-): Promise<boolean> => {
-  const [row] = await db
-    .select({ id: financeManualPaymentProofs.id })
-    .from(financeManualPaymentProofs)
-    .where(
-      and(
-        eq(financeManualPaymentProofs.paymentId, paymentId),
-        eq(financeManualPaymentProofs.status, "rejected"),
-        gte(financeManualPaymentProofs.reviewedAt, since),
-      ),
-    )
-    .limit(1);
-
-  return row !== undefined;
-};
-
-/**
- * Whether this person paid a transfer, on a registration of this competition whose publication an
- * unpublish closed, that was awaiting verification or verified when it closed and has not been
- * voided since. A host's rejection after the close does not end it. That money sits with the
- * organiser for a place that ended, so the person's own registration and their team submit as
- * captain stay refused.
- */
-export const hasTransferInFlightOnClosedPublication = async (
-  payerUserId: string,
-  competitionId: string,
-  db: Database = getDb(),
-): Promise<boolean> => {
-  const paidRows = await db
-    .select({
-      registrationId: competitionRegistrations.id,
-      paymentId: financePayments.id,
-      publicationClosedAt: competitionRegistrations.publicationClosedAt,
-    })
-    .from(financePayments)
-    .innerJoin(
-      competitionRegistrations,
-      eq(competitionRegistrations.id, financePayments.competitionRegistrationId),
-    )
-    .where(
-      and(
-        eq(financePayments.payerUserId, payerUserId),
-        eq(competitionRegistrations.competitionId, competitionId),
-        isNotNull(competitionRegistrations.publicationClosedAt),
-      ),
-    );
-
-  for (const { registrationId, paymentId, publicationClosedAt } of paidRows) {
-    if (await isRegistrationPaymentInFlight(registrationId, db)) return true;
-    if (publicationClosedAt && (await hasProofRejectedSince(paymentId, publicationClosedAt, db))) {
-      return true;
-    }
-  }
-  return false;
 };
 
 /**

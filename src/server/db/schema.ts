@@ -1180,9 +1180,8 @@ export const competitionRegistrations = pgTable(
       .notNull(),
     cancelledAt: timestamp("cancelled_at", { mode: "date", withTimezone: true }),
     cancellationReason: text("cancellation_reason"),
-    // Set when an unpublish ends the publication this row was made in. After a republish such a row
-    // blocks no sign-up except its payer's own, alone or as captain, while a transfer on it that
-    // was in flight at the close is not voided.
+    // Set when an unpublish ends the publication this row was made in. Such a row refuses nothing
+    // once the competition is published again.
     publicationClosedAt: timestamp("publication_closed_at", { mode: "date", withTimezone: true }),
     // Institution-internal review — not candidate-visible.
     internalReviewStatus: competitionRegistrationReviewStatusEnum("internal_review_status")

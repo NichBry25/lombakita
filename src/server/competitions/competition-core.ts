@@ -71,14 +71,13 @@ type CompetitionErrorCode =
   | "competition_unpublish_blocked_after_start"
   | "competition_unpublish_blocked_after_participation_confirmation"
   // DEC-0132: money is in flight, so withdrawing would cancel a registration someone has already
-  // paid for. Escape hatch is the platform_ops cancellation route.
+  // paid for. Resolving each transfer releases it.
   | "competition_unpublish_blocked_payment_in_flight"
   // Publishing fixes the price: its amount and currency change only while the competition is a draft.
   | "competition_fee_locked_after_publish"
   // A draft still holding a non-cancelled registration keeps its price.
   | "competition_fee_blocked_active_registrations"
-  // A transfer awaits the host's decision: a draft's price and a published close wait for it.
-  | "competition_fee_waits_for_transfer_review"
+  // A transfer awaits the host's decision: a published close waits for it.
   | "competition_close_waits_for_transfer_review"
   // The row changed between the read a change was judged on and its write.
   | "competition_changed_during_edit"
