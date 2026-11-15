@@ -123,21 +123,41 @@ svg {
   height: var(--icon-xl);
 }
 
+/* Invisible until the first Tab, then it appears over the wordmark on the column edge. */
 .skip-link {
   position: fixed;
-  inset-block-start: var(--space-2);
-  inset-inline-start: var(--space-2);
+  inset-block-start: var(--header-skip-link-top);
+  inset-inline-start: calc((100% - min(100%, var(--content-max))) / 2 + var(--page-padding));
   z-index: var(--z-toast);
-  padding: var(--space-2) var(--space-4);
+  display: inline-flex;
+  min-height: var(--touch-target);
+  align-items: center;
+  padding-inline: var(--space-5);
   border-radius: var(--radius-control);
-  background: var(--color-brand-surface);
-  color: var(--color-brand-ink);
+  background: var(--brand-palm);
+  color: var(--brand-paper);
+  font-size: var(--text-body);
+  font-weight: 600;
+  text-decoration: none;
   transform: translateY(calc(-100% - var(--space-4)));
   transition: transform var(--duration-fast) var(--ease-primary);
 }
 
+[data-theme="dark"] .skip-link {
+  background: var(--brand-paper);
+  color: var(--brand-palm);
+}
+
 .skip-link:focus {
   transform: translateY(var(--space-0));
+}
+
+@media (max-width: 640px) {
+  .skip-link {
+    inset-inline-start: calc(
+      (100% - min(100%, var(--content-max))) / 2 + var(--page-padding-mobile)
+    );
+  }
 }
 
 .site-layout {
@@ -2386,6 +2406,7 @@ a.ui-table-link,
 .page-transition-panel .brand-wordmark {
   width: var(--wordmark-hero-width);
   height: var(--wordmark-hero-height);
+  background-position: center;
 }
 
 .page-transition-message {
@@ -2402,24 +2423,13 @@ a.ui-table-link,
   inset-block-start: var(--space-0);
   z-index: var(--z-header);
   min-height: var(--header-height);
-  border-bottom: var(--border-thin) solid var(--glass-edge);
+  border-bottom: var(--border-thin) solid var(--glass-structure-line);
   background: var(--glass-chrome-fallback);
-  box-shadow:
-    0 18px 42px -32px var(--glow-peach),
-    var(--shadow-glass);
 }
 
-@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .site-header {
-    background: var(--glass-chrome-fill);
-    -webkit-backdrop-filter: blur(var(--glass-blur-chrome));
-    backdrop-filter: blur(var(--glass-blur-chrome));
-  }
-}
-
+/* At the top of the page the bar sits in the page. Once content slides under it, it floats. */
 .site-header[data-scrolled="true"] {
-  border-bottom-color: var(--glass-structure-line);
-  box-shadow: var(--shadow-md), var(--shadow-glass);
+  box-shadow: var(--shadow-glass);
 }
 
 .header-inner {
@@ -2432,6 +2442,8 @@ a.ui-table-link,
   padding-inline: var(--page-padding);
 }
 
+/* The glyph sits on the column edge. The tap box is wider than the glyph and overhangs the edge by
+   the same amount it pads, so the target is 44 px high without moving the glyph. */
 .brand-lockup {
   display: inline-flex;
   flex: none;
@@ -2440,9 +2452,12 @@ a.ui-table-link,
      is displayed at a time, and the spinner exists only while a navigation is in flight, so this
      contributes nothing to the resting header. */
   gap: var(--space-2);
+  min-inline-size: var(--header-wordmark-tap-width);
+  min-height: var(--touch-target);
+  margin-inline-start: calc(var(--space-2) * -1);
+  padding-inline: var(--space-2);
   color: var(--color-ink);
   text-decoration: none;
-  min-height: var(--touch-target);
 }
 
 .brand-lockup:hover {
@@ -2450,9 +2465,9 @@ a.ui-table-link,
 }
 
 .brand-wordmark {
-  width: var(--wordmark-header-width);
-  height: var(--wordmark-header-height);
-  background-position: center;
+  width: var(--header-wordmark-glyph-width);
+  height: var(--header-wordmark-glyph-height);
+  background-position: left center;
   background-repeat: no-repeat;
   background-size: contain;
 }
@@ -2481,38 +2496,68 @@ a.ui-table-link,
   gap: var(--space-1);
 }
 
-.desktop-nav {
-  margin-inline-start: var(--space-5);
-}
-
 .header-actions {
   margin-inline-start: auto;
 }
 
 .header-nav-link {
+  position: relative;
   display: inline-flex;
   min-height: var(--touch-target);
   align-items: center;
-  padding-inline: var(--space-3);
+  padding-inline: var(--space-4);
   border-radius: var(--radius-control);
   color: var(--color-ink-soft);
-  font-size: var(--text-button);
+  font-size: var(--text-body);
   font-weight: 500;
   text-decoration: none;
 }
 
-.header-nav-link:hover,
-.header-nav-link[aria-current="page"] {
-  background: var(--color-inset);
+/* Hover never changes the weight, so the label does not jump. */
+.header-nav-link:hover {
+  background: var(--color-hover-surface);
   color: var(--color-ink);
 }
 
 .header-nav-link[aria-current="page"] {
+  color: var(--color-ink);
   font-weight: 600;
 }
 
-/* A <button> can carry .header-nav-link (mobile "Keluar"); strip the native button chrome so it
-   matches the surrounding link rows. */
+/* The label's width is reserved at weight 600, so the current item does not move its neighbours. */
+.header-nav-label {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.header-nav-label::after {
+  content: attr(data-label);
+  block-size: var(--space-0);
+  overflow: hidden;
+  font-weight: 600;
+  visibility: hidden;
+}
+
+/* The current-page mark: a graphic under the item, on the bottom edge of the bar. The tooltip owns
+   ::after on an icon control, so the mark uses ::before everywhere. */
+.header-nav-link[aria-current="page"]::before,
+.site-header .ui-icon-button[aria-current="page"]::before {
+  content: "";
+  position: absolute;
+  inset-inline: var(--header-mark-inset);
+  inset-block-end: calc(var(--header-mark-drop) * -1);
+  block-size: var(--header-mark-height);
+  border-radius: var(--header-mark-height) var(--header-mark-height) 0 0;
+  background: var(--header-mark-color);
+}
+
+.site-header .ui-icon-button[aria-current="page"]::before {
+  inset-inline: var(--header-mark-inset-icon);
+}
+
+/* A <button> can carry .header-nav-link (the Dasbor trigger and the phone sheet's "Keluar"); strip
+   the native button chrome so it matches the surrounding link rows. */
 button.header-nav-link {
   border: 0;
   background: transparent;
@@ -2521,20 +2566,61 @@ button.header-nav-link {
   cursor: pointer;
 }
 
-.locale-label {
-  display: inline-flex;
-  min-height: var(--control-height-sm);
-  align-items: center;
-  padding-inline: var(--space-2);
-  border: var(--border-thin) solid var(--color-line);
-  border-radius: var(--radius-pill);
-  color: var(--color-ink-soft);
-  font-family: var(--font-data);
-  font-size: var(--text-micro);
+button.header-nav-link:hover,
+button.header-nav-link[aria-expanded="true"] {
+  background: var(--color-hover-surface);
 }
 
-.mobile-nav {
+/* "Masuk" sits 20 px after the tools. Until the session is known the slot holds its width, and a
+   skeleton pill shows only if the wait outlasts 300 ms. The account icon, by contrast, sits 4 px
+   after the moon like the other icons. */
+.header-identity {
+  display: inline-flex;
+}
+
+.header-identity-reserve,
+.ui-button.header-sign-in {
+  margin-inline-start: var(--space-4);
+}
+
+.header-identity-reserve {
+  display: inline-block;
+  min-inline-size: var(--header-sign-in-width);
+  block-size: var(--touch-target);
+}
+
+/* While its menu is open the account icon keeps its held state, and its tooltip would only cover
+   the menu. */
+.header-account-menu-root .ui-icon-button[aria-expanded="true"] {
+  background: var(--color-hover-surface);
+}
+
+.header-account-menu-root .ui-icon-button[aria-expanded="true"]::after {
   display: none;
+}
+
+.header-identity-reserve::before {
+  content: "";
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--color-hover-surface);
+  opacity: 0;
+  animation: header-identity-appear 0s linear var(--header-skeleton-delay) forwards;
+}
+
+@keyframes header-identity-appear {
+  to {
+    opacity: 1;
+  }
+}
+
+.ui-button.header-sign-in {
+  min-inline-size: var(--header-sign-in-width);
+  padding-inline: var(--space-5);
+  font-size: var(--text-body);
+  font-weight: 600;
 }
 
 /* The toggle is a .ui-icon-button, whose own `display` is declared later in this file at equal
@@ -2543,18 +2629,67 @@ button.header-nav-link {
   display: none;
 }
 
-.mobile-nav {
-  border-top: var(--border-thin) solid var(--color-line-soft);
-  background: var(--color-surface);
-  padding: var(--space-3) var(--page-padding) var(--space-4);
+/* The phone sheet and its scrim only exist at the phone width. They hang from the bottom edge of
+   the bar, so the bar stays above the scrim and the page below is not pushed. */
+.header-sheet,
+.header-sheet-scrim {
+  display: none;
 }
 
-.mobile-nav[data-open="true"] {
+.header-sheet-group {
   display: grid;
-  gap: var(--space-1);
 }
 
-.header-dashboard-menu-root {
+.header-sheet-group + .header-sheet-group {
+  margin-block-start: var(--space-2);
+  padding-block-start: var(--space-2);
+  border-block-start: var(--border-thin) solid var(--glass-structure-line);
+}
+
+.header-sheet-row {
+  display: flex;
+  min-height: var(--header-sheet-row-height);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding-inline: var(--space-3);
+  border-radius: var(--space-3);
+  color: var(--color-ink);
+  font-family: inherit;
+  font-size: var(--header-sheet-row-text);
+  font-weight: 500;
+  text-align: start;
+  text-decoration: none;
+}
+
+button.header-sheet-row {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.header-sheet-row:hover {
+  background: var(--color-hover-surface);
+}
+
+.header-sheet-row:focus-visible {
+  outline: var(--border-strong) solid var(--focus-color);
+  outline-offset: calc(-1 * var(--border-strong));
+}
+
+.header-sheet-row[aria-current="page"] {
+  background: var(--color-hover-surface);
+  font-weight: 600;
+}
+
+.ui-button.header-sheet-sign-in {
+  margin-block: var(--space-2);
+  font-size: var(--text-button-lg);
+  font-weight: 600;
+}
+
+.header-dashboard-menu-root,
+.header-account-menu-root {
   position: relative;
   display: inline-flex;
 }
@@ -2574,43 +2709,72 @@ button.header-nav-link {
   transform: rotate(180deg);
 }
 
-/* Menu panel — same focus-glass-with-opaque-fallback treatment as .filter-dropdown-menu. */
+/* The header menus share the dropdown shape of the form controls: a solid raised surface, a
+   one-pixel edge and rows of 44 px. */
 .header-dashboard-panel {
   position: absolute;
   top: calc(100% + var(--space-2));
   left: 0;
   z-index: var(--z-dropdown);
   display: grid;
-  min-width: 10rem;
+  min-width: var(--header-menu-min-width);
   margin: 0;
-  padding: var(--space-1);
-  border: 1px solid var(--glass-structure-line);
-  border-radius: var(--radius-card);
-  background: color-mix(in srgb, var(--glass-focus-fallback) 97%, transparent);
+  padding: var(--space-1-5);
+  border: var(--border-thin) solid var(--color-line);
+  border-radius: var(--radius-panel);
+  background: var(--color-raised);
   box-shadow: var(--shadow-glass);
+}
+
+.header-account-panel {
+  left: auto;
+  right: 0;
 }
 
 .header-dashboard-menuitem {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
   min-height: var(--touch-target);
-  padding: var(--space-2) var(--space-3);
-  border-radius: calc(var(--radius-card) - var(--space-1));
+  padding: var(--space-2) var(--space-3-5);
+  border-radius: var(--radius-menu-row);
   color: var(--color-ink);
-  font-size: var(--text-button);
+  font-size: var(--text-body);
   font-weight: 500;
   text-decoration: none;
 }
 
-.header-dashboard-menuitem:hover,
+.header-dashboard-menuitem:hover {
+  background: var(--color-hover-surface);
+}
+
 .header-dashboard-menuitem:focus-visible {
   background: var(--color-hover-surface);
-  outline: none;
+  outline: var(--border-strong) solid var(--focus-color);
+  outline-offset: calc(-1 * var(--border-strong));
 }
 
 .header-dashboard-menuitem[aria-current="page"] {
-  background: var(--color-inset);
+  background: var(--color-hover-surface);
   font-weight: 600;
+}
+
+.header-dashboard-menuitem .ui-icon {
+  width: var(--space-5);
+  height: var(--space-5);
+}
+
+.header-menu-status {
+  color: var(--color-ink-soft);
+  font-size: var(--text-body-sm);
+  font-weight: 500;
+}
+
+.header-menu-separator {
+  block-size: var(--border-thin);
+  margin: var(--space-1-5) var(--space-2);
+  background: var(--glass-structure-line);
 }
 
 /* The menu button of a row. Its panel is fixed to the viewport so a scroll area around the trigger
@@ -2669,6 +2833,8 @@ button.header-nav-link {
   font-variant-numeric: tabular-nums;
 }
 
+/* The footer is one Deep Palm block in both themes: the brand, the legal links under a heading,
+   a rule, the support email and one line of fine print. */
 .site-footer {
   margin-block-start: auto;
   background: var(--color-brand-surface);
@@ -2678,135 +2844,108 @@ button.header-nav-link {
 .footer-inner {
   display: grid;
   width: min(100%, var(--content-max));
-  grid-template-columns: minmax(0, 1.4fr) minmax(var(--content-footer-column), 1fr);
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
   gap: var(--space-10);
   margin-inline: auto;
-  padding: var(--space-12) var(--page-padding);
+  padding: var(--space-12) var(--page-padding) var(--space-0);
 }
 
 .site-footer h2,
-.site-footer h3,
 .site-footer a {
   color: var(--color-brand-ink);
-}
-
-.footer-title {
-  font-size: var(--text-footer-title);
 }
 
 .footer-wordmark {
   display: block;
   width: var(--wordmark-footer-width);
   height: var(--wordmark-footer-height);
-  background: url("/brand/lombakita-wordmark-reversed.png") center / contain no-repeat;
+  background: url("/brand/lombakita-wordmark-reversed.png") left center / contain no-repeat;
 }
 
 .footer-copy {
-  max-width: var(--content-narrow);
-  color: var(--brand-mist);
+  max-width: var(--footer-tagline-width);
+  color: var(--color-brand-ink);
+  font-size: var(--text-button-lg);
+  line-height: 1.5;
 }
 
-.footer-support {
+.footer-info h2 {
+  font-family: var(--font-body);
+  font-size: var(--text-button-lg);
+  font-weight: 600;
+}
+
+.footer-link-grid {
   display: grid;
-  align-content: start;
-  gap: var(--space-2);
-}
-
-.footer-support h3 {
-  font-family: var(--font-data);
-  font-size: var(--text-micro);
-}
-
-.footer-support-list {
-  display: grid;
-  gap: var(--space-1);
-  margin: 0;
-  padding: 0;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(2, var(--touch-target));
+  column-gap: var(--footer-column-gap);
+  margin: var(--space-0);
+  padding: var(--space-0);
   list-style: none;
-  color: var(--brand-mist);
 }
 
-/* A version is data, so it aligns column-wise down the list rather than drifting with the glyph
-   widths of the browser name beside it. */
-.footer-support-version {
-  font-family: var(--font-data);
-  font-variant-numeric: tabular-nums;
-}
-
-.footer-support-note {
-  max-width: var(--content-narrow);
-  color: var(--brand-mist);
-  font-size: var(--text-micro);
-}
-
-/* Company identity and the legal routes, as a bar under the two-column footer body rather than a
-   third column. The columns above are balanced against each other at every width already, and a
-   third one would have to be re-tuned at each breakpoint; a bar wraps on its own instead.
-
-   The rule is `--overlay-highlight`, not `--color-line-soft`. The page-level line tokens are tuned
-   for the page ground, and the footer sits on the brand surface, which is deep in BOTH themes. */
-.footer-legal {
-  border-block-start: var(--border-thin) solid var(--overlay-highlight);
-}
-
-.footer-legal-inner {
-  display: flex;
-  width: min(100%, var(--content-max));
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3) var(--space-6);
-  margin-inline: auto;
-  padding: var(--space-5) var(--page-padding);
-  color: var(--brand-mist);
-  font-size: var(--text-meta);
-}
-
-.footer-legal-entity {
-  margin: var(--space-0);
-  font-weight: 500;
-}
-
-/* The operator's name, address and contact channels as one block, so the bar's two halves are
-   "who operates this" and "where to read more" rather than four loose items wrapping unevenly. */
-.footer-legal-identity {
-  display: grid;
-  max-width: var(--content-narrow);
-  gap: var(--space-1);
-}
-
-.footer-legal-identity p {
-  margin: var(--space-0);
-}
-
-.footer-legal-contact {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1) var(--space-5);
-}
-
-.footer-legal-links {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2) var(--space-5);
-}
-
-/* The bar's links are ordinary text links rather than controls, so they carry no 44px box of their
-   own. The vertical padding restores the target height without changing how the row reads. */
-.footer-legal-links a,
-.footer-legal-contact a,
-.footer-legal-email {
+/* Tautan aksi on a band. The padding bleeds past the text and the negative margin takes it back,
+   so the focus ring has room and the text still lines up with its column. */
+.footer-link {
   display: inline-flex;
   min-height: var(--touch-target);
   align-items: center;
+  margin-inline: calc(var(--space-2-5) * -1);
+  padding-inline: var(--space-2-5);
+  border-radius: var(--space-3);
+  font-size: var(--text-button-lg);
+  font-weight: 500;
   text-decoration: underline;
+  text-decoration-thickness: var(--footer-link-underline);
+  text-decoration-color: color-mix(in srgb, var(--color-brand-ink) 60%, transparent);
   text-underline-offset: var(--space-1);
 }
 
+.footer-link:focus-visible {
+  outline: var(--border-strong) solid var(--color-brand-ink);
+  outline-offset: var(--border-strong);
+}
+
+.footer-legal {
+  width: min(100%, var(--content-max));
+  margin-inline: auto;
+  padding-inline: var(--page-padding);
+}
+
+.footer-legal-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-block-start: var(--space-8);
+  border-block-start: var(--border-thin) solid var(--overlay-highlight);
+}
+
+.footer-legal-row .footer-link {
+  font-size: var(--text-body);
+}
+
+.footer-fine-print {
+  max-width: var(--footer-fine-print-width);
+  margin: var(--space-3) var(--space-0) var(--space-0);
+  padding-block-end: var(--space-8);
+  color: var(--brand-mist);
+  font-size: var(--text-body-sm);
+  line-height: 1.5714;
+}
+
 @media (max-width: 760px) {
-  .footer-legal-inner {
-    justify-content: flex-start;
+  .footer-inner {
+    gap: var(--space-8);
     padding-inline: var(--page-padding-mobile);
+  }
+
+  .footer-legal {
+    padding-inline: var(--page-padding-mobile);
+  }
+
+  .footer-legal-row {
+    justify-content: flex-start;
   }
 }
 
@@ -7390,21 +7529,40 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   .home-category-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-
-  .footer-inner {
-    grid-template-columns: minmax(0, 1fr) minmax(var(--content-footer-column), 1fr);
-  }
 }
 
 @media (max-width: 760px) {
   .desktop-nav,
-  .header-actions .header-auth-action,
-  .header-actions .locale-label {
+  .header-identity {
     display: none;
   }
 
   .ui-icon-button.mobile-nav-toggle {
     display: inline-grid;
+  }
+
+  .header-sheet-scrim[data-open="true"] {
+    position: absolute;
+    inset-block-start: 100%;
+    inset-inline: var(--space-0);
+    display: block;
+    block-size: 100vh;
+    background: var(--overlay-scrim);
+  }
+
+  .header-sheet[data-open="true"] {
+    position: absolute;
+    inset-block-start: 100%;
+    inset-inline: var(--space-0);
+    display: block;
+    max-block-size: calc(100dvh - var(--header-height));
+    overflow-y: auto;
+    padding: var(--space-2) var(--page-padding-mobile) var(--space-5);
+    border: var(--border-thin) solid var(--color-line);
+    border-block-start: 0;
+    border-radius: 0 0 var(--radius-feature) var(--radius-feature);
+    background: var(--color-raised);
+    box-shadow: var(--shadow-glass);
   }
 
   .header-inner {
@@ -7611,15 +7769,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
 
   .page-section {
     padding-block: var(--space-10);
-  }
-
-  .mobile-nav {
-    padding-inline: var(--page-padding-mobile);
-  }
-
-  .footer-inner {
-    gap: var(--space-8);
-    padding: var(--space-10) var(--page-padding-mobile);
   }
 
   /* On a phone the pop-up sits at the bottom, within reach of the thumb, 16px from each edge plus

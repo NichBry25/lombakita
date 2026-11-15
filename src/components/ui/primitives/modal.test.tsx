@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { render, screen, act, waitFor, fireEvent } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { MAIN_CONTENT_ID } from "../main-content-id";
 import { ModalProvider, useModal, useModalTask } from "./modal-context";
 import { Modal } from "./modal";
 
@@ -487,7 +488,7 @@ function ClosingChangesTrigger({ fate }: { fate: TriggerFate }) {
   const { openModal } = useModal();
   const [triggerState, setTriggerState] = useState<"ready" | TriggerFate>("ready");
   return (
-    <main data-testid="page-main">
+    <div id={MAIN_CONTENT_ID} tabIndex={-1} data-testid="page-main">
       {triggerState === "removed" ? null : (
         <button
           type="button"
@@ -505,7 +506,7 @@ function ClosingChangesTrigger({ fate }: { fate: TriggerFate }) {
           Buka
         </button>
       )}
-    </main>
+    </div>
   );
 }
 
@@ -526,7 +527,7 @@ describe("Modal — focus after closing", () => {
   });
 
   it.each<TriggerFate>(["removed", "disabled"])(
-    "moves focus to the main landmark when the trigger is %s by the time the pop-up closes",
+    "moves focus to the element the skip link lands on when the trigger is %s by the time the pop-up closes",
     (fate) => {
       withBrowserLikeInertFocus(() => {
         render(
@@ -539,13 +540,11 @@ describe("Modal — focus after closing", () => {
         const trigger = screen.getByTestId("changing-trigger");
         act(() => trigger.focus());
         act(() => trigger.click());
-        expect(main.hasAttribute("tabindex")).toBe(false);
 
         press("Escape");
 
         expect(main.closest("[inert]")).toBeNull();
         expect(document.activeElement).toBe(main);
-        expect(main.getAttribute("tabindex")).toBe("-1");
       });
     },
   );

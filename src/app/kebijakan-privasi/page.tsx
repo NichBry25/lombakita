@@ -45,9 +45,8 @@ export default function PrivacyPage() {
         <section className="stack-md document-clause">
           <h2 className="section-title">1. Siapa yang mengelola data Anda</h2>
           <p>
-            Data pada layanan ini dikelola oleh {COMPANY.legalName}, alamat {COMPANY.address}. Untuk
-            pertanyaan tentang data pribadi Anda, hubungi{" "}
-            <a href={`mailto:${COMPANY.supportEmail}`}>{COMPANY.supportEmail}</a>.
+            Data pada layanan ini dikelola oleh tim Lombakita. Untuk pertanyaan tentang data pribadi
+            Anda, hubungi <a href={`mailto:${COMPANY.supportEmail}`}>{COMPANY.supportEmail}</a>.
           </p>
         </section>
 

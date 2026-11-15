@@ -41,11 +41,16 @@ function listItemsAfter(html: string, lead: string): string[] {
 }
 
 describe("PrivacyPage", () => {
-  it("renders the company facts and document version this page reads", () => {
+  it("names the team and the support email as who manages the data, with no company name", () => {
     const html = renderPage();
 
-    expect(html).toContain(COMPANY.legalName);
-    expect(html).toContain(COMPANY.address);
+    expect(html).toContain("Data pada layanan ini dikelola oleh tim Lombakita. Untuk pertanyaan");
+    expect(html).not.toContain("alamat Jl.");
+  });
+
+  it("renders the support email and document version this page reads", () => {
+    const html = renderPage();
+
     expect(html).toContain(COMPANY.supportEmail);
     expect(html).toContain(`mailto:${COMPANY.supportEmail}`);
     expect(html).toContain(LEGAL_DOCUMENT.version);

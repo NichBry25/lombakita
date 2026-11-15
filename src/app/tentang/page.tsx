@@ -16,11 +16,10 @@ export const metadata: Metadata = {
 };
 
 /**
- * What Lombakita is, how to register for and publish a competition, what it costs, and who
- * operates it.
+ * What Lombakita is, how to register for and publish a competition, and what it costs.
  *
- * Static copy that reads the operator's facts from COMPANY, like the contact page, so the identity
- * block here cannot drift from the footer or from /kontak.
+ * Static copy. The support email is read from COMPANY, so it cannot drift from the footer or from
+ * /kontak.
  */
 export default function AboutPage() {
   return (
@@ -106,43 +105,8 @@ export default function AboutPage() {
             dijawab oleh penyelenggara kompetisi yang bersangkutan.
           </p>
           <p>
-            Untuk masalah akun, penangguhan akun, data pribadi, atau bila penyelenggara tidak dapat
-            dihubungi, kirim email ke{" "}
-            <a href={`mailto:${COMPANY.supportEmail}`}>{COMPANY.supportEmail}</a> atau hubungi{" "}
-            <a href={COMPANY.phone.href}>{COMPANY.phone.display}</a>.
-          </p>
-        </section>
-
-        <section className="stack-md">
-          <h2 className="section-title">Identitas badan usaha</h2>
-          <dl className="detail-grid">
-            <div>
-              <dt>Nama badan usaha</dt>
-              <dd>{COMPANY.legalName}</dd>
-            </div>
-            <div>
-              <dt>Alamat terdaftar</dt>
-              <dd>{COMPANY.address}</dd>
-            </div>
-            <div>
-              <dt>NIB</dt>
-              <dd className="data-text">{COMPANY.nib}</dd>
-            </div>
-            <div>
-              <dt>Email</dt>
-              <dd>
-                <a href={`mailto:${COMPANY.supportEmail}`}>{COMPANY.supportEmail}</a>
-              </dd>
-            </div>
-            <div>
-              <dt>Telepon</dt>
-              <dd>
-                <a href={COMPANY.phone.href}>{COMPANY.phone.display}</a>
-              </dd>
-            </div>
-          </dl>
-          <p>
-            <Link href="/kontak">Lihat halaman kontak</Link>
+            Ada pertanyaan? Hubungi kami di{" "}
+            <a href={`mailto:${COMPANY.supportEmail}`}>{COMPANY.supportEmail}</a>.
           </p>
         </section>
       </div>

@@ -71,6 +71,7 @@
    * it sits on, which is why it cannot reuse --color-inset (darker) or the raw mist (near-white).
    */
   --color-hover-surface: #e4ede4;
+  --header-mark-color: var(--brand-terracotta);
 
   /* Card kit: the Panel fill, the Fakta circle and the pressed fill of a link card. */
   --color-panel: #f1eada;
@@ -267,6 +268,7 @@
   --color-highlight-ink: #0e332d;
 
   --color-hover-surface: #1c4a42;
+  --header-mark-color: var(--brand-tangerine);
   --color-panel: #0f2c27;
   --table-row-line: #1e4a42;
   --color-fact-circle: #1a4a41;
@@ -476,6 +478,24 @@
   --page-padding: max(1.75rem, env(safe-area-inset-left), env(safe-area-inset-right));
   --page-padding-mobile: max(1.125rem, env(safe-area-inset-left), env(safe-area-inset-right));
   --header-height: 4rem;
+  --header-mark-height: 0.1875rem;
+  --header-mark-drop: 0.5625rem;
+  --header-mark-inset: var(--space-4);
+  --header-mark-inset-icon: var(--space-3);
+  --header-sign-in-width: 5.4375rem;
+  --header-sheet-row-height: 3.5rem;
+  --header-sheet-row-text: 1.125rem;
+  --header-wordmark-tap-width: 4.625rem;
+  --header-wordmark-glyph-width: 3.625rem;
+  --header-wordmark-glyph-height: 1.875rem;
+  --header-skip-link-top: 0.625rem;
+  --header-skeleton-delay: 300ms;
+  --header-menu-min-width: 12.25rem;
+  --radius-menu-row: 0.625rem;
+  --footer-link-underline: 1.5px;
+  --footer-column-gap: var(--space-8);
+  --footer-tagline-width: 22.5rem;
+  --footer-fine-print-width: 47.5rem;
   --grid-gap: 1.375rem;
   --detail-gap: 2.25rem;
   --wordmark-header-width: 6.75rem;

@@ -45,7 +45,8 @@ export default function TermsPage() {
           <h2 className="section-title">1. Tentang layanan ini</h2>
           <p>
             Lombakita adalah platform yang mempertemukan peserta dengan kompetisi yang
-            diselenggarakan oleh institusi. Layanan ini dioperasikan oleh {COMPANY.legalName}.
+            diselenggarakan oleh institusi. Layanan ini dioperasikan oleh tim Lombakita, yang dapat
+            dihubungi melalui <a href={`mailto:${COMPANY.supportEmail}`}>{COMPANY.supportEmail}</a>.
           </p>
           <p>
             Lombakita menyediakan tempat kompetisi diumumkan, didaftari, dan dikelola. Kompetisi itu

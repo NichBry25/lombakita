@@ -144,10 +144,10 @@ describe("the shell-content check covers the whole indexable set", () => {
   });
 
   it("never takes a needle from the shared page chrome", () => {
-    // The footer names the operating company on every indexable page and the header carries the nav, so
-    // either would match on a page serving nothing but chrome — which is the exact page this check
-    // exists to catch.
-    const CHROME_TEXT = ["Karya Talenta Nusantara", "Lewati ke konten utama", "Jelajahi"];
+    // The footer heading is on every indexable page and the header carries the nav, so either would
+    // match on a page serving nothing but chrome — which is the exact page this check exists to
+    // catch.
+    const CHROME_TEXT = ["Informasi", "Ke konten utama", "Jelajahi"];
 
     for (const route of INDEXABLE_SHELL_ROUTES) {
       for (const chrome of CHROME_TEXT) {

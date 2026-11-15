@@ -27,18 +27,31 @@ const VERIFIED_BROWSERS = [
 ] as const;
 
 /**
- * The legal and identity routes every page has to reach.
+ * The legal and identity routes every page has to reach, in the order the two-column grid reads:
+ * down the first column, then down the second.
  *
  * Kept beside the footer that renders them because this is the only navigation to them in the
- * app: a reader looking for who operates the site, or for the terms they agreed to, looks at the
+ * app: a reader looking for the terms they agreed to, or for how to reach support, looks at the
  * bottom of whatever page they are on.
  */
 const LEGAL_LINKS = [
   { href: "/tentang", label: "Tentang" },
+  { href: "/kontak", label: "Kontak" },
   { href: "/syarat-ketentuan", label: "Syarat & Ketentuan" },
   { href: "/kebijakan-privasi", label: "Kebijakan Privasi" },
-  { href: "/kontak", label: "Kontak" },
 ] as const;
+
+const FOOTER_INFO_HEADING_ID = "footer-info-heading";
+
+function describeBrowserSupport() {
+  const versionedNames = VERIFIED_BROWSERS.map(
+    (browser) => `${browser.name} ${browser.minimumVersion}+`,
+  );
+  const lastName = versionedNames[versionedNames.length - 1];
+  const leadingNames = versionedNames.slice(0, -1);
+  const browserList = `${leadingNames.join(", ")}, dan ${lastName}`;
+  return `Tampilan terbaik di ${browserList}. Versi yang lebih lama tetap bisa dipakai, hanya sebagian detail tampilan yang berbeda.`;
+}
 
 export function SiteFooter() {
   return (
@@ -50,46 +63,34 @@ export function SiteFooter() {
             Temukan kompetisi yang tepat, pahami persyaratannya, lalu melangkah dengan yakin.
           </p>
         </div>
-        <div className="footer-support">
-          <h3>Tampilan terbaik di</h3>
-          <ul className="footer-support-list">
-            {VERIFIED_BROWSERS.map((browser) => (
-              <li key={browser.name}>
-                <span>{browser.name}</span>{" "}
-                <span className="footer-support-version">{browser.minimumVersion}+</span>
-              </li>
-            ))}
-          </ul>
-          <p className="footer-support-note">
-            Versi yang lebih lama tetap bisa dipakai, hanya sebagian detail tampilan yang berbeda.
-          </p>
+        <div className="footer-info">
+          <h2 id={FOOTER_INFO_HEADING_ID}>Informasi</h2>
+          <nav aria-labelledby={FOOTER_INFO_HEADING_ID}>
+            <ul className="footer-link-grid">
+              {/* Every route here is indexable and so has no `loading.tsx` — the Suspense
+                  boundary one creates strands their content outside the initial shell, which is
+                  the defect that removed them. Their navigation is acknowledged at the link
+                  instead. */}
+              {LEGAL_LINKS.map((link) => (
+                <li key={link.href}>
+                  <Link href={link.href} className="footer-link">
+                    {link.label}
+                    <LinkPendingSlot />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </nav>
         </div>
       </div>
 
       <div className="footer-legal">
-        <div className="footer-legal-inner">
-          <div className="footer-legal-identity">
-            <p className="footer-legal-entity">{COMPANY.legalName}</p>
-            <p>{COMPANY.address}</p>
-            <div className="footer-legal-contact">
-              <a href={COMPANY.phone.href}>{COMPANY.phone.display}</a>
-              <a className="footer-legal-email" href={`mailto:${COMPANY.supportEmail}`}>
-                {COMPANY.supportEmail}
-              </a>
-            </div>
-          </div>
-          <nav className="footer-legal-links" aria-label="Informasi">
-            {/* Every route here is indexable and so has no `loading.tsx` — the Suspense
-                boundary one creates strands their content outside the initial shell, which is the
-                defect that removed them. Their navigation is acknowledged at the link instead. */}
-            {LEGAL_LINKS.map((link) => (
-              <Link key={link.href} href={link.href}>
-                {link.label}
-                <LinkPendingSlot />
-              </Link>
-            ))}
-          </nav>
+        <div className="footer-legal-row">
+          <a className="footer-link" href={`mailto:${COMPANY.supportEmail}`}>
+            {COMPANY.supportEmail}
+          </a>
         </div>
+        <p className="footer-fine-print">{describeBrowserSupport()}</p>
       </div>
     </footer>
   );

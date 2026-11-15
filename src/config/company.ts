@@ -1,22 +1,16 @@
 /**
- * The company behind Lombakita, stated once.
+ * How a reader reaches Lombakita, stated once.
  *
- * Every surface that names the operator reads from here: the site footer, the contact page, the
- * terms and the privacy policy. A second literal copy of the address or the entity name is the
- * defect this module exists to prevent, because the copy that nobody remembers to update is the
- * one a reader eventually finds.
+ * Every surface that names the way to reach the team reads from here: the site footer, the contact
+ * page, the about page, the terms and the privacy policy. A second literal copy of the address is
+ * the defect this module exists to prevent, because the copy that nobody remembers to update is
+ * the one a reader eventually finds.
  *
- * supportEmail is the written channel. The telephone number printed is the owner's own mobile,
- * published by owner ruling 2026-10-03 and recorded as ENTITY-D9; replace it with a business
- * number when one exists.
+ * The site publishes no company name, street address, telephone number or business registration
+ * number. supportEmail is the one written channel.
  */
 export const COMPANY = {
-  legalName: "Karya Talenta Nusantara",
-  address:
-    "Jl. Raya Satelit Utara KN-8, RT 088 / RW 03, Tanjungsari, Sukomanunggal, Kota Surabaya, Jawa Timur 60187",
   supportEmail: "dukungan@lombakita.com",
-  phone: { display: "0813-5773-4540", href: "tel:+6281357734540" },
-  nib: "2008260000397",
 } as const;
 
 /**

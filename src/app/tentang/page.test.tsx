@@ -27,7 +27,6 @@ const HEADINGS = [
   "Biaya dan pembayaran",
   "Pembatalan dan pengembalian dana",
   "Bantuan",
-  "Identitas badan usaha",
 ];
 
 const PARAGRAPHS = [
@@ -93,30 +92,18 @@ describe("AboutPage", () => {
     );
   });
 
-  it("closes the help paragraph with the email and telephone from COMPANY as links", () => {
+  it("closes the help section with one sentence that names the support email as a link", () => {
     expect(html).toContain(
-      "Untuk masalah akun, penangguhan akun, data pribadi, atau bila penyelenggara tidak dapat dihubungi, kirim email ke",
+      `<p>Ada pertanyaan? Hubungi kami di <a href="mailto:${COMPANY.supportEmail}">${COMPANY.supportEmail}</a>.</p>`,
     );
-    expect(html).toContain(
-      `<a href="mailto:${COMPANY.supportEmail}">${COMPANY.supportEmail}</a> atau hubungi`,
-    );
-    expect(html).toContain(`<a href="${COMPANY.phone.href}">${COMPANY.phone.display}</a>.</p>`);
+    expect(html.split(COMPANY.supportEmail)).toHaveLength(3);
   });
 
-  it("renders the five identity values from COMPANY", () => {
-    expect(html).toContain(`<dt>Nama badan usaha</dt><dd>${COMPANY.legalName}</dd>`);
-    expect(html).toContain(`<dt>Alamat terdaftar</dt><dd>${COMPANY.address}</dd>`);
-    expect(html).toContain(`<dt>NIB</dt><dd class="data-text">${COMPANY.nib}</dd>`);
-    expect(html).toContain(
-      `<dt>Email</dt><dd><a href="mailto:${COMPANY.supportEmail}">${COMPANY.supportEmail}</a></dd>`,
-    );
-    expect(html).toContain(
-      `<dt>Telepon</dt><dd><a href="${COMPANY.phone.href}">${COMPANY.phone.display}</a></dd>`,
-    );
-  });
-
-  it("links to the contact page", () => {
-    expect(html).toContain('<a href="/kontak">Lihat halaman kontak</a>');
+  it("lists no company identity and no mobile number", () => {
+    expect(html).not.toContain("<dt>");
+    expect(html).not.toContain("tel:");
+    expect(html).not.toMatch(/(?:\+62|\b0)8\d{1,2}[\s-]?\d{3,4}[\s-]?\d{3,4}/);
+    expect(html).not.toMatch(/\b\d{13}\b/);
   });
 
   it("declares its metadata", () => {

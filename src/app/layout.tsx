@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { DM_Sans, Young_Serif } from "next/font/google";
 import { ApplicationHeader } from "@/components/navigation/application-header";
 import { SiteFooter } from "@/components/navigation/site-footer";
+import { MAIN_CONTENT_ID } from "@/components/ui/main-content-id";
 import { publicEnv } from "@/config/env";
 import { NON_INDEXABLE_ROBOTS } from "@/config/indexable-routes";
 import { resolveSiteOrigin } from "@/config/site-url";
@@ -57,12 +58,12 @@ export default function RootLayout({
     >
       <body className="min-h-full">
         <AppProviders>
-          <a className="skip-link" href="#main-content">
-            Lewati ke konten utama
+          <a className="skip-link" href={`#${MAIN_CONTENT_ID}`}>
+            Ke konten utama
           </a>
           <div className="site-layout">
             <ApplicationHeader />
-            <div id="main-content" className="site-main" tabIndex={-1}>
+            <div id={MAIN_CONTENT_ID} className="site-main" tabIndex={-1}>
               {children}
             </div>
             <SiteFooter />

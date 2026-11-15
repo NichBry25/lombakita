@@ -10,6 +10,7 @@ import {
 } from "./modal-context";
 import { Button } from "../button";
 import { Feedback } from "../feedback";
+import { MAIN_CONTENT_ID } from "../main-content-id";
 
 // Elements that can hold keyboard focus inside the dialog. Used both to move focus in on open and to
 // cycle focus at the dialog's edges (the focus trap).
@@ -91,12 +92,10 @@ function useInertPageBehind(isOpen: boolean, backdropRef: RefObject<HTMLElement 
 }
 
 // A trigger that left the page (a success removed it) or cannot take focus hands focus to the
-// page's main landmark, so the next Tab starts from the content instead of the top of the document.
-const moveFocusToMainLandmark = () => {
-  const main = document.querySelector<HTMLElement>("main");
-  if (!main) return;
-  if (!main.hasAttribute("tabindex")) main.setAttribute("tabindex", "-1");
-  main.focus();
+// element the skip link lands on, so the next Tab starts from the content instead of the top of
+// the document.
+const moveFocusToMainContent = () => {
+  document.getElementById(MAIN_CONTENT_ID)?.focus();
 };
 
 const returnFocusTo = (trigger: HTMLElement | null) => {
@@ -104,7 +103,7 @@ const returnFocusTo = (trigger: HTMLElement | null) => {
     trigger.focus();
     if (document.activeElement === trigger) return;
   }
-  moveFocusToMainLandmark();
+  moveFocusToMainContent();
 };
 
 // Focus goes back to the control that opened the pop-up once the pop-up has closed.

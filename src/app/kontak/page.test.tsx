@@ -17,32 +17,30 @@ vi.mock("next/link", () => {
 import ContactPage, { metadata } from "@/app/kontak/page";
 import { COMPANY } from "@/config/company";
 
-// These strings are owner-ruled and byte-exact, and nothing downstream verifies them: a typo in
-// src/config/company.ts would otherwise ship silently to the one page whose whole purpose is
-// stating them correctly. This pins the RENDERED page, not the module — a future page rewrite
-// that stops reading COMPANY would fail here even if the module itself stayed correct.
+// The support email is the one fact this page states, and it is read from the single source of
+// truth. This pins the RENDERED page, not the module — a future page rewrite that stops reading
+// COMPANY would fail here even if the module itself stayed correct.
 describe("ContactPage", () => {
-  it("renders every company fact from the single source of truth", () => {
+  it("renders the support email, once, as a mailto link", () => {
     const html = renderToStaticMarkup(ContactPage());
 
-    expect(html).toContain(COMPANY.legalName);
-    expect(html).toContain(COMPANY.address);
-    expect(html).toContain(COMPANY.supportEmail);
-    expect(html).toContain(`mailto:${COMPANY.supportEmail}`);
-    expect(html).toContain(COMPANY.nib);
+    expect(html).toContain(`<dt>Email</dt>`);
+    expect(html).toContain(`<a href="mailto:${COMPANY.supportEmail}">${COMPANY.supportEmail}</a>`);
+    expect(html.split(COMPANY.supportEmail)).toHaveLength(3);
   });
 
-  // The telephone number is the one in COMPANY and no other: the row renders once, as a dial link,
-  // and with that value taken out no Indonesian mobile-number shape is left on the page.
-  it("renders the telephone row once, from COMPANY, and no other mobile number", () => {
+  // The page names no company name, address, telephone number or registration number: no row for
+  // them, and no mobile-number or 13-digit shape left anywhere in the markup.
+  it("renders no company identity row and no mobile number", () => {
     const html = renderToStaticMarkup(ContactPage());
-    const dialLink = `<a href="${COMPANY.phone.href}">${COMPANY.phone.display}</a>`;
 
-    expect(html.split("<dt>Telepon</dt>")).toHaveLength(2);
-    expect(html.split(dialLink)).toHaveLength(2);
-
-    const withoutOwnNumber = html.replace(dialLink, "");
-    expect(withoutOwnNumber).not.toMatch(/(?:\+62|\b0)8\d{1,2}[\s-]?\d{3,4}[\s-]?\d{3,4}/);
+    expect(html).not.toContain("<dt>Nama badan usaha</dt>");
+    expect(html).not.toContain("<dt>Alamat terdaftar</dt>");
+    expect(html).not.toContain("<dt>Telepon</dt>");
+    expect(html).not.toContain("<dt>NIB</dt>");
+    expect(html).not.toContain("tel:");
+    expect(html).not.toMatch(/(?:\+62|\b0)8\d{1,2}[\s-]?\d{3,4}[\s-]?\d{3,4}/);
+    expect(html).not.toMatch(/\b\d{13}\b/);
   });
 
   // The page shows an email row and a telephone row, so the description search engines display

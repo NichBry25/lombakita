@@ -40,28 +40,10 @@ export default function ContactPage() {
           <h2 className="section-title">Identitas penyelenggara sistem</h2>
           <dl className="detail-grid">
             <div>
-              <dt>Nama badan usaha</dt>
-              <dd>{COMPANY.legalName}</dd>
-            </div>
-            <div>
-              <dt>Alamat terdaftar</dt>
-              <dd>{COMPANY.address}</dd>
-            </div>
-            <div>
               <dt>Email</dt>
               <dd>
                 <a href={`mailto:${COMPANY.supportEmail}`}>{COMPANY.supportEmail}</a>
               </dd>
-            </div>
-            <div>
-              <dt>Telepon</dt>
-              <dd>
-                <a href={COMPANY.phone.href}>{COMPANY.phone.display}</a>
-              </dd>
-            </div>
-            <div>
-              <dt>NIB</dt>
-              <dd className="data-text">{COMPANY.nib}</dd>
             </div>
           </dl>
         </section>

@@ -17,48 +17,50 @@ vi.mock("next/link", () => {
 import { SiteFooter } from "@/components/navigation/site-footer";
 import { COMPANY } from "@/config/company";
 
-// The footer is on every page, so it is the one place the operator's identity is always visible.
-// This pins the RENDERED footer against COMPANY: a rewrite that stops reading the module fails
-// here even if the module itself stays correct.
+// The footer is on every page. This pins the RENDERED footer against COMPANY: a rewrite that stops
+// reading the module fails here even if the module itself stays correct.
 describe("SiteFooter", () => {
-  it("renders the legal name and the registered address", () => {
-    const html = renderToStaticMarkup(<SiteFooter />);
-
-    expect(html).toContain(COMPANY.legalName);
-    expect(html).toContain(COMPANY.address);
-  });
-
-  it("renders the telephone number as a dial link", () => {
-    const html = renderToStaticMarkup(<SiteFooter />);
-
-    expect(html).toContain(`<a href="${COMPANY.phone.href}">${COMPANY.phone.display}</a>`);
-  });
-
-  it("renders the support email as a mailto link", () => {
+  it("renders the support email as a mailto link, once", () => {
     const html = renderToStaticMarkup(<SiteFooter />);
 
     expect(html).toContain(`href="mailto:${COMPANY.supportEmail}"`);
     expect(html).toContain(`>${COMPANY.supportEmail}</a>`);
+    expect(html.split(COMPANY.supportEmail)).toHaveLength(3);
   });
 
-  it("renders the Tentang link first in a navigation labelled Informasi", () => {
+  it("shows no company name, address, telephone number or registration number", () => {
     const html = renderToStaticMarkup(<SiteFooter />);
 
-    expect(html).toContain('aria-label="Informasi"');
-    expect(html).not.toContain('aria-label="Informasi legal"');
-    expect(html).toMatch(/<a href="\/tentang">Tentang/);
-    expect(html.indexOf('href="/tentang"')).toBeLessThan(html.indexOf('href="/syarat-ketentuan"'));
+    expect(html).not.toContain("tel:");
+    expect(html).not.toMatch(/(?:\+62|\b0)8\d{1,2}[\s-]?\d{3,4}[\s-]?\d{3,4}/);
+    expect(html).not.toMatch(/\b\d{13}\b/);
+    expect(html).not.toMatch(/Jl\./);
+    expect(html).not.toContain("footer-legal-entity");
   });
 
-  it("writes the browser note without a dash and names the company in its own spelling", () => {
+  it("names its links in a heading and reads the grid down the first column, then the second", () => {
     const html = renderToStaticMarkup(<SiteFooter />);
-    const browserNote = html.match(/<p class="footer-support-note">(.*?)<\/p>/)?.[1];
+    const linkOrder = [
+      'href="/tentang"',
+      'href="/kontak"',
+      'href="/syarat-ketentuan"',
+      'href="/kebijakan-privasi"',
+    ].map((marker) => html.indexOf(marker));
 
-    expect(html).toContain(
-      "Versi yang lebih lama tetap bisa dipakai, hanya sebagian detail tampilan yang berbeda.",
+    expect(html).toContain('<h2 id="footer-info-heading">Informasi</h2>');
+    expect(html).toContain('aria-labelledby="footer-info-heading"');
+    expect(html).toMatch(/<a href="\/tentang"[^>]*>Tentang/);
+    expect(linkOrder).toEqual([...linkOrder].sort((first, second) => first - second));
+    expect(linkOrder.every((position) => position > -1)).toBe(true);
+  });
+
+  it("writes the browser note as one sentence without a dash", () => {
+    const html = renderToStaticMarkup(<SiteFooter />);
+    const finePrint = html.match(/<p class="footer-fine-print">(.*?)<\/p>/)?.[1];
+
+    expect(finePrint).toBe(
+      "Tampilan terbaik di Chrome 117+, Edge 117+, Firefox 121+, dan Safari 17.5+. Versi yang lebih lama tetap bisa dipakai, hanya sebagian detail tampilan yang berbeda.",
     );
-    expect(html).toContain("Karya Talenta Nusantara");
-    expect(browserNote).toBeDefined();
-    expect(browserNote).not.toContain("—");
+    expect(finePrint).not.toContain("—");
   });
 });

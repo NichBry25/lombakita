@@ -5,9 +5,10 @@ import { useSession } from "next-auth/react";
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/ui";
 
-// Homepage notification bell. Polls the lightweight unread-count endpoint, shows a
+// Header notification bell. Polls the lightweight unread-count endpoint, shows a
 // badge, and plays a short audio ping when the unread count rises (a new notification/invitation
-// arrived). Self-hides for unauthenticated visitors (the endpoint returns 401). Real-time delivery
+// arrived). The header mounts it only for a signed-in account, and it still hides itself if the
+// endpoint answers 401 (an expired session). Real-time delivery
 // (websockets/SSE) is out of scope — a periodic poll is the MVP mechanism.
 //
 // Audio note: browsers block audio until the user interacts with the page, so the AudioContext is
@@ -26,7 +27,12 @@ const getAudioCtor = (): AudioCtor | undefined => {
   );
 };
 
-export function NotificationBell() {
+type NotificationBellProps = {
+  // The header owns the path, so it says whether the inbox is the current page.
+  isCurrentPage?: boolean;
+};
+
+export function NotificationBell({ isCurrentPage = false }: NotificationBellProps) {
   const { data: session } = useSession();
   const [unreadCount, setUnreadCount] = useState<number | null>(null);
   const [authed, setAuthed] = useState(true);
@@ -121,6 +127,7 @@ export function NotificationBell() {
 
   const hasUnread = typeof unreadCount === "number" && unreadCount > 0;
   const unreadCountLabel = hasUnread && unreadCount > 99 ? "99+" : unreadCount;
+  const bellLabel = hasUnread ? `Kotak masuk, ${unreadCountLabel} belum dibaca` : "Kotak masuk";
 
   return (
     // Not an IconButtonLink: the unread badge is an extra child that the primitive has no slot
@@ -130,8 +137,9 @@ export function NotificationBell() {
       className="ui-icon-button notification-link"
       data-variant="plain"
       data-size="md"
-      data-tooltip="Kotak masuk"
-      aria-label={hasUnread ? `Kotak masuk, ${unreadCountLabel} belum dibaca` : "Kotak masuk"}
+      data-tooltip={bellLabel}
+      aria-label={bellLabel}
+      aria-current={isCurrentPage ? "page" : undefined}
     >
       <Icon name="inbox" />
       {hasUnread ? <span className="notification-badge">{unreadCountLabel}</span> : null}

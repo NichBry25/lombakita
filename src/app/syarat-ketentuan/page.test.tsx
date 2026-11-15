@@ -17,10 +17,18 @@ import TermsPage from "@/app/syarat-ketentuan/page";
 import { COMPANY, LEGAL_DOCUMENT } from "@/config/company";
 
 describe("TermsPage", () => {
-  it("renders the company facts and document version this page reads", () => {
+  it("says the team operates the service and names the support email, with no company name", () => {
     const html = renderToStaticMarkup(TermsPage());
 
-    expect(html).toContain(COMPANY.legalName);
+    expect(html).toContain(
+      "Layanan ini dioperasikan oleh tim Lombakita, yang dapat dihubungi melalui",
+    );
+    expect(html).not.toContain("dioperasikan oleh PT");
+  });
+
+  it("renders the support email and document version this page reads", () => {
+    const html = renderToStaticMarkup(TermsPage());
+
     expect(html).toContain(COMPANY.supportEmail);
     expect(html).toContain(`mailto:${COMPANY.supportEmail}`);
     expect(html).toContain(LEGAL_DOCUMENT.version);
