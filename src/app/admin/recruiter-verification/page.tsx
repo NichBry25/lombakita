@@ -372,7 +372,7 @@ export default function RecruiterVerificationQueuePage() {
                       {item.submitter.email ?? "email tidak tersedia"}
                     </p>
                   </div>
-                  <span className="status-badge" data-status={isRejected ? "closed" : "open"}>
+                  <span className="status-badge" data-status={isRejected ? "closing" : "open"}>
                     {isRejected ? "Ditolak" : priorityLabel(item)}
                   </span>
                 </div>

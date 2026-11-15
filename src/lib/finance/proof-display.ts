@@ -28,7 +28,7 @@ export const PROOF_STATUS_TONES: Record<ManualPaymentProofStatus, StatusBadgeTon
   // of them, and that divergence is the reason this map exists.
   pending_review: "closing",
   verified: "paid",
-  rejected: "cancelled",
+  rejected: "closing",
   // A void is a platform correction, not a verdict on the money. Neutral, because the organiser
   // did not decide it and cannot act on it.
   voided: "closed",

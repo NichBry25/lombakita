@@ -300,7 +300,7 @@ export const InstitutionVerificationShell = ({
             <div>
               <h2>Verifikasi tidak berlaku</h2>
             </div>
-            <span className="status-badge" data-status="closed">
+            <span className="status-badge" data-status="closing">
               Ditolak
             </span>
           </div>
@@ -438,7 +438,7 @@ export const InstitutionVerificationShell = ({
                           s.status === "approved"
                             ? "open"
                             : s.status === "rejected"
-                              ? "closed"
+                              ? "closing"
                               : "awaiting"
                         }
                       >

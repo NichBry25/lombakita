@@ -401,7 +401,7 @@ export default function AdminInstitutionsPage() {
                             row.verificationStatus === "verified"
                               ? "open"
                               : row.verificationStatus === "rejected"
-                                ? "closed"
+                                ? "closing"
                                 : row.verificationStatus === "pending_verification"
                                   ? "awaiting"
                                   : undefined

@@ -276,6 +276,25 @@
   --color-empty-good-icon: #c3e27a;
   --color-empty-error: #3b2417;
   --color-empty-error-icon: var(--brand-peach);
+
+  --tone-positive-fill: #1c3a22;
+  --tone-positive-ink: #c3e27a;
+  --tone-positive-dot: var(--brand-lime-deep);
+  --tone-attention-fill: #3b2417;
+  --tone-attention-ink: var(--brand-peach);
+  --tone-attention-dot: var(--brand-tangerine);
+  --tone-waiting-fill: #1b3f38;
+  --tone-waiting-ink: #a8c0b8;
+  --tone-waiting-dot: #a8c0b8;
+  --tone-neutral-fill: #1b3f38;
+  --tone-neutral-ink: #a8c0b8;
+  --tone-neutral-dot: #7e9f97;
+  --tone-calm-fill: var(--brand-palm);
+  --tone-calm-ink: var(--color-ink);
+  --tone-calm-icon: var(--color-ink);
+  --tone-label-fill: #1b3f38;
+  --tone-label-ink: var(--color-ink);
+
   --surface-offset-block: #6b4128;
   --wave-crest: #563322;
 
@@ -600,24 +619,6 @@
   --category-wash-lightness: 90%;
   --category-blob-saturation: 62%;
   --category-blob-lightness: 52%;
-
-  --tone-positive-fill: #1c3a22;
-  --tone-positive-ink: #c3e27a;
-  --tone-positive-dot: var(--brand-lime-deep);
-  --tone-attention-fill: #3b2417;
-  --tone-attention-ink: var(--brand-peach);
-  --tone-attention-dot: var(--brand-tangerine);
-  --tone-waiting-fill: #1b3f38;
-  --tone-waiting-ink: #a8c0b8;
-  --tone-waiting-dot: #a8c0b8;
-  --tone-neutral-fill: #1b3f38;
-  --tone-neutral-ink: #a8c0b8;
-  --tone-neutral-dot: #7e9f97;
-  --tone-calm-fill: var(--brand-palm);
-  --tone-calm-ink: var(--color-ink);
-  --tone-calm-icon: var(--color-ink);
-  --tone-label-fill: #1b3f38;
-  --tone-label-ink: var(--color-ink);
 }
 
 /*

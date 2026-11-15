@@ -99,7 +99,7 @@ export const PAYMENT_STATUS_TONES: Record<PaymentDisplayStatus, StatusBadgeTone>
   awaiting_review: "awaiting",
   // Urgent rather than failed: the candidate can still act, and the deadline is still running.
   rejected_resubmittable: "closing",
-  rejected_final: "cancelled",
+  rejected_final: "closing",
   paid: "paid",
   expired: "expired",
   refunded: "refunded",
