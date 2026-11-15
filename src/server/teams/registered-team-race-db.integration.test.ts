@@ -1287,3 +1287,103 @@ describe.skipIf(skipWithoutDatabase)(
     });
   },
 );
+
+describe.skipIf(skipWithoutDatabase)("an accept queued on the lock while the close passes", () => {
+  it("FORMING: an accept queued on the lock while the close passes is refused", async () => {
+    readyEnqueueSpies();
+    const { competitionId, teamId, captain, budi } = await seedTeam("forming");
+    const sari = await seedUser("sari");
+    const sariInvite = await seedOpenInvitation(teamId, captain.id, sari);
+    const closesAt = new Date(Date.now() + 2_000);
+    await control.db
+      .update(competitions)
+      .set({ registrationEndAt: closesAt })
+      .where(eq(competitions.id, competitionId));
+    await control.db
+      .update(teamInvitations)
+      .set({ expiresAt: closesAt })
+      .where(eq(teamInvitations.id, sariInvite.id));
+    const [barrierPid, acceptPid] = await Promise.all([
+      backendPidOf(barrier),
+      backendPidOf(racerOne),
+    ]);
+    let parkedAt = 0;
+
+    const [accepted] = await withParticipationLockHeld(competitionId, async (track) => {
+      const acceptRun = track(
+        acceptTeamInvitationForUser(sariInvite.id, sari.id, racerOne.db as never),
+      );
+      await awaitBlockedBy(acceptPid, barrierPid, "the accept");
+      parkedAt = Date.now();
+      await new Promise((resolve) =>
+        setTimeout(resolve, Math.max(0, closesAt.getTime() - Date.now()) + 250),
+      );
+      return [acceptRun] as const;
+    }).then(async ([acceptRun]) => [await acceptRun] as const);
+
+    expect({
+      parkedBeforeClose: parkedAt < closesAt.getTime(),
+      acceptOk: accepted.ok,
+      code: accepted.ok ? undefined : errorCodeOf(accepted.error),
+      status: accepted.ok ? undefined : (accepted.error as { status?: number }).status,
+      members: await activeMemberIds(teamId),
+      inviteStatus: await invitationStatus(sariInvite.id),
+    }).toEqual({
+      parkedBeforeClose: true,
+      acceptOk: false,
+      code: "team_competition_registration_closed",
+      status: 422,
+      members: [captain.id, budi.id].sort(),
+      inviteStatus: "pending",
+    });
+  });
+
+  it("REGISTERED: an accept queued on the lock while the close passes is refused", async () => {
+    readyEnqueueSpies();
+    const { competitionId, teamId, captain, budi } = await seedTeam("submitted");
+    const sari = await seedUser("sari");
+    const sariInvite = await seedOpenInvitation(teamId, captain.id, sari);
+    const closesAt = new Date(Date.now() + 2_000);
+    await control.db
+      .update(competitions)
+      .set({ registrationEndAt: closesAt })
+      .where(eq(competitions.id, competitionId));
+    await control.db
+      .update(teamInvitations)
+      .set({ expiresAt: closesAt })
+      .where(eq(teamInvitations.id, sariInvite.id));
+    const [barrierPid, acceptPid] = await Promise.all([
+      backendPidOf(barrier),
+      backendPidOf(racerOne),
+    ]);
+    let parkedAt = 0;
+
+    const [accepted] = await withParticipationLockHeld(competitionId, async (track) => {
+      const acceptRun = track(
+        acceptTeamInvitationForUser(sariInvite.id, sari.id, racerOne.db as never),
+      );
+      await awaitBlockedBy(acceptPid, barrierPid, "the accept");
+      parkedAt = Date.now();
+      await new Promise((resolve) =>
+        setTimeout(resolve, Math.max(0, closesAt.getTime() - Date.now()) + 250),
+      );
+      return [acceptRun] as const;
+    }).then(async ([acceptRun]) => [await acceptRun] as const);
+
+    expect({
+      parkedBeforeClose: parkedAt < closesAt.getTime(),
+      acceptOk: accepted.ok,
+      code: accepted.ok ? undefined : errorCodeOf(accepted.error),
+      status: accepted.ok ? undefined : (accepted.error as { status?: number }).status,
+      members: await activeMemberIds(teamId),
+      inviteStatus: await invitationStatus(sariInvite.id),
+    }).toEqual({
+      parkedBeforeClose: true,
+      acceptOk: false,
+      code: "team_competition_registration_closed",
+      status: 422,
+      members: [captain.id, budi.id].sort(),
+      inviteStatus: "pending",
+    });
+  });
+});

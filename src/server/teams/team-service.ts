@@ -1106,7 +1106,7 @@ export const acceptTeamInvitationForUser = async (
   invitationId: string,
   sessionUserId: string,
   db: Database = getDb(),
-  now: Date = new Date(),
+  now?: Date,
 ): Promise<{ teamId: string }> => {
   const accepted = await db.transaction(async (tx) => {
     const invitation = await loadInvitationForAccept(tx, invitationId);
@@ -1122,17 +1122,20 @@ export const acceptTeamInvitationForUser = async (
       );
     }
 
-    if (invitation.expiresAt < now) {
+    const checkedAt = now ?? new Date();
+    if (invitation.expiresAt < checkedAt) {
       await tx
         .update(teamInvitations)
         .set({ status: "cancelled" })
         .where(eq(teamInvitations.id, invitation.id));
-      throw expiredInvitationError(invitation, now);
+      throw expiredInvitationError(invitation, checkedAt);
     }
 
     // Rule 25: taken before the team is read, so a team registering at this moment is seen either
     // before or after, never half way.
     await acquireCompetitionParticipationLock(tx, invitation.competitionId);
+    // Read after the lock, so a wait on it cannot carry a moment before the close past it.
+    const mutationAt = now ?? new Date();
 
     const [team] = await tx
       .select({
@@ -1149,14 +1152,14 @@ export const acceptTeamInvitationForUser = async (
     }
 
     if (team.status === "submitted") {
-      return joinRegisteredTeam(tx, invitation.id, team, sessionUserId, now);
+      return joinRegisteredTeam(tx, invitation.id, team, sessionUserId, mutationAt);
     }
 
     if (team.status !== "forming") {
       throw new TeamError("team_not_forming", "Team is no longer accepting members");
     }
 
-    return joinFormingTeam(tx, invitation.id, team, sessionUserId, now);
+    return joinFormingTeam(tx, invitation.id, team, sessionUserId, mutationAt);
   });
 
   const { registrationId } = accepted;

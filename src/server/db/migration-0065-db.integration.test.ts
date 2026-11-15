@@ -94,9 +94,10 @@ const seedCompetition = async (
   return competition!.id;
 };
 
-const seedFormingTeam = async (
+const seedTeam = async (
   tx: Tx,
   competitionId: string,
+  status: "forming" | "submitted" = "forming",
 ): Promise<{ teamId: string; captainId: string }> => {
   const username = `mig65_captain_${uniqueSuffix()}`;
   const [captain] = await tx
@@ -115,7 +116,7 @@ const seedFormingTeam = async (
       competitionId,
       captainId: captain!.id,
       name: `Tim ${uniqueSuffix()}`,
-      status: "forming",
+      status,
     })
     .returning({ id: teams.id });
 
@@ -157,7 +158,7 @@ const expiriesOf = async (
 };
 
 describe.skipIf(skipWithoutDatabase)("migration 0065 against the database", () => {
-  it("moves every unanswered invite of a live competition to its close, leaves every other invite alone, and changes nothing when run again", async () => {
+  it("moves every unanswered invite of a published competition whose close is ahead to that close when the invite is still open or its team is still forming, leaves every other invite alone, and changes nothing when run again", async () => {
     await inRollback(async (tx) => {
       const now = Date.now();
       const openClose = new Date(now + 14 * DAY_MS);
@@ -183,9 +184,18 @@ describe.skipIf(skipWithoutDatabase)("migration 0065 against the database", () =
         registrationEndAt: openClose,
         deletedAt: new Date(),
       });
-      const openTeam = await seedFormingTeam(tx, openCompetition);
-      const closedTeam = await seedFormingTeam(tx, closedCompetition);
-      const deletedTeam = await seedFormingTeam(tx, deletedCompetition);
+      const draftCompetition = await seedCompetition(tx, institutionId, {
+        status: "draft",
+        registrationStartAt: new Date(now - 7 * DAY_MS),
+        registrationEndAt: openClose,
+        deletedAt: null,
+      });
+      const openTeam = await seedTeam(tx, openCompetition);
+      const closedTeam = await seedTeam(tx, closedCompetition);
+      const deletedTeam = await seedTeam(tx, deletedCompetition);
+      const draftTeam = await seedTeam(tx, draftCompetition);
+      const submittedTeam = await seedTeam(tx, openCompetition, "submitted");
+      const beyondClose = new Date(now + 20 * DAY_MS);
       const invitationIds = {
         pendingWeek: await seedInvitation(tx, openTeam, "pending", weekOut),
         pendingLapsed: await seedInvitation(tx, openTeam, "pending", dayAgo),
@@ -195,6 +205,10 @@ describe.skipIf(skipWithoutDatabase)("migration 0065 against the database", () =
         cancelled: await seedInvitation(tx, openTeam, "cancelled", weekOut),
         passedClose: await seedInvitation(tx, closedTeam, "pending", twoDaysAgo),
         deletedDraft: await seedInvitation(tx, deletedTeam, "pending", weekOut),
+        draftOpen: await seedInvitation(tx, draftTeam, "pending", weekOut),
+        submittedOpen: await seedInvitation(tx, submittedTeam, "pending", weekOut),
+        submittedLapsed: await seedInvitation(tx, submittedTeam, "pending", dayAgo),
+        pendingBeyond: await seedInvitation(tx, openTeam, "pending", beyondClose),
       };
 
       const migration = sql.raw(readFileSync(MIGRATION, "utf8"));
@@ -212,6 +226,10 @@ describe.skipIf(skipWithoutDatabase)("migration 0065 against the database", () =
         cancelled: weekOut.getTime(),
         passedClose: twoDaysAgo.getTime(),
         deletedDraft: weekOut.getTime(),
+        draftOpen: weekOut.getTime(),
+        submittedOpen: openClose.getTime(),
+        submittedLapsed: dayAgo.getTime(),
+        pendingBeyond: openClose.getTime(),
       };
       expect({ afterFirst, afterSecond, secondRunChanged: secondRun.count }).toEqual({
         afterFirst: expected,
