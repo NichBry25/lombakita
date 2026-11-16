@@ -165,6 +165,26 @@ export const competitionCategoryEnum = pgEnum("competition_category", [
   "other",
 ]);
 
+// Where a competition takes place. Display ONLY plus the list filter: online and offline both also
+// match hybrid there. Nullable: legacy rows stay empty until edited, and publishing requires it.
+export const competitionLocationEnum = pgEnum("competition_location", [
+  "online",
+  "offline",
+  "hybrid",
+]);
+
+// Who a competition is meant for. A label ONLY: it never gates registration (DEC-0106). Display
+// labels and the fixed display order live in @/lib/competitions/audiences.
+export const competitionAudienceEnum = pgEnum("competition_audience", [
+  "umum",
+  "mahasiswa",
+  "sma_smk",
+  "smp",
+  "sd",
+]);
+
+export type CompetitionLocation = (typeof competitionLocationEnum.enumValues)[number];
+export type CompetitionAudience = (typeof competitionAudienceEnum.enumValues)[number];
 export type CompetitionMode = (typeof competitionModeEnum.enumValues)[number];
 export type CompetitionStatus = (typeof competitionStatusEnum.enumValues)[number];
 export type CompetitionCategory = (typeof competitionCategoryEnum.enumValues)[number];
@@ -852,6 +872,7 @@ export const competitions = pgTable(
     status: competitionStatusEnum("status").notNull().default("draft"),
     category: competitionCategoryEnum("category"),
     mode: competitionModeEnum("mode"),
+    location: competitionLocationEnum("location"),
     minTeamSize: integer("min_team_size"),
     maxTeamSize: integer("max_team_size"),
     registrationStartAt: timestamp("registration_start_at", { mode: "date", withTimezone: true }),
@@ -910,6 +931,10 @@ export const competitions = pgTable(
     // Descriptive, organizer-authored eligibility note. Display ONLY — never read to authorize any
     // action (open candidacy, DEC-0106). Registration remains open to every verified candidate.
     eligibilityNote: text("eligibility_note"),
+    // Descriptive audience label, stored in the fixed display order without duplicates. Empty is
+    // NULL and never an empty array. Never read to authorize anything (DEC-0106), and deliberately
+    // absent from the registration-facing CompetitionRow.
+    audience: competitionAudienceEnum("audience").array(),
     isFeatured: boolean("is_featured").notNull().default(false),
     featuredOrder: integer("featured_order"),
     publishedAt: timestamp("published_at", { mode: "date", withTimezone: true }),

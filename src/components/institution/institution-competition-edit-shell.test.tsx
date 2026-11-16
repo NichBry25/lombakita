@@ -83,6 +83,7 @@ const COMPETITION = {
   description: "Deskripsi kompetisi untuk pengujian.",
   category: "hackathon",
   mode: "individual",
+  location: "online",
   minTeamSize: null,
   maxTeamSize: null,
   status: "draft",
@@ -260,6 +261,7 @@ describe("InstitutionCompetitionEditShell save body", () => {
         description: "Deskripsi baru",
         category: competition.category,
         mode: competition.mode,
+        location: competition.location,
         minTeamSize: null,
         maxTeamSize: null,
         minimumParticipantEntries: competition.minimumParticipantEntries,
@@ -412,6 +414,133 @@ describe("InstitutionCompetitionEditShell after publish", () => {
       saveDisabled: saveButton().hasAttribute("disabled"),
       requests: vi.mocked(fetch).mock.calls.length,
     }).toEqual({ line: "alert", saveDisabled: false, requests: 1 });
+  });
+
+  describe("the location", () => {
+    const LOCATION_REASON =
+      "Setelah kompetisi terbit, lokasi tidak dapat dikosongkan atau dipersempit. Memilih Hybrid selalu diizinkan.";
+    const loadPublishedAt = (location: string | null) => () =>
+      okJson({
+        competition: { ...COMPETITION, status: "published", location },
+        publishReadiness: READY,
+      });
+    const locationControl = () => screen.getByRole("button", { name: /^Lokasi/ });
+    const chooseLocation = (label: string) => {
+      fireEvent.click(locationControl());
+      fireEvent.click(screen.getByRole("option", { name: label }));
+    };
+    const patchBody = () => {
+      const patchCall = vi.mocked(fetch).mock.calls.find(([, init]) => init?.method === "PATCH");
+      return JSON.parse(patchCall![1]!.body as string);
+    };
+
+    it("holds back a narrower location of a published competition and says why", async () => {
+      stubFetchSequence([loadPublishedAt("hybrid")]);
+      mount();
+      await screen.findByRole("button", { name: "Simpan" });
+
+      chooseLocation("Online");
+      fireEvent.submit(document.querySelector(".competition-edit-form")!);
+      await waitFor(() => expect(screen.getAllByText(LOCATION_REASON)).toHaveLength(2));
+
+      expect({
+        line: document.getElementById("location-lock")?.getAttribute("role"),
+        requests: vi.mocked(fetch).mock.calls.length,
+      }).toEqual({ line: "alert", requests: 1 });
+    });
+
+    it("shows the lock line under the location before anything is chosen", async () => {
+      stubFetchSequence([loadPublishedAt("online")]);
+      mount();
+      await screen.findByRole("button", { name: "Simpan" });
+
+      expect({
+        line: document.getElementById("location-lock")?.textContent,
+        role: document.getElementById("location-lock")?.getAttribute("role"),
+      }).toEqual({ line: LOCATION_REASON, role: null });
+    });
+
+    it("sends a move to hybrid of a published competition, and only that field", async () => {
+      stubFetchSequence([
+        loadPublishedAt("online"),
+        () => okJson({ competition: COMPETITION }),
+        loadPublishedAt("hybrid"),
+      ]);
+      mount();
+      await screen.findByRole("button", { name: "Simpan" });
+
+      chooseLocation("Hybrid");
+      fireEvent.click(saveButton());
+      await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledTimes(3));
+
+      expect(patchBody()).toEqual({ location: "hybrid" });
+    });
+
+    it("keeps the control of a published competition with no location enabled", async () => {
+      stubFetchSequence([loadPublishedAt(null)]);
+      mount();
+      await screen.findByRole("button", { name: "Simpan" });
+
+      expect((locationControl() as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    it("leaves an empty location out of the save of an unrelated edit", async () => {
+      stubFetchSequence([
+        loadPublishedAt(null),
+        () => okJson({ competition: COMPETITION }),
+        loadPublishedAt(null),
+      ]);
+      mount();
+      await screen.findByRole("button", { name: "Simpan" });
+
+      fireEvent.change(screen.getByLabelText(/Deskripsi/), { target: { value: "Deskripsi baru" } });
+      fireEvent.click(saveButton());
+      await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledTimes(3));
+
+      expect(patchBody()).toEqual({ description: "Deskripsi baru" });
+    });
+
+    it("sends the location chosen on a draft", async () => {
+      stubFetchSequence([
+        () =>
+          okJson({
+            competition: { ...COMPETITION, location: null },
+            publishReadiness: READY,
+          }),
+        () => okJson({ competition: COMPETITION }),
+        () => okJson({ competition: COMPETITION, publishReadiness: READY }),
+      ]);
+      mount();
+      await screen.findByRole("button", { name: "Simpan" });
+
+      chooseLocation("Offline");
+      fireEvent.click(saveButton());
+      await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledTimes(3));
+
+      expect(patchBody()).toMatchObject({ location: "offline" });
+    });
+
+    it("names Lokasi among the fields a draft still needs, and says nothing of it on a published one", async () => {
+      stubFetchSequence([
+        () =>
+          okJson({
+            competition: { ...COMPETITION, location: null },
+            publishReadiness: BLOCKED_BY_CHECKLIST,
+          }),
+      ]);
+      const draft = mount();
+      await screen.findByRole("button", { name: "Terbitkan" });
+      const statusLine = () => document.querySelector("#publish-readiness-message > span");
+
+      expect(statusLine()?.textContent).toBe("Lengkapi untuk menerbitkan: Lokasi");
+
+      draft.unmount();
+      stubFetchSequence([loadPublishedAt(null)]);
+      mount();
+      await screen.findByRole("button", { name: "Simpan" });
+
+      expect(screen.queryByText(/Lengkapi untuk menerbitkan/)).toBeNull();
+    });
   });
 
   it("moves focus to the first field in error and says how many when Simpan is pressed with one", async () => {
@@ -999,7 +1128,7 @@ describe("InstitutionCompetitionEditShell steps", () => {
   ];
   const STEP_FIELD_LABELS = {
     1: ["Judul", "Kategori", "Deskripsi", "Slug"],
-    2: ["Mode", "Min. anggota tim", "Maks. anggota tim", "Minimum pendaftaran"],
+    2: ["Mode", "Lokasi", "Min. anggota tim", "Maks. anggota tim", "Minimum pendaftaran"],
     3: [
       "Pendaftaran mulai",
       "Pendaftaran berakhir",
@@ -1523,6 +1652,7 @@ describe("InstitutionCompetitionEditShell steps", () => {
       "Deskripsi",
       "Slug",
       "Mode",
+      "Lokasi",
       "Min. anggota tim",
       "Maks. anggota tim",
       "Minimum pendaftaran",
@@ -2203,6 +2333,7 @@ describe("InstitutionCompetitionEditShell steps", () => {
       expect(writeKeys(calls)).toEqual([`PUT ${COMPETITION_URL}/eligibility`]);
       expect(calls.find(({ key }) => key === `PUT ${COMPETITION_URL}/eligibility`)?.body).toEqual({
         eligibilityNote: "Terbuka untuk umum.",
+        audience: [],
       });
       expect(screen.getAllByText("Perubahan tersimpan.")).toHaveLength(1);
       await waitFor(() => expect(unloadIsPrevented()).toBe(false));

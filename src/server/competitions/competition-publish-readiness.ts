@@ -7,6 +7,7 @@ import { getDb, type Database } from "@/server/db/client";
 import {
   assertActorIsTrustedRecruiter,
   assertCompetitionAccess,
+  assertCompetitionHasAudience,
   assertCompetitionHasOrganizerContact,
   assertInstitutionNotSuspended,
   assertInstitutionVerified,
@@ -45,6 +46,7 @@ export const COMPETITION_PUBLISH_BLOCKER_CODES = [
   "institution_suspended",
   "competition_publish_validation_failed",
   "competition_organizer_contact_missing",
+  "competition_audience_missing",
   "competition_institution_not_verified",
   "competition_personal_individual_only",
   "competition_personal_publish_limit",
@@ -126,6 +128,7 @@ export const resolveCompetitionPublishReadiness = async (
     description: competition.description,
     category: competition.category,
     mode: competition.mode,
+    location: competition.location,
     minTeamSize: competition.minTeamSize,
     maxTeamSize: competition.maxTeamSize,
     registrationStartAt: competition.registrationStartAt,
@@ -141,6 +144,7 @@ export const resolveCompetitionPublishReadiness = async (
   }
 
   await collectGate(() => assertCompetitionHasOrganizerContact(competitionId, db), blockers);
+  await collectGate(() => assertCompetitionHasAudience(competitionId, db), blockers);
 
   // The charging gate is conditional in the publish path and conditional here, for the same reason
   // (DEC-0158): verification gates the right to CHARGE, so a free competition is not blocked by an

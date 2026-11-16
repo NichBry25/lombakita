@@ -4,6 +4,7 @@ assertServerOnly("server/competitions/competition-public-service");
 
 import {
   and,
+  arrayOverlaps,
   asc,
   desc,
   eq,
@@ -29,7 +30,9 @@ import {
   competitionTags,
   institutionSocialLinks,
   institutions,
+  type CompetitionAudience,
   type CompetitionCategory,
+  type CompetitionLocation,
   type CompetitionMode,
 } from "@/server/db/schema";
 import { isR2Available, generatePresignedGetUrl } from "@/server/storage/r2.client";
@@ -41,6 +44,8 @@ import {
   type CompetitionIndexDocument,
 } from "@/server/search/competition-index";
 import { isCompetitionCategory } from "@/server/competitions/competition-core";
+import { parseAudienceFilterParam } from "@/lib/competitions/audiences";
+import { isCompetitionLocation, locationsMatchedByFilter } from "@/lib/competitions/locations";
 import {
   TEAM_SIZE_HIGHEST,
   TEAM_SIZE_LOWEST,
@@ -90,6 +95,7 @@ const PUBLIC_LISTING_COLUMNS = {
   description: competitions.description,
   category: competitions.category,
   mode: competitions.mode,
+  location: competitions.location,
   minTeamSize: competitions.minTeamSize,
   maxTeamSize: competitions.maxTeamSize,
   registrationStartAt: competitions.registrationStartAt,
@@ -120,6 +126,7 @@ type PublicListingRow = {
   description: string;
   category: CompetitionCategory | null;
   mode: CompetitionMode | null;
+  location: CompetitionLocation | null;
   minTeamSize: number | null;
   maxTeamSize: number | null;
   registrationStartAt: Date | null;
@@ -225,6 +232,7 @@ export type PublicCompetitionItem = {
   description: string;
   category: CompetitionCategory | null;
   mode: CompetitionMode | null;
+  location: CompetitionLocation | null;
   minTeamSize: number | null;
   maxTeamSize: number | null;
   registrationStartAt: Date | null;
@@ -253,6 +261,10 @@ export type PublicListingFilters = {
   teamSize?: string;
   teamMin?: string;
   teamMax?: string;
+  // One of online, offline or hybrid. Anything else is ignored.
+  location?: string;
+  // Comma separated audience values. Anything unknown is dropped.
+  audience?: string;
   institutionSlug?: string;
   sort?: string;
   page?: number;
@@ -399,6 +411,29 @@ export const buildTeamRangeCondition = (filters: PublicListingFilters): SQL | un
   return or(individualFits, bothFits, teamFits);
 };
 
+// Location filter (DB-only; the Meilisearch index carries no location). One chosen value: online
+// also shows hybrid, offline also shows hybrid, hybrid shows hybrid only. The value is parsed here
+// with the enum guard, so a raw API value never reaches the database, and anything unknown is
+// ignored. A competition with no location never matches.
+const readLocationFilter = (filters: PublicListingFilters): CompetitionLocation | null =>
+  isCompetitionLocation(filters.location) ? filters.location : null;
+
+export const buildLocationCondition = (filters: PublicListingFilters): SQL | undefined => {
+  const chosen = readLocationFilter(filters);
+  if (!chosen) return undefined;
+  return inArray(competitions.location, [...locationsMatchedByFilter(chosen)]);
+};
+
+// Audience filter (DB-only). The ticked levels narrow the list to competitions tagged with any of
+// them, and Umum is always included, so a competition tagged Umum shows whatever is ticked. Ticking
+// only Umum, or only values that are unknown, narrows nothing. A competition with no audience
+// never matches a narrowed list.
+export const buildAudienceCondition = (filters: PublicListingFilters): SQL | undefined => {
+  const levels = parseAudienceFilterParam(filters.audience);
+  if (levels.length === 0) return undefined;
+  return arrayOverlaps(competitions.audience, [...levels, "umum"]);
+};
+
 // A query with no letters or digits (e.g. only punctuation like ";") carries no searchable
 // term. Meilisearch normalizes it to an empty query and runs a placeholder search that returns
 // the entire catalog — so such queries must never reach the search path, and must match no
@@ -406,14 +441,17 @@ export const buildTeamRangeCondition = (filters: PublicListingFilters): SQL | un
 const hasSearchableQuery = (q: string | undefined): boolean =>
   Boolean(q && /[\p{L}\p{N}]/u.test(q));
 
-// Meili routing (spec §6): the index lacks registrationStartAt and team-size fields, so an active
-// status or a narrowed team range forces the DB path to avoid partial filtering + count drift.
+// Meili routing (spec §6): the index lacks registrationStartAt, team-size, location and audience
+// fields, so an active status, a narrowed team range, a location or a narrowing audience forces the
+// DB path to avoid partial filtering + count drift.
 // A token-less query is also kept off the search path (it would placeholder-match everything).
 export const resolveUseSearch = (filters: PublicListingFilters, meiliAvailable: boolean): boolean =>
   hasSearchableQuery(filters.q) &&
   meiliAvailable &&
   !filters.status &&
-  !isTeamRangeNarrowed(readTeamRange(filters));
+  !isTeamRangeNarrowed(readTeamRange(filters)) &&
+  readLocationFilter(filters) === null &&
+  parseAudienceFilterParam(filters.audience).length === 0;
 
 const buildDbWhere = (filters: PublicListingFilters) => {
   const conditions = [buildPublicVisibilityCondition(), buildStatusCondition(filters.status)];
@@ -433,6 +471,14 @@ const buildDbWhere = (filters: PublicListingFilters) => {
   const teamRangeCondition = buildTeamRangeCondition(filters);
   if (teamRangeCondition) {
     conditions.push(teamRangeCondition);
+  }
+  const locationCondition = buildLocationCondition(filters);
+  if (locationCondition) {
+    conditions.push(locationCondition);
+  }
+  const audienceCondition = buildAudienceCondition(filters);
+  if (audienceCondition) {
+    conditions.push(audienceCondition);
   }
   if (filters.institutionSlug) {
     conditions.push(eq(institutions.slug, filters.institutionSlug.trim().toLowerCase()));
@@ -655,6 +701,8 @@ const PUBLIC_DETAIL_COLUMNS = {
   description: competitions.description,
   category: competitions.category,
   mode: competitions.mode,
+  location: competitions.location,
+  audience: competitions.audience,
   minTeamSize: competitions.minTeamSize,
   maxTeamSize: competitions.maxTeamSize,
   registrationStartAt: competitions.registrationStartAt,
@@ -713,6 +761,9 @@ export type PublicCompetitionDetail = {
   description: string;
   category: CompetitionCategory | null;
   mode: CompetitionMode | null;
+  location: CompetitionLocation | null;
+  // A label only: it never gates registration (DEC-0106). Null when the host has not filled it.
+  audience: CompetitionAudience[] | null;
   minTeamSize: number | null;
   maxTeamSize: number | null;
   registrationStartAt: Date | null;
@@ -897,6 +948,8 @@ export const getPublicCompetitionDetail = async (
     description: row.description,
     category: row.category,
     mode: row.mode,
+    location: row.location,
+    audience: row.audience,
     minTeamSize: row.minTeamSize,
     maxTeamSize: row.maxTeamSize,
     registrationStartAt: row.registrationStartAt,

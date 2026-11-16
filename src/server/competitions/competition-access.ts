@@ -8,6 +8,7 @@ import {
   institutions,
   users,
   type CompetitionCategory,
+  type CompetitionLocation,
   type CompetitionMode,
   type CompetitionStatus,
   type InstitutionMembershipRole,
@@ -48,6 +49,7 @@ export const PUBLIC_COMPETITION_COLUMNS = {
   status: competitions.status,
   category: competitions.category,
   mode: competitions.mode,
+  location: competitions.location,
   minTeamSize: competitions.minTeamSize,
   maxTeamSize: competitions.maxTeamSize,
   registrationStartAt: competitions.registrationStartAt,
@@ -80,6 +82,7 @@ export type CompetitionRow = {
   status: CompetitionStatus;
   category: CompetitionCategory | null;
   mode: CompetitionMode | null;
+  location: CompetitionLocation | null;
   minTeamSize: number | null;
   maxTeamSize: number | null;
   registrationStartAt: Date | null;
@@ -255,6 +258,31 @@ export const assertCompetitionHasOrganizerContact = async (
       "competition_organizer_contact_missing",
       422,
       "Publishing requires an organizer contact",
+    );
+  }
+};
+
+// Publishing needs the audience label. Read here because PUBLIC_COMPETITION_COLUMNS, and so
+// CompetitionRow, leaves it out so that no registration or access code can read it (DEC-0106).
+// Throws CompetitionError 422 competition_audience_missing.
+export const assertCompetitionHasAudience = async (
+  competitionId: string,
+  db: Database = getDb(),
+): Promise<void> => {
+  const [row] = await db
+    .select({ audience: competitions.audience })
+    .from(competitions)
+    .where(eq(competitions.id, competitionId))
+    .limit(1);
+
+  if (!row) {
+    throw new CompetitionError("competition_not_found", 404, "Competition not found");
+  }
+  if (!row.audience || row.audience.length === 0) {
+    throw new CompetitionError(
+      "competition_audience_missing",
+      422,
+      "Publishing requires an audience (Untuk)",
     );
   }
 };

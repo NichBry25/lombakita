@@ -3,13 +3,21 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import {
   Button,
+  CheckboxField,
   FilterDropdown,
   Icon,
   RangeSlider,
   Spinner,
   type FilterOption,
 } from "@/components/ui";
+import {
+  COMPETITION_AUDIENCE_OPTIONS,
+  audienceFilterLevels,
+  formatAudienceLabels,
+} from "@/lib/competitions/audiences";
 import { COMPETITION_CATEGORY_OPTIONS } from "@/lib/competitions/categories";
+import { COMPETITION_LOCATION_OPTIONS } from "@/lib/competitions/locations";
+import type { CompetitionAudience } from "@/server/db/schema";
 import type { FilterSheetSection } from "./competition-filter-sheet";
 import {
   TEAM_SIZE_HIGHEST,
@@ -28,6 +36,11 @@ import {
 export const CATEGORY_OPTIONS: FilterOption[] = [
   { value: "", label: "Semua kategori" },
   ...COMPETITION_CATEGORY_OPTIONS.map((option) => ({ value: option.value, label: option.label })),
+];
+
+export const LOCATION_OPTIONS: FilterOption[] = [
+  { value: "", label: "Semua lokasi" },
+  ...COMPETITION_LOCATION_OPTIONS.map((option) => ({ value: option.value, label: option.label })),
 ];
 
 // The default ("") hides competitions whose registration deadline has passed, so it is labelled
@@ -49,22 +62,20 @@ export const SORT_OPTIONS: FilterOption[] = [
 ];
 
 const OPEN_STATUS = "open";
+const ONLINE_LOCATION = "online";
 
 type TeamSizeFilterProps = {
   range: TeamRange;
   onApply: (range: TeamRange) => void;
 };
 
-// A pill that opens a menu holding the team size slider. The address changes when "Terapkan" is
-// pressed and not on every drag, so a drag never fires a navigation per step.
-function TeamSizeFilter({ range, onApply }: TeamSizeFilterProps) {
+// The open state of a pill whose menu is a dialog holding its own controls and a "Terapkan" button.
+// The menu closes on a press or focus outside it and on Escape, and focus lands on the control that
+// `firstFocusSelector` names when it opens.
+function useDialogFilterMenu(firstFocusSelector: string) {
   const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState(range);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
-
-  const isNarrowed = isTeamRangeNarrowed(range);
-  const triggerLabel = isNarrowed ? `Ukuran tim: ${describeTeamRange(range)}` : "Ukuran tim";
 
   useEffect(() => {
     if (!open) return;
@@ -81,27 +92,40 @@ function TeamSizeFilter({ range, onApply }: TeamSizeFilterProps) {
 
   useEffect(() => {
     if (!open) return;
-    rootRef.current?.querySelector<HTMLElement>("[role='slider']")?.focus();
-  }, [open]);
-
-  const openMenu = () => {
-    setDraft(range);
-    setOpen(true);
-  };
+    rootRef.current?.querySelector<HTMLElement>(firstFocusSelector)?.focus();
+  }, [open, firstFocusSelector]);
 
   const closeAndFocusTrigger = () => {
     setOpen(false);
     triggerRef.current?.focus();
   };
 
-  const applyDraft = () => {
-    onApply(draft);
-    closeAndFocusTrigger();
-  };
-
   const closeOnEscape = (event: KeyboardEvent) => {
     if (event.key !== "Escape") return;
     event.preventDefault();
+    closeAndFocusTrigger();
+  };
+
+  return { open, setOpen, rootRef, triggerRef, closeAndFocusTrigger, closeOnEscape };
+}
+
+// A pill that opens a menu holding the team size slider. The address changes when "Terapkan" is
+// pressed and not on every drag, so a drag never fires a navigation per step.
+function TeamSizeFilter({ range, onApply }: TeamSizeFilterProps) {
+  const [draft, setDraft] = useState(range);
+  const { open, setOpen, rootRef, triggerRef, closeAndFocusTrigger, closeOnEscape } =
+    useDialogFilterMenu("[role='slider']");
+
+  const isNarrowed = isTeamRangeNarrowed(range);
+  const triggerLabel = isNarrowed ? `Ukuran tim: ${describeTeamRange(range)}` : "Ukuran tim";
+
+  const openMenu = () => {
+    setDraft(range);
+    setOpen(true);
+  };
+
+  const applyDraft = () => {
+    onApply(draft);
     closeAndFocusTrigger();
   };
 
@@ -149,6 +173,101 @@ function TeamSizeFilter({ range, onApply }: TeamSizeFilterProps) {
   );
 }
 
+type AudienceFilterProps = {
+  levels: readonly CompetitionAudience[];
+  onApply: (levels: CompetitionAudience[]) => void;
+};
+
+// A pill that opens a menu of tick boxes. Umum is shown ticked and cannot be unticked, because a
+// competition for everyone is always in the list. Like the team size menu, the address changes
+// when "Terapkan" is pressed and not on every tick.
+function AudienceFilter({ levels, onApply }: AudienceFilterProps) {
+  const [draft, setDraft] = useState<CompetitionAudience[]>([...levels]);
+  const { open, setOpen, rootRef, triggerRef, closeAndFocusTrigger, closeOnEscape } =
+    useDialogFilterMenu("input:not(:disabled)");
+
+  const isNarrowed = levels.length > 0;
+  const triggerLabel = isNarrowed ? `Untuk: ${formatAudienceLabels(levels)}` : "Untuk";
+
+  const openMenu = () => {
+    setDraft([...levels]);
+    setOpen(true);
+  };
+
+  const toggleLevel = (level: CompetitionAudience, isTicked: boolean) => {
+    const next = isTicked ? [...draft, level] : draft.filter((item) => item !== level);
+    setDraft(audienceFilterLevels(next));
+  };
+
+  const applyDraft = () => {
+    onApply(draft);
+    closeAndFocusTrigger();
+  };
+
+  return (
+    <div className="filter-dropdown" ref={rootRef}>
+      <button
+        type="button"
+        ref={triggerRef}
+        className="filter-dropdown-trigger"
+        data-active={isNarrowed ? "true" : undefined}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-label={triggerLabel}
+        onClick={() => (open ? setOpen(false) : openMenu())}
+      >
+        <span className="filter-dropdown-trigger-label">{triggerLabel}</span>
+        <Icon name="chevron-down" className="filter-dropdown-chevron" />
+      </button>
+      {open ? (
+        <div
+          className="filter-dropdown-menu"
+          data-kind="checks"
+          data-align="end"
+          role="dialog"
+          aria-label="Untuk"
+          onKeyDown={closeOnEscape}
+        >
+          <AudienceChecklist idPrefix="filter-audience" ticked={draft} onToggle={toggleLevel} />
+          <Button variant="primary" size="md" onClick={applyDraft}>
+            Terapkan
+          </Button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+type AudienceChecklistProps = {
+  idPrefix: string;
+  ticked: readonly CompetitionAudience[];
+  onToggle: (level: CompetitionAudience, isTicked: boolean) => void;
+};
+
+/** Umum ticked and fixed, then one tick box per level. Shared by the desktop menu and the sheet. */
+export function AudienceChecklist({ idPrefix, ticked, onToggle }: AudienceChecklistProps) {
+  return (
+    <div role="group" aria-label="Untuk" className="filter-checks">
+      {COMPETITION_AUDIENCE_OPTIONS.map((option) =>
+        option.value === "umum" ? (
+          <CheckboxField key={option.value} id={`${idPrefix}-${option.value}`} checked disabled>
+            {option.label} (selalu termasuk)
+          </CheckboxField>
+        ) : (
+          <CheckboxField
+            key={option.value}
+            id={`${idPrefix}-${option.value}`}
+            checked={ticked.includes(option.value)}
+            onChange={(event) => onToggle(option.value, event.target.checked)}
+          >
+            {option.label}
+          </CheckboxField>
+        ),
+      )}
+    </div>
+  );
+}
+
 type CompetitionFiltersProps = {
   selection: FilterSelection;
   // A filter change navigates, and this row is the control that owns that navigation, so it
@@ -158,6 +277,8 @@ type CompetitionFiltersProps = {
   onStatus: (value: string) => void;
   onSort: (value: string) => void;
   onTeamRange: (range: TeamRange) => void;
+  onLocation: (value: string) => void;
+  onAudience: (levels: CompetitionAudience[]) => void;
 };
 
 /** The desktop pill row. On a phone it is hidden and the chip row below takes its place. */
@@ -168,6 +289,8 @@ export function CompetitionFilters({
   onStatus,
   onSort,
   onTeamRange,
+  onLocation,
+  onAudience,
 }: CompetitionFiltersProps) {
   return (
     <div className="filter-toolbar-filters" aria-label="Filter kompetisi" aria-busy={isPending}>
@@ -180,6 +303,14 @@ export function CompetitionFilters({
         align="end"
       />
       <TeamSizeFilter range={selection.teamRange} onApply={onTeamRange} />
+      <FilterDropdown
+        label="Lokasi"
+        options={LOCATION_OPTIONS}
+        value={selection.location}
+        onChange={onLocation}
+        align="end"
+      />
+      <AudienceFilter levels={selection.audience} onApply={onAudience} />
       <FilterDropdown
         label="Status"
         options={STATUS_OPTIONS}
@@ -200,7 +331,7 @@ export function CompetitionFilters({
 }
 
 export type AppliedChip = {
-  key: "category" | "team" | "status";
+  key: "category" | "team" | "location" | "audience" | "status";
   label: string;
   // What removing the chip clears from the address.
   clears: Partial<CompetitionSearchParams>;
@@ -226,6 +357,20 @@ export const listAppliedChips = (selection: FilterSelection): AppliedChip[] => {
       clears: CLEAR_TEAM_RANGE_PARAMS,
     });
   }
+  if (selection.location !== "") {
+    chips.push({
+      key: "location",
+      label: `Lokasi: ${labelOfOption(LOCATION_OPTIONS, selection.location)}`,
+      clears: { location: undefined },
+    });
+  }
+  if (selection.audience.length > 0) {
+    chips.push({
+      key: "audience",
+      label: `Untuk: ${formatAudienceLabels(selection.audience)}`,
+      clears: { audience: undefined },
+    });
+  }
   if (selection.status !== "") {
     chips.push({
       key: "status",
@@ -241,12 +386,13 @@ type CompetitionPhoneFiltersProps = {
   isPending?: boolean;
   onOpenSheet: (section?: FilterSheetSection) => void;
   onToggleOpenStatus: () => void;
+  onToggleOnlineLocation: () => void;
   onClearChip: (clears: Partial<CompetitionSearchParams>) => void;
   onClearAll: () => void;
 };
 
 /**
- * The phone filter row: "Filter (n)" and three quick chips on one sideways row, the last one cut
+ * The phone filter row: "Filter (n)" and four quick chips on one sideways row, the last one cut
  * by the screen edge, and under it one removable chip per active filter. It is hidden above 640 px.
  */
 export function CompetitionPhoneFilters({
@@ -254,12 +400,14 @@ export function CompetitionPhoneFilters({
   isPending = false,
   onOpenSheet,
   onToggleOpenStatus,
+  onToggleOnlineLocation,
   onClearChip,
   onClearAll,
 }: CompetitionPhoneFiltersProps) {
   const appliedChips = listAppliedChips(selection);
   const filterLabel = appliedChips.length > 0 ? `Filter (${appliedChips.length})` : "Filter";
   const isOpenStatusOn = selection.status === OPEN_STATUS;
+  const isOnlineLocationOn = selection.location === ONLINE_LOCATION;
 
   return (
     <div className="filter-phone" aria-busy={isPending}>
@@ -286,6 +434,15 @@ export function CompetitionPhoneFilters({
           onClick={onToggleOpenStatus}
         >
           Dibuka
+        </button>
+        <button
+          type="button"
+          className="action-chip"
+          aria-pressed={isOnlineLocationOn}
+          data-selected={isOnlineLocationOn ? "true" : undefined}
+          onClick={onToggleOnlineLocation}
+        >
+          Online
         </button>
         {isPending ? <Spinner size="sm" /> : null}
       </div>

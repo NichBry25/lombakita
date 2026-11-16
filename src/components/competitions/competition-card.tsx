@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Icon, LinkPendingSlot } from "@/components/ui";
 import { LocalDate } from "@/components/ui/local-date";
 import { getCompetitionCategoryLabel } from "@/lib/competitions/categories";
+import { getCompetitionLocationLabel } from "@/lib/competitions/locations";
 import { getCompetitionModeLabel } from "@/lib/competitions/modes";
 import {
   deriveCompetitionPhase,
@@ -27,6 +28,7 @@ export type CompetitionCardItem = {
   title: string;
   category: string | null;
   mode: string | null;
+  location: string | null;
   registrationStartAt: string | Date | null;
   registrationEndAt: string | Date | null;
   eventStartAt: string | Date | null;
@@ -82,6 +84,7 @@ export function CompetitionCard({ competition }: { competition: CompetitionCardI
   const detailPath = `/competitions/${competition.institutionSlug}/${competition.slug}`;
   const phase = deriveCompetitionPhase(competition);
   const phaseDate = resolvePhaseDate(phase, competition);
+  const locationLabel = getCompetitionLocationLabel(competition.location);
 
   return (
     <article className="competition-card">
@@ -110,6 +113,7 @@ export function CompetitionCard({ competition }: { competition: CompetitionCardI
           {competition.mode ? (
             <span className="status-badge">{getCompetitionModeLabel(competition.mode)}</span>
           ) : null}
+          {locationLabel ? <span className="status-badge">{locationLabel}</span> : null}
         </div>
 
         <div className="stack-xs">

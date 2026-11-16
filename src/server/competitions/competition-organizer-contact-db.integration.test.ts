@@ -192,6 +192,8 @@ const seedCompetition = async (
       description: "Deskripsi kompetisi untuk pengujian.",
       category: "hackathon",
       mode: "individual",
+      location: "online",
+      audience: ["umum"],
       status,
       publishedAt: status === "published" ? new Date() : null,
       ...validTimeline(),

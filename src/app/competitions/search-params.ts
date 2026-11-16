@@ -1,3 +1,6 @@
+import { parseAudienceFilterParam } from "@/lib/competitions/audiences";
+import { isCompetitionLocation } from "@/lib/competitions/locations";
+import type { CompetitionAudience } from "@/server/db/schema";
 import {
   FULL_TEAM_RANGE,
   TEAM_SIZE_HIGHEST,
@@ -21,6 +24,8 @@ export type CompetitionSearchParams = {
   teamSize?: string;
   teamMin?: string;
   teamMax?: string;
+  location?: string;
+  audience?: string;
   sort?: string;
   page?: string;
 };
@@ -56,6 +61,8 @@ export const readCompetitionSearchParams = (
   teamSize: firstValue(raw.teamSize),
   teamMin: firstValue(raw.teamMin),
   teamMax: firstValue(raw.teamMax),
+  location: firstValue(raw.location),
+  audience: firstValue(raw.audience),
   sort: firstValue(raw.sort),
   page: firstValue(raw.page),
 });
@@ -68,6 +75,8 @@ export const CARRIED_FILTERS = [
   "teamSize",
   "teamMin",
   "teamMax",
+  "location",
+  "audience",
   "sort",
 ] as const;
 
@@ -129,13 +138,22 @@ export type FilterSelection = {
   status: string;
   sort: string;
   teamRange: TeamRange;
+  // "" when no location is chosen.
+  location: string;
+  // The ticked levels. Umum is always shown ticked and is never held here.
+  audience: CompetitionAudience[];
 };
+
+const readLocationParam = (raw: string | undefined): string =>
+  isCompetitionLocation(raw) ? raw : "";
 
 export const readFilterSelection = (params: CompetitionSearchParams): FilterSelection => ({
   category: params.category ?? "",
   status: params.status ?? "",
   sort: params.sort ?? DEFAULT_SORT,
   teamRange: readTeamRange(params),
+  location: readLocationParam(params.location),
+  audience: parseAudienceFilterParam(params.audience),
 });
 
 export const DEFAULT_FILTER_SELECTION: FilterSelection = {
@@ -143,7 +161,13 @@ export const DEFAULT_FILTER_SELECTION: FilterSelection = {
   status: "",
   sort: DEFAULT_SORT,
   teamRange: FULL_TEAM_RANGE,
+  location: "",
+  audience: [],
 };
+
+/** The address parameter for ticked levels, "mahasiswa,smp", or nothing when none are ticked. */
+export const audienceToParam = (levels: readonly CompetitionAudience[]): string | undefined =>
+  levels.length > 0 ? levels.join(",") : undefined;
 
 /** The old team parameters an address drops the moment a team range is written to it. */
 export const DROPPED_TEAM_PARAMS: Partial<CompetitionSearchParams> = {
@@ -161,6 +185,8 @@ export const selectionToParams = (
   category: selection.category || undefined,
   status: selection.status || undefined,
   sort: selection.sort || undefined,
+  location: selection.location || undefined,
+  audience: audienceToParam(selection.audience),
   ...DROPPED_TEAM_PARAMS,
   ...teamRangeToParams(selection.teamRange),
 });

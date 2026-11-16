@@ -50,6 +50,8 @@ const COMPETITION: PublicCompetitionDetail = {
   description: "Lomba desain poster untuk pelajar dan mahasiswa.",
   category: null,
   mode: null,
+  location: null,
+  audience: null,
   minTeamSize: null,
   maxTeamSize: null,
   registrationStartAt: null,
@@ -156,6 +158,7 @@ const RAIL_ITEM: PublicCompetitionItem = {
   description: "Lomba fotografi.",
   category: "hackathon",
   mode: "individual",
+  location: null,
   minTeamSize: null,
   maxTeamSize: null,
   registrationStartAt: null,
@@ -251,5 +254,43 @@ describe("the competition page for the owner and staff of its institution", () =
         ["user-42", "competition-1"],
       ],
     });
+  });
+});
+
+describe("the competition page's location and audience lines", () => {
+  const factValue = (html: string, label: string): string | null =>
+    html.match(
+      new RegExp(`ui-fact-label">${label}</span><span class="ui-fact-value">([^<]*)<`),
+    )?.[1] ?? null;
+
+  it("says Belum diisi for a competition with neither", async () => {
+    const html = await renderPageFor("candidate", ["candidate"]);
+
+    expect({ lokasi: factValue(html, "Lokasi"), untuk: factValue(html, "Untuk") }).toEqual({
+      lokasi: "Belum diisi",
+      untuk: "Belum diisi",
+    });
+  });
+
+  it("shows the location and the audience labels in the fixed order", async () => {
+    mocks.competition.mockResolvedValueOnce({
+      ...COMPETITION,
+      location: "hybrid",
+      audience: ["sd", "mahasiswa", "umum"],
+    });
+
+    const html = await renderPageFor("candidate", ["candidate"]);
+
+    expect({ lokasi: factValue(html, "Lokasi"), untuk: factValue(html, "Untuk") }).toEqual({
+      lokasi: "Hybrid",
+      untuk: "Umum, Mahasiswa, SD",
+    });
+  });
+
+  it("keeps the audience line in the details, before the register rail", async () => {
+    const html = await renderPageFor("candidate", ["candidate"]);
+
+    expect(html.indexOf('ui-fact-label">Untuk')).toBeGreaterThan(-1);
+    expect(html.indexOf('ui-fact-label">Untuk')).toBeLessThan(html.indexOf("detail-cta-rail"));
   });
 });

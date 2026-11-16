@@ -16,6 +16,7 @@ const base = (overrides: Partial<ClassifiableCompetition> = {}): ClassifiableCom
   description: "Deskripsi",
   category: "hackathon",
   mode: "both",
+  location: "hybrid",
   minTeamSize: 1,
   maxTeamSize: 4,
   registrationStartAt: new Date("2026-06-01T00:00:00.000Z"),
@@ -605,5 +606,53 @@ describe("classifyCompetitionEdit: what publishing locks", () => {
         NOW,
       ),
     ).toEqual({ blocked: [], waitsForTransferReview: [], notify: ["eventEndAt"] });
+  });
+});
+
+describe("classifyCompetitionEdit — location changes", () => {
+  const locationEdit = (
+    from: ClassifiableCompetition["location"],
+    to: ClassifiableCompetition["location"],
+  ) => classifyCompetitionEdit(base({ location: from }), base({ location: to }), snapshot(), NOW);
+
+  it.each([
+    ["online", "offline"],
+    ["offline", "online"],
+    ["hybrid", "online"],
+    ["hybrid", "offline"],
+  ] as const)("blocks %s → %s, which removes a way of taking part", (from, to) => {
+    expect(locationEdit(from, to)).toEqual({
+      blocked: ["location"],
+      waitsForTransferReview: [],
+      notify: [],
+    });
+  });
+
+  it.each(["online", "offline", "hybrid"] as const)("blocks %s → empty", (from) => {
+    expect(locationEdit(from, null)).toEqual({
+      blocked: ["location"],
+      waitsForTransferReview: [],
+      notify: [],
+    });
+  });
+
+  it.each([
+    [null, "online"],
+    [null, "offline"],
+    [null, "hybrid"],
+    ["online", "hybrid"],
+    ["offline", "hybrid"],
+  ] as const)("notifies %s → %s", (from, to) => {
+    expect(locationEdit(from, to)).toEqual({
+      blocked: [],
+      waitsForTransferReview: [],
+      notify: ["location"],
+    });
+  });
+
+  it("classifies nothing when the location did not change, empty included", () => {
+    const empty = { blocked: [], waitsForTransferReview: [], notify: [] };
+    expect(locationEdit("online", "online")).toEqual(empty);
+    expect(locationEdit(null, null)).toEqual(empty);
   });
 });

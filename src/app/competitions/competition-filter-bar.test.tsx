@@ -48,14 +48,67 @@ const openSheet = () => {
 const sheetButton = () => sheet().getByRole("button", { name: /^Tampilkan/ });
 
 describe("the desktop pill row", () => {
-  it("shows Kategori, Ukuran tim, Status and Urutkan, and no Mode", () => {
+  it("shows Kategori, Ukuran tim, Lokasi, Untuk, Status and Urutkan, and no Mode", () => {
     renderBar();
 
     const labels = pillRow()
       .getAllByRole("button")
       .map((button) => button.getAttribute("aria-label"));
 
-    expect(labels).toEqual(["Kategori", "Ukuran tim", "Status", "Urutkan"]);
+    expect(labels).toEqual(["Kategori", "Ukuran tim", "Lokasi", "Untuk", "Status", "Urutkan"]);
+  });
+
+  it("changes the address with the chosen location and clears it with Semua lokasi", () => {
+    const first = renderBar();
+    fireEvent.click(pillRow().getByRole("button", { name: "Lokasi" }));
+    fireEvent.click(screen.getByRole("option", { name: "Online" }));
+    expect(mockPush).toHaveBeenLastCalledWith("/competitions?location=online");
+
+    first.unmount();
+    renderBar({ location: "online" });
+    fireEvent.click(pillRow().getByRole("button", { name: "Lokasi: Online" }));
+    fireEvent.click(screen.getByRole("option", { name: "Semua lokasi" }));
+    expect(mockPush).toHaveBeenLastCalledWith("/competitions");
+  });
+
+  it("ticks audience levels in a menu with Umum fixed, and applies them with Terapkan", () => {
+    renderBar();
+    fireEvent.click(pillRow().getByRole("button", { name: "Untuk" }));
+
+    const menu = within(screen.getByRole("dialog", { name: "Untuk" }));
+    const umum = menu.getByRole("checkbox", { name: /^Umum/ }) as HTMLInputElement;
+    expect(umum.checked).toBe(true);
+    expect(umum.disabled).toBe(true);
+
+    fireEvent.click(menu.getByRole("checkbox", { name: "Mahasiswa" }));
+    fireEvent.click(menu.getByRole("checkbox", { name: "SMP" }));
+    expect(mockPush).not.toHaveBeenCalled();
+
+    fireEvent.click(menu.getByRole("button", { name: "Terapkan" }));
+
+    expect(mockPush).toHaveBeenCalledWith("/competitions?audience=mahasiswa%2Csmp");
+  });
+
+  it("shows the applied audience in its pill and lets the ticks be undone", () => {
+    renderBar({ audience: "smp,mahasiswa" });
+
+    fireEvent.click(pillRow().getByRole("button", { name: "Untuk: Mahasiswa, SMP" }));
+    const menu = within(screen.getByRole("dialog", { name: "Untuk" }));
+    fireEvent.click(menu.getByRole("checkbox", { name: "Mahasiswa" }));
+    fireEvent.click(menu.getByRole("checkbox", { name: "SMP" }));
+    fireEvent.click(menu.getByRole("button", { name: "Terapkan" }));
+
+    expect(mockPush).toHaveBeenCalledWith("/competitions");
+  });
+
+  it("closes the audience menu on Escape without changing the address", () => {
+    renderBar();
+    fireEvent.click(pillRow().getByRole("button", { name: "Untuk" }));
+
+    fireEvent.keyDown(screen.getByRole("dialog", { name: "Untuk" }), { key: "Escape" });
+
+    expect(screen.queryByRole("dialog", { name: "Untuk" })).toBeNull();
+    expect(mockPush).not.toHaveBeenCalled();
   });
 
   it("changes the address only when Terapkan is pressed, not while the handles move", () => {
@@ -158,18 +211,56 @@ describe("the desktop pill row", () => {
     expect(screen.getByRole("dialog", { name: "Ukuran tim" }).getAttribute("data-align")).toBe(
       "end",
     );
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+
+    fireEvent.click(pillRow().getByRole("button", { name: "Lokasi" }));
+    expect(
+      screen.getByRole("listbox", {}).closest("[data-align]")?.getAttribute("data-align"),
+    ).toBe("end");
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+
+    fireEvent.click(pillRow().getByRole("button", { name: "Untuk" }));
+    expect(screen.getByRole("dialog", { name: "Untuk" }).getAttribute("data-align")).toBe("end");
   });
 });
 
 describe("the phone chip row", () => {
-  it("starts with Filter, then Urutkan, Kategori and Dibuka", () => {
+  it("starts with Filter, then Urutkan, Kategori, Dibuka and Online", () => {
     renderBar();
 
     const labels = phoneRow()
       .getAllByRole("button")
       .map((button) => button.textContent);
 
-    expect(labels).toEqual(["Filter", "Urutkan", "Kategori", "Dibuka"]);
+    expect(labels).toEqual(["Filter", "Urutkan", "Kategori", "Dibuka", "Online"]);
+  });
+
+  it("toggles the location to online with Online", () => {
+    const first = renderBar();
+    fireEvent.click(phoneRow().getByRole("button", { name: "Online" }));
+    expect(mockPush).toHaveBeenLastCalledWith("/competitions?location=online");
+
+    first.unmount();
+    renderBar({ location: "online" });
+    const pressed = phoneRow().getByRole("button", { name: "Online" });
+    expect(pressed.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(pressed);
+    expect(mockPush).toHaveBeenLastCalledWith("/competitions");
+  });
+
+  it("shows a removable chip for a location and an audience, and clears both with Hapus semua", () => {
+    renderBar({ location: "hybrid", audience: "mahasiswa", q: "x" });
+    const applied = within(screen.getByRole("list", { name: "Filter yang dipakai" }));
+
+    expect(applied.getByRole("button", { name: "Hapus filter Lokasi: Hybrid" })).toBeTruthy();
+    expect(applied.getByRole("button", { name: "Hapus filter Untuk: Mahasiswa" })).toBeTruthy();
+    expect(phoneRow().getByRole("button", { name: "Filter (2)" })).toBeTruthy();
+
+    fireEvent.click(applied.getByRole("button", { name: "Hapus filter Untuk: Mahasiswa" }));
+    expect(mockPush).toHaveBeenLastCalledWith("/competitions?location=hybrid&q=x");
+
+    fireEvent.click(applied.getByRole("button", { name: "Hapus semua" }));
+    expect(mockPush).toHaveBeenLastCalledWith("/competitions?q=x");
   });
 
   it("counts the active filters except sort in Filter (n)", () => {
@@ -328,7 +419,7 @@ describe("an old mode or teamSize link", () => {
 });
 
 describe("the phone filter sheet", () => {
-  it("opens full height with a title, a close button, Reset and the four sections", () => {
+  it("opens full height with a title, a close button, Reset and the six sections", () => {
     renderBar();
     openSheet();
 
@@ -337,10 +428,39 @@ describe("the phone filter sheet", () => {
     expect(sheet().getByRole("heading", { name: "Filter" })).toBeTruthy();
     expect(sheet().getByRole("button", { name: "Tutup" })).toBeTruthy();
     expect(sheet().getByRole("button", { name: "Reset" })).toBeTruthy();
-    for (const section of ["Kategori", "Ukuran tim", "Status", "Urutkan"]) {
+    for (const section of ["Kategori", "Ukuran tim", "Lokasi", "Untuk", "Status", "Urutkan"]) {
       expect(sheet().getByRole("heading", { name: section })).toBeTruthy();
     }
     expect(sheet().getByRole("textbox", { name: "Cari kategori" })).toBeTruthy();
+  });
+
+  it("applies a location and ticked audience levels together with Tampilkan", () => {
+    renderBar();
+    openSheet();
+
+    fireEvent.click(sheet().getByRole("radio", { name: "Offline" }));
+    fireEvent.click(sheet().getByRole("checkbox", { name: "SD" }));
+    fireEvent.click(sheet().getByRole("checkbox", { name: "Mahasiswa" }));
+    expect(mockPush).not.toHaveBeenCalled();
+
+    fireEvent.click(sheetButton());
+
+    expect(mockPush).toHaveBeenCalledWith(
+      "/competitions?sort=created_desc&location=offline&audience=mahasiswa%2Csd",
+    );
+  });
+
+  it("starts from the location and audience in the address, with Umum ticked and fixed", () => {
+    renderBar({ location: "hybrid", audience: "smp" });
+    openSheet();
+
+    expect(sheet().getByRole("radio", { name: "Hybrid" }).getAttribute("aria-checked")).toBe(
+      "true",
+    );
+    expect((sheet().getByRole("checkbox", { name: "SMP" }) as HTMLInputElement).checked).toBe(true);
+    const umum = sheet().getByRole("checkbox", { name: /^Umum/ }) as HTMLInputElement;
+    expect(umum.checked).toBe(true);
+    expect(umum.disabled).toBe(true);
   });
 
   it("does not change the address until Tampilkan is pressed", () => {
@@ -476,6 +596,21 @@ describe("the live count on the sheet's button", () => {
     expect(requested.searchParams.get("limit")).toBe("1");
     expect(requested.searchParams.has("page")).toBe(false);
     expect(sheetButton().textContent).toBe("Tampilkan 12 lomba");
+  });
+
+  it("asks with the pending location and audience, so the count matches the list", async () => {
+    useTimers();
+    renderBar({}, 40);
+    openSheet();
+
+    fireEvent.click(sheet().getByRole("radio", { name: "Online" }));
+    fireEvent.click(sheet().getByRole("checkbox", { name: "SMP" }));
+    await settle(300);
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const requested = new URL(String(mockFetch.mock.calls[0]![0]), "http://localhost");
+    expect(requested.searchParams.get("location")).toBe("online");
+    expect(requested.searchParams.get("audience")).toBe("smp");
   });
 
   it("asks at most once per 300 ms of changes", async () => {

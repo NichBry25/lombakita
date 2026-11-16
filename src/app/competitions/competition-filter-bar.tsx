@@ -8,14 +8,17 @@ import {
   CATEGORY_OPTIONS,
   CompetitionFilters,
   CompetitionPhoneFilters,
+  LOCATION_OPTIONS,
   SORT_OPTIONS,
   STATUS_OPTIONS,
 } from "./competition-filters";
 import type { TeamRange } from "@/lib/competitions/team-range";
+import type { CompetitionAudience } from "@/server/db/schema";
 import type { CompetitionSearchParams, FilterSelection } from "./search-params";
 import {
   CLEAR_TEAM_RANGE_PARAMS,
   DROPPED_TEAM_PARAMS,
+  audienceToParam,
   competitionsHref,
   readFilterSelection,
   selectionToParams,
@@ -25,6 +28,8 @@ import {
 const CLEAR_EVERY_FILTER: Partial<CompetitionSearchParams> = {
   category: undefined,
   status: undefined,
+  location: undefined,
+  audience: undefined,
   ...CLEAR_TEAM_RANGE_PARAMS,
 };
 
@@ -78,6 +83,14 @@ export function CompetitionFilterBar({
     navigate(teamRangeToParams(range));
   };
 
+  const applyAudience = (levels: CompetitionAudience[]) => {
+    navigate({ audience: audienceToParam(levels) });
+  };
+
+  const toggleOnlineLocation = () => {
+    navigate({ location: selection.location === "online" ? undefined : "online" });
+  };
+
   const applySheetSelection = (picked: FilterSelection) => {
     navigate(selectionToParams(picked));
     closeModal();
@@ -98,6 +111,7 @@ export function CompetitionFilterBar({
           baseParams={params}
           initialTotal={total}
           categoryOptions={CATEGORY_OPTIONS}
+          locationOptions={LOCATION_OPTIONS}
           statusOptions={STATUS_OPTIONS}
           sortOptions={SORT_OPTIONS}
           openAtSection={openAtSection}
@@ -116,12 +130,15 @@ export function CompetitionFilterBar({
         onStatus={(status) => navigate({ status: status || undefined })}
         onSort={(sort) => navigate({ sort: sort || undefined })}
         onTeamRange={applyTeamRange}
+        onLocation={(location) => navigate({ location: location || undefined })}
+        onAudience={applyAudience}
       />
       <CompetitionPhoneFilters
         isPending={isPending}
         selection={selection}
         onOpenSheet={openSheet}
         onToggleOpenStatus={toggleOpenStatus}
+        onToggleOnlineLocation={toggleOnlineLocation}
         onClearChip={navigate}
         onClearAll={() => navigate(CLEAR_EVERY_FILTER)}
       />

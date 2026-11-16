@@ -48,6 +48,7 @@ import { markCompetitionRegistrationsPublicationClosed } from "@/server/registra
 import {
   assertActorIsTrustedRecruiter,
   assertCompetitionAccess,
+  assertCompetitionHasAudience,
   assertCompetitionHasOrganizerContact,
   assertCompetitionRead,
   assertInstitutionNotSuspended,
@@ -387,6 +388,7 @@ const applySimplePatchColumns = (
   if (patch.slug !== undefined) updates.slug = patch.slug;
   if (patch.category !== undefined) updates.category = patch.category;
   if (patch.mode !== undefined) updates.mode = patch.mode;
+  if (patch.location !== undefined) updates.location = patch.location;
   if (patch.minTeamSize !== undefined) updates.minTeamSize = patch.minTeamSize;
   if (patch.maxTeamSize !== undefined) updates.maxTeamSize = patch.maxTeamSize;
   if (patch.registrationStartAt !== undefined)
@@ -448,6 +450,7 @@ export const toClassifiable = (
   description: row.description,
   category: row.category,
   mode: row.mode,
+  location: row.location,
   minTeamSize: row.minTeamSize,
   maxTeamSize: row.maxTeamSize,
   registrationStartAt: row.registrationStartAt,
@@ -473,6 +476,7 @@ const mergeForClassification = (
   if (patch.description !== undefined) merged.description = patch.description;
   if (patch.category !== undefined) merged.category = patch.category;
   if (patch.mode !== undefined) merged.mode = patch.mode;
+  if (patch.location !== undefined) merged.location = patch.location;
   if (patch.minTeamSize !== undefined) merged.minTeamSize = patch.minTeamSize;
   if (patch.maxTeamSize !== undefined) merged.maxTeamSize = patch.maxTeamSize;
   if (patch.registrationStartAt !== undefined)
@@ -1007,6 +1011,7 @@ export const transitionCompetitionStatus = async (
       description: competition.description,
       category: competition.category,
       mode: competition.mode,
+      location: competition.location,
       minTeamSize: competition.minTeamSize,
       maxTeamSize: competition.maxTeamSize,
       registrationStartAt: competition.registrationStartAt,
@@ -1030,6 +1035,7 @@ export const transitionCompetitionStatus = async (
     }
 
     await assertCompetitionHasOrganizerContact(competitionId, db);
+    await assertCompetitionHasAudience(competitionId, db);
 
     // THE CHARGING GATE AT PUBLISH (DEC-0158). A PAID competition cannot go live for an
     // institution that is not verified; a FREE one publishes normally, which is the whole point of
@@ -1069,6 +1075,11 @@ export const transitionCompetitionStatus = async (
   // itself refuses a row without one (Rule 25).
   const contactStillSet =
     targetStatus === "published" ? isNotNull(competitions.organizerContactValue) : undefined;
+  // A staff member can clear the location or the audience between the checks above and this write.
+  const listingFieldsStillSet =
+    targetStatus === "published"
+      ? and(isNotNull(competitions.location), sql`cardinality(${competitions.audience}) > 0`)
+      : undefined;
 
   // CAS guard: WHERE also checks current status equals the snapshot status to prevent
   // concurrent transitions from landing on top of each other.
@@ -1080,6 +1091,7 @@ export const transitionCompetitionStatus = async (
         eq(competitions.id, competitionId),
         eq(competitions.status, competition.status),
         contactStillSet,
+        listingFieldsStillSet,
       ),
     )
     .returning(PUBLIC_COMPETITION_COLUMNS);

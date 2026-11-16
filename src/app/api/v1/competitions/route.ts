@@ -16,7 +16,7 @@ import { listPublicCompetitions } from "@/server/competitions/competition-public
 
 // GET — public listing, no auth required.
 // Returns only published competitions. Supports filters: q, category, mode, status, teamSize,
-// teamMin, teamMax, institutionSlug.
+// teamMin, teamMax, location, audience, institutionSlug.
 // Sorts: deadline_asc | deadline_desc | created_desc (default).
 // Pagination: page (1-indexed, default 1), limit (default 20, max 50).
 export async function GET(request: Request): Promise<Response> {
@@ -30,6 +30,8 @@ export async function GET(request: Request): Promise<Response> {
       teamSize: url.searchParams.get("teamSize") ?? undefined,
       teamMin: url.searchParams.get("teamMin") ?? undefined,
       teamMax: url.searchParams.get("teamMax") ?? undefined,
+      location: url.searchParams.get("location") ?? undefined,
+      audience: url.searchParams.get("audience") ?? undefined,
       institutionSlug: url.searchParams.get("institutionSlug") ?? undefined,
       sort: url.searchParams.get("sort") ?? undefined,
       page: url.searchParams.has("page")

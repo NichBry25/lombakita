@@ -29,11 +29,8 @@ export async function GET(
   try {
     const session = await requireAuthenticatedSession();
     const { competitionId } = await context.params;
-    const eligibilityNote = await getCompetitionEligibilityForEditor(
-      session.user.id,
-      competitionId,
-    );
-    return NextResponse.json({ eligibilityNote });
+    const fields = await getCompetitionEligibilityForEditor(session.user.id, competitionId);
+    return NextResponse.json(fields);
   } catch (error) {
     if (error instanceof CompetitionError) return toCompetitionErrorResponse(error);
     if (error instanceof CompetitionEligibilityInputError) return toErrorResponse(error);
@@ -60,12 +57,8 @@ export async function PUT(
         ),
       );
     }
-    const eligibilityNote = await setCompetitionEligibilityForEditor(
-      session.user.id,
-      competitionId,
-      body,
-    );
-    return NextResponse.json({ eligibilityNote });
+    const fields = await setCompetitionEligibilityForEditor(session.user.id, competitionId, body);
+    return NextResponse.json(fields);
   } catch (error) {
     if (error instanceof CompetitionError) return toCompetitionErrorResponse(error);
     if (error instanceof CompetitionEligibilityInputError) return toErrorResponse(error);

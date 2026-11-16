@@ -57,6 +57,7 @@ const COMPETITION = {
   description: "Deskripsi kompetisi untuk pengujian.",
   category: "hackathon",
   mode: "individual",
+  location: "online",
   minTeamSize: null,
   maxTeamSize: null,
   status: "draft",

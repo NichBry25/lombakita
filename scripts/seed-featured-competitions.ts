@@ -32,6 +32,8 @@ type Seed = {
   description: string;
   category: string;
   mode: "individual" | "team" | "both";
+  location: "online" | "offline" | "hybrid";
+  audience: string[];
   minTeamSize: number | null;
   maxTeamSize: number | null;
   registrationEndInDays: number;
@@ -48,6 +50,8 @@ const COMPETITIONS: Seed[] = [
       "Hackathon nasional 48 jam untuk membangun solusi digital yang berdampak bagi masyarakat Indonesia. Terbuka untuk tim lintas kampus.",
     category: "hackathon",
     mode: "team",
+    location: "hybrid",
+    audience: ["mahasiswa"],
     minTeamSize: 2,
     maxTeamSize: 4,
     registrationEndInDays: 30,
@@ -62,6 +66,8 @@ const COMPETITIONS: Seed[] = [
       "Ajang bergengsi bagi mahasiswa untuk menguji kemampuan di bidang matematika, fisika, dan kimia dengan soal-soal tingkat lanjut.",
     category: "scientific_writing",
     mode: "individual",
+    location: "online",
+    audience: ["sma_smk", "smp"],
     minTeamSize: null,
     maxTeamSize: null,
     registrationEndInDays: 12,
@@ -76,6 +82,8 @@ const COMPETITIONS: Seed[] = [
       "Kompetisi desain visual dan UI/UX yang mengangkat kekayaan budaya Nusantara. Tunjukkan karya terbaikmu dan menangkan hadiah jutaan rupiah.",
     category: "design",
     mode: "both",
+    location: "offline",
+    audience: ["umum"],
     minTeamSize: 1,
     maxTeamSize: 3,
     registrationEndInDays: 25,
@@ -110,15 +118,18 @@ const main = async (): Promise<void> => {
       const eventStartAt = new Date(Date.now() + c.eventStartInDays * DAY);
       const eventEndAt = new Date(Date.now() + (c.eventStartInDays + 2) * DAY);
 
+      const audienceLiteral = `{${c.audience.join(",")}}`;
+
       await client`
         INSERT INTO competitions (
           id, institution_id, slug, title, description, status, category, mode,
-          min_team_size, max_team_size,
+          location, audience, min_team_size, max_team_size,
           registration_start_at, registration_end_at, event_start_at, event_end_at,
           is_featured, featured_order, published_at
         ) VALUES (
           ${c.id}, ${INSTITUTION_ID}, ${c.slug}, ${c.title}, ${c.description}, 'published',
-          ${c.category}, ${c.mode}, ${c.minTeamSize}, ${c.maxTeamSize},
+          ${c.category}, ${c.mode}, ${c.location}, ${audienceLiteral}::competition_audience[],
+          ${c.minTeamSize}, ${c.maxTeamSize},
           now(), ${registrationEndAt}, ${eventStartAt}, ${eventEndAt},
           true, ${c.featuredOrder}, now()
         )
@@ -128,6 +139,8 @@ const main = async (): Promise<void> => {
           status = 'published',
           category = EXCLUDED.category,
           mode = EXCLUDED.mode,
+          location = EXCLUDED.location,
+          audience = EXCLUDED.audience,
           min_team_size = EXCLUDED.min_team_size,
           max_team_size = EXCLUDED.max_team_size,
           registration_end_at = EXCLUDED.registration_end_at,

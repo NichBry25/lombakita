@@ -7,6 +7,8 @@ import { LocalDate } from "@/components/ui/local-date";
 import { INDEXABLE_ROBOTS } from "@/config/indexable-routes";
 import { sessionHasRole } from "@/lib/access/roles";
 import { getCompetitionCategoryLabel, tagsOtherThanCategory } from "@/lib/competitions/categories";
+import { formatAudienceLabels } from "@/lib/competitions/audiences";
+import { getCompetitionLocationLabel } from "@/lib/competitions/locations";
 import { getCompetitionModeLabel } from "@/lib/competitions/modes";
 import { getCompetitionCancellationReasonLabel } from "@/lib/competitions/competition-participation";
 import {
@@ -43,6 +45,10 @@ import { CompetitionReviewForm } from "./competition-review-form";
 import { formatTeamSizeText } from "./team-size-utils";
 import { isPaidCompetition } from "@/lib/competitions/paid-competition";
 import { COMPETITION_HOST_CANNOT_JOIN_MESSAGE } from "@/lib/errors/error-copy";
+
+// Shown for a location or an audience the host has not filled in, which is every competition that
+// was published before the two fields existed.
+const NOT_FILLED_IN_TEXT = "Belum diisi";
 
 // The fee and its currency are read TOGETHER. `fee_amount` is an integer count of the currency's
 // smallest unit (@/lib/finance/money), so the number alone does not say what it means. The same
@@ -309,6 +315,8 @@ export default async function CompetitionDetailPage({
   const showTeamSize =
     competition.mode !== "individual" &&
     (competition.minTeamSize !== null || competition.maxTeamSize !== null);
+  const locationText = getCompetitionLocationLabel(competition.location) || NOT_FILLED_IN_TEXT;
+  const audienceText = formatAudienceLabels(competition.audience) || NOT_FILLED_IN_TEXT;
 
   const [organizerRailResult, relatedRailResult, reviewSummary, reviews] = await Promise.all([
     listPublicCompetitions({ institutionSlug, limit: 4 }),
@@ -569,6 +577,9 @@ export default async function CompetitionDetailPage({
               </ul>
             </section>
           ) : null}
+
+          <Fact icon="pin" label="Lokasi" value={locationText} />
+          <Fact icon="users" label="Untuk" value={audienceText} />
 
           {showTeamSize ? (
             <Fact

@@ -34,6 +34,8 @@ describe("readCompetitionSearchParams", () => {
       teamSize: ["solo", "small"],
       teamMin: ["2", "3"],
       teamMax: ["4", "5"],
+      location: ["online", "offline"],
+      audience: ["mahasiswa,smp", "sd"],
       sort: ["deadline_asc", "created_desc"],
       page: ["2", "9"],
     });
@@ -46,6 +48,8 @@ describe("readCompetitionSearchParams", () => {
       teamSize: "solo",
       teamMin: "2",
       teamMax: "4",
+      location: "online",
+      audience: "mahasiswa,smp",
       sort: "deadline_asc",
       page: "2",
     });
@@ -140,17 +144,36 @@ describe("a filter selection", () => {
       status: "open",
       sort: "deadline_asc",
       teamRange: { min: 2, max: 4 },
+      location: "online",
+      audience: ["mahasiswa", "smp"],
     });
 
     expect(params).toEqual({
       category: "debat",
       status: "open",
       sort: "deadline_asc",
+      location: "online",
+      audience: "mahasiswa,smp",
       mode: undefined,
       teamSize: undefined,
       teamMin: "2",
       teamMax: "4",
     });
+  });
+
+  it("reads a location and an audience from the address, keeping only the known ones", () => {
+    expect(readFilterSelection({ location: "hybrid", audience: "smp,mahasiswa" })).toMatchObject({
+      location: "hybrid",
+      audience: ["mahasiswa", "smp"],
+    });
+    expect(readFilterSelection({ location: "mars", audience: "umum,mars" })).toMatchObject({
+      location: "",
+      audience: [],
+    });
+  });
+
+  it("carries the location and the audience through a search", () => {
+    expect(CARRIED_FILTERS).toEqual(expect.arrayContaining(["location", "audience"]));
   });
 
   it("leaves every filter out of the address when nothing is chosen", () => {

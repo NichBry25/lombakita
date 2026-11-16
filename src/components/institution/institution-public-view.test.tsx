@@ -109,6 +109,7 @@ describe("the competition list", () => {
     title: "Lomba X",
     category: "hackathon",
     mode: "individual",
+    location: null,
     registrationStartAt: null,
     registrationEndAt: FUTURE,
     eventStartAt: FUTURE,
@@ -151,6 +152,24 @@ describe("the competition list", () => {
     const pillText = container.querySelector(".competition-card-footer .status-badge")?.textContent;
     expect(pillText).toMatch(/^Dibuka · /);
     expect(pillText).not.toContain("Pendaftaran");
+  });
+
+  it("shows the location pill after the mode pill", () => {
+    const { container } = renderCard({ ...competition, location: "hybrid" });
+
+    const pills = [...container.querySelectorAll(".competition-card-badges .status-badge")].map(
+      (pill) => pill.textContent,
+    );
+    expect(pills).toEqual(["Individu", "Hybrid"]);
+  });
+
+  it("shows no location pill when the competition has no location", () => {
+    const { container } = renderCard({ ...competition, location: null });
+
+    const pills = [...container.querySelectorAll(".competition-card-badges .status-badge")].map(
+      (pill) => pill.textContent,
+    );
+    expect(pills).toEqual(["Individu"]);
   });
 
   it("keeps the pending spinner beside the clamped title text, never inside it", () => {

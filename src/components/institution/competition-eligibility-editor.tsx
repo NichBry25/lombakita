@@ -1,15 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Feedback, FormLabel, FormTextarea } from "@/components/ui";
+import { CheckboxField, Feedback, FormLabel, FormLabelText, FormTextarea } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import {
   describePartLoadFailure,
   useCompetitionEditorPart,
   type CompetitionPartSaveResult,
 } from "@/components/institution/competition-editor-parts";
+import { COMPETITION_AUDIENCE_OPTIONS, normalizeAudience } from "@/lib/competitions/audiences";
+import { COMPETITION_CHANGED_DURING_EDIT_REASON } from "@/lib/competitions/publish-locks";
 import { errorMessageFor } from "@/lib/errors/error-copy";
 import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
+import type { CompetitionAudience } from "@/server/db/schema";
 
 const SAVE_ERROR_COPY: Partial<Record<string, string>> = {
   forbidden: "Anda tidak memiliki akses ke kompetisi institusi ini.",
@@ -17,7 +20,10 @@ const SAVE_ERROR_COPY: Partial<Record<string, string>> = {
     "Permintaan tidak dapat diproses. Muat ulang halaman lalu coba lagi.",
   competition_eligibility_invalid_value:
     "Informasi kelayakan terlalu panjang. Persingkat lalu coba lagi.",
+  competition_changed_during_edit: COMPETITION_CHANGED_DURING_EDIT_REASON,
 };
+
+const audienceKey = (values: readonly CompetitionAudience[]): string => values.join(",");
 
 const SAVE_FALLBACK = "Gagal menyimpan informasi. Coba lagi.";
 
@@ -31,6 +37,8 @@ export const CompetitionEligibilityEditor = ({
   const { addToast } = useToast();
   const [note, setNote] = useState("");
   const [savedNote, setSavedNote] = useState("");
+  const [audience, setAudience] = useState<CompetitionAudience[]>([]);
+  const [savedAudience, setSavedAudience] = useState<CompetitionAudience[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [hasLoaded, setHasLoaded] = useState(false);
 
@@ -45,9 +53,15 @@ export const CompetitionEligibilityEditor = ({
         addToast({ type: "error", message: "Gagal memuat informasi kelayakan." });
         return;
       }
-      const { eligibilityNote } = (await response.json()) as { eligibilityNote: string | null };
-      setNote(eligibilityNote ?? "");
-      setSavedNote(eligibilityNote ?? "");
+      const loaded = (await response.json()) as {
+        eligibilityNote: string | null;
+        audience: CompetitionAudience[] | null;
+      };
+      const loadedAudience = loaded.audience ?? [];
+      setNote(loaded.eligibilityNote ?? "");
+      setSavedNote(loaded.eligibilityNote ?? "");
+      setAudience(loadedAudience);
+      setSavedAudience(loadedAudience);
       setHasLoaded(true);
     } catch {
       addToast({ type: "error", message: "Gagal memuat informasi kelayakan." });
@@ -60,10 +74,16 @@ export const CompetitionEligibilityEditor = ({
     void loadNote();
   }, [loadNote]);
 
-  const isDirty = note !== savedNote;
+  const isDirty = note !== savedNote || audienceKey(audience) !== audienceKey(savedAudience);
+
+  const toggleAudience = (value: CompetitionAudience, isTicked: boolean) => {
+    const next = isTicked ? [...audience, value] : audience.filter((item) => item !== value);
+    setAudience(normalizeAudience(next) ?? []);
+  };
 
   const saveNote = async (): Promise<CompetitionPartSaveResult> => {
     const sentNote = note;
+    const sentAudience = audience;
     try {
       const response = await sessionFetch(
         expectedUserId,
@@ -71,7 +91,7 @@ export const CompetitionEligibilityEditor = ({
         {
           method: "PUT",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ eligibilityNote: sentNote }),
+          body: JSON.stringify({ eligibilityNote: sentNote, audience: sentAudience }),
         },
       );
       if (!response.ok) {
@@ -79,6 +99,7 @@ export const CompetitionEligibilityEditor = ({
         return { ok: false, errorMessage: errorMessageFor(code, SAVE_ERROR_COPY, SAVE_FALLBACK) };
       }
       setSavedNote(sentNote);
+      setSavedAudience(sentAudience);
       return { ok: true };
     } catch {
       return { ok: false, errorMessage: "Gagal menyimpan informasi karena gangguan koneksi." };
@@ -102,6 +123,22 @@ export const CompetitionEligibilityEditor = ({
         <Feedback tone="error">{describePartLoadFailure("eligibility")}</Feedback>
       ) : (
         <div className="stack-md">
+          <fieldset className="form-field">
+            <FormLabelText as="legend">Untuk</FormLabelText>
+            <span className="form-help">
+              Pilih satu atau lebih. Wajib diisi sebelum kompetisi diterbitkan.
+            </span>
+            {COMPETITION_AUDIENCE_OPTIONS.map((option) => (
+              <CheckboxField
+                key={option.value}
+                id={`competition-audience-${option.value}`}
+                checked={audience.includes(option.value)}
+                onChange={(event) => toggleAudience(option.value, event.target.checked)}
+              >
+                {option.label}
+              </CheckboxField>
+            ))}
+          </fieldset>
           <div className="form-field">
             <FormLabel htmlFor="competition-eligibility-note" optional>
               Catatan kelayakan

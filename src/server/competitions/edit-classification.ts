@@ -21,7 +21,7 @@
 // mode is also in IMMUTABLE_AFTER_PUBLISH, which refuses it before this classifier runs on the edit
 // path. It is blocked here as well, so this function names every field publishing locks.
 
-import type { CompetitionCategory, CompetitionMode } from "@/server/db/schema";
+import type { CompetitionCategory, CompetitionLocation, CompetitionMode } from "@/server/db/schema";
 
 // The subset of competition fields this classifier reasons about.
 //
@@ -35,6 +35,7 @@ export type ClassifiableCompetition = {
   description: string;
   category: CompetitionCategory | null;
   mode: CompetitionMode | null;
+  location: CompetitionLocation | null;
   minTeamSize: number | null;
   maxTeamSize: number | null;
   registrationStartAt: Date | null;
@@ -86,6 +87,13 @@ const isRaised = (from: number | null, to: number | null): boolean =>
 const isLater = (from: Date | null, to: Date | null): boolean =>
   from !== null && to !== null && to.getTime() > from.getTime();
 
+// Hybrid keeps both ways of taking part, so a move to it only adds one. Any other move between
+// two values drops one of online and offline, and emptying a value drops both.
+const removesAWayOfTakingPart = (
+  from: CompetitionLocation | null,
+  to: CompetitionLocation | null,
+): boolean => from !== null && to !== "hybrid";
+
 const hasStarted = (row: ClassifiableCompetition, now: Date): boolean =>
   row.eventStartAt !== null && row.eventStartAt.getTime() <= now.getTime();
 
@@ -110,6 +118,16 @@ export const classifyCompetitionEdit = (
   const notify: string[] = [];
 
   if (oldRow.mode !== newRow.mode) blocked.push("mode");
+
+  // Filling an empty location tells registrants where it takes place, and a move to hybrid only
+  // adds a way to take part. Every other change strands someone who registered for the old place.
+  if (oldRow.location !== newRow.location) {
+    if (removesAWayOfTakingPart(oldRow.location, newRow.location)) {
+      blocked.push("location");
+    } else {
+      notify.push("location");
+    }
+  }
 
   // A team that registered at the old minimum would fall short of a raised one.
   if (oldRow.minTeamSize !== newRow.minTeamSize) {

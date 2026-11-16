@@ -57,6 +57,10 @@ import {
 } from "@/lib/competitions/categories";
 import { getCompetitionFieldLabel } from "@/lib/competitions/fields";
 import { COMPETITION_MODE_OPTIONS, getCompetitionModeLabel } from "@/lib/competitions/modes";
+import {
+  COMPETITION_LOCATION_OPTIONS,
+  getCompetitionLocationLabel,
+} from "@/lib/competitions/locations";
 import { getMissingCompetitionPublishFields } from "@/lib/competitions/competition-publish-required-fields";
 import {
   isRegistrationEndPast,
@@ -90,7 +94,7 @@ import {
   PUBLISH_LOCK_REASONS,
   type PublishLockedField,
 } from "@/lib/competitions/publish-locks";
-import type { CompetitionCategory } from "@/server/db/schema";
+import type { CompetitionCategory, CompetitionLocation } from "@/server/db/schema";
 
 type Category = CompetitionCategory;
 
@@ -106,6 +110,7 @@ type Competition = {
   status: CompetitionStatus;
   category: Category | null;
   mode: CompetitionMode | null;
+  location: CompetitionLocation | null;
   minTeamSize: number | null;
   maxTeamSize: number | null;
   registrationStartAt: string | null;
@@ -132,6 +137,7 @@ type FormSnapshot = {
   description: string;
   category: string;
   mode: string;
+  location: string;
   minTeamSize: string;
   maxTeamSize: string;
   regStart: string;
@@ -269,6 +275,7 @@ const snapshotEquals = (a: FormSnapshot, b: FormSnapshot): boolean =>
   a.description === b.description &&
   a.category === b.category &&
   a.mode === b.mode &&
+  a.location === b.location &&
   a.minTeamSize === b.minTeamSize &&
   a.maxTeamSize === b.maxTeamSize &&
   a.regStart === b.regStart &&
@@ -305,6 +312,7 @@ const toClassifiableForm = (values: FormSnapshot): ClassifiableCompetition => ({
   description: values.description,
   category: values.category === "" ? null : (values.category as Category),
   mode: values.mode === "" ? null : (values.mode as CompetitionMode),
+  location: values.location === "" ? null : (values.location as CompetitionLocation),
   minTeamSize: intOrNull(values.minTeamSize),
   maxTeamSize: intOrNull(values.maxTeamSize),
   registrationStartAt: dateFromInput(values.regStart),
@@ -396,6 +404,7 @@ const getParticipantRows = (values: FormSnapshot): SummaryRow[] => {
     : [];
   return [
     { term: "Mode", value: orEmptyMark(getCompetitionModeLabel(values.mode)) },
+    { term: "Lokasi", value: orEmptyMark(getCompetitionLocationLabel(values.location)) },
     ...teamSizeRows,
     { term: "Minimum pendaftaran", value: formatMinimumEntries(values.minimumEntries) },
   ];
@@ -569,6 +578,7 @@ export const InstitutionCompetitionEditShell = ({
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState<string>("");
   const [mode, setMode] = useState<string>("");
+  const [competitionLocation, setCompetitionLocation] = useState<string>("");
   const [minTeamSize, setMinTeamSize] = useState("");
   const [maxTeamSize, setMaxTeamSize] = useState("");
   const [regStart, setRegStart] = useState("");
@@ -590,6 +600,7 @@ export const InstitutionCompetitionEditShell = ({
     description,
     category,
     mode,
+    location: competitionLocation,
     minTeamSize,
     maxTeamSize,
     regStart,
@@ -609,6 +620,7 @@ export const InstitutionCompetitionEditShell = ({
     setDescription(snapshot.description);
     setCategory(snapshot.category);
     setMode(snapshot.mode);
+    setCompetitionLocation(snapshot.location);
     setMinTeamSize(snapshot.minTeamSize);
     setMaxTeamSize(snapshot.maxTeamSize);
     setRegStart(snapshot.regStart);
@@ -676,6 +688,7 @@ export const InstitutionCompetitionEditShell = ({
     description,
     category,
     mode,
+    location: competitionLocation,
     registrationStartAt: regStart,
     registrationEndAt: regEnd,
     eventStartAt: evtStart,
@@ -792,7 +805,7 @@ export const InstitutionCompetitionEditShell = ({
     editorStatusMessage = outOfOrderScheduleSentence(timelineErrors[0]?.message ?? "");
   } else if (hasUnsavedChanges) {
     editorStatusMessage = "Simpan perubahan sebelum menerbitkan";
-  } else if (missingPublishFields.length > 0) {
+  } else if (competition?.status === "draft" && missingPublishFields.length > 0) {
     editorStatusMessage = `Lengkapi untuk menerbitkan: ${missingPublishFields.join(", ")}`;
   } else if (registrationEndIsPast) {
     editorStatusMessage = REGISTRATION_END_PAST_MESSAGE;
@@ -833,6 +846,7 @@ export const InstitutionCompetitionEditShell = ({
     const loadedDescription = data.competition.description ?? "";
     const loadedCategory = data.competition.category ?? "";
     const loadedMode = data.competition.mode ?? "";
+    const loadedLocation = data.competition.location ?? "";
     const loadedMinTeamSize = data.competition.minTeamSize?.toString() ?? "";
     const loadedMaxTeamSize = data.competition.maxTeamSize?.toString() ?? "";
     const loadedRegStart = toDateTimeInput(data.competition.registrationStartAt);
@@ -852,6 +866,7 @@ export const InstitutionCompetitionEditShell = ({
     setDescription(loadedDescription);
     setCategory(loadedCategory);
     setMode(loadedMode);
+    setCompetitionLocation(loadedLocation);
     setMinTeamSize(loadedMinTeamSize);
     setMaxTeamSize(loadedMaxTeamSize);
     setRegStart(loadedRegStart);
@@ -870,6 +885,7 @@ export const InstitutionCompetitionEditShell = ({
       description: loadedDescription,
       category: loadedCategory,
       mode: loadedMode,
+      location: loadedLocation,
       minTeamSize: loadedMinTeamSize,
       maxTeamSize: loadedMaxTeamSize,
       regStart: loadedRegStart,
@@ -953,6 +969,7 @@ export const InstitutionCompetitionEditShell = ({
       description: savedSnapshot.description,
       category: savedSnapshot.category,
       mode: savedSnapshot.mode,
+      location: savedSnapshot.location,
       minTeamSize: savedSnapshot.minTeamSize,
       maxTeamSize: savedSnapshot.maxTeamSize,
       registrationStartAt: savedSnapshot.regStart,
@@ -1004,6 +1021,7 @@ export const InstitutionCompetitionEditShell = ({
       slug,
       description,
       category: category === "" ? null : category,
+      location: competitionLocation === "" ? null : competitionLocation,
       ...(!isPublished && {
         mode: mode === "" ? null : mode,
         minimumParticipantEntries: minimumEntriesOrDefault(minimumEntries),
@@ -1026,6 +1044,7 @@ export const InstitutionCompetitionEditShell = ({
         slug: slug === savedSnapshot.slug,
         description: description === savedSnapshot.description,
         category: category === savedSnapshot.category,
+        location: competitionLocation === savedSnapshot.location,
         minTeamSize: minTeamSize === savedSnapshot.minTeamSize,
         maxTeamSize: maxTeamSize === savedSnapshot.maxTeamSize,
         registrationStartAt: regStart === savedSnapshot.regStart,
@@ -1865,6 +1884,27 @@ export const InstitutionCompetitionEditShell = ({
                       }}
                     />
                   )}
+                </div>
+                <div className="form-field">
+                  <FormLabelText id="competition-location-label" required={isDraft}>
+                    Lokasi
+                  </FormLabelText>
+                  <SelectField
+                    label="Lokasi"
+                    id="competition-location"
+                    value={competitionLocation}
+                    required={isDraft}
+                    placeholder="Pilih"
+                    options={[...COMPETITION_LOCATION_OPTIONS]}
+                    onChange={setCompetitionLocation}
+                  />
+                  {isPublished ? (
+                    <PublishLockLine
+                      id="location-lock"
+                      field="location"
+                      brokenLocks={brokenPublishLocks}
+                    />
+                  ) : null}
                 </div>
                 <div className="form-grid">
                   <label className="form-field">

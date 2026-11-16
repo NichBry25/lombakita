@@ -175,6 +175,8 @@ type SeedOptions = {
   status?: "draft" | "published";
   /** Whether the competition has no contact for participants. Publishing needs one. */
   withoutContact?: boolean;
+  /** Whether the competition has no audience (Untuk). Publishing needs one. */
+  withoutAudience?: boolean;
 };
 
 type Fixture = {
@@ -211,6 +213,7 @@ const seedCompetition = async (
     feeAmount: number | null;
     status?: "draft" | "published";
     withContact: boolean;
+    withAudience: boolean;
   },
 ): Promise<string> => {
   const id = uniqueSuffix();
@@ -227,6 +230,10 @@ const seedCompetition = async (
       description: input.validChecklist ? "Deskripsi kompetisi untuk pengujian." : "",
       category: input.validChecklist ? "hackathon" : null,
       mode: input.mode,
+      // Every fixture names a location, so a gate case fails the one gate it is about. The
+      // location itself is part of the checklist, which its own suite covers.
+      location: "online",
+      audience: input.withAudience ? ["umum"] : null,
       minTeamSize: input.minTeamSize,
       maxTeamSize: input.maxTeamSize,
       status: input.status ?? "draft",
@@ -284,6 +291,7 @@ const seedFixture = async (tx: Tx, options: SeedOptions = {}): Promise<Fixture> 
     feeAmount: options.feeAmount ?? null,
     status: options.status,
     withContact: !options.withoutContact,
+    withAudience: !options.withoutAudience,
   });
 
   for (let i = 0; i < (options.otherPublished ?? 0); i += 1) {
@@ -296,6 +304,7 @@ const seedFixture = async (tx: Tx, options: SeedOptions = {}): Promise<Fixture> 
       feeAmount: null,
       status: "published",
       withContact: false,
+      withAudience: false,
     });
   }
 
@@ -367,6 +376,12 @@ const GATE_CASES: GateCase[] = [
     code: "competition_organizer_contact_missing",
     // A complete draft with no contact for participants.
     seed: (tx) => seedFixture(tx, { withoutContact: true }),
+    expectedHttpStatus: 422,
+  },
+  {
+    code: "competition_audience_missing",
+    // A complete draft with a location and no audience.
+    seed: (tx) => seedFixture(tx, { withoutAudience: true }),
     expectedHttpStatus: 422,
   },
   {

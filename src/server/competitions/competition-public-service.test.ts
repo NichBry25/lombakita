@@ -23,6 +23,8 @@ vi.mock("@/lib/logger", () => ({
 }));
 
 import {
+  buildAudienceCondition,
+  buildLocationCondition,
   buildPublicVisibilityCondition,
   buildTeamRangeCondition,
   listPublicCompetitions,
@@ -82,6 +84,7 @@ const makeRow = (overrides: Partial<RawListingRow> = {}): RawListingRow => ({
   description: "Deskripsi",
   category: "hackathon",
   mode: "individual",
+  location: null,
   minTeamSize: null,
   maxTeamSize: null,
   registrationStartAt: null,
@@ -371,6 +374,46 @@ describe("resolveUseSearch — Meili routing (spec §6)", () => {
   it("uses search for a query that has at least one letter or digit", () => {
     expect(resolveUseSearch({ q: "a" }, true)).toBe(true);
     expect(resolveUseSearch({ q: "2026" }, true)).toBe(true);
+  });
+});
+
+describe("resolveUseSearch — the location and audience filters", () => {
+  it("leaves the search index when a location is chosen, with a search term", () => {
+    expect(resolveUseSearch({ q: "lomba", location: "online" }, true)).toBe(false);
+    expect(resolveUseSearch({ q: "lomba", location: "hybrid" }, true)).toBe(false);
+  });
+
+  it("leaves the search index when an audience level is ticked", () => {
+    expect(resolveUseSearch({ q: "lomba", audience: "mahasiswa" }, true)).toBe(false);
+    expect(resolveUseSearch({ q: "lomba", audience: "umum,smp" }, true)).toBe(false);
+  });
+
+  it("keeps the search index when the audience narrows nothing", () => {
+    expect(resolveUseSearch({ q: "lomba", audience: "umum" }, true)).toBe(true);
+    expect(resolveUseSearch({ q: "lomba", audience: "umum,mars" }, true)).toBe(true);
+    expect(resolveUseSearch({ q: "lomba", audience: "mars" }, true)).toBe(true);
+    expect(resolveUseSearch({ q: "lomba", audience: "" }, true)).toBe(true);
+  });
+
+  it("keeps the search index when the location is unknown or empty", () => {
+    expect(resolveUseSearch({ q: "lomba", location: "mars" }, true)).toBe(true);
+    expect(resolveUseSearch({ q: "lomba", location: "" }, true)).toBe(true);
+  });
+});
+
+describe("buildLocationCondition and buildAudienceCondition", () => {
+  it("apply no condition for an unknown location or an audience that narrows nothing", () => {
+    expect(buildLocationCondition({})).toBeUndefined();
+    expect(buildLocationCondition({ location: "mars" })).toBeUndefined();
+    expect(buildLocationCondition({ location: "Online" })).toBeUndefined();
+    expect(buildAudienceCondition({})).toBeUndefined();
+    expect(buildAudienceCondition({ audience: "umum" })).toBeUndefined();
+    expect(buildAudienceCondition({ audience: "mars,umum,," })).toBeUndefined();
+  });
+
+  it("apply a condition for a known location and for a narrowing audience", () => {
+    expect(buildLocationCondition({ location: "online" })).toBeDefined();
+    expect(buildAudienceCondition({ audience: "umum,mahasiswa" })).toBeDefined();
   });
 });
 

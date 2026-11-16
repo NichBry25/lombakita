@@ -4,6 +4,8 @@
 export const PUBLISH_LOCK_REASONS = {
   slug: "Slug tidak dapat diubah setelah kompetisi terbit, agar tautan yang sudah dibagikan tetap berfungsi.",
   mode: "Mode tidak dapat diubah setelah kompetisi terbit.",
+  location:
+    "Setelah kompetisi terbit, lokasi tidak dapat dikosongkan atau dipersempit. Memilih Hybrid selalu diizinkan.",
   minTeamSize: "Setelah kompetisi terbit, minimum anggota tim hanya dapat diturunkan.",
   maxTeamSize: "Setelah kompetisi terbit, maksimum anggota tim hanya dapat dinaikkan.",
   registrationEndAt: "Setelah kompetisi terbit, pendaftaran hanya dapat diperpanjang.",

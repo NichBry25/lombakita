@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
-import type { CompetitionCategory, CompetitionMode, CompetitionStatus } from "@/server/db/schema";
+import type {
+  CompetitionCategory,
+  CompetitionLocation,
+  CompetitionMode,
+  CompetitionStatus,
+} from "@/server/db/schema";
 import { COMPETITION_CATEGORY_VALUES } from "@/lib/competitions/categories";
+import { COMPETITION_LOCATION_VALUES, isCompetitionLocation } from "@/lib/competitions/locations";
 import {
   validateCompetitionTimeline,
   type CompetitionTimelineInput,
@@ -58,6 +64,7 @@ type CompetitionErrorCode =
   | "competition_invalid_transition"
   | "competition_publish_validation_failed"
   | "competition_organizer_contact_missing"
+  | "competition_audience_missing"
   | "competition_organizer_contact_invalid"
   | "competition_organizer_contact_not_indonesian"
   | "competition_institution_not_verified"
@@ -163,6 +170,7 @@ export type CompetitionDraftFields = {
   slug?: string;
   category?: CompetitionCategory | null;
   mode?: CompetitionMode | null;
+  location?: CompetitionLocation | null;
   minTeamSize?: number | null;
   maxTeamSize?: number | null;
   registrationStartAt?: Date | null;
@@ -364,6 +372,19 @@ const parseOptionalMode = (value: unknown): CompetitionMode | null => {
   return value;
 };
 
+const parseOptionalLocation = (value: unknown): CompetitionLocation | null => {
+  if (value === null) return null;
+  if (!isCompetitionLocation(value)) {
+    throw new CompetitionError(
+      "competition_invalid_value",
+      400,
+      `location must be one of: ${COMPETITION_LOCATION_VALUES.join(", ")}`,
+      { fields: ["location"] },
+    );
+  }
+  return value;
+};
+
 // Minimum team size by mode. team requires ≥ 2; individual and both require ≥ 1 (already
 // enforced by parseOptionalInt). The floor for team is stricter than the general positive-int
 // check, so it needs an explicit rule.
@@ -528,6 +549,7 @@ export const PATCH_FIELDS: readonly string[] = [
   "slug",
   "category",
   "mode",
+  "location",
   "minTeamSize",
   "maxTeamSize",
   "registrationStartAt",
@@ -605,6 +627,9 @@ const parseDraftFields = (
   }
   if ("mode" in filtered) {
     fields.mode = parseOptionalMode(filtered.mode);
+  }
+  if ("location" in filtered) {
+    fields.location = parseOptionalLocation(filtered.location);
   }
   if ("minTeamSize" in filtered) {
     fields.minTeamSize = parseOptionalInt(filtered.minTeamSize, "minTeamSize");
@@ -770,6 +795,7 @@ export type PublishValidationCandidate = {
   description: string;
   category: CompetitionCategory | null;
   mode: CompetitionMode | null;
+  location: CompetitionLocation | null;
   minTeamSize?: number | null;
   maxTeamSize?: number | null;
   registrationStartAt: Date | null;
@@ -780,6 +806,10 @@ export type PublishValidationCandidate = {
   minimumParticipantEntries?: number | null;
   participantConfirmationAt?: Date | null;
 };
+
+// What the published-edit path can check. It has no location: a legacy published competition has
+// none, and an edit of it must not be refused for that. Location is judged at publish time only.
+export type PublishedEditCandidate = Omit<PublishValidationCandidate, "location">;
 
 export type PublishValidationResult = {
   passed: boolean;
@@ -803,7 +833,7 @@ const isNonEmpty = (value: string | null | undefined): boolean =>
 // edit — a finished competition's registration deadline is necessarily in the past, and
 // re-checking it would make every finished competition uneditable.
 export const findMissingPublishFields = (
-  candidate: PublishValidationCandidate,
+  candidate: PublishedEditCandidate,
 ): PublishValidationFailure[] => {
   const failures: PublishValidationFailure[] = [];
 
@@ -847,6 +877,14 @@ export const validatePublishChecklist = (
   candidate: PublishValidationCandidate,
 ): PublishValidationResult => {
   const failures: PublishValidationFailure[] = findMissingPublishFields(candidate);
+
+  if (!candidate.location) {
+    failures.push({
+      field: "location",
+      code: "missing",
+      message: "location is required to publish",
+    });
+  }
 
   // Mode-aware size floor validation at publish time.
   if (candidate.mode === "team" && (candidate.minTeamSize ?? 0) < TEAM_MODE_MIN_SIZE) {

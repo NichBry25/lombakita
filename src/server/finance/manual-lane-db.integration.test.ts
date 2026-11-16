@@ -3175,6 +3175,9 @@ describe.skipIf(skipWithoutDatabase)("the charging gate at PUBLISH (real databas
         description: "Deskripsi kompetisi yang cukup panjang untuk lolos validasi publikasi.",
         category: "hackathon",
         mode: "individual",
+        // Publishing needs a location and an audience.
+        location: "online",
+        audience: ["umum"],
         // Anchored to REAL time, not to the frozen `NOW` the payment assertions use. Publish
         // validation compares `registrationEndAt` against the wall clock and takes no injectable
         // instant, so a fixture dated from `NOW` is a timer: it passes when written and starts

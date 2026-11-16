@@ -200,6 +200,8 @@ const seedCompetition = async (
       description: "Deskripsi kompetisi untuk pengujian.",
       category: "hackathon",
       mode: "team",
+      location: "online",
+      audience: ["umum"],
       minTeamSize: input.minTeamSize,
       maxTeamSize: input.maxTeamSize,
       status: "published",

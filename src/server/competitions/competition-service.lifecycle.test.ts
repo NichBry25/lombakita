@@ -115,6 +115,7 @@ const baseCompetition = (overrides: Partial<CompetitionRow> = {}): CompetitionRo
   status: "published",
   category: "hackathon",
   mode: "both",
+  location: null,
   minTeamSize: 1,
   maxTeamSize: 4,
   registrationStartAt: new Date(Date.now() + 5 * DAY),

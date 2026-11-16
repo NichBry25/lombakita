@@ -10,7 +10,10 @@ import {
   type FilterOption,
 } from "@/components/ui";
 import { useModal } from "@/components/ui/primitives";
+import { audienceFilterLevels } from "@/lib/competitions/audiences";
 import { TEAM_SIZE_HIGHEST, TEAM_SIZE_LOWEST } from "@/lib/competitions/team-range";
+import type { CompetitionAudience } from "@/server/db/schema";
+import { AudienceChecklist } from "./competition-filters";
 import {
   DEFAULT_FILTER_SELECTION,
   competitionsQuery,
@@ -179,6 +182,7 @@ type CompetitionFilterSheetProps = {
   baseParams: CompetitionSearchParams;
   initialTotal: number;
   categoryOptions: FilterOption[];
+  locationOptions: FilterOption[];
   statusOptions: FilterOption[];
   sortOptions: FilterOption[];
   openAtSection?: FilterSheetSection;
@@ -194,6 +198,7 @@ export function CompetitionFilterSheet({
   baseParams,
   initialTotal,
   categoryOptions,
+  locationOptions,
   statusOptions,
   sortOptions,
   openAtSection,
@@ -202,6 +207,11 @@ export function CompetitionFilterSheet({
   const { closeModal } = useModal();
   const [draft, setDraft] = useState(initial);
   const count = useLiveResultCount(baseParams, draft, initialTotal, initial);
+
+  const toggleAudienceLevel = (level: CompetitionAudience, isTicked: boolean) => {
+    const next = isTicked ? [...draft.audience, level] : draft.audience.filter((i) => i !== level);
+    setDraft({ ...draft, audience: audienceFilterLevels(next) });
+  };
 
   const showButtonLabel = count.failed ? "Tampilkan hasil" : `Tampilkan ${count.total} lomba`;
 
@@ -244,6 +254,29 @@ export function CompetitionFilterSheet({
             maxHandleLabel="Ukuran tim maksimum"
             summary={describeTeamRange(draft.teamRange)}
             describeValue={describeTeamSizeForSpeech}
+          />
+        </section>
+
+        <section className="filter-sheet-section" aria-labelledby="filter-sheet-location">
+          <h3 id="filter-sheet-location" className="filter-sheet-heading">
+            Lokasi
+          </h3>
+          <OptionChoiceList
+            label="Lokasi"
+            options={locationOptions}
+            value={draft.location}
+            onChange={(location) => setDraft({ ...draft, location })}
+          />
+        </section>
+
+        <section className="filter-sheet-section" aria-labelledby="filter-sheet-audience">
+          <h3 id="filter-sheet-audience" className="filter-sheet-heading">
+            Untuk
+          </h3>
+          <AudienceChecklist
+            idPrefix="filter-sheet-audience"
+            ticked={draft.audience}
+            onToggle={toggleAudienceLevel}
           />
         </section>
 

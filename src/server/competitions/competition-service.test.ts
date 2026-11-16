@@ -13,6 +13,7 @@ const {
   assertActorIsTrustedRecruiter,
   assertInstitutionNotSuspended,
   assertCompetitionHasOrganizerContact,
+  assertCompetitionHasAudience,
   enqueueCompetitionSearchSync,
   enqueueCompetitionEdited,
   enqueueCompetitionCancelled,
@@ -21,6 +22,7 @@ const {
   assertActorIsTrustedRecruiter: vi.fn(),
   assertInstitutionNotSuspended: vi.fn(),
   assertCompetitionHasOrganizerContact: vi.fn(),
+  assertCompetitionHasAudience: vi.fn(),
   enqueueCompetitionSearchSync: vi.fn(async () => ({})),
   enqueueCompetitionEdited: vi.fn(async () => ({})),
   enqueueCompetitionCancelled: vi.fn(async () => ({})),
@@ -42,6 +44,7 @@ vi.mock("@/server/competitions/competition-access", async () => {
     assertActorIsTrustedRecruiter,
     assertInstitutionNotSuspended,
     assertCompetitionHasOrganizerContact,
+    assertCompetitionHasAudience,
   };
 });
 
@@ -68,6 +71,7 @@ const baseCompetition = (overrides: Partial<CompetitionRow> = {}): CompetitionRo
   status: "draft",
   category: null,
   mode: null,
+  location: null,
   minTeamSize: null,
   maxTeamSize: null,
   registrationStartAt: null,
@@ -325,6 +329,7 @@ describe("F5-5 — publish rejects team competition with minTeamSize < 2 (Step 6
       description: "Deskripsi lengkap",
       category: "hackathon",
       mode: "team",
+      location: "online",
       minTeamSize: 2,
       maxTeamSize: 4,
       registrationStartAt: future(2),
@@ -518,6 +523,7 @@ describe("personal institution publish — capability is independent of institut
     baseCompetition({
       status: "draft",
       mode: "individual",
+      location: "online",
       title: "Lomba Individu",
       description: "Deskripsi lengkap",
       category: "hackathon",

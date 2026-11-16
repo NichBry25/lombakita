@@ -61,6 +61,11 @@ const REASONS: Record<CompetitionPublishBlockerCode, PublishBlockerReason> = {
     text: "Kontak untuk peserta belum diisi. Isi nomor WhatsApp, nomor telepon, atau email yang dapat dihubungi peserta.",
     link: { kind: "edit", label: "Isi kontak" },
   },
+  competition_audience_missing: {
+    code: "competition_audience_missing",
+    text: "Untuk siapa kompetisi ini belum diisi. Pilih minimal satu pilihan Untuk di bagian Kelayakan.",
+    link: { kind: "edit", label: "Isi Untuk" },
+  },
   competition_institution_not_verified: {
     code: "competition_institution_not_verified",
     text: "Kompetisi berbayar hanya dapat diterbitkan oleh institusi yang sudah terverifikasi.",

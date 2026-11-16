@@ -3522,8 +3522,10 @@ button.header-sheet-row {
   right: 0;
 }
 
-/* The team size menu holds a slider and a button and never scrolls. */
-.filter-dropdown-menu[data-kind="range"] {
+/* The team size menu holds a slider and a button, and the audience menu holds tick boxes and a
+   button. Neither scrolls. */
+.filter-dropdown-menu[data-kind="range"],
+.filter-dropdown-menu[data-kind="checks"] {
   display: grid;
   gap: var(--space-3);
   width: var(--filter-range-menu-width);
@@ -3532,8 +3534,14 @@ button.header-sheet-row {
   padding: var(--space-4);
 }
 
-.filter-dropdown-menu[data-kind="range"] > .ui-button {
+.filter-dropdown-menu[data-kind="range"] > .ui-button,
+.filter-dropdown-menu[data-kind="checks"] > .ui-button {
   justify-self: end;
+}
+
+.filter-checks {
+  display: grid;
+  gap: var(--space-1);
 }
 
 /* A searchable menu keeps its field in place while the options under it scroll. */
@@ -4374,12 +4382,14 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
 
 /*
  * Every card is the same height because each part has a fixed size: the 4:5 cover, one line for
- * the mode pill (kept even when there is none), two lines for the title (kept even when it takes
+ * the mode and location pills (kept even when there are none), two lines for the title (kept even when it takes
  * one), one line for the organiser, and the deadline pill at the bottom.
  */
 .competition-card-badges {
   display: flex;
   min-height: var(--pill-height);
+  min-width: 0;
+  overflow: hidden;
   flex-wrap: nowrap;
   gap: var(--space-2);
 }

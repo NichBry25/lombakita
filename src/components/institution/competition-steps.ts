@@ -21,6 +21,7 @@ const STEP_BY_MISSING_FIELD_LABEL: Record<string, CompetitionStep> = {
   Deskripsi: 1,
   Kategori: 1,
   Mode: 2,
+  Lokasi: 2,
   "Pendaftaran mulai": 3,
   "Pendaftaran berakhir": 3,
   "Acara mulai": 3,

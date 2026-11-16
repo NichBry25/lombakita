@@ -463,6 +463,13 @@
       "when": 1794712575424,
       "tag": "0065_team_invitations_expire_at_close",
       "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1794843493568,
+      "tag": "0066_pale_kree",
+      "breakpoints": true
     }
   ]
 }

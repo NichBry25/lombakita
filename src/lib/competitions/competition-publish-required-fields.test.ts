@@ -6,6 +6,7 @@ const completeForm = () => ({
   description: "Deskripsi kompetisi",
   category: "hackathon",
   mode: "individual",
+  location: "online",
   registrationStartAt: "2026-08-01T09:00",
   registrationEndAt: "2026-08-10T09:00",
   eventStartAt: "2026-08-15T09:00",
@@ -38,6 +39,12 @@ describe("getMissingCompetitionPublishFields", () => {
       "Pengumuman hasil",
       "Konfirmasi peserta",
     ]);
+  });
+
+  it("names Lokasi when no location is chosen", () => {
+    const missing = getMissingCompetitionPublishFields({ ...completeForm(), location: "" });
+
+    expect(missing).toEqual(["Lokasi"]);
   });
 
   it("treats whitespace-only title and description as missing", () => {

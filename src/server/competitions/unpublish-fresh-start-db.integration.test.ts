@@ -227,6 +227,8 @@ const seedCompetition = async (tx: Tx, paid: boolean): Promise<Seed> => {
       description: "Deskripsi kompetisi untuk pengujian.",
       category: "hackathon",
       mode: "both",
+      location: "online",
+      audience: ["umum"],
       minTeamSize: 2,
       maxTeamSize: 4,
       status: "published",
