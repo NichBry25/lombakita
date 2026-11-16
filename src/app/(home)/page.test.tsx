@@ -26,6 +26,14 @@ vi.mock("@/lib/logger", () => ({
 }));
 
 import HomePage from "@/app/(home)/page";
+import {
+  COMPETITION_CATEGORY_LABELS,
+  COMPETITION_CATEGORY_VALUES,
+} from "@/lib/competitions/categories";
+
+const escapeHtmlText = (text: string) => text.replaceAll("&", "&amp;");
+
+const countOccurrences = (html: string, fragment: string) => html.split(fragment).length - 1;
 
 const NOW = new Date("2026-06-01T12:00:00.000Z");
 const FUTURE = new Date("2026-12-01T00:00:00.000Z");
@@ -82,6 +90,88 @@ describe("HomePage", () => {
     expect(html).not.toContain("featured-carousel");
     // Rest of the page still renders.
     expect(html).toContain("Kategori kompetisi");
+  });
+
+  it("links every category tile to the list filtered to that category, labelled as the list labels it", async () => {
+    mockListFeaturedCompetitions.mockResolvedValue([]);
+
+    const html = renderToStaticMarkup(await HomePage());
+
+    const anchors = html.match(/<a\b[^>]*>[\s\S]*?<\/a>/g) ?? [];
+    for (const category of COMPETITION_CATEGORY_VALUES) {
+      const tile = anchors.find((anchor) =>
+        anchor.includes(`href="/competitions?category=${category}"`),
+      );
+      expect(tile, `a tile links to category ${category}`).toBeDefined();
+      expect(tile).toContain(escapeHtmlText(COMPETITION_CATEGORY_LABELS[category]));
+    }
+  });
+
+  it("renders one tile for each of the categories and no more", async () => {
+    mockListFeaturedCompetitions.mockResolvedValue([]);
+
+    const html = renderToStaticMarkup(await HomePage());
+
+    expect(countOccurrences(html, 'class="home-category-tile"')).toBe(
+      COMPETITION_CATEGORY_VALUES.length,
+    );
+  });
+
+  it("puts the nine categories a phone shows first, in order, and hides the rest from a phone", async () => {
+    mockListFeaturedCompetitions.mockResolvedValue([]);
+    const phoneNine = [
+      "olympiad",
+      "scientific_writing",
+      "essay",
+      "debate",
+      "quiz",
+      "business",
+      "hackathon",
+      "design",
+      "infographics",
+    ];
+
+    const html = renderToStaticMarkup(await HomePage());
+
+    const tileOrder = [...html.matchAll(/href="\/competitions\?category=([a-z_]+)"/g)].map(
+      (match) => match[1],
+    );
+    expect(tileOrder.slice(0, 9)).toEqual(phoneNine);
+    expect(countOccurrences(html, 'data-phone-hidden="true"')).toBe(
+      COMPETITION_CATEGORY_VALUES.length - phoneNine.length,
+    );
+  });
+
+  it("shows art on both sides of the centred hero column", async () => {
+    mockListFeaturedCompetitions.mockResolvedValue([]);
+
+    const html = renderToStaticMarkup(await HomePage());
+
+    expect(countOccurrences(html, 'class="home-memphis"')).toBe(2);
+  });
+
+  it("does not bring back the hero sentence or the three check marks", async () => {
+    mockListFeaturedCompetitions.mockResolvedValue([]);
+
+    const html = renderToStaticMarkup(await HomePage());
+
+    expect(html).not.toContain("Lihat tenggat, hadiah, dan penyelenggara");
+    expect(html).not.toContain("Tanda penyelenggara terverifikasi");
+    expect(html).not.toContain("Tenggat di setiap kartu");
+    expect(html).not.toContain("Daftar tanpa pindah situs");
+    expect(html).not.toContain("home-trust-row");
+  });
+
+  it("shows a featured card with no description and no arrow, and names the all-competitions link in full", async () => {
+    mockListFeaturedCompetitions.mockResolvedValue([featuredItem(1)]);
+
+    const html = renderToStaticMarkup(await HomePage());
+
+    expect(html).toContain("Kompetisi Unggulan 1");
+    expect(html).not.toContain("Deskripsi kompetisi.");
+    expect(html).not.toContain("competition-description");
+    expect(html).not.toContain("competition-card-arrow");
+    expect(html).toContain('aria-label="Lihat semua kompetisi"');
   });
 
   it("sends the hosting button to the host dashboard", async () => {

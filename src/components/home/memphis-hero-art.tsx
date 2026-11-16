@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactElement } from "react";
+import { PALM_INK, PAIRS } from "@/components/home/memphis-palette";
 
 /*
  * Neo-Memphis / Y2K decorative panel for the homepage hero. Purely presentational
@@ -16,44 +17,6 @@ import type { CSSProperties, ReactElement } from "react";
  *    the whole grid drifts a few pixels toward the cursor (per-tile depth = parallax).
  * Both are suppressed under prefers-reduced-motion, where every tile stays visible.
  */
-
-const PALM = "#14453d";
-const PALM_INK = "#0e332d";
-const TANGERINE = "#f4632a";
-const TERRACOTTA = "#c6491b";
-const PAPER = "#fbf6eb";
-const LIME = "#d0f05e";
-const LIME_DEEP = "#9db53c";
-const PEACH = "#ffd3b0";
-const BLUSH = "#ffe9da";
-const MIST = "#e4ede4";
-
-/*
- * Curated ground/ink pairs, drawn only from the brand book palette (Brand Book
- * v2 — docs/product/ui-preferences.md). Every pair keeps the motif legible on
- * its ground.
- */
-type ColorPair = { ground: string; ink: string };
-const PAIRS: ColorPair[] = [
-  { ground: LIME, ink: PALM },
-  { ground: LIME, ink: TANGERINE },
-  { ground: LIME, ink: TERRACOTTA },
-  { ground: TANGERINE, ink: PALM },
-  { ground: TANGERINE, ink: PAPER },
-  { ground: PALM, ink: LIME },
-  { ground: PALM, ink: PEACH },
-  { ground: PEACH, ink: TERRACOTTA },
-  { ground: PEACH, ink: PALM },
-  { ground: PAPER, ink: TERRACOTTA },
-  { ground: PAPER, ink: TANGERINE },
-  { ground: TERRACOTTA, ink: PAPER },
-  { ground: BLUSH, ink: TERRACOTTA },
-  { ground: BLUSH, ink: PALM },
-  { ground: MIST, ink: PALM },
-  { ground: PALM_INK, ink: LIME },
-  { ground: LIME_DEEP, ink: PALM_INK },
-  { ground: TANGERINE, ink: PALM_INK },
-];
 
 /*
  * Motifs 0-8 are single objects (kept square, centred in the tile); motifs 9-14 are
@@ -364,7 +327,7 @@ export function MemphisHeroArt(): ReactElement {
   const [tiles, setTiles] = useState<TileState[]>(INITIAL_TILES);
   const [hovered, setHovered] = useState<number | null>(null);
   const [reducedMotion, setReducedMotion] = useState(false);
-  // The panel is hidden below the mobile breakpoint (see .home-memphis in globals.css). CSS alone
+  // The panel is hidden at 940px and below (see .home-memphis in globals.css). CSS alone
   // would stop it being seen but not being computed — the tick below would keep re-rendering the
   // whole tile grid off-screen, on the devices least able to afford it. This mirrors the
   // reduced-motion query so both conditions silence the same interval.
@@ -379,7 +342,7 @@ export function MemphisHeroArt(): ReactElement {
   }, []);
 
   useEffect(() => {
-    const query = window.matchMedia("(max-width: 760px)");
+    const query = window.matchMedia("(max-width: 940px)");
     const sync = () => setIsNarrow(query.matches);
     sync();
     query.addEventListener("change", sync);

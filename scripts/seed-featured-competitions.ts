@@ -1,34 +1,19 @@
 /**
- * Seeds a mock verified institution and a handful of featured, published competitions so the
- * homepage "Kompetisi unggulan" section (which queries is_featured) has content to render.
+ * Seeds a mock verified institution and three featured, published competitions (featured order 2
+ * to 4) so the homepage "Kompetisi unggulan" row shows four with the matrix seed's featured
+ * competition (featured order 1). Run it AFTER `scripts/seed-test-matrix.ts`.
  *
- * Idempotent: fixed ids, ON CONFLICT DO UPDATE. Safe to re-run.
+ * Idempotent: fixed ids, ON CONFLICT DO UPDATE. Safe to re-run. Refuses any database that is not
+ * a disposable local one.
  *
  * Usage: node --import tsx scripts/seed-featured-competitions.ts
  */
-import { readFileSync } from "fs";
-import { resolve } from "path";
+import { assertSeedTargetIsDisposable, resolveSeedDatabaseUrl } from "./seed/seed-target";
 
-try {
-  for (const line of readFileSync(resolve(process.cwd(), ".env.local"), "utf8").split("\n")) {
-    const t = line.trim();
-    if (!t || t.startsWith("#")) continue;
-    const eq = t.indexOf("=");
-    if (eq === -1) continue;
-    const k = t.slice(0, eq).trim();
-    const v = t
-      .slice(eq + 1)
-      .trim()
-      .replace(/^["']|["']$/g, "");
-    if (k && !(k in process.env)) process.env[k] = v;
-  }
-} catch {
-  // .env.local optional; rely on ambient env
-}
-process.env.APP_ENV = "test";
-
-const databaseUrl = process.env.DATABASE_URL;
-if (!databaseUrl) throw new Error("DATABASE_URL is not set");
+const databaseUrl = resolveSeedDatabaseUrl(
+  "This script writes a mock institution and featured competitions that are fixture data only " +
+    "on a disposable local database.",
+);
 
 const INSTITUTION_ID = "seed-inst-juara-nusantara";
 const INSTITUTION_SLUG = "juara-nusantara";
@@ -57,26 +42,12 @@ const COMPETITIONS: Seed[] = [
     title: "Garuda Hack 2026",
     description:
       "Hackathon nasional 48 jam untuk membangun solusi digital yang berdampak bagi masyarakat Indonesia. Terbuka untuk tim lintas kampus.",
-    category: "technology",
+    category: "hackathon",
     mode: "team",
     minTeamSize: 2,
     maxTeamSize: 4,
     registrationEndInDays: 30,
     eventStartInDays: 45,
-    featuredOrder: 1,
-  },
-  {
-    id: "seed-comp-business-case",
-    slug: "national-business-case-2026",
-    title: "National Business Case Competition",
-    description:
-      "Kompetisi studi kasus bisnis tingkat nasional. Analisis masalah nyata dari mitra industri dan presentasikan strategi terbaikmu di depan dewan juri.",
-    category: "business",
-    mode: "team",
-    minTeamSize: 3,
-    maxTeamSize: 5,
-    registrationEndInDays: 20,
-    eventStartInDays: 40,
     featuredOrder: 2,
   },
   {
@@ -85,7 +56,7 @@ const COMPETITIONS: Seed[] = [
     title: "Olimpiade Sains Nasional 2026",
     description:
       "Ajang bergengsi bagi mahasiswa untuk menguji kemampuan di bidang matematika, fisika, dan kimia dengan soal-soal tingkat lanjut.",
-    category: "science",
+    category: "scientific_writing",
     mode: "individual",
     minTeamSize: null,
     maxTeamSize: null,
@@ -99,7 +70,7 @@ const COMPETITIONS: Seed[] = [
     title: "Festival Desain Nusantara",
     description:
       "Kompetisi desain visual dan UI/UX yang mengangkat kekayaan budaya Nusantara. Tunjukkan karya terbaikmu dan menangkan hadiah jutaan rupiah.",
-    category: "creative_arts",
+    category: "design",
     mode: "both",
     minTeamSize: 1,
     maxTeamSize: 3,
@@ -114,6 +85,8 @@ const main = async (): Promise<void> => {
   const client = postgres(databaseUrl, { max: 1, prepare: false });
 
   try {
+    await assertSeedTargetIsDisposable(client, databaseUrl);
+
     await client`
       INSERT INTO institutions (
         id, display_name, slug, status, institution_type, verification_status, verified_at

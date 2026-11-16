@@ -3019,15 +3019,17 @@ button.header-sheet-row {
 
 .home-hero-inner {
   display: grid;
-  grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
-  gap: var(--space-10);
+  grid-template-columns: minmax(0, 1fr) minmax(0, var(--content-hero)) minmax(0, 1fr);
+  gap: var(--space-8);
   align-items: center;
 }
 
 .home-hero-main {
   display: grid;
+  justify-items: center;
   gap: var(--space-8);
   min-width: 0;
+  text-align: center;
 }
 
 .home-hero-copy {
@@ -3037,9 +3039,9 @@ button.header-sheet-row {
 .home-hero-copy h1 {
   font-size: var(--text-hero);
   line-height: var(--leading-tight);
+  text-wrap: balance;
 }
 
-.home-hero-lead,
 .listing-heading > p:last-child {
   max-width: var(--content-prose);
   margin: var(--space-0);
@@ -3147,6 +3149,7 @@ button.header-sheet-row {
   padding: var(--space-2);
   border-radius: var(--radius-feature);
   color: var(--color-ink);
+  text-align: start;
   text-decoration: none;
   transition:
     box-shadow var(--duration-card) var(--ease-primary),
@@ -3180,24 +3183,6 @@ button.header-sheet-row {
   color: var(--color-ink);
   font-size: var(--text-body);
   font-weight: 600;
-}
-
-.home-trust-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-4);
-  color: var(--brand-mist);
-  font-size: var(--text-meta);
-}
-
-.home-trust-row span {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1-5);
-}
-
-.home-trust-row .ui-icon {
-  color: var(--brand-lime);
 }
 
 /*
@@ -3258,28 +3243,58 @@ button.header-sheet-row {
   gap: var(--space-5);
 }
 
-.home-category-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--grid-gap);
+/*
+ * The category row bleeds out of the page gutter to the window's right edge, and its tiles are
+ * sized so 4.5 of them fit between the heading's left edge and that window edge, so the half tile
+ * reads as "more". The frame is the size container: 100cqw is the content width, and
+ * (100vw - 100cqw) / 2 is the gap from the content's right edge to the window. The section clips
+ * the sideways overflow a scrollbar-wide 100vw would otherwise add to the page.
+ */
+.home-category-section {
+  overflow-x: clip;
 }
 
-.home-category-card {
-  --category-hue: var(--category-hue-kti);
-  position: relative;
-  isolation: isolate;
-  display: grid;
-  min-height: calc(var(--control-height-lg) * 3.25);
-  align-content: space-between;
-  gap: var(--space-8);
-  padding: var(--space-5);
+.home-category-frame {
+  --category-row-bleed: calc((100vw - 100cqw) / 2);
+  container-type: inline-size;
+}
+
+/* The row's inline start padding is cancelled by its negative margin so the first tile still
+   lines up with the heading, and the padding keeps a hovered tile's shadow from being clipped. */
+.home-category-row {
+  display: flex;
+  gap: var(--grid-gap);
+  margin: var(--space-0);
+  margin-inline: calc(var(--space-4) * -1) calc(var(--category-row-bleed) * -1);
+  padding: var(--space-2) var(--page-padding) var(--space-4) var(--space-4);
+  overflow-x: auto;
+  list-style: none;
+  cursor: grab;
+  scrollbar-width: none;
+  user-select: none;
+}
+
+.home-category-row::-webkit-scrollbar {
+  display: none;
+}
+
+.home-category-row[data-dragging] {
+  cursor: grabbing;
+}
+
+.home-category-item {
+  flex: 0 0 calc((100cqw + var(--category-row-bleed) - 4 * var(--grid-gap)) / 4.5);
+}
+
+.home-category-tile {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
   overflow: hidden;
-  border: 0;
+  border: var(--border-thin) solid var(--color-line);
   border-radius: var(--radius-card);
-  background: hsl(
-    var(--category-hue) var(--category-wash-saturation) var(--category-wash-lightness)
-  );
-  color: var(--brand-palm);
+  background: var(--color-surface);
+  color: var(--color-ink);
   box-shadow: var(--shadow-sm);
   text-decoration: none;
   transition:
@@ -3288,68 +3303,34 @@ button.header-sheet-row {
     transform var(--duration-card) var(--ease-primary);
 }
 
-.home-category-card[data-category="hackathon"] {
-  --category-hue: var(--category-hue-hackathon);
-}
-
-.home-category-card[data-category="business"] {
-  --category-hue: var(--category-hue-business);
-}
-
-.home-category-card[data-category="scientific_writing"] {
-  --category-hue: var(--category-hue-kti);
-}
-
-.home-category-card[data-category="design"] {
-  --category-hue: var(--category-hue-uiux);
-}
-
-.home-category-card::after {
-  position: absolute;
-  inset-block-start: calc(var(--space-10) * -1);
-  inset-inline-end: calc(var(--space-8) * -1);
-  z-index: var(--z-base);
-  width: calc(var(--space-20) * 1.4);
-  height: calc(var(--space-20) * 1.4);
-  border-radius: var(--blob-radius-a);
-  background: hsl(
-    var(--category-hue) var(--category-blob-saturation) var(--category-blob-lightness)
-  );
-  content: "";
-}
-
-.home-category-card:hover {
+.home-category-tile:hover {
+  border-color: var(--color-ink-faint);
   box-shadow: var(--shadow-lg);
   transform: translateY(var(--motion-lift-card));
 }
 
-.home-category-icon,
-.home-category-copy {
+.home-category-art {
   position: relative;
-  z-index: var(--z-content);
+  display: block;
+  aspect-ratio: 4 / 3;
 }
 
-.home-category-icon {
-  display: grid;
-  width: var(--icon-chip);
-  height: var(--icon-chip);
-  place-items: center;
-  border-radius: var(--blob-radius-b);
-  background: var(--on-cover-chip);
+/* The drawing is square and sits centred, 72% as tall as its ground, as in the hero tiles. */
+.home-category-art svg {
+  position: absolute;
+  inset-block-start: 14%;
+  inset-inline-start: var(--space-0);
+  display: block;
+  width: 100%;
+  height: 72%;
 }
 
-.home-category-card h3 {
-  color: var(--on-cover-ink);
-  font-size: var(--text-card-title);
-}
-
-.home-category-card p {
-  /* Reserve two lines so a one-line description doesn't shorten the copy block and drop this
-     card's title below its neighbours — keeps the titles aligned across the row. */
-  min-height: 2lh;
-  margin: var(--space-0);
-  color: var(--on-cover-ink-soft);
-  font-size: var(--text-body-sm);
+.home-category-label {
+  padding: var(--space-3) var(--space-4);
+  font-family: var(--font-display);
+  font-size: var(--text-link-card-title);
+  line-height: var(--leading-heading);
+  text-wrap: balance;
 }
 
 .home-organizer-cta {
@@ -4328,6 +4309,30 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   flex-shrink: 0;
 }
 
+.featured-section-header {
+  container-type: inline-size;
+}
+
+.featured-view-all-arrow {
+  display: inline-flex;
+}
+
+/* A heading row too narrow for the title and the words keeps only the arrow, underlined. The
+   link's accessible name is set on the link itself, so it is the same either way. */
+@container (max-width: 24rem) {
+  .featured-view-all {
+    min-width: var(--touch-target);
+  }
+
+  .featured-view-all-text {
+    display: none;
+  }
+
+  .featured-view-all-arrow {
+    border-block-end: var(--border-strong) solid currentcolor;
+  }
+}
+
 /*
  * The rail keeps its own inline gutter so the flanking prev/next arrows get a lane clear of the
  * cards (the cards get a little narrower in exchange). The header flushes with the page's
@@ -4378,6 +4383,36 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
 .featured-carousel-slide {
   flex: 0 0 calc((100% - 2 * var(--grid-gap)) / 3);
   scroll-snap-align: start;
+}
+
+/* The home card's cover is a 4:5 portrait frame, the size of an Instagram portrait post. */
+.featured-carousel-slide .competition-cover {
+  height: auto;
+  aspect-ratio: 4 / 5;
+}
+
+/* Tighter than the shared card so the full deadline pill fits on one line in a four-up card. */
+.featured-carousel-slide .competition-card-body {
+  padding: var(--space-4);
+}
+
+/* From the width where the page shell stops growing, four cards fit across: the row becomes a
+   grid with no side lane and no arrows. Below it the row scrolls sideways with the arrows. */
+@media (min-width: 75rem) {
+  .featured-carousel-wrap {
+    padding-inline: var(--space-0);
+  }
+
+  .ui-icon-button.featured-nav-btn {
+    display: none;
+  }
+
+  .featured-carousel {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    padding-inline: var(--space-0);
+    overflow-x: visible;
+  }
 }
 
 .competition-card-footer > span:first-child {
@@ -7526,8 +7561,18 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .home-category-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  /*
+   * The hero art is decorative, and beside a centred column it needs the width the column cannot
+   * give up, so below here the column stands alone. The component watches the same breakpoint and
+   * stops its tick so nothing animates off-screen.
+   */
+  .home-hero-inner {
+    grid-template-columns: minmax(0, var(--content-hero));
+    justify-content: center;
+  }
+
+  .home-memphis {
+    display: none;
   }
 }
 
@@ -7606,20 +7651,10 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
     flex-wrap: nowrap;
   }
 
-  .home-section-header,
   .home-organizer-cta,
   .filter-toolbar {
     align-items: flex-start;
     flex-direction: column;
-  }
-
-  /*
-   * The hero art is decorative and square, so on a phone it costs a screen of height before the
-   * search field, the one thing the hero exists to deliver. Hidden here; the component watches
-   * the same breakpoint and stops its tick so nothing animates off-screen.
-   */
-  .home-memphis {
-    display: none;
   }
 
   /*
@@ -7814,16 +7849,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
     padding-block: var(--space-14) calc(var(--space-14) + var(--wave-height));
   }
 
-  .home-hero-inner {
-    grid-template-columns: minmax(0, 1fr);
-    gap: var(--space-8);
-  }
-
-  .home-memphis {
-    max-width: 30rem;
-    margin-inline: auto;
-  }
-
   .home-search-entry,
   .listing-search {
     grid-template-columns: auto minmax(0, 1fr);
@@ -7835,8 +7860,25 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
     width: 100%;
   }
 
-  .home-category-grid {
-    grid-template-columns: minmax(0, 1fr);
+  /* A fixed 3 by 3 block of the first nine categories; the other ten are on the list page. */
+  .home-category-row {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-3);
+    margin-inline: var(--space-0);
+    padding-inline: var(--space-0);
+    overflow-x: visible;
+    cursor: auto;
+    user-select: auto;
+  }
+
+  .home-category-item[data-phone-hidden] {
+    display: none;
+  }
+
+  .home-category-label {
+    padding: var(--space-2) var(--space-3);
+    font-size: var(--text-body-sm);
   }
 
   .home-organizer-cta {
@@ -7993,7 +8035,7 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   .primary-button:hover,
   .action-chip:hover,
   .competition-card:hover,
-  .home-category-card:hover,
+  .home-category-tile:hover,
   .hub-card:hover,
   .home-search-entry:hover {
     transform: none;

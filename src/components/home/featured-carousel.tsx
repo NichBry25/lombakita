@@ -11,7 +11,6 @@ type FeaturedItem = {
   id: string;
   slug: string;
   title: string;
-  description: string;
   category: string | null;
   mode: string | null;
   registrationEndAt: Date | string | null;
@@ -33,10 +32,6 @@ function resolveRegistrationStatus(value: Date | string | null) {
     return { value: "closing", label: "Segera ditutup" } as const;
   }
   return { value: "open", label: "Dibuka" } as const;
-}
-
-function truncateDescription(description: string) {
-  return description.length > 140 ? `${description.slice(0, 140)}…` : description;
 }
 
 // Featured competitions carousel with side-flanking prev/next controls.
@@ -78,11 +73,19 @@ export function FeaturedCarousel({ items }: { items: FeaturedItem[] }) {
   return (
     <>
       <header className="stack-xs">
-        <div className="home-section-header">
+        <div className="home-section-header featured-section-header">
           <h2 className="section-title">Kompetisi unggulan</h2>
-          <ButtonLink href="/competitions" variant="link" size="sm" className="featured-view-all">
-            Lihat semua
-            <Icon name="arrow-right" size="sm" />
+          <ButtonLink
+            href="/competitions"
+            variant="link"
+            size="sm"
+            className="featured-view-all"
+            aria-label="Lihat semua kompetisi"
+          >
+            <span className="featured-view-all-text">Lihat semua</span>
+            <span className="featured-view-all-arrow">
+              <Icon name="arrow-right" size="sm" />
+            </span>
           </ButtonLink>
         </div>
       </header>
@@ -140,12 +143,6 @@ export function FeaturedCarousel({ items }: { items: FeaturedItem[] }) {
                     <p className="competition-organizer">{competition.institutionName}</p>
                   </div>
 
-                  {competition.description ? (
-                    <p className="competition-description">
-                      {truncateDescription(competition.description)}
-                    </p>
-                  ) : null}
-
                   <div className="competition-card-footer">
                     <span className="status-badge" data-status={registrationStatus.value}>
                       {registrationStatus.label} ·{" "}
@@ -154,9 +151,6 @@ export function FeaturedCarousel({ items }: { items: FeaturedItem[] }) {
                       ) : (
                         "Tanpa batas waktu"
                       )}
-                    </span>
-                    <span className="competition-card-arrow" aria-hidden="true">
-                      <Icon name="arrow-right" size="md" />
                     </span>
                   </div>
                 </div>

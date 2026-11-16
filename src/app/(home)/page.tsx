@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ButtonLink, Icon } from "@/components/ui";
 import { INDEXABLE_ROBOTS } from "@/config/indexable-routes";
+import { CategoryRow } from "@/components/home/category-row";
 import { MemphisHeroArt } from "@/components/home/memphis-hero-art";
 import { FeaturedCarousel } from "@/components/home/featured-carousel";
 import { listFeaturedCompetitions } from "@/server/competitions/competition-public-service";
@@ -28,31 +29,6 @@ export const metadata: Metadata = {
     type: "website",
   },
 };
-
-const DISCOVERY_CATEGORIES = [
-  {
-    value: "hackathon",
-    label: "Hackathon",
-    detail: "Sprint coding, produk digital, dan inovasi",
-  },
-  { value: "business", label: "Business", detail: "Business case, rencana bisnis, dan pitching" },
-  {
-    value: "scientific_writing",
-    label: "Karya tulis ilmiah",
-    detail: "Riset, karya ilmiah, dan olimpiade",
-  },
-  {
-    value: "design",
-    label: "UI/UX & desain",
-    detail: "Desain antarmuka dan karya visual",
-  },
-] as const;
-
-const TRUST_MARKERS = [
-  "Tanda penyelenggara terverifikasi",
-  "Tenggat di setiap kartu",
-  "Daftar tanpa pindah situs",
-] as const;
 
 const MARQUEE_WORDS = ["Temukan", "Daftar", "Berkarya", "Menang"] as const;
 // One half, repeated enough to overflow the ribbon even on a wide monitor, then doubled
@@ -81,15 +57,14 @@ export default async function HomePage() {
     <main>
       <section className="brand-band home-hero">
         <div className="content-shell home-hero-inner">
+          <MemphisHeroArt />
+
           <div className="home-hero-main">
             <div className="home-hero-copy stack-md">
               <h1>
                 Cari kompetisi, cek tenggat, dan daftar dari{" "}
                 <span className="lime-marker">satu tempat</span>
               </h1>
-              <p className="home-hero-lead">
-                Lihat tenggat, hadiah, dan penyelenggara setiap kompetisi sebelum mendaftar.
-              </p>
             </div>
 
             <Link href="/competitions" className="glass-focus home-search-entry">
@@ -105,15 +80,6 @@ export default async function HomePage() {
                 <Icon name="arrow-right" size="md" />
               </span>
             </Link>
-
-            <div className="home-trust-row" aria-label="Keunggulan penemuan peluang">
-              {TRUST_MARKERS.map((marker) => (
-                <span key={marker}>
-                  <Icon name="check" size="sm" />
-                  {marker}
-                </span>
-              ))}
-            </div>
           </div>
 
           <MemphisHeroArt />
@@ -128,7 +94,7 @@ export default async function HomePage() {
         </div>
       </div>
 
-      <section className="page-section">
+      <section className="page-section home-category-section">
         <div className="content-shell stack-lg">
           <header className="home-section-header">
             <div className="stack-xs">
@@ -136,24 +102,7 @@ export default async function HomePage() {
             </div>
           </header>
 
-          <div className="home-category-grid">
-            {DISCOVERY_CATEGORIES.map((category) => (
-              <Link
-                className="home-category-card"
-                data-category={category.value}
-                href="/competitions"
-                key={category.label}
-              >
-                <span className="home-category-icon" aria-hidden="true">
-                  <Icon name="trophy" size="md" />
-                </span>
-                <div className="stack-xs home-category-copy">
-                  <h3>{category.label}</h3>
-                  <p>{category.detail}</p>
-                </div>
-              </Link>
-            ))}
-          </div>
+          <CategoryRow />
         </div>
       </section>
 
