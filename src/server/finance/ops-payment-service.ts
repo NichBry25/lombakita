@@ -310,12 +310,12 @@ export const voidPaymentProofAsOps = async (
       },
     });
 
-    const recipientUserIds = await resolveActivePaymentGroupMemberUserIdsByPaymentId(
+    const activeRecipientUserIds = await resolveActivePaymentGroupMemberUserIdsByPaymentId(
       proof.paymentId,
       tx,
     );
 
-    return { proof, recipientUserIds };
+    return { proof, recipientUserIds: activeRecipientUserIds };
   });
 
   // AFTER the commit, like every other dispatch in this lane. The payer has to be told: their proof

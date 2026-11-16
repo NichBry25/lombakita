@@ -482,8 +482,8 @@ describe.skipIf(skipWithoutDatabase)("who a team's verdict notice reaches", () =
     });
   });
 
-  // GOES RED WHEN THE READ MOVES from the verdict's transaction into the job: read at delivery,
-  // the three rows are already cancelled and nobody is told.
+  // Shows that the members active at the verdict are told after a later cancellation. The
+  // carried-list branch of the job is measured by the probe on the rejection case.
   it("still tells the three members who were active at the verdict when the competition is cancelled for insufficient participation before the job runs", async () => {
     await inRollback(async (tx) => {
       const seed = await seedTeamOfThree(tx, "team");
@@ -600,9 +600,10 @@ describe.skipIf(skipWithoutDatabase)("who a team's expiry notice reaches", () =>
       await sweepExpiredPayments(LATE_SWEEP_AT, tx as never);
       const secondNotice = await deliverNotice(tx, enqueuedOutcome(second.paymentId, "expired"));
 
-      expect({ firstNotice, secondNotice }).toEqual({
+      expect({ firstNotice, secondNotice, secondNoticeCount: secondNotice.length }).toEqual({
         firstNotice: sorted(seed.captainUserId, seed.memberUserId, seed.thirdUserId),
         secondNotice: sorted(seed.captainUserId, seed.memberUserId),
+        secondNoticeCount: 2,
       });
     });
   });

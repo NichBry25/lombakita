@@ -378,8 +378,7 @@ export const enqueuePaymentProofSubmitted = async (
 
 /**
  * What became of the money (R13): a verdict to the members of the payment group who were active
- * when it was given, an expiry to the members whose registrations made with the payment carry its
- * reason.
+ * when it was given, an expiry to the members whose registrations this expiry cancelled.
  *
  * Idempotent on payment + outcome + attempt. A payment produces more than one outcome over its
  * life, and it can produce the SAME outcome twice: rejected, resubmitted, rejected again. Keying on

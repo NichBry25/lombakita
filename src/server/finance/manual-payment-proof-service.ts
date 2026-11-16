@@ -827,12 +827,12 @@ export const verifyManualPaymentProof = async (
 
     await recordFeeAccrual(payment.id, tx);
 
-    const recipientUserIds = await resolveActivePaymentGroupMemberUserIdsByPaymentId(
+    const activeRecipientUserIds = await resolveActivePaymentGroupMemberUserIdsByPaymentId(
       payment.id,
       tx,
     );
 
-    return { proof, recipientUserIds };
+    return { proof, recipientUserIds: activeRecipientUserIds };
   });
 
   await notifyPaymentOutcome(verified.paymentId, "verified", { recipientUserIds }, db);
@@ -924,12 +924,12 @@ export const rejectManualPaymentProof = async (
 
     await recordProofAttempt(tx as unknown as Database, proof, "rejected", trimmedReason);
 
-    const recipientUserIds = await resolveActivePaymentGroupMemberUserIdsByPaymentId(
+    const activeRecipientUserIds = await resolveActivePaymentGroupMemberUserIdsByPaymentId(
       proof.paymentId,
       tx,
     );
 
-    return { proof, recipientUserIds };
+    return { proof, recipientUserIds: activeRecipientUserIds };
   });
 
   // The reason and the bar both ride along: a rejection notice that omits either tells the payer
