@@ -30,6 +30,10 @@ export const metadata: Metadata = {
   },
 };
 
+// Different seeds give the two hero art panels different tile layouts.
+const HERO_ART_START_LAYOUT_SEED = 0x9e3779b1;
+const HERO_ART_END_LAYOUT_SEED = 0x7f4a7c15;
+
 const MARQUEE_WORDS = ["Temukan", "Daftar", "Berkarya", "Menang"] as const;
 // One half, repeated enough to overflow the ribbon even on a wide monitor, then doubled
 // so the translateX(-50%) loop lands the second half exactly over the first — no blank run.
@@ -56,8 +60,8 @@ export default async function HomePage() {
   return (
     <main>
       <section className="brand-band home-hero">
-        <div className="content-shell home-hero-inner">
-          <MemphisHeroArt />
+        <div className="home-hero-inner">
+          <MemphisHeroArt layoutSeed={HERO_ART_START_LAYOUT_SEED} />
 
           <div className="home-hero-main">
             <div className="home-hero-copy stack-md">
@@ -82,7 +86,7 @@ export default async function HomePage() {
             </Link>
           </div>
 
-          <MemphisHeroArt />
+          <MemphisHeroArt layoutSeed={HERO_ART_END_LAYOUT_SEED} />
         </div>
       </section>
 

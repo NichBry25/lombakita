@@ -3013,22 +3013,24 @@ button.header-sheet-row {
 }
 
 /* Public discovery */
-.home-hero {
-  padding-block: var(--space-20);
-}
-
+/*
+ * The hero spans the window so its two art panels reach the window edges. The panels stretch to
+ * the band's full height; the centre column carries the band's vertical padding and sets it.
+ */
 .home-hero-inner {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, var(--content-hero)) minmax(0, 1fr);
   gap: var(--space-8);
-  align-items: center;
+  align-items: stretch;
 }
 
 .home-hero-main {
   display: grid;
+  align-content: center;
   justify-items: center;
   gap: var(--space-8);
   min-width: 0;
+  padding-block: var(--space-20);
   text-align: center;
 }
 
@@ -3067,18 +3069,24 @@ button.header-sheet-row {
 }
 
 /*
- * Neo-Memphis decorative panel. A dense fixed-cell grid of mixed-span tiles; palm
- * shows through empty cells and L-shape notches. Tiles carry their ground colour
- * inline; opacity and scale animate the relocate/reveal, translate carries the
- * cursor-follow drift. Individual transform properties keep drift and pop separate.
+ * Neo-Memphis decorative panel. A dense grid of mixed-span tiles; palm shows through empty
+ * cells and L-shape notches. Tiles carry their ground colour inline; opacity and scale
+ * animate the relocate/reveal, translate carries the cursor-follow drift. Individual
+ * transform properties keep drift and pop separate. The panel takes the size of its grid
+ * column and the grid is laid over it, so the component can measure the panel without the
+ * tiles feeding back into its size.
  */
 .home-memphis {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.home-memphis-grid {
+  position: absolute;
+  inset: var(--space-0);
   display: grid;
-  grid-template-columns: repeat(9, 1fr);
-  grid-template-rows: repeat(9, 1fr);
-  aspect-ratio: 1 / 1;
-  gap: 0.4rem;
-  width: 100%;
+  gap: var(--space-1-5);
 }
 
 /*
@@ -3244,11 +3252,14 @@ button.header-sheet-row {
 }
 
 /*
- * The category row bleeds out of the page gutter to the window's right edge, and its tiles are
- * sized so 4.5 of them fit between the heading's left edge and that window edge, so the half tile
- * reads as "more". The frame is the size container: 100cqw is the content width, and
- * (100vw - 100cqw) / 2 is the gap from the content's right edge to the window. The section clips
- * the sideways overflow a scrollbar-wide 100vw would otherwise add to the page.
+ * The category row spans the window. Its inline padding equals the distance from the window edge
+ * to the heading's left edge, so at rest the first tile lines up with the heading and a dragged
+ * tile slides out under the window edge; the same padding at the end lets the last tile stop at
+ * the heading's right edge. Tiles are sized so six whole tiles and half of a seventh fit between
+ * the heading's left edge and the right window edge, so the half tile reads as "more". The frame
+ * is the size container: 100cqw is the content width, and (100vw - 100cqw) / 2 is the gap from
+ * the content's edge to the window. The section clips the sideways overflow a scrollbar-wide
+ * 100vw would otherwise add to the page.
  */
 .home-category-section {
   overflow-x: clip;
@@ -3256,17 +3267,17 @@ button.header-sheet-row {
 
 .home-category-frame {
   --category-row-bleed: calc((100vw - 100cqw) / 2);
+  --category-tile-width: calc((100cqw + var(--category-row-bleed) - 6 * var(--grid-gap)) / 6.5);
   container-type: inline-size;
 }
 
-/* The row's inline start padding is cancelled by its negative margin so the first tile still
-   lines up with the heading, and the padding keeps a hovered tile's shadow from being clipped. */
+/* The block padding keeps a hovered tile's lift and shadow from being clipped by the scroller. */
 .home-category-row {
   display: flex;
   gap: var(--grid-gap);
   margin-block: calc(-1 * var(--space-4)) calc(-1 * var(--space-8));
-  margin-inline: calc(var(--space-4) * -1) calc(var(--category-row-bleed) * -1);
-  padding: var(--space-4) var(--page-padding) var(--space-8) var(--space-4);
+  margin-inline: calc(var(--category-row-bleed) * -1);
+  padding: var(--space-4) var(--category-row-bleed) var(--space-8);
   overflow-x: auto;
   list-style: none;
   cursor: grab;
@@ -3283,28 +3294,27 @@ button.header-sheet-row {
 }
 
 .home-category-item {
-  flex: 0 0 calc((100cqw + var(--category-row-bleed) - 4 * var(--grid-gap)) / 4.5);
+  flex: 0 0 var(--category-tile-width);
+  min-width: 0;
 }
 
+/* A square Deep Palm tile: the drawing in the upper part, the label at the bottom. */
 .home-category-tile {
   display: flex;
-  height: 100%;
+  aspect-ratio: 1 / 1;
   flex-direction: column;
   overflow: hidden;
-  border: var(--border-thin) solid var(--color-line);
   border-radius: var(--radius-card);
-  background: var(--color-surface);
-  color: var(--color-ink);
+  background: var(--brand-palm);
+  color: var(--brand-paper);
   box-shadow: var(--shadow-sm);
   text-decoration: none;
   transition:
-    border-color var(--duration-card) var(--ease-primary),
     box-shadow var(--duration-card) var(--ease-primary),
     transform var(--duration-card) var(--ease-primary);
 }
 
 .home-category-tile:hover {
-  border-color: var(--color-ink-faint);
   box-shadow: var(--shadow-lg);
   transform: translateY(var(--motion-lift-card));
 }
@@ -3312,23 +3322,29 @@ button.header-sheet-row {
 .home-category-art {
   position: relative;
   display: block;
-  aspect-ratio: 4 / 3;
+  flex: 1 1 0;
+  min-height: 0;
 }
 
-/* The drawing is square and sits centred, 72% as tall as its ground, as in the hero tiles. */
+/* The drawing is square and sits centred in the space above the label. */
 .home-category-art svg {
   position: absolute;
-  inset-block-start: 14%;
-  inset-inline-start: var(--space-0);
+  inset-block-start: var(--space-3);
+  inset-inline-start: var(--space-3);
   display: block;
-  width: 100%;
-  height: 72%;
+  width: calc(100% - 2 * var(--space-3));
+  height: calc(100% - var(--space-3));
 }
 
+/* The label shrinks with the tile so a narrow tile keeps a whole word on a line. */
 .home-category-label {
-  padding: var(--space-3) var(--space-4);
+  padding: var(--space-1) var(--space-3) var(--space-3);
   font-family: var(--font-display);
-  font-size: var(--text-link-card-title);
+  font-size: clamp(
+    var(--text-meta),
+    calc(var(--category-tile-width) * 0.09),
+    var(--text-link-card-title)
+  );
   line-height: var(--leading-heading);
   text-wrap: balance;
 }
@@ -4398,6 +4414,35 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
 /* Tighter than the shared card so the full deadline pill fits on one line in a four-up card. */
 .featured-carousel-slide .competition-card-body {
   padding: var(--space-4);
+}
+
+/*
+ * Every home card is the same height because each part has a fixed size: the 4:5 cover, one line
+ * for the mode pill (kept even when there is none), two lines for the title (kept even when it
+ * takes one), one line for the organiser, and the deadline pill at the bottom.
+ */
+.featured-carousel-slide .competition-card-badges {
+  min-height: var(--pill-height);
+  flex-wrap: nowrap;
+}
+
+.featured-carousel-slide .competition-card-body > .stack-xs {
+  min-width: 0;
+}
+
+.featured-carousel-slide .competition-title-link {
+  display: -webkit-box;
+  min-height: calc(2 * var(--leading-heading) * var(--text-card-title));
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.featured-carousel-slide .competition-organizer {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* From the width where the page shell stops growing, four cards fit across: the row becomes a
@@ -7575,6 +7620,7 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   .home-hero-inner {
     grid-template-columns: minmax(0, var(--content-hero));
     justify-content: center;
+    padding-inline: var(--page-padding);
   }
 
   .home-memphis {
@@ -7851,7 +7897,7 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
     height: var(--wordmark-header-mobile-height);
   }
 
-  .home-hero {
+  .home-hero-main {
     padding-block: var(--space-14);
   }
 
@@ -7883,8 +7929,8 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   }
 
   .home-category-label {
-    padding: var(--space-2) var(--space-3);
-    font-size: var(--text-body-sm);
+    padding: var(--space-1) var(--space-2) var(--space-2);
+    font-size: var(--text-meta);
   }
 
   .home-organizer-cta {

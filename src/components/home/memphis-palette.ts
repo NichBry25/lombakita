@@ -35,9 +35,3 @@ export const PAIRS: ColorPair[] = [
   { ground: LIME_DEEP, ink: PALM_INK },
   { ground: TANGERINE, ink: PALM_INK },
 ];
-
-const FALLBACK_PAIR: ColorPair = { ground: LIME, ink: PALM };
-
-export function pairAt(index: number): ColorPair {
-  return PAIRS[index % PAIRS.length] ?? FALLBACK_PAIR;
-}

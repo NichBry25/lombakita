@@ -174,6 +174,16 @@ describe("HomePage", () => {
     expect(html).toContain('aria-label="Lihat semua kompetisi"');
   });
 
+  it("does not show the editor's pick pill on a featured card", async () => {
+    mockListFeaturedCompetitions.mockResolvedValue([featuredItem(1), featuredItem(2)]);
+
+    const html = renderToStaticMarkup(await HomePage());
+
+    expect(html).toContain("Kompetisi Unggulan 1");
+    expect(html).not.toContain("Pilihan Editor");
+    expect(html).not.toContain('data-status="featured"');
+  });
+
   it("sends the hosting button to the host dashboard", async () => {
     mockListFeaturedCompetitions.mockResolvedValue([]);
 

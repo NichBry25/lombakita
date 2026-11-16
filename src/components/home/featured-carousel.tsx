@@ -129,9 +129,6 @@ export function FeaturedCarousel({ items }: { items: FeaturedItem[] }) {
 
                 <div className="competition-card-body">
                   <div className="competition-card-badges">
-                    <span className="status-badge" data-status="featured">
-                      Pilihan Editor
-                    </span>
                     {competition.mode ? (
                       <span className="status-badge">
                         {getCompetitionModeLabel(competition.mode)}
