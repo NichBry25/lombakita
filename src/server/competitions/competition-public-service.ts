@@ -245,6 +245,8 @@ export type PublicListingFilters = {
   mode?: string;
   status?: string;
   teamSize?: string;
+  teamMin?: string;
+  teamMax?: string;
   institutionSlug?: string;
   sort?: string;
   page?: number;
@@ -358,27 +360,72 @@ const buildStatusCondition = (status: string | undefined): SQL => {
   return or(isNull(end), gte(end, sql`now()`))!;
 };
 
-// Team-size bucket filter (DB-only; the Meilisearch index carries no team columns). Range
-// overlap, mode-aware: individual-only competitions accept a solo participant; team/both
-// competitions carry an allowed [min, max] range.
-const buildTeamSizeCondition = (bucket: string | undefined): SQL | undefined => {
-  const min = competitions.minTeamSize;
-  const max = competitions.maxTeamSize;
+// The team size range a reader asks for. `max: null` means "no upper bound".
+type TeamRange = { min: number; max: number | null };
+
+const TEAM_RANGE_LOWEST = 1;
+// The largest value the range control sends; as an upper end it means "this size or more".
+const TEAM_RANGE_OPEN_END = 10;
+// A team competition that leaves its minimum empty still needs a team.
+const DEFAULT_TEAM_MINIMUM = 2;
+
+// Links written before the range existed carry one of these words instead of teamMin and teamMax.
+const LEGACY_TEAM_SIZE_RANGES: Record<string, TeamRange> = {
+  solo: { min: 1, max: 1 },
+  small: { min: 2, max: 4 },
+  large: { min: 5, max: null },
+};
+
+const parseTeamBound = (raw: string | undefined): number | undefined => {
+  if (!raw || !/^\d+$/.test(raw)) return undefined;
+  const bound = Number.parseInt(raw, 10);
+  const isInRange = bound >= TEAM_RANGE_LOWEST && bound <= TEAM_RANGE_OPEN_END;
+  return isInRange ? bound : undefined;
+};
+
+// The range the filters ask for, or undefined when they leave every team size in. An unreadable
+// end counts as open, and a range that covers everything is the same as no range.
+const resolveTeamRange = (filters: PublicListingFilters): TeamRange | undefined => {
+  const min = parseTeamBound(filters.teamMin);
+  const max = parseTeamBound(filters.teamMax);
+  const asked: TeamRange | undefined =
+    min === undefined && max === undefined
+      ? LEGACY_TEAM_SIZE_RANGES[filters.teamSize ?? ""]
+      : {
+          min: min ?? TEAM_RANGE_LOWEST,
+          max: max === undefined || max === TEAM_RANGE_OPEN_END ? null : max,
+        };
+  if (!asked) return undefined;
+  const coversEverything = asked.min <= TEAM_RANGE_LOWEST && asked.max === null;
+  return coversEverything ? undefined : asked;
+};
+
+// Team-size range filter (DB-only; the Meilisearch index carries no team columns). A competition
+// shows when the sizes it allows overlap the range: 1 to 1 for individual, its minimum (2 when
+// empty) to its maximum for team, and 1 to its maximum for both. An empty maximum has no upper
+// bound. A competition with no mode allows no known size and never matches.
+export const buildTeamRangeCondition = (filters: PublicListingFilters): SQL | undefined => {
+  const range = resolveTeamRange(filters);
+  if (!range) return undefined;
+
   const mode = competitions.mode;
-  if (bucket === "solo") {
-    return or(eq(mode, "individual"), eq(mode, "both"), and(isNotNull(min), lte(min, 1)));
-  }
-  if (bucket === "small") {
-    return and(
-      inArray(mode, ["team", "both"]),
-      or(isNull(min), lte(min, 4))!,
-      or(isNull(max), gte(max, 2))!,
-    )!;
-  }
-  if (bucket === "large") {
-    return and(inArray(mode, ["team", "both"]), or(isNull(max), gte(max, 5))!)!;
-  }
-  return undefined;
+  const minTeamSize = competitions.minTeamSize;
+  const maxTeamSize = competitions.maxTeamSize;
+  const reachesRangeStart = or(isNull(maxTeamSize), gte(maxTeamSize, range.min))!;
+
+  const individualFits = range.min <= TEAM_RANGE_LOWEST ? eq(mode, "individual") : undefined;
+  const bothFits = and(eq(mode, "both"), reachesRangeStart)!;
+
+  const teamStartsInsideRange =
+    range.max === null
+      ? undefined
+      : or(
+          DEFAULT_TEAM_MINIMUM <= range.max ? isNull(minTeamSize) : undefined,
+          lte(minTeamSize, range.max),
+        );
+  const teamFits = and(eq(mode, "team"), teamStartsInsideRange, reachesRangeStart)!;
+
+  return or(individualFits, bothFits, teamFits);
 };
 
 // A query with no letters or digits (e.g. only punctuation like ";") carries no searchable
@@ -389,10 +436,15 @@ const hasSearchableQuery = (q: string | undefined): boolean =>
   Boolean(q && /[\p{L}\p{N}]/u.test(q));
 
 // Meili routing (spec §6): the index lacks registrationStartAt and team-size fields, so any
-// active status/teamSize filter forces the DB path to avoid partial filtering + count drift.
+// active status or team size parameter forces the DB path to avoid partial filtering + count drift.
 // A token-less query is also kept off the search path (it would placeholder-match everything).
 export const resolveUseSearch = (filters: PublicListingFilters, meiliAvailable: boolean): boolean =>
-  hasSearchableQuery(filters.q) && meiliAvailable && !filters.status && !filters.teamSize;
+  hasSearchableQuery(filters.q) &&
+  meiliAvailable &&
+  !filters.status &&
+  !filters.teamSize &&
+  !filters.teamMin &&
+  !filters.teamMax;
 
 const buildDbWhere = (filters: PublicListingFilters) => {
   const conditions = [buildPublicVisibilityCondition(), buildStatusCondition(filters.status)];
@@ -412,9 +464,9 @@ const buildDbWhere = (filters: PublicListingFilters) => {
   if (filters.mode && isCompetitionMode(filters.mode)) {
     conditions.push(eq(competitions.mode, filters.mode));
   }
-  const teamSizeCondition = buildTeamSizeCondition(filters.teamSize);
-  if (teamSizeCondition) {
-    conditions.push(teamSizeCondition);
+  const teamRangeCondition = buildTeamRangeCondition(filters);
+  if (teamRangeCondition) {
+    conditions.push(teamRangeCondition);
   }
   if (filters.institutionSlug) {
     conditions.push(eq(institutions.slug, filters.institutionSlug.trim().toLowerCase()));

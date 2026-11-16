@@ -255,4 +255,28 @@ describe("GET /api/v1/competitions — public listing", () => {
       expect.objectContaining({ status: "closed", teamSize: "small" }),
     );
   });
+
+  it("passes teamMin, teamMax and limit to listPublicCompetitions, for the filter sheet's count", async () => {
+    listPublicCompetitions.mockResolvedValue({
+      data: [],
+      meta: { total: 7, page: 1, limit: 1, totalPages: 7, searchEngine: "db" },
+    });
+    const response = await GET(makeGet("?teamMin=2&teamMax=4&limit=1"));
+    expect(listPublicCompetitions).toHaveBeenCalledWith(
+      expect.objectContaining({ teamMin: "2", teamMax: "4", limit: 1 }),
+    );
+    const body = (await response.json()) as { meta: { total: number } };
+    expect(body.meta.total).toBe(7);
+  });
+
+  it("leaves teamMin and teamMax undefined when the address has none", async () => {
+    listPublicCompetitions.mockResolvedValue({
+      data: [],
+      meta: { total: 0, page: 1, limit: 20, totalPages: 0, searchEngine: "db" },
+    });
+    await GET(makeGet("?q=lomba"));
+    expect(listPublicCompetitions).toHaveBeenCalledWith(
+      expect.objectContaining({ teamMin: undefined, teamMax: undefined }),
+    );
+  });
 });

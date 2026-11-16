@@ -51,8 +51,10 @@ export {
   TablePageSkeleton,
 } from "./page-skeletons";
 export { PageTransitionProvider, usePageTransition } from "./page-transition";
-export { FilterDropdown } from "./filter-dropdown";
+export { FilterDropdown, optionMatchesQuery } from "./filter-dropdown";
 export type { FilterOption } from "./filter-dropdown";
+export { RangeSlider } from "./range-slider";
+export type { RangeSliderValue } from "./range-slider";
 export { EmptyState } from "./empty-state";
 export { Pagination } from "./pagination";
 export { PageHeader } from "./page-header";

@@ -2,9 +2,31 @@
 
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { CompetitionFilters } from "./competition-filters";
-import type { CompetitionSearchParams } from "./search-params";
-import { competitionsHref } from "./search-params";
+import { useModal } from "@/components/ui/primitives";
+import { CompetitionFilterSheet, type FilterSheetSection } from "./competition-filter-sheet";
+import {
+  CATEGORY_OPTIONS,
+  CompetitionFilters,
+  CompetitionPhoneFilters,
+  SORT_OPTIONS,
+  STATUS_OPTIONS,
+} from "./competition-filters";
+import type { CompetitionSearchParams, FilterSelection, TeamRange } from "./search-params";
+import {
+  competitionsHref,
+  readFilterSelection,
+  selectionToParams,
+  teamRangeToParams,
+} from "./search-params";
+
+const CLEAR_EVERY_FILTER: Partial<CompetitionSearchParams> = {
+  category: undefined,
+  mode: undefined,
+  status: undefined,
+  teamSize: undefined,
+  teamMin: undefined,
+  teamMax: undefined,
+};
 
 /**
  * The filter row, wired to the URL rather than to local state.
@@ -16,6 +38,9 @@ import { competitionsHref } from "./search-params";
  * The applied filters arrive as props rather than from `useSearchParams`, so this component reads
  * the same values the server rendered from and does not have to re-derive them.
  *
+ * It draws both layouts: the pill row for wide screens and the chip row for phones. CSS shows one
+ * of them, so the server and the browser render the same markup.
+ *
  * PENDING STATE. This route has no `loading.tsx`, because a route-level Suspense boundary makes
  * Next stream a skeleton into the shell and deliver the listing inside a hidden element that only
  * a script can reveal, which leaves a reader without JavaScript looking at a placeholder forever.
@@ -23,30 +48,76 @@ import { competitionsHref } from "./search-params";
  * running, so the transition drives the spinner beside the controls and `aria-busy` on the row
  * that owns them.
  */
-export function CompetitionFilterBar({ params }: { params: CompetitionSearchParams }) {
+export function CompetitionFilterBar({
+  params,
+  total,
+}: {
+  params: CompetitionSearchParams;
+  total: number;
+}) {
   const router = useRouter();
+  const { openModal, closeModal } = useModal();
   const [isPending, startTransition] = useTransition();
+  const selection = readFilterSelection(params);
 
-  const update = (key: keyof CompetitionSearchParams, value: string) => {
+  const navigate = (overrides: Partial<CompetitionSearchParams>) => {
     // A changed filter re-selects the result set, so the old page number no longer refers to
     // anything. Landing on page 4 of a two-page set shows an empty grid.
-    const href = competitionsHref(params, { [key]: value || undefined, page: undefined });
+    const href = competitionsHref(params, { ...overrides, page: undefined });
     startTransition(() => router.push(href));
   };
 
+  const applyTeamRange = (range: TeamRange) => {
+    navigate({ ...teamRangeToParams(range), teamSize: undefined });
+  };
+
+  const applySheetSelection = (picked: FilterSelection) => {
+    navigate(selectionToParams(picked));
+    closeModal();
+  };
+
+  const toggleOpenStatus = () => {
+    navigate({ status: selection.status === "open" ? undefined : "open" });
+  };
+
+  const openSheet = (openAtSection?: FilterSheetSection) => {
+    openModal({
+      title: "Filter",
+      fullHeight: true,
+      actions: [],
+      body: (
+        <CompetitionFilterSheet
+          initial={selection}
+          baseParams={params}
+          initialTotal={total}
+          categoryOptions={CATEGORY_OPTIONS}
+          statusOptions={STATUS_OPTIONS}
+          sortOptions={SORT_OPTIONS}
+          openAtSection={openAtSection}
+          onApply={applySheetSelection}
+        />
+      ),
+    });
+  };
+
   return (
-    <CompetitionFilters
-      isPending={isPending}
-      category={params.category ?? ""}
-      mode={params.mode ?? ""}
-      status={params.status ?? ""}
-      teamSize={params.teamSize ?? ""}
-      sort={params.sort ?? "created_desc"}
-      onCategory={(value) => update("category", value)}
-      onMode={(value) => update("mode", value)}
-      onStatus={(value) => update("status", value)}
-      onTeamSize={(value) => update("teamSize", value)}
-      onSort={(value) => update("sort", value)}
-    />
+    <>
+      <CompetitionFilters
+        isPending={isPending}
+        selection={selection}
+        onCategory={(category) => navigate({ category: category || undefined })}
+        onStatus={(status) => navigate({ status: status || undefined })}
+        onSort={(sort) => navigate({ sort: sort || undefined })}
+        onTeamRange={applyTeamRange}
+      />
+      <CompetitionPhoneFilters
+        isPending={isPending}
+        selection={selection}
+        onOpenSheet={openSheet}
+        onToggleOpenStatus={toggleOpenStatus}
+        onClearChip={navigate}
+        onClearAll={() => navigate(CLEAR_EVERY_FILTER)}
+      />
+    </>
   );
 }

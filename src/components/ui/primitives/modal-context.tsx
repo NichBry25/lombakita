@@ -40,6 +40,9 @@ type ModalConfigFields = {
   // 560 wide instead of 480. Also means the pop-up holds a field or an image, so a tap outside
   // never closes it and typed text is not lost.
   wide?: boolean;
+  // A pop-up that fills the screen on a phone. `body` is the whole pop-up: it draws its own header
+  // and footer, and `title` is only the dialog's accessible name, so it must be plain text.
+  fullHeight?: boolean;
   // Rendered as role="alertdialog": destructive confirms and pop-ups that report a failure.
   alert?: boolean;
   // Where focus lands on open. Defaults to the first field when `formId` is set, the safe choice

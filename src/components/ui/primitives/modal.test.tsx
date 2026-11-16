@@ -549,3 +549,47 @@ describe("Modal — focus after closing", () => {
     },
   );
 });
+
+describe("Modal — full height", () => {
+  it("shows the body as the whole pop-up, named by the title, with no header or footer of its own", () => {
+    const { openModal } = renderModal();
+    act(() =>
+      openModal({
+        title: "Filter",
+        fullHeight: true,
+        actions: [],
+        body: <button type="button">Isi sendiri</button>,
+      }),
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Filter" });
+    expect(dialog.getAttribute("data-height")).toBe("full");
+    expect(dialog.hasAttribute("aria-labelledby")).toBe(false);
+    expect(dialog.querySelector(".modal-title")).toBeNull();
+    expect(dialog.querySelector(".modal-body")).toBeNull();
+    expect(dialog.querySelector(".modal-footer")).toBeNull();
+    expect(screen.getByRole("button", { name: "Isi sendiri" })).toBeTruthy();
+  });
+
+  it("still closes on Escape and returns focus to the trigger", () => {
+    const { openModal } = renderModal();
+    const trigger = screen.getByTestId("trigger");
+    act(() => openModal({ title: "Filter", fullHeight: true, actions: [], body: <p>Isi</p> }));
+
+    press("Escape");
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("leaves an ordinary pop-up without the full height marks", () => {
+    const { openModal } = renderModal();
+    act(() => openModal({ title: "Konfirmasi", body: "Body", actions: [] }));
+
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.hasAttribute("data-height")).toBe(false);
+    expect(dialog.hasAttribute("aria-label")).toBe(false);
+    expect(dialog.getAttribute("aria-labelledby")).toBeTruthy();
+    expect(dialog.querySelector(".modal-title")).not.toBeNull();
+  });
+});

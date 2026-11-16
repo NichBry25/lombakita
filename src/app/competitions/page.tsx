@@ -59,6 +59,8 @@ export default async function PublicCompetitionsPage({
     mode: params.mode,
     status: params.status,
     teamSize: params.teamSize,
+    teamMin: params.teamMin,
+    teamMax: params.teamMax,
     sort: params.sort,
     page,
   });
@@ -88,7 +90,7 @@ export default async function PublicCompetitionsPage({
                 <span role="status">{meta.total} kompetisi ditemukan</span>
               </h2>
             </div>
-            <CompetitionFilterBar params={params} />
+            <CompetitionFilterBar params={params} total={meta.total} />
           </div>
 
           {competitions.length === 0 ? (

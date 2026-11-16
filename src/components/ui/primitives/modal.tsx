@@ -233,6 +233,8 @@ export function Modal() {
 
   const opensOutsideTapAsSafeChoice = !config.wide;
   const layout = footerLayoutFor(safeActions.length);
+  const isFullHeight = config.fullHeight === true;
+  const fullHeightName = typeof config.title === "string" ? config.title : undefined;
 
   const safeButtons = safeActions.map((action, index) => (
     <Button
@@ -270,37 +272,46 @@ export function Modal() {
       ref={backdropRef}
       role="presentation"
       className="modal-backdrop"
+      data-height={isFullHeight ? "full" : undefined}
       onClick={opensOutsideTapAsSafeChoice ? doSafeChoice : undefined}
     >
       <div
         ref={dialogRef}
         role={config.alert ? "alertdialog" : "dialog"}
         aria-modal="true"
-        aria-labelledby={titleId}
-        aria-describedby={bodyId}
+        aria-labelledby={isFullHeight ? undefined : titleId}
+        aria-label={isFullHeight ? fullHeightName : undefined}
+        aria-describedby={isFullHeight ? undefined : bodyId}
         tabIndex={-1}
         className="modal-dialog"
         data-width={config.wide ? "wide" : "narrow"}
+        data-height={isFullHeight ? "full" : undefined}
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 id={titleId} className="modal-title">
-          {config.title}
-        </h2>
-        <div id={bodyId} className="modal-body">
-          {config.body}
-        </div>
-        {failureMessage ? (
-          <Feedback tone="error" className="modal-failure">
-            {failureMessage}
-          </Feedback>
-        ) : null}
-        {actions.length > 0 ? (
-          <div className="modal-footer" data-layout={layout}>
-            {layout === "stack" ? mainButton : null}
-            {safeButtons}
-            {layout === "stack" ? null : mainButton}
-          </div>
-        ) : null}
+        {isFullHeight ? (
+          config.body
+        ) : (
+          <>
+            <h2 id={titleId} className="modal-title">
+              {config.title}
+            </h2>
+            <div id={bodyId} className="modal-body">
+              {config.body}
+            </div>
+            {failureMessage ? (
+              <Feedback tone="error" className="modal-failure">
+                {failureMessage}
+              </Feedback>
+            ) : null}
+            {actions.length > 0 ? (
+              <div className="modal-footer" data-layout={layout}>
+                {layout === "stack" ? mainButton : null}
+                {safeButtons}
+                {layout === "stack" ? null : mainButton}
+              </div>
+            ) : null}
+          </>
+        )}
       </div>
     </div>,
     document.body,

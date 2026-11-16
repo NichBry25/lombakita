@@ -12,7 +12,18 @@
 // to that same behaviour, so the two paths cannot answer a repeated parameter differently again.
 
 import { describe, expect, it } from "vitest";
-import { readCompetitionSearchParams } from "./search-params";
+import {
+  CARRIED_FILTERS,
+  DEFAULT_FILTER_SELECTION,
+  competitionsHref,
+  competitionsQuery,
+  describeTeamRange,
+  readCompetitionSearchParams,
+  readFilterSelection,
+  readTeamRange,
+  selectionToParams,
+  teamRangeToParams,
+} from "./search-params";
 
 describe("readCompetitionSearchParams", () => {
   it("takes the first value of every repeated parameter, as URLSearchParams.get does", () => {
@@ -22,6 +33,8 @@ describe("readCompetitionSearchParams", () => {
       mode: ["online", "offline"],
       status: ["all", "open"],
       teamSize: ["solo", "small"],
+      teamMin: ["2", "3"],
+      teamMax: ["4", "5"],
       sort: ["deadline_asc", "created_desc"],
       page: ["2", "9"],
     });
@@ -32,6 +45,8 @@ describe("readCompetitionSearchParams", () => {
       mode: "online",
       status: "all",
       teamSize: "solo",
+      teamMin: "2",
+      teamMax: "4",
       sort: "deadline_asc",
       page: "2",
     });
@@ -66,5 +81,93 @@ describe("readCompetitionSearchParams", () => {
 
     expect(narrowed).not.toHaveProperty("utm_source");
     expect(narrowed.q).toBe("y");
+  });
+});
+
+describe("the team size range in the address", () => {
+  it("reads an absent end as the end of the track", () => {
+    expect(readTeamRange({})).toEqual({ min: 1, max: 10 });
+    expect(readTeamRange({ teamMin: "3" })).toEqual({ min: 3, max: 10 });
+    expect(readTeamRange({ teamMax: "4" })).toEqual({ min: 1, max: 4 });
+  });
+
+  it("reads an unreadable end as the end of the track", () => {
+    expect(readTeamRange({ teamMin: "abc", teamMax: "99" })).toEqual({ min: 1, max: 10 });
+  });
+
+  it("never lets the lower end pass the upper end", () => {
+    expect(readTeamRange({ teamMin: "7", teamMax: "3" })).toEqual({ min: 3, max: 3 });
+  });
+
+  it("writes both ends for a range inside the track and leaves an end on the track end out", () => {
+    expect(teamRangeToParams({ min: 2, max: 4 })).toEqual({ teamMin: "2", teamMax: "4" });
+    expect(teamRangeToParams({ min: 2, max: 10 })).toEqual({
+      teamMin: "2",
+      teamMax: undefined,
+    });
+    expect(teamRangeToParams({ min: 1, max: 1 })).toEqual({
+      teamMin: undefined,
+      teamMax: "1",
+    });
+    expect(teamRangeToParams({ min: 1, max: 10 })).toEqual({
+      teamMin: undefined,
+      teamMax: undefined,
+    });
+  });
+
+  it("says Individu when both ends sit on 1", () => {
+    expect(describeTeamRange({ min: 1, max: 1 })).toBe("Individu");
+    expect(describeTeamRange({ min: 1, max: 10 })).toBe("1 sampai 10+");
+    expect(describeTeamRange({ min: 2, max: 4 })).toBe("2 sampai 4");
+  });
+
+  it("is carried through a search and into a link", () => {
+    expect(CARRIED_FILTERS).toContain("teamMin");
+    expect(CARRIED_FILTERS).toContain("teamMax");
+    expect(CARRIED_FILTERS).toContain("mode");
+    expect(CARRIED_FILTERS).toContain("teamSize");
+    expect(competitionsHref({ teamMin: "2", teamMax: "4" }, { page: "3" })).toBe(
+      "/competitions?teamMin=2&teamMax=4&page=3",
+    );
+  });
+});
+
+describe("competitionsQuery", () => {
+  it("has no leading question mark and drops what an override clears", () => {
+    expect(competitionsQuery({ q: "a", category: "x" }, { category: undefined })).toBe("q=a");
+    expect(competitionsQuery({})).toBe("");
+  });
+});
+
+describe("a filter selection", () => {
+  it("reads the defaults from an empty address", () => {
+    expect(readFilterSelection({})).toEqual(DEFAULT_FILTER_SELECTION);
+  });
+
+  it("becomes address parameters, and a team range replaces an old teamSize word", () => {
+    const params = selectionToParams({
+      category: "debat",
+      status: "open",
+      sort: "deadline_asc",
+      teamRange: { min: 2, max: 4 },
+    });
+
+    expect(params).toEqual({
+      category: "debat",
+      status: "open",
+      sort: "deadline_asc",
+      teamSize: undefined,
+      teamMin: "2",
+      teamMax: "4",
+    });
+  });
+
+  it("leaves every filter out of the address when nothing is chosen", () => {
+    const href = competitionsHref(
+      { teamSize: "small" },
+      selectionToParams(DEFAULT_FILTER_SELECTION),
+    );
+
+    expect(href).toBe("/competitions?sort=created_desc");
   });
 });

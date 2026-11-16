@@ -1,6 +1,8 @@
 // @vitest-environment node
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { PgDialect } from "drizzle-orm/pg-core";
+import type { SQL } from "drizzle-orm";
 import type { Database } from "@/server/db/client";
 import type { PublicCompetitionItem } from "@/server/competitions/competition-public-service";
 
@@ -21,6 +23,7 @@ vi.mock("@/lib/logger", () => ({
 }));
 
 import {
+  buildTeamRangeCondition,
   listPublicCompetitions,
   listFeaturedCompetitions,
   deriveCTAState,
@@ -781,5 +784,294 @@ describe("organiser logo address — featured list", () => {
       signedUrlFor("logos/b.png"),
     ]);
     expect(vi.mocked(db.select)).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// The team size range condition.
+//
+// The condition is SQL and these tests run without a database, so the SQL that production builds is
+// compiled and then evaluated row by row by the small reader below. The reader understands only the
+// pieces this condition uses and throws on anything else, so a change to a different SQL shape
+// fails here instead of being skipped. The expected answer comes from `allowedSizesOverlap`, which
+// states the rule in plain code and shares nothing with the condition.
+// ---------------------------------------------------------------------------------------------
+
+type TeamRow = {
+  mode: "individual" | "team" | "both" | null;
+  min: number | null;
+  max: number | null;
+};
+
+const COLUMN_FOR_SQL_NAME: Record<string, keyof TeamRow> = {
+  mode: "mode",
+  min_team_size: "min",
+  max_team_size: "max",
+};
+
+const SQL_TOKEN = /\s*(\(|\)|"competitions"\."[a-z_]+"|\$\d+|>=|<=|=|\bis null\b|\band\b|\bor\b)/y;
+
+const tokenizeSql = (text: string): string[] => {
+  const tokens: string[] = [];
+  SQL_TOKEN.lastIndex = 0;
+  while (SQL_TOKEN.lastIndex < text.trimEnd().length) {
+    const match = SQL_TOKEN.exec(text);
+    if (!match)
+      throw new Error(
+        `The test reader cannot read this SQL near: ${text.slice(SQL_TOKEN.lastIndex)}`,
+      );
+    tokens.push(match[1]!);
+  }
+  return tokens;
+};
+
+const evaluateCondition = (condition: SQL, row: TeamRow): boolean => {
+  const compiled = new PgDialect().sqlToQuery(condition);
+  const tokens = tokenizeSql(compiled.sql);
+  let position = 0;
+
+  const next = () => tokens[position++]!;
+  const peek = () => tokens[position];
+
+  const readColumnValue = (token: string): number | string | null => {
+    const sqlName = /"competitions"\."([a-z_]+)"/.exec(token)?.[1];
+    const key = sqlName ? COLUMN_FOR_SQL_NAME[sqlName] : undefined;
+    if (!key) throw new Error(`The test reader does not know the column ${token}`);
+    return row[key];
+  };
+
+  const readComparison = (): boolean => {
+    const left = readColumnValue(next());
+    const operator = next();
+    if (operator === "is null") return left === null;
+    const placeholder = next();
+    const right = compiled.params[Number.parseInt(placeholder.slice(1), 10) - 1] as number | string;
+    // As in SQL, a comparison with null is never true.
+    if (left === null) return false;
+    if (operator === "=") return left === right;
+    if (operator === ">=") return (left as number) >= (right as number);
+    if (operator === "<=") return (left as number) <= (right as number);
+    throw new Error(`The test reader does not know the operator ${operator}`);
+  };
+
+  const readAtom = (): boolean => {
+    if (peek() !== "(") return readComparison();
+    next();
+    const inner = readOr();
+    if (next() !== ")") throw new Error("The test reader expected a closing bracket");
+    return inner;
+  };
+
+  const readAnd = (): boolean => {
+    let result = readAtom();
+    while (peek() === "and") {
+      next();
+      const right = readAtom();
+      result = result && right;
+    }
+    return result;
+  };
+
+  function readOr(): boolean {
+    let result = readAnd();
+    while (peek() === "or") {
+      next();
+      const right = readAnd();
+      result = result || right;
+    }
+    return result;
+  }
+
+  const answer = readOr();
+  if (position !== tokens.length)
+    throw new Error("The test reader stopped before the end of the SQL");
+  return answer;
+};
+
+// The rule, written the plain way: what sizes a competition allows, and whether they touch the range.
+const allowedSizesOverlap = (row: TeamRow, range: { min: number; max: number | null }): boolean => {
+  const unbounded = Number.POSITIVE_INFINITY;
+  const spans = {
+    individual: { from: 1, to: 1 },
+    team: { from: row.min ?? 2, to: row.max ?? unbounded },
+    both: { from: 1, to: row.max ?? unbounded },
+  };
+  if (row.mode === null) return false;
+  const span = spans[row.mode];
+  return span.from <= (range.max ?? unbounded) && span.to >= range.min;
+};
+
+const TEAM_ROWS: TeamRow[] = [
+  { mode: "individual", min: null, max: null },
+  { mode: "individual", min: 3, max: 5 },
+  { mode: "team", min: null, max: null },
+  { mode: "team", min: 2, max: 4 },
+  { mode: "team", min: 1, max: 3 },
+  { mode: "team", min: 5, max: null },
+  { mode: "team", min: null, max: 3 },
+  { mode: "team", min: 6, max: 8 },
+  { mode: "team", min: 12, max: 20 },
+  { mode: "both", min: null, max: null },
+  { mode: "both", min: null, max: 4 },
+  { mode: "both", min: 3, max: 6 },
+  { mode: "both", min: null, max: 1 },
+  { mode: null, min: 2, max: 4 },
+];
+
+describe("buildTeamRangeCondition", () => {
+  it("shows exactly the competitions whose allowed sizes overlap the range, for every range", () => {
+    for (let low = 1; low <= 10; low++) {
+      for (let high = low; high <= 10; high++) {
+        const isWholeTrack = low === 1 && high === 10;
+        if (isWholeTrack) continue;
+        const condition = buildTeamRangeCondition({ teamMin: String(low), teamMax: String(high) });
+        const range = { min: low, max: high === 10 ? null : high };
+
+        for (const row of TEAM_ROWS) {
+          const shown = evaluateCondition(condition!, row);
+          expect({ range: [low, high], row, shown }).toEqual({
+            range: [low, high],
+            row,
+            shown: allowedSizesOverlap(row, range),
+          });
+        }
+      }
+    }
+  });
+
+  it("reads teamMax 10 as no upper bound", () => {
+    const condition = buildTeamRangeCondition({ teamMin: "5", teamMax: "10" })!;
+
+    expect(evaluateCondition(condition, { mode: "team", min: 12, max: 20 })).toBe(true);
+    expect(evaluateCondition(condition, { mode: "team", min: 2, max: 4 })).toBe(false);
+  });
+
+  it("reads a missing end as open", () => {
+    const fromTwo = buildTeamRangeCondition({ teamMin: "2" })!;
+    const upToFour = buildTeamRangeCondition({ teamMax: "4" })!;
+
+    expect(evaluateCondition(fromTwo, { mode: "team", min: 12, max: 20 })).toBe(true);
+    expect(evaluateCondition(fromTwo, { mode: "individual", min: null, max: null })).toBe(false);
+    expect(evaluateCondition(upToFour, { mode: "team", min: 6, max: 8 })).toBe(false);
+    expect(evaluateCondition(upToFour, { mode: "individual", min: null, max: null })).toBe(true);
+  });
+
+  it("shows only individual and both competitions when both ends sit on 1", () => {
+    const condition = buildTeamRangeCondition({ teamMin: "1", teamMax: "1" })!;
+
+    expect(evaluateCondition(condition, { mode: "individual", min: null, max: null })).toBe(true);
+    expect(evaluateCondition(condition, { mode: "both", min: null, max: 4 })).toBe(true);
+    expect(evaluateCondition(condition, { mode: "team", min: null, max: null })).toBe(false);
+    expect(evaluateCondition(condition, { mode: "team", min: 1, max: 3 })).toBe(true);
+  });
+
+  it("applies no condition when the range covers every size or no range is given", () => {
+    expect(buildTeamRangeCondition({})).toBeUndefined();
+    expect(buildTeamRangeCondition({ teamMin: "1", teamMax: "10" })).toBeUndefined();
+    expect(buildTeamRangeCondition({ teamMin: "1" })).toBeUndefined();
+    expect(buildTeamRangeCondition({ teamMax: "10" })).toBeUndefined();
+  });
+
+  it("treats an unreadable end as open", () => {
+    expect(buildTeamRangeCondition({ teamMin: "abc", teamMax: "11" })).toBeUndefined();
+    expect(buildTeamRangeCondition({ teamMin: "0", teamMax: "-2" })).toBeUndefined();
+    expect(buildTeamRangeCondition({ teamMin: "2.5" })).toBeUndefined();
+  });
+
+  it("filters an old teamSize link as the range it stands for", () => {
+    const small = buildTeamRangeCondition({ teamSize: "small" })!;
+    const asRange = buildTeamRangeCondition({ teamMin: "2", teamMax: "4" })!;
+
+    for (const row of TEAM_ROWS) {
+      expect(evaluateCondition(small, row)).toBe(evaluateCondition(asRange, row));
+    }
+    expect(buildTeamRangeCondition({ teamSize: "solo" })).toBeDefined();
+    expect(buildTeamRangeCondition({ teamSize: "large" })).toBeDefined();
+    expect(buildTeamRangeCondition({ teamSize: "huge" })).toBeUndefined();
+  });
+
+  it("lets a range override an old teamSize word", () => {
+    const condition = buildTeamRangeCondition({ teamSize: "solo", teamMin: "5", teamMax: "6" })!;
+
+    expect(evaluateCondition(condition, { mode: "individual", min: null, max: null })).toBe(false);
+    expect(evaluateCondition(condition, { mode: "team", min: 5, max: 6 })).toBe(true);
+  });
+});
+
+describe("resolveUseSearch — the team range forces the DB path", () => {
+  it("forces the DB path when teamMin or teamMax is present", () => {
+    expect(resolveUseSearch({ q: "lomba", teamMin: "2" }, true)).toBe(false);
+    expect(resolveUseSearch({ q: "lomba", teamMax: "4" }, true)).toBe(false);
+  });
+
+  it("treats empty teamMin and teamMax as absent", () => {
+    expect(resolveUseSearch({ q: "lomba", teamMin: "", teamMax: "" }, true)).toBe(true);
+  });
+});
+
+describe("listPublicCompetitions — the filters reach the database query", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  // Hands back the WHERE of the listing query as compiled SQL with its values.
+  const compiledListingWhere = async (filters: Parameters<typeof listPublicCompetitions>[0]) => {
+    const whereCalls: unknown[] = [];
+    const rowsChain = {
+      from: vi.fn().mockReturnThis(),
+      innerJoin: vi.fn().mockReturnThis(),
+      where: vi.fn((condition: unknown) => {
+        whereCalls.push(condition);
+        return rowsChain;
+      }),
+      orderBy: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockReturnThis(),
+      offset: vi.fn().mockResolvedValue([]),
+    };
+    const countChain = {
+      from: vi.fn().mockReturnThis(),
+      innerJoin: vi.fn().mockReturnThis(),
+      where: vi.fn().mockResolvedValue([{ count: 0 }]),
+    };
+    let callIndex = 0;
+    const db = {
+      select: vi.fn(() => (callIndex++ === 0 ? rowsChain : countChain)),
+    } as unknown as Database;
+
+    await listPublicCompetitions(filters, db);
+    return new PgDialect().sqlToQuery(whereCalls[0] as SQL);
+  };
+
+  const withoutPlaceholderNumbers = (text: string) => text.replace(/\$\d+/g, "$");
+
+  it("puts the team range condition into the query for teamMin and teamMax", async () => {
+    const filters = { teamMin: "2", teamMax: "4" };
+    const compiled = await compiledListingWhere(filters);
+    const expected = new PgDialect().sqlToQuery(buildTeamRangeCondition(filters)!);
+
+    expect(withoutPlaceholderNumbers(compiled.sql)).toContain(
+      withoutPlaceholderNumbers(expected.sql),
+    );
+  });
+
+  it("puts the same condition into the query for an old teamSize link", async () => {
+    const compiled = await compiledListingWhere({ teamSize: "large" });
+    const expected = new PgDialect().sqlToQuery(buildTeamRangeCondition({ teamSize: "large" })!);
+
+    expect(withoutPlaceholderNumbers(compiled.sql)).toContain(
+      withoutPlaceholderNumbers(expected.sql),
+    );
+  });
+
+  it("leaves the team columns out when no range is asked for", async () => {
+    const compiled = await compiledListingWhere({});
+
+    expect(compiled.sql).not.toContain("min_team_size");
+    expect(compiled.sql).not.toContain("max_team_size");
+  });
+
+  it("still filters on an old mode link", async () => {
+    const compiled = await compiledListingWhere({ mode: "team" });
+
+    expect(compiled.sql).toContain('"competitions"."mode" = $');
+    expect(compiled.params).toContain("team");
   });
 });

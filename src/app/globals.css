@@ -3516,6 +3516,191 @@ button.header-sheet-row {
   height: var(--space-4);
 }
 
+/* A menu that opens with its right edge on the right edge of its trigger. */
+.filter-dropdown-menu[data-align="end"] {
+  left: auto;
+  right: 0;
+}
+
+/* The team size menu holds a slider and a button and never scrolls. */
+.filter-dropdown-menu[data-kind="range"] {
+  display: grid;
+  gap: var(--space-3);
+  width: var(--filter-range-menu-width);
+  max-height: none;
+  overflow: visible;
+  padding: var(--space-4);
+}
+
+.filter-dropdown-menu[data-kind="range"] > .ui-button {
+  justify-self: end;
+}
+
+/* A searchable menu keeps its field in place while the options under it scroll. */
+.filter-dropdown-menu[data-searchable="true"] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+  overflow: hidden;
+}
+
+.filter-dropdown-list {
+  min-height: var(--space-0);
+  margin: var(--space-0);
+  padding: var(--space-0);
+  overflow-y: auto;
+  list-style: none;
+}
+
+.filter-dropdown-search {
+  box-sizing: border-box;
+  inline-size: 100%;
+  flex: none;
+  padding: var(--space-2) var(--space-4);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--color-raised);
+  color: var(--color-ink);
+  font-size: var(--text-body);
+  box-shadow: inset 0 0 0 1.5px var(--color-field-ring);
+}
+
+.filter-dropdown-search::placeholder {
+  color: var(--color-ink-faint);
+}
+
+.filter-dropdown-search:focus-visible {
+  outline: var(--focus-width) solid var(--focus-color);
+  outline-offset: var(--border-strong);
+}
+
+.filter-dropdown-empty {
+  margin: var(--space-0);
+  padding: var(--space-3);
+  color: var(--color-ink-soft);
+  font-size: var(--text-body);
+}
+
+.filter-dropdown-option[data-active="true"] {
+  background: var(--color-hover-surface);
+}
+
+/* Phone filters: the chip row and the removable chips. Hidden above 640px, where the pill row
+   shows instead. */
+.filter-phone {
+  display: none;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-3);
+  min-inline-size: 0;
+}
+
+.filter-phone-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.filter-phone-row::-webkit-scrollbar {
+  display: none;
+}
+
+.filter-phone-row > .action-chip {
+  flex: none;
+}
+
+.filter-phone-applied {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-0);
+  padding: var(--space-0);
+  list-style: none;
+}
+
+/* The phone sheet. The pop-up is full height and the sheet fills it: a fixed header, a body that
+   scrolls, and a fixed footer holding the one button. */
+.filter-sheet {
+  display: flex;
+  flex-direction: column;
+  min-height: var(--space-0);
+  block-size: 100%;
+}
+
+.filter-sheet-header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-block-end: var(--border-thin) solid var(--color-line);
+}
+
+.filter-sheet-title {
+  font-size: var(--modal-title-size-phone);
+  line-height: var(--modal-title-leading-phone);
+}
+
+.filter-sheet-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.filter-sheet-body {
+  display: grid;
+  flex: 1;
+  align-content: start;
+  gap: var(--space-6);
+  min-height: var(--space-0);
+  padding: var(--space-4);
+  overflow-y: auto;
+}
+
+.filter-sheet-section {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.filter-sheet-heading {
+  font-family: var(--font-body);
+  font-size: var(--text-body);
+  font-weight: 600;
+  letter-spacing: normal;
+}
+
+.filter-sheet-category {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.filter-sheet-options {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.filter-sheet-option {
+  inline-size: 100%;
+  border: 0;
+  background: transparent;
+  font-family: var(--font-body);
+  text-align: start;
+}
+
+.filter-sheet-option[data-selected="true"] {
+  background: var(--color-hover-surface);
+}
+
+.filter-sheet-footer {
+  flex: none;
+  padding: var(--space-3) var(--space-4);
+  padding-block-end: calc(var(--space-3) + env(safe-area-inset-bottom));
+  border-block-start: var(--border-thin) solid var(--color-line);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .filter-dropdown-chevron,
   .filter-dropdown-trigger {
@@ -5287,6 +5472,14 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   width: min(100%, var(--modal-width-wide));
 }
 
+/* Full height: the body supplies its own header and footer, so the dialog holds no padding of its
+   own and its content fills it. On a phone it also fills the width; the rule is under the 640px
+   block below. */
+.modal-dialog[data-height="full"] {
+  padding: var(--space-0);
+  overflow: hidden;
+}
+
 @keyframes modal-enter {
   from {
     opacity: 0;
@@ -6476,6 +6669,82 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
 }
 
 .slider-input:focus-visible {
+  outline: var(--focus-width) solid var(--focus-color);
+  outline-offset: var(--focus-offset);
+}
+
+/* Range slider: two round handles on one track. Each handle is a 44px hit area around a 24px disc
+   with a ring in the surface colour, and the track is inset by half a hit area so a handle at
+   either end stays inside the control. A focused handle rises above the other so two handles on
+   one value can both be reached. */
+.range-slider {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.range-slider-summary {
+  margin: var(--space-0);
+  color: var(--color-ink);
+  font-size: var(--text-body-sm);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.range-slider-track {
+  position: relative;
+  block-size: var(--touch-target);
+  margin-inline: calc(var(--touch-target) / 2);
+  cursor: pointer;
+  touch-action: none;
+}
+
+.range-slider-rail,
+.range-slider-fill {
+  position: absolute;
+  inset-block-start: 50%;
+  block-size: var(--slider-track-height);
+  border-radius: var(--radius-pill);
+  transform: translateY(-50%);
+}
+
+.range-slider-rail {
+  inset-inline: var(--space-0);
+  background: var(--color-field-ring);
+}
+
+.range-slider-fill {
+  background: var(--color-ink);
+}
+
+.range-slider-handle {
+  position: absolute;
+  inset-block-start: var(--space-0);
+  inline-size: var(--touch-target);
+  block-size: var(--touch-target);
+  margin-inline-start: calc(var(--touch-target) / -2);
+  border-radius: var(--radius-circle);
+  outline: none;
+}
+
+.range-slider-handle:focus {
+  z-index: var(--z-content);
+}
+
+.range-slider-handle::before {
+  content: "";
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-start: 50%;
+  inline-size: var(--slider-thumb-size);
+  block-size: var(--slider-thumb-size);
+  border: var(--slider-thumb-ring) solid var(--color-raised);
+  border-radius: var(--radius-circle);
+  background: var(--color-ink);
+  box-sizing: border-box;
+  transform: translate(-50%, -50%);
+}
+
+.range-slider-handle:focus-visible::before {
   outline: var(--focus-width) solid var(--focus-color);
   outline-offset: var(--focus-offset);
 }
@@ -7702,6 +7971,16 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
     max-width: none;
   }
 
+  /* The pill row gives way to the chip row and the filter sheet. */
+  .filter-toolbar-filters {
+    display: none;
+  }
+
+  .filter-phone {
+    display: grid;
+    inline-size: 100%;
+  }
+
   .admin-nav {
     width: calc(100% - (var(--page-padding-mobile) * 2));
   }
@@ -7780,6 +8059,16 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
     max-height: 100%;
     padding: var(--modal-padding-phone);
     border-radius: var(--modal-radius-phone);
+  }
+
+  .modal-backdrop[data-height="full"] {
+    padding: var(--space-0);
+  }
+
+  .modal-dialog[data-height="full"] {
+    height: 100%;
+    padding: var(--space-0);
+    border-radius: var(--space-0);
   }
 
   .modal-title {

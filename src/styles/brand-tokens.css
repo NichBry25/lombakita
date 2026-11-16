@@ -578,6 +578,9 @@
   --slider-label-width: 4.5rem;
   --slider-gap: var(--space-4);
 
+  /* The competition list's team size menu, wide enough for a track and its two 44px handles. */
+  --filter-range-menu-width: 20rem;
+
   /* Crop area (496 by 320 in a 560 pop-up) and the white ring of the guide inside it. */
   --crop-area-ratio: 31 / 20;
   --crop-area-radius: var(--radius-panel);
