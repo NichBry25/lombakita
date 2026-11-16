@@ -8,17 +8,35 @@ import type { PublicCompetitionItem } from "@/server/competitions/competition-pu
 vi.mock("@/server/search/availability", () => ({ isMeilisearchAvailable: vi.fn(() => false) }));
 vi.mock("@/server/search/client", () => ({ getMeilisearchClient: vi.fn() }));
 
+// Signing is stubbed at the storage client so the real key resolution and signing wrapper run.
+vi.mock("@/server/storage/r2.client", () => ({
+  isR2Available: vi.fn(() => true),
+  generatePresignedGetUrl: vi.fn(
+    async (key: string, expirySeconds: number) =>
+      `https://files.test/${key}?expires=${expirySeconds}`,
+  ),
+}));
+vi.mock("@/lib/logger", () => ({
+  logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() },
+}));
+
 import {
   listPublicCompetitions,
+  listFeaturedCompetitions,
   deriveCTAState,
   resolveUseSearch,
   countPublicRegistrants,
 } from "@/server/competitions/competition-public-service";
+import { generatePresignedGetUrl } from "@/server/storage/r2.client";
+import { logger } from "@/lib/logger";
 
 // The service maps the joined institution columns (display_name / type / owner-username) through
 // getInstitutionDisplayName, so the mocked DB rows carry the RAW projection shape, not the resolved
-// output shape. institutionName on the result is computed, never read straight from the row.
-type RawListingRow = Omit<PublicCompetitionItem, "institutionName"> & {
+// output shape. institutionName on the result is computed, never read straight from the row, and
+// institutionLogoUrl is signed from the two key columns.
+type RawListingRow = Omit<PublicCompetitionItem, "institutionName" | "institutionLogoUrl"> & {
+  institutionLogoR2Key: string | null;
+  institutionOwnerAvatarKey: string | null;
   institutionDisplayName: string | null;
   institutionType:
     | "personal"
@@ -77,6 +95,8 @@ const makeRow = (overrides: Partial<RawListingRow> = {}): RawListingRow => ({
   institutionDisplayName: "Universitas LK",
   institutionType: null,
   institutionOwnerUsername: null,
+  institutionLogoR2Key: null,
+  institutionOwnerAvatarKey: null,
   ...overrides,
 });
 
@@ -544,5 +564,192 @@ describe("F15 — deadline filter on Meilisearch path", () => {
     expect(result.meta.total).toBe(1);
     expect(result.data).toHaveLength(1);
     expect(result.data[0]!.title).toBe("National Business Case Competition");
+  });
+});
+
+// DB mock for listFeaturedCompetitions: one select that ends at .limit().
+const makeFeaturedDb = (rows: RawListingRow[]): Database =>
+  ({
+    select: vi.fn().mockReturnValue({
+      from: vi.fn().mockReturnThis(),
+      innerJoin: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
+      orderBy: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockResolvedValue(rows),
+    }),
+  }) as unknown as Database;
+
+const useMeilisearchHits = async (ids: string[]) => {
+  const { isMeilisearchAvailable } = await import("@/server/search/availability");
+  vi.mocked(isMeilisearchAvailable).mockReturnValue(true);
+  const { getMeilisearchClient } = await import("@/server/search/client");
+  vi.mocked(getMeilisearchClient).mockReturnValue({
+    index: () => ({
+      search: vi.fn().mockResolvedValue({
+        hits: ids.map((id) => ({ id })),
+        estimatedTotalHits: ids.length,
+      }),
+    }),
+  } as unknown as ReturnType<typeof getMeilisearchClient>);
+};
+
+const signedUrlFor = (key: string) => `https://files.test/${key}?expires=3600`;
+
+describe("organiser logo address — database path", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  it("returns the signed logo address of the institution's own logo", async () => {
+    const db = makeDb([makeRow({ institutionLogoR2Key: "logos/lk.png" })], 1);
+
+    const result = await listPublicCompetitions({}, db);
+
+    expect(result.data[0]!.institutionLogoUrl).toBe(signedUrlFor("logos/lk.png"));
+  });
+
+  it("returns a personal institution's owner avatar, never its own logo column", async () => {
+    const personalRow = makeRow({
+      institutionDisplayName: null,
+      institutionType: "personal",
+      institutionOwnerUsername: "owneruser",
+      institutionLogoR2Key: "logos/ignored.png",
+      institutionOwnerAvatarKey: "avatars/owner.png",
+    });
+    const db = makeDb([personalRow], 1);
+
+    const result = await listPublicCompetitions({}, db);
+
+    expect(result.data[0]!.institutionLogoUrl).toBe(signedUrlFor("avatars/owner.png"));
+  });
+
+  it("returns null and signs nothing for an institution with no logo", async () => {
+    const db = makeDb([makeRow()], 1);
+
+    const result = await listPublicCompetitions({}, db);
+
+    expect(result.data[0]!.institutionLogoUrl).toBeNull();
+    expect(generatePresignedGetUrl).not.toHaveBeenCalled();
+  });
+
+  it("never puts a storage key on the public item", async () => {
+    const db = makeDb(
+      [makeRow({ institutionLogoR2Key: "logos/lk.png", institutionOwnerAvatarKey: "a/b.png" })],
+      1,
+    );
+
+    const result = await listPublicCompetitions({}, db);
+
+    expect(result.data[0]).not.toHaveProperty("institutionLogoR2Key");
+    expect(result.data[0]).not.toHaveProperty("institutionOwnerAvatarKey");
+  });
+
+  it("reads a page's logo keys in the listing query, not one query per card", async () => {
+    const rows = [
+      makeRow({ id: "comp_1", institutionLogoR2Key: "logos/a.png" }),
+      makeRow({ id: "comp_2", institutionLogoR2Key: "logos/b.png" }),
+      makeRow({ id: "comp_3", institutionLogoR2Key: "logos/c.png" }),
+    ];
+    const db = makeDb(rows, 3);
+
+    await listPublicCompetitions({}, db);
+
+    // The rows query and the count query, and nothing for the logos.
+    expect(vi.mocked(db.select)).toHaveBeenCalledTimes(2);
+  });
+
+  it("signs one address per distinct logo, so one organiser's cards sign once", async () => {
+    const rows = [
+      makeRow({ id: "comp_1", institutionLogoR2Key: "logos/a.png" }),
+      makeRow({ id: "comp_2", institutionLogoR2Key: "logos/a.png" }),
+      makeRow({ id: "comp_3", institutionLogoR2Key: "logos/b.png" }),
+    ];
+    const db = makeDb(rows, 3);
+
+    const result = await listPublicCompetitions({}, db);
+
+    expect(generatePresignedGetUrl).toHaveBeenCalledTimes(2);
+    expect(result.data.map((item) => item.institutionLogoUrl)).toEqual([
+      signedUrlFor("logos/a.png"),
+      signedUrlFor("logos/a.png"),
+      signedUrlFor("logos/b.png"),
+    ]);
+  });
+
+  it("signs for longer than the 300 seconds the home page caches its HTML", async () => {
+    const db = makeDb([makeRow({ institutionLogoR2Key: "logos/lk.png" })], 1);
+
+    await listPublicCompetitions({}, db);
+
+    const expirySeconds = vi.mocked(generatePresignedGetUrl).mock.calls[0]![1];
+    expect(expirySeconds).toBeGreaterThan(300);
+  });
+
+  it("falls back to no logo, and logs it, when a logo cannot be signed", async () => {
+    vi.mocked(generatePresignedGetUrl).mockRejectedValueOnce(new Error("sign failed"));
+    const rows = [
+      makeRow({ id: "comp_1", institutionLogoR2Key: "logos/a.png" }),
+      makeRow({ id: "comp_2", institutionLogoR2Key: "logos/b.png" }),
+    ];
+    const db = makeDb(rows, 2);
+
+    const result = await listPublicCompetitions({}, db);
+
+    expect(result.data).toHaveLength(2);
+    const addresses = result.data.map((item) => item.institutionLogoUrl);
+    expect(addresses).toContain(null);
+    expect(addresses.filter(Boolean)).toHaveLength(1);
+    expect(logger.warn).toHaveBeenCalledWith(
+      "institution.media.read-url.failed",
+      expect.objectContaining({ error: "sign failed" }),
+    );
+  });
+});
+
+describe("organiser logo address — search-index path", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  it("returns cards with their signed logo addresses", async () => {
+    await useMeilisearchHits(["comp_1", "comp_2"]);
+    const db = makeHydrationDb([
+      makeRow({ id: "comp_1", institutionLogoR2Key: "logos/a.png" }),
+      makeRow({ id: "comp_2" }),
+    ]);
+
+    const result = await listPublicCompetitions({ q: "lomba" }, db);
+
+    expect(result.meta.searchEngine).toBe("meilisearch");
+    expect(result.data[0]!.institutionLogoUrl).toBe(signedUrlFor("logos/a.png"));
+    expect(result.data[1]!.institutionLogoUrl).toBeNull();
+  });
+
+  it("reads the logo keys in the one hydration query", async () => {
+    await useMeilisearchHits(["comp_1", "comp_2", "comp_3"]);
+    const db = makeHydrationDb([
+      makeRow({ id: "comp_1", institutionLogoR2Key: "logos/a.png" }),
+      makeRow({ id: "comp_2", institutionLogoR2Key: "logos/b.png" }),
+      makeRow({ id: "comp_3", institutionLogoR2Key: "logos/c.png" }),
+    ]);
+
+    await listPublicCompetitions({ q: "lomba" }, db);
+
+    expect(vi.mocked(db.select)).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("organiser logo address — featured list", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  it("returns featured cards with their signed logo addresses, from one query", async () => {
+    const db = makeFeaturedDb([
+      makeRow({ id: "comp_1", isFeatured: true, institutionLogoR2Key: "logos/a.png" }),
+      makeRow({ id: "comp_2", isFeatured: true, institutionLogoR2Key: "logos/b.png" }),
+    ]);
+
+    const result = await listFeaturedCompetitions(4, db);
+
+    expect(result.map((item) => item.institutionLogoUrl)).toEqual([
+      signedUrlFor("logos/a.png"),
+      signedUrlFor("logos/b.png"),
+    ]);
+    expect(vi.mocked(db.select)).toHaveBeenCalledTimes(1);
   });
 });

@@ -45,12 +45,16 @@ const featuredItem = (n: number) => ({
   registrationEndAt: FUTURE,
   eventStartAt: FUTURE,
   eventEndAt: FUTURE,
+  resultAnnouncementAt: null,
+  cancelledAt: null,
+  hasPublishedResult: false,
   publishedAt: NOW,
   createdAt: NOW,
   updatedAt: NOW,
   isFeatured: true,
   institutionSlug: "ui",
   institutionName: "Universitas Indonesia",
+  institutionLogoUrl: null as string | null,
 });
 
 describe("HomePage", () => {
@@ -137,6 +141,22 @@ describe("HomePage", () => {
     expect(html).toContain("Kompetisi Unggulan 1");
     expect(html).not.toContain("Pilihan Editor");
     expect(html).not.toContain('data-status="featured"');
+  });
+
+  it("shows the organiser's logo in a featured card's badge, and the trophy on a card without one", async () => {
+    const withLogo = { ...featuredItem(1), institutionLogoUrl: "https://files.test/ui.png" };
+    mockListFeaturedCompetitions.mockResolvedValue([withLogo, featuredItem(2)]);
+
+    const html = renderToStaticMarkup(await HomePage());
+
+    const badges = [
+      ...html.matchAll(/<span class="competition-cover-icon"[^>]*>([\s\S]*?)<\/span>/g),
+    ].map((match) => match[1]);
+    expect(badges).toHaveLength(2);
+    expect(badges[0]).toContain('<img src="https://files.test/ui.png" alt=""');
+    expect(badges[0]).not.toContain("<svg");
+    expect(badges[1]).toContain("<svg");
+    expect(badges[1]).not.toContain("<img");
   });
 
   it("sends the hosting button to the host dashboard", async () => {

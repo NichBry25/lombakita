@@ -135,11 +135,7 @@ export function InstitutionPublicView({
         ) : (
           <div className="competition-grid competition-grid--roomy">
             {competitions.map((competition) => (
-              <CompetitionCard
-                key={competition.id}
-                competition={competition}
-                showOrganizer={false}
-              />
+              <CompetitionCard key={competition.id} competition={competition} />
             ))}
           </div>
         )}

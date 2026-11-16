@@ -4105,7 +4105,7 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   position: relative;
   isolation: isolate;
   display: flex;
-  height: var(--cover-list-height);
+  aspect-ratio: 4 / 5;
   flex-direction: column;
   justify-content: space-between;
   overflow: hidden;
@@ -4138,10 +4138,17 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   width: var(--touch-target);
   height: var(--touch-target);
   place-items: center;
+  overflow: hidden;
   border: 0;
   border-radius: var(--blob-radius-b);
   background: var(--on-cover-chip);
   color: color-mix(in srgb, var(--cover-accent) 76%, var(--brand-palm));
+}
+
+.competition-cover-logo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .competition-cover-label {
@@ -4165,46 +4172,52 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   flex: 1;
   flex-direction: column;
   gap: var(--space-4);
-  padding: var(--space-5);
+  padding: var(--space-4);
 }
 
+/*
+ * Every card is the same height because each part has a fixed size: the 4:5 cover, one line for
+ * the mode pill (kept even when there is none), two lines for the title (kept even when it takes
+ * one), one line for the organiser, and the deadline pill at the bottom.
+ */
 .competition-card-badges {
   display: flex;
-  flex-wrap: wrap;
+  min-height: var(--pill-height);
+  flex-wrap: nowrap;
   gap: var(--space-2);
 }
 
-.status-badge[data-status="featured"] {
-  background: var(--brand-palm);
-  color: var(--brand-lime);
+.competition-card-body > .stack-xs {
+  min-width: 0;
 }
 
 .competition-title-link {
+  display: -webkit-box;
+  min-height: calc(2 * var(--leading-heading) * var(--text-card-title));
+  overflow: hidden;
   color: var(--color-ink);
   font-family: var(--font-display);
   font-size: var(--text-card-title);
   line-height: var(--leading-heading);
   text-decoration: none;
   text-wrap: balance;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
 }
 
 .competition-title-link:hover {
   color: var(--color-link);
 }
 
-.competition-organizer,
-.competition-description {
-  margin: var(--space-0);
-  color: var(--color-ink-soft);
-}
-
 .competition-organizer {
+  margin: var(--space-0);
+  overflow: hidden;
+  color: var(--color-ink-soft);
   font-size: var(--text-meta);
   font-weight: 600;
-}
-
-.competition-description {
-  font-size: var(--text-body-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .competition-card-footer {
@@ -4212,7 +4225,7 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  /* Push the deadline + arrow row to the bottom so it lines up across cards of unequal height. */
+  /* Push the deadline row to the bottom so it lines up across cards. */
   margin-block-start: auto;
   padding-block-start: var(--space-3);
   border-top: var(--border-thin) solid var(--color-line-soft);
@@ -4300,49 +4313,20 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   display: none;
 }
 
+/*
+ * The slide wraps the shared card. min-width:0 keeps a grid or flex item from growing to the
+ * intrinsic width of its content, which would stretch the row instead of letting it scroll.
+ */
 .featured-carousel-slide {
+  display: flex;
+  min-width: 0;
   flex: 0 0 calc((100% - 2 * var(--grid-gap)) / 3);
   scroll-snap-align: start;
 }
 
-/* The home card's cover is a 4:5 portrait frame, the size of an Instagram portrait post. */
-.featured-carousel-slide .competition-cover {
-  height: auto;
-  aspect-ratio: 4 / 5;
-}
-
-/* Tighter than the shared card so the full deadline pill fits on one line in a four-up card. */
-.featured-carousel-slide .competition-card-body {
-  padding: var(--space-4);
-}
-
-/*
- * Every home card is the same height because each part has a fixed size: the 4:5 cover, one line
- * for the mode pill (kept even when there is none), two lines for the title (kept even when it
- * takes one), one line for the organiser, and the deadline pill at the bottom.
- */
-.featured-carousel-slide .competition-card-badges {
-  min-height: var(--pill-height);
-  flex-wrap: nowrap;
-}
-
-.featured-carousel-slide .competition-card-body > .stack-xs {
+.featured-carousel-slide > .competition-card {
   min-width: 0;
-}
-
-.featured-carousel-slide .competition-title-link {
-  display: -webkit-box;
-  min-height: calc(2 * var(--leading-heading) * var(--text-card-title));
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-}
-
-.featured-carousel-slide .competition-organizer {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  flex: 1;
 }
 
 /* From the width where the page shell stops growing, four cards fit across: the row becomes a

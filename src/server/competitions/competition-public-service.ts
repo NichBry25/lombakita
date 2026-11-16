@@ -55,6 +55,7 @@ import {
   institutionOwnerBannerKeySql,
   resolveInstitutionMediaKeys,
 } from "@/server/institution-workspace/institution-media";
+import { resolveInstitutionMediaUrl } from "@/server/institution-workspace/institution-media-urls";
 import type { InstitutionType } from "@/server/db/schema";
 import {
   deriveCompetitionParticipationState,
@@ -100,6 +101,10 @@ const PUBLIC_LISTING_COLUMNS = {
   institutionDisplayName: institutions.displayName,
   institutionType: institutions.institutionType,
   institutionOwnerUsername: institutionOwnerUsernameSql,
+  // The keys of the logo a card shows, read in the listing query itself so a page of results costs
+  // no further read. A personal institution has no logo of its own and shows its owner's avatar.
+  institutionLogoR2Key: institutions.logoR2Key,
+  institutionOwnerAvatarKey: institutionOwnerAvatarKeySql,
 } as const;
 
 type PublicListingRow = {
@@ -126,19 +131,82 @@ type PublicListingRow = {
   institutionDisplayName: string | null;
   institutionType: InstitutionType;
   institutionOwnerUsername: string | null;
+  institutionLogoR2Key: string | null;
+  institutionOwnerAvatarKey: string | null;
 };
 
-// Resolve the joined institution name through the display-name helper, then drop the type/owner
-// projection columns so the public shape stays exactly PublicCompetitionItem.
-const mapPublicListingRow = (row: PublicListingRow): PublicCompetitionItem => {
-  const { institutionDisplayName, institutionType, institutionOwnerUsername, ...rest } = row;
+// Resolve the joined institution name through the display-name helper, then drop the type, owner
+// and key projection columns so the public shape stays exactly PublicCompetitionItem.
+const mapPublicListingRow = (
+  row: PublicListingRow,
+  signedLogoUrls: Map<string, string | null>,
+): PublicCompetitionItem => {
+  const {
+    institutionDisplayName,
+    institutionType,
+    institutionOwnerUsername,
+    institutionLogoR2Key,
+    institutionOwnerAvatarKey,
+    ...rest
+  } = row;
+  const logoKey = resolveListingLogoKey({
+    institutionType,
+    institutionLogoR2Key,
+    institutionOwnerAvatarKey,
+  });
   return {
     ...rest,
     institutionName: getInstitutionDisplayName(
       { displayName: institutionDisplayName, institutionType },
       { username: institutionOwnerUsername },
     ),
+    institutionLogoUrl: logoKey ? (signedLogoUrls.get(logoKey) ?? null) : null,
   };
+};
+
+const resolveListingLogoKey = (
+  institution: Pick<
+    PublicListingRow,
+    "institutionType" | "institutionLogoR2Key" | "institutionOwnerAvatarKey"
+  >,
+): string | null => {
+  const { logoKey } = resolveInstitutionMediaKeys(
+    {
+      institutionType: institution.institutionType,
+      logoR2Key: institution.institutionLogoR2Key,
+      bannerR2Key: null,
+    },
+    { avatarR2Key: institution.institutionOwnerAvatarKey, bannerR2Key: null },
+  );
+  return logoKey;
+};
+
+// Signs one URL per distinct logo key, so a page of cards from one organizer signs once. A logo that
+// cannot be signed comes back null and is logged by resolveInstitutionMediaUrl, so the card shows
+// its trophy and the page still renders. The signed URL outlives the longest page cache that holds
+// it (the home page revalidates every 300 seconds).
+const signListingLogoUrls = async (
+  rows: PublicListingRow[],
+): Promise<Map<string, string | null>> => {
+  const logoKeys = new Set<string>();
+  for (const row of rows) {
+    const logoKey = resolveListingLogoKey(row);
+    if (logoKey) logoKeys.add(logoKey);
+  }
+  const signedUrls = new Map<string, string | null>();
+  await Promise.all(
+    [...logoKeys].map(async (logoKey) => {
+      signedUrls.set(logoKey, await resolveInstitutionMediaUrl(logoKey));
+    }),
+  );
+  return signedUrls;
+};
+
+const toPublicCompetitionItems = async (
+  rows: PublicListingRow[],
+): Promise<PublicCompetitionItem[]> => {
+  const signedLogoUrls = await signListingLogoUrls(rows);
+  return rows.map((row) => mapPublicListingRow(row, signedLogoUrls));
 };
 
 export type PublicCompetitionItem = {
@@ -163,6 +231,7 @@ export type PublicCompetitionItem = {
   isFeatured: boolean;
   institutionSlug: string;
   institutionName: string;
+  institutionLogoUrl: string | null;
 };
 
 export type PublicListingSort = "deadline_asc" | "deadline_desc" | "created_desc";
@@ -381,7 +450,7 @@ const listFromDb = async (
   const total = countRow?.count ?? 0;
 
   return {
-    data: rows.map(mapPublicListingRow),
+    data: await toPublicCompetitionItems(rows),
     meta: {
       total,
       page,
@@ -475,13 +544,12 @@ const listFromMeilisearch = async (
 
   // Preserve Meilisearch result order.
   const rowById = new Map(rows.map((r) => [r.id, r]));
-  const ordered = ids
+  const orderedRows = ids
     .map((id) => rowById.get(id))
-    .filter((r): r is PublicListingRow => Boolean(r))
-    .map(mapPublicListingRow);
+    .filter((r): r is PublicListingRow => Boolean(r));
 
   return {
-    data: ordered,
+    data: await toPublicCompetitionItems(orderedRows),
     meta: { total, page, limit, totalPages: Math.ceil(total / limit), searchEngine: "meilisearch" },
   };
 };
@@ -542,7 +610,7 @@ export const listFeaturedCompetitions = async (
     .orderBy(sql`${competitions.featuredOrder} ASC NULLS LAST`, desc(competitions.createdAt))
     .limit(limit);
 
-  return rows.map(mapPublicListingRow);
+  return toPublicCompetitionItems(rows);
 };
 
 // ── Detail ────────────────────────────────────────────────────────────────────

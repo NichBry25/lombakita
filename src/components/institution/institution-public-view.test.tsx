@@ -18,10 +18,22 @@
 // where the disclosure is `preview_hidden`. Both cases below assert the link's absence, so restoring
 // it fails here.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { InstitutionPublicView } from "./institution-public-view";
+import type { CompetitionCardItem } from "@/components/competitions/competition-card";
 import type { PublicInstitution } from "@/server/institution-workspace/institution-public-service";
+
+// Render a real <a> so the competition cards render without a router context.
+vi.mock("next/link", () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const React = require("react");
+  return {
+    default: ({ children, href, ...rest }: { children: unknown; href: string }) =>
+      React.createElement("a", { href, ...rest }, children),
+    useLinkStatus: () => ({ pending: false }),
+  };
+});
 
 const institutionWith = (
   contactDisclosure: PublicInstitution["contactDisclosure"],
@@ -84,5 +96,42 @@ describe("the unverified-contact notice", () => {
       screen.queryByText("Ajukan verifikasi"),
       "the members-only notice offered a route into the verification flow, which no viewer can be in a position to take",
     ).toBeNull();
+  });
+});
+
+describe("the competition list", () => {
+  const FUTURE = new Date("2099-12-01T00:00:00.000Z");
+  const competition: CompetitionCardItem = {
+    id: "comp_1",
+    slug: "lomba-x",
+    title: "Lomba X",
+    category: "hackathon",
+    mode: "individual",
+    registrationStartAt: null,
+    registrationEndAt: FUTURE,
+    eventStartAt: FUTURE,
+    eventEndAt: FUTURE,
+    resultAnnouncementAt: null,
+    cancelledAt: null,
+    hasPublishedResult: false,
+    institutionSlug: "lk-univ",
+    institutionName: "LK University",
+    institutionLogoUrl: "https://files.test/lk.png",
+  };
+
+  it("renders the shared card: logo in the badge, the organiser named, and no arrow", () => {
+    const { container } = render(
+      <InstitutionPublicView
+        institution={institutionWith({ kind: "hidden" })}
+        competitions={[competition]}
+      />,
+    );
+
+    const badgeLogo = container.querySelector(".competition-card .competition-cover-logo");
+    expect(badgeLogo?.getAttribute("src")).toBe("https://files.test/lk.png");
+    expect(container.querySelector(".competition-card .competition-organizer")?.textContent).toBe(
+      "LK University",
+    );
+    expect(container.querySelector(".competition-card-arrow")).toBeNull();
   });
 });
