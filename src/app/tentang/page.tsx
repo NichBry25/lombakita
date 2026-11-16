@@ -70,20 +70,19 @@ export default function AboutPage() {
         <section className="stack-md document-clause">
           <h2 className="section-title">Biaya dan pembayaran</h2>
           <p>
-            Saat ini semua kompetisi di Lombakita gratis untuk diikuti, dan Lombakita tidak memungut
-            biaya dari peserta maupun penyelenggara.
+            Sebagian kompetisi gratis, sebagian memungut biaya pendaftaran. Biaya itu ditetapkan
+            oleh penyelenggara dan tertera di halaman kompetisi sebelum kamu mendaftar.
           </p>
           <p>
-            Pendaftaran berbayar belum tersedia dan akan dibuka kemudian. Bila sudah dibuka, biaya
-            pendaftaran ditetapkan oleh penyelenggara dan tertera di halaman kompetisi sebelum kamu
-            mendaftar.
+            Kamu membayar langsung kepada penyelenggara, bukan kepada Lombakita. Saat ini pembayaran
+            lewat transfer manual atau QRIS, dengan bukti pembayaran yang diperiksa penyelenggara.
+            Lombakita tidak menampung, menyimpan, atau meneruskan uang pendaftaran, dan tidak
+            memungut biaya dari peserta. Pembayaran online melalui penyedia pembayaran berlisensi
+            sedang direncanakan.
           </p>
           <p>
-            Biaya dibayarkan kepada penyelenggara, bukan kepada Lombakita. Lombakita tidak
-            menampung, menyimpan, atau meneruskan uang pendaftaran. Saat ini pembayaran dilakukan
-            lewat transfer manual ke rekening penyelenggara, dengan bukti transfer yang diperiksa
-            penyelenggara. Pembayaran online melalui penyedia pembayaran berlisensi akan menyusul.
-            Pembayaran online segera hadir.
+            Untuk penyelenggara: bila ada biaya layanan Lombakita, rinciannya ditampilkan kepada
+            penyelenggara dan harus disetujui sebelum pendaftaran berbayar diaktifkan.
           </p>
         </section>
 

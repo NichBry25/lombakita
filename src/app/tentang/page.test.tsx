@@ -33,9 +33,9 @@ const PARAGRAPHS = [
   "Lombakita adalah platform untuk menemukan dan mendaftar kompetisi di Indonesia. Penyelenggara menerbitkan kompetisinya di sini, dan peserta mendaftar tanpa pindah situs.",
   "Untuk peserta: jelajahi kompetisi menurut kategori, penyelenggara, dan tenggat, simpan yang menarik, lalu daftar langsung dari halaman kompetisi, sebagai individu atau tim.",
   "Untuk penyelenggara: institusi membuat ruang kerja, menerbitkan kompetisi, dan mengelola pendaftar serta hasilnya. Lombakita tidak menilai peserta dan tidak ikut menentukan pemenang.",
-  "Saat ini semua kompetisi di Lombakita gratis untuk diikuti, dan Lombakita tidak memungut biaya dari peserta maupun penyelenggara.",
-  "Pendaftaran berbayar belum tersedia dan akan dibuka kemudian. Bila sudah dibuka, biaya pendaftaran ditetapkan oleh penyelenggara dan tertera di halaman kompetisi sebelum kamu mendaftar.",
-  "Biaya dibayarkan kepada penyelenggara, bukan kepada Lombakita. Lombakita tidak menampung, menyimpan, atau meneruskan uang pendaftaran. Saat ini pembayaran dilakukan lewat transfer manual ke rekening penyelenggara, dengan bukti transfer yang diperiksa penyelenggara. Pembayaran online melalui penyedia pembayaran berlisensi akan menyusul. Pembayaran online segera hadir.",
+  "Sebagian kompetisi gratis, sebagian memungut biaya pendaftaran. Biaya itu ditetapkan oleh penyelenggara dan tertera di halaman kompetisi sebelum kamu mendaftar.",
+  "Kamu membayar langsung kepada penyelenggara, bukan kepada Lombakita. Saat ini pembayaran lewat transfer manual atau QRIS, dengan bukti pembayaran yang diperiksa penyelenggara. Lombakita tidak menampung, menyimpan, atau meneruskan uang pendaftaran, dan tidak memungut biaya dari peserta. Pembayaran online melalui penyedia pembayaran berlisensi sedang direncanakan.",
+  "Untuk penyelenggara: bila ada biaya layanan Lombakita, rinciannya ditampilkan kepada penyelenggara dan harus disetujui sebelum pendaftaran berbayar diaktifkan.",
   "Pertanyaan tentang jumlah biaya, bukti transfer, jadwal, penilaian, dan hasil lomba dijawab oleh penyelenggara kompetisi yang bersangkutan.",
 ];
 
@@ -49,7 +49,71 @@ const LIST_ITEMS = [
   "Buat draf kompetisi, lengkapi detailnya, lalu terbitkan.",
 ];
 
+// The fee section may state only what stays true under any platform fee rule, so a first fee rule
+// cannot make the page false. Each pattern is paired with a sentence it must match, which proves
+// the pattern is live and not a regex that can never fire.
+const FALSE_FEE_CLAIMS = [
+  {
+    claim: "that all competitions are free",
+    pattern: /\b(?:semua|seluruh) kompetisi[^.]*\bgratis/i,
+    example: "Saat ini semua kompetisi di Lombakita gratis untuk diikuti.",
+  },
+  {
+    claim: "that paid registration is unavailable",
+    pattern:
+      /\b(?:belum|tidak) ada (?:pendaftaran|kompetisi) berbayar|\b(?:pendaftaran|kompetisi) berbayar (?:belum|tidak) (?:tersedia|ada|dibuka)/i,
+    example: "Pendaftaran berbayar belum tersedia dan akan dibuka kemudian.",
+  },
+  {
+    claim: "that Lombakita charges organisers nothing",
+    pattern: /tidak memungut biaya dari[^.]*penyelenggara/i,
+    example: "Lombakita tidak memungut biaya dari peserta maupun penyelenggara.",
+  },
+  {
+    claim: "that Lombakita is free for organisers",
+    pattern: /\b(?:gratis|tanpa biaya) (?:untuk|bagi) penyelenggara/i,
+    example: "Menerbitkan kompetisi gratis bagi penyelenggara.",
+  },
+];
+
+// The facts that stay true at a 0% fee and at a non-zero fee, one case each.
+const FEE_FACTS = [
+  {
+    fact: "some competitions are free and some charge a registration fee",
+    text: "Sebagian kompetisi gratis, sebagian memungut biaya pendaftaran.",
+  },
+  {
+    fact: "the organiser sets the fee and the competition page shows it before registering",
+    text: "Biaya itu ditetapkan oleh penyelenggara dan tertera di halaman kompetisi sebelum kamu mendaftar.",
+  },
+  {
+    fact: "participants pay the organiser directly, not Lombakita",
+    text: "Kamu membayar langsung kepada penyelenggara, bukan kepada Lombakita.",
+  },
+  {
+    fact: "payment is by manual transfer or QRIS, with proof checked by the organiser",
+    text: "lewat transfer manual atau QRIS, dengan bukti pembayaran yang diperiksa penyelenggara.",
+  },
+  {
+    fact: "Lombakita does not hold, store or pass on registration money",
+    text: "Lombakita tidak menampung, menyimpan, atau meneruskan uang pendaftaran",
+  },
+  {
+    fact: "Lombakita charges participants nothing",
+    text: "tidak memungut biaya dari peserta.",
+  },
+  {
+    fact: "an organiser sees and approves any Lombakita service fee before turning on paid registration",
+    text: "bila ada biaya layanan Lombakita, rinciannya ditampilkan kepada penyelenggara dan harus disetujui sebelum pendaftaran berbayar diaktifkan.",
+  },
+  {
+    fact: "online payment through a licensed provider is planned",
+    text: "Pembayaran online melalui penyedia pembayaran berlisensi sedang direncanakan.",
+  },
+];
+
 const html = renderToStaticMarkup(AboutPage());
+const pageText = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
 
 describe("AboutPage", () => {
   it("renders the h1", () => {
@@ -77,8 +141,16 @@ describe("AboutPage", () => {
     }
   });
 
-  it("states that online payment is coming, as its own sentence", () => {
-    expect(html).toContain("Pembayaran online segera hadir.");
+  it.each(FALSE_FEE_CLAIMS)("has a live pattern for the claim $claim", ({ pattern, example }) => {
+    expect(example).toMatch(pattern);
+  });
+
+  it.each(FALSE_FEE_CLAIMS)("does not claim $claim", ({ pattern }) => {
+    expect(pageText).not.toMatch(pattern);
+  });
+
+  it.each(FEE_FACTS)("states that $fact", ({ text }) => {
+    expect(pageText).toContain(text);
   });
 
   it("links the terms from the refund paragraph and cites clauses 5 to 7", () => {
