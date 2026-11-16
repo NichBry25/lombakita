@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   deriveCompetitionPhase,
   getCompetitionPhaseBadgeStatus,
+  getCompetitionPhaseCardLabel,
   getCompetitionPhaseLabel,
   isAwaitingResultsPhase,
   resolveResultAnnouncement,
@@ -262,6 +263,24 @@ describe("phase presentation", () => {
   // The overdue label must report the fact, never quantify the delay.
   it("keeps the overdue label neutral", () => {
     expect(getCompetitionPhaseLabel("results_overdue")).toBe("Hasil belum diumumkan");
+  });
+
+  it("gives every phase its short card word and leaves the long label unchanged", () => {
+    const cardWords = {
+      cancelled: "Dibatalkan",
+      upcoming: "Akan dibuka",
+      registration_open: "Dibuka",
+      registration_closing: "Segera ditutup",
+      registration_closed: "Ditutup",
+      in_progress: "Berlangsung",
+      awaiting_results: "Menunggu hasil",
+      results_overdue: "Hasil tertunda",
+      results_announced: "Hasil diumumkan",
+    } as const;
+    for (const [phase, word] of Object.entries(cardWords)) {
+      expect(getCompetitionPhaseCardLabel(phase as keyof typeof cardWords)).toBe(word);
+    }
+    expect(getCompetitionPhaseLabel("registration_open")).toBe("Pendaftaran dibuka");
   });
 
   it("treats both waiting phases as awaiting results", () => {

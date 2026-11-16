@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { useState } from "react";
 import { Icon, LinkPendingSlot } from "@/components/ui";
 import { LocalDate } from "@/components/ui/local-date";
 import { getCompetitionCategoryLabel } from "@/lib/competitions/categories";
@@ -6,14 +9,15 @@ import { getCompetitionModeLabel } from "@/lib/competitions/modes";
 import {
   deriveCompetitionPhase,
   getCompetitionPhaseBadgeStatus,
-  getCompetitionPhaseLabel,
+  getCompetitionPhaseCardLabel,
   resolveResultAnnouncement,
   type CompetitionPhase,
 } from "@/lib/competitions/competition-phase";
 
 // One competition in a grid. Presentational and dependency-free beyond routing, so the home
-// featured row (a client component), the public listing and the institution page (server
-// components) render the same card rather than each keeping their own copy of the markup.
+// featured row, the public listing, the institution page and the detail page's rails render the
+// same card rather than each keeping their own copy of the markup. A client module because a logo
+// that fails to load swaps itself for the trophy.
 //
 // Dates arrive as strings or Dates depending on whether the caller came through the JSON API or
 // read the database directly.
@@ -50,11 +54,28 @@ function resolvePhaseDate(
   return competition.registrationEndAt;
 }
 
+// The badge is var(--touch-target), 2.75rem, which is 44 px at the default root size.
+const COVER_BADGE_SIZE_PX = 44;
+
 // The organizer is named in the text under the title, so the logo carries no alt text of its own.
+// A signed address can expire while a cached page is still served, so a logo that fails to load
+// gives way to the trophy rather than leaving the badge empty.
 function CoverBadgeGlyph({ logoUrl }: { logoUrl: string | null }) {
-  if (!logoUrl) return <Icon name="trophy" size="lg" />;
-  // eslint-disable-next-line @next/next/no-img-element
-  return <img src={logoUrl} alt="" className="competition-cover-logo" />;
+  const [failedLogoUrl, setFailedLogoUrl] = useState<string | null>(null);
+  if (!logoUrl || failedLogoUrl === logoUrl) return <Icon name="trophy" size="lg" />;
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={logoUrl}
+      alt=""
+      width={COVER_BADGE_SIZE_PX}
+      height={COVER_BADGE_SIZE_PX}
+      loading="lazy"
+      decoding="async"
+      className="competition-cover-logo"
+      onError={() => setFailedLogoUrl(logoUrl)}
+    />
+  );
 }
 
 export function CompetitionCard({ competition }: { competition: CompetitionCardItem }) {
@@ -96,7 +117,7 @@ export function CompetitionCard({ competition }: { competition: CompetitionCardI
               navigation its enclosing Link started, so a click on the title would otherwise
               acknowledge nothing. */}
           <Link href={detailPath} className="competition-title-link">
-            {competition.title}
+            <span className="competition-title-text">{competition.title}</span>
             <LinkPendingSlot />
           </Link>
           <p className="competition-organizer">{competition.institutionName}</p>
@@ -104,7 +125,7 @@ export function CompetitionCard({ competition }: { competition: CompetitionCardI
 
         <div className="competition-card-footer">
           <span className="status-badge" data-status={getCompetitionPhaseBadgeStatus(phase)}>
-            {getCompetitionPhaseLabel(phase)}
+            {getCompetitionPhaseCardLabel(phase)}
             {phaseDate ? (
               <>
                 {" "}

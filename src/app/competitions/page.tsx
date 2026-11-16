@@ -99,7 +99,7 @@ export default async function PublicCompetitionsPage({
               action={{ label: "Bersihkan filter", href: "/competitions" }}
             />
           ) : (
-            <div className="competition-grid">
+            <div className="competition-grid competition-grid--four">
               {competitions.map((competition) => (
                 <CompetitionCard key={competition.id} competition={competition} />
               ))}

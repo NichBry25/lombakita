@@ -27,7 +27,7 @@ import {
   resolveUseSearch,
   countPublicRegistrants,
 } from "@/server/competitions/competition-public-service";
-import { generatePresignedGetUrl } from "@/server/storage/r2.client";
+import { generatePresignedGetUrl, isR2Available } from "@/server/storage/r2.client";
 import { logger } from "@/lib/logger";
 
 // The service maps the joined institution columns (display_name / type / owner-username) through
@@ -701,6 +701,36 @@ describe("organiser logo address — database path", () => {
       "institution.media.read-url.failed",
       expect.objectContaining({ error: "sign failed" }),
     );
+  });
+
+  it("gives every card no logo, and still returns every row, when the store is unavailable", async () => {
+    vi.mocked(isR2Available).mockReturnValue(false);
+    const rows = [
+      makeRow({ id: "comp_1", institutionLogoR2Key: "logos/a.png" }),
+      makeRow({ id: "comp_2", institutionLogoR2Key: "logos/b.png" }),
+      makeRow({ id: "comp_3" }),
+    ];
+    const db = makeDb(rows, 3);
+
+    try {
+      const result = await listPublicCompetitions({}, db);
+
+      expect(result.data.map((item) => item.id)).toEqual(["comp_1", "comp_2", "comp_3"]);
+      expect(result.data.map((item) => item.institutionLogoUrl)).toEqual([null, null, null]);
+      expect(generatePresignedGetUrl).not.toHaveBeenCalled();
+    } finally {
+      vi.mocked(isR2Available).mockReturnValue(true);
+    }
+  });
+
+  it("selects both logo key columns in the listing query's projection", async () => {
+    const db = makeDb([makeRow()], 1);
+
+    await listPublicCompetitions({}, db);
+
+    const projection = vi.mocked(db.select).mock.calls[0]![0] as unknown as Record<string, unknown>;
+    expect(projection).toHaveProperty("institutionLogoR2Key");
+    expect(projection).toHaveProperty("institutionOwnerAvatarKey");
   });
 });
 

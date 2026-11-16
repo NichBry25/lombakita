@@ -2,7 +2,10 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { PublicCompetitionDetail } from "@/server/competitions/competition-public-service";
+import type {
+  PublicCompetitionDetail,
+  PublicCompetitionItem,
+} from "@/server/competitions/competition-public-service";
 
 const mocks = vi.hoisted(() => ({
   session: vi.fn(),
@@ -142,6 +145,56 @@ describe("the competition page's offer of the participant role", () => {
       offerLinks: 1,
       onlyCandidatesNote: false,
       stickyBars: 0,
+    });
+  });
+});
+
+const RAIL_ITEM: PublicCompetitionItem = {
+  id: "competition-2",
+  slug: "lomba-2",
+  title: "Lomba Fotografi",
+  description: "Lomba fotografi.",
+  category: "hackathon",
+  mode: "individual",
+  minTeamSize: null,
+  maxTeamSize: null,
+  registrationStartAt: null,
+  registrationEndAt: new Date("2099-12-01T00:00:00.000Z"),
+  eventStartAt: new Date("2099-12-10T00:00:00.000Z"),
+  eventEndAt: new Date("2099-12-20T00:00:00.000Z"),
+  resultAnnouncementAt: null,
+  cancelledAt: null,
+  hasPublishedResult: false,
+  publishedAt: null,
+  createdAt: new Date("2026-05-01T00:00:00.000Z"),
+  updatedAt: new Date("2026-05-01T00:00:00.000Z"),
+  isFeatured: false,
+  institutionSlug: "acme",
+  institutionName: "Acme",
+  institutionLogoUrl: "https://files.test/acme.png",
+};
+
+describe("the competition page's rail of other competitions", () => {
+  it("renders each one with the shared card: organiser logo, short phase word, no arrow, no own deadline pill", async () => {
+    mocks.listCompetitions.mockResolvedValue({ data: [RAIL_ITEM] });
+
+    const html = await renderPageFor("candidate", ["candidate"]);
+
+    expect({
+      cards: html.split('<article class="competition-card">').length - 1,
+      logo: html.includes('class="competition-cover-logo"'),
+      logoAddress: html.includes('src="https://files.test/acme.png"'),
+      shortPhaseWord:
+        /competition-card-footer"><span class="status-badge" data-status="open">Dibuka/.test(html),
+      arrows: html.split("competition-card-arrow").length - 1,
+      ownDeadlinePills: html.split("Batas ·").length - 1,
+    }).toEqual({
+      cards: 1,
+      logo: true,
+      logoAddress: true,
+      shortPhaseWord: true,
+      arrows: 0,
+      ownDeadlinePills: 0,
     });
   });
 });

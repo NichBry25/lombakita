@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { CompetitionCard } from "@/components/competitions/competition-card";
 import { Fact, Icon, IconButtonLink, LinkPendingSlot } from "@/components/ui";
 import { LocalDate } from "@/components/ui/local-date";
 import { INDEXABLE_ROBOTS } from "@/config/indexable-routes";
@@ -183,53 +184,9 @@ function CompetitionRail({ heading, items }: { heading: string; items: PublicCom
     <section className="content-shell detail-rail-section stack-md">
       <h2 className="section-title">{heading}</h2>
       <div className="competition-grid">
-        {items.map((item) => {
-          const detailPath = `/competitions/${item.institutionSlug}/${item.slug}`;
-          return (
-            <article className="competition-card" key={item.id}>
-              <Link
-                href={detailPath}
-                className="competition-cover"
-                data-category={item.category ?? "other"}
-                aria-label={`Buka ${item.title}`}
-              >
-                <span className="competition-cover-icon" aria-hidden="true">
-                  <LinkPendingSlot leadingIcon={<Icon name="trophy" size="lg" />} />
-                </span>
-                <span className="competition-cover-label">
-                  {item.category ? getCompetitionCategoryLabel(item.category) : "Kompetisi"}
-                </span>
-              </Link>
-              <div className="competition-card-body">
-                <div className="competition-card-badges">
-                  {item.mode ? (
-                    <span className="status-badge">{getCompetitionModeLabel(item.mode)}</span>
-                  ) : null}
-                </div>
-                <div className="stack-xs">
-                  <Link href={detailPath} className="competition-title-link">
-                    {item.title}
-                    <LinkPendingSlot />
-                  </Link>
-                  <p className="competition-organizer">{item.institutionName}</p>
-                </div>
-                <div className="competition-card-footer">
-                  <span className="status-badge">
-                    Batas ·{" "}
-                    {item.registrationEndAt ? (
-                      <LocalDate value={item.registrationEndAt} format="longDate" />
-                    ) : (
-                      "—"
-                    )}
-                  </span>
-                  <span className="competition-card-arrow" aria-hidden="true">
-                    <Icon name="arrow-right" size="md" />
-                  </span>
-                </div>
-              </div>
-            </article>
-          );
-        })}
+        {items.map((item) => (
+          <CompetitionCard key={item.id} competition={item} />
+        ))}
       </div>
     </section>
   );

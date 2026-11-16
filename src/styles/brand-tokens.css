@@ -473,7 +473,6 @@
   --table-data-label: 8.75rem;
   --viewport-min: 20rem;
   --content-detail-rail: 21.25rem;
-  --cover-list-height: 10.5rem;
   --cover-detail-height: 14.375rem;
   --skeleton-media-min: calc(var(--control-height-lg) * 3.25);
   --page-padding: max(1.75rem, env(safe-area-inset-left), env(safe-area-inset-right));

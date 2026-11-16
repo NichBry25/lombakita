@@ -139,28 +139,26 @@ type PublicListingRow = {
 // and key projection columns so the public shape stays exactly PublicCompetitionItem.
 const mapPublicListingRow = (
   row: PublicListingRow,
-  signedLogoUrls: Map<string, string | null>,
+  institutionLogoUrl: string | null,
 ): PublicCompetitionItem => {
   const {
     institutionDisplayName,
     institutionType,
     institutionOwnerUsername,
-    institutionLogoR2Key,
-    institutionOwnerAvatarKey,
+    // Destructured only to keep the storage keys off the public item.
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    institutionLogoR2Key: _institutionLogoR2Key,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    institutionOwnerAvatarKey: _institutionOwnerAvatarKey,
     ...rest
   } = row;
-  const logoKey = resolveListingLogoKey({
-    institutionType,
-    institutionLogoR2Key,
-    institutionOwnerAvatarKey,
-  });
   return {
     ...rest,
     institutionName: getInstitutionDisplayName(
       { displayName: institutionDisplayName, institutionType },
       { username: institutionOwnerUsername },
     ),
-    institutionLogoUrl: logoKey ? (signedLogoUrls.get(logoKey) ?? null) : null,
+    institutionLogoUrl,
   };
 };
 
@@ -183,19 +181,19 @@ const resolveListingLogoKey = (
 
 // Signs one URL per distinct logo key, so a page of cards from one organizer signs once. A logo that
 // cannot be signed comes back null and is logged by resolveInstitutionMediaUrl, so the card shows
-// its trophy and the page still renders. The signed URL outlives the longest page cache that holds
-// it (the home page revalidates every 300 seconds).
+// its trophy and the page still renders. A signed address lasts READ_URL_EXPIRY_SECONDS in
+// institution-media-urls.ts, which must stay longer than the longest page `revalidate` that
+// serves a listing.
 const signListingLogoUrls = async (
-  rows: PublicListingRow[],
+  logoKeys: (string | null)[],
 ): Promise<Map<string, string | null>> => {
-  const logoKeys = new Set<string>();
-  for (const row of rows) {
-    const logoKey = resolveListingLogoKey(row);
-    if (logoKey) logoKeys.add(logoKey);
+  const distinctLogoKeys = new Set<string>();
+  for (const logoKey of logoKeys) {
+    if (logoKey) distinctLogoKeys.add(logoKey);
   }
   const signedUrls = new Map<string, string | null>();
   await Promise.all(
-    [...logoKeys].map(async (logoKey) => {
+    [...distinctLogoKeys].map(async (logoKey) => {
       signedUrls.set(logoKey, await resolveInstitutionMediaUrl(logoKey));
     }),
   );
@@ -205,8 +203,13 @@ const signListingLogoUrls = async (
 const toPublicCompetitionItems = async (
   rows: PublicListingRow[],
 ): Promise<PublicCompetitionItem[]> => {
-  const signedLogoUrls = await signListingLogoUrls(rows);
-  return rows.map((row) => mapPublicListingRow(row, signedLogoUrls));
+  const logoKeys = rows.map(resolveListingLogoKey);
+  const signedLogoUrls = await signListingLogoUrls(logoKeys);
+  return rows.map((row, index) => {
+    const logoKey = logoKeys[index];
+    const logoUrl = logoKey ? (signedLogoUrls.get(logoKey) ?? null) : null;
+    return mapPublicListingRow(row, logoUrl);
+  });
 };
 
 export type PublicCompetitionItem = {

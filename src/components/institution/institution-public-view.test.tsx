@@ -19,10 +19,12 @@
 // it fails here.
 
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { InstitutionPublicView } from "./institution-public-view";
 import type { CompetitionCardItem } from "@/components/competitions/competition-card";
 import type { PublicInstitution } from "@/server/institution-workspace/institution-public-service";
+
+const linkStatus = vi.hoisted(() => ({ pending: false }));
 
 // Render a real <a> so the competition cards render without a router context.
 vi.mock("next/link", () => {
@@ -31,7 +33,7 @@ vi.mock("next/link", () => {
   return {
     default: ({ children, href, ...rest }: { children: unknown; href: string }) =>
       React.createElement("a", { href, ...rest }, children),
-    useLinkStatus: () => ({ pending: false }),
+    useLinkStatus: () => linkStatus,
   };
 });
 
@@ -133,5 +135,55 @@ describe("the competition list", () => {
       "LK University",
     );
     expect(container.querySelector(".competition-card-arrow")).toBeNull();
+  });
+
+  const renderCard = (item: CompetitionCardItem) =>
+    render(
+      <InstitutionPublicView
+        institution={institutionWith({ kind: "hidden" })}
+        competitions={[item]}
+      />,
+    );
+
+  it("shows the short card word for the phase in the deadline pill, not the long label", () => {
+    const { container } = renderCard(competition);
+
+    const pillText = container.querySelector(".competition-card-footer .status-badge")?.textContent;
+    expect(pillText).toMatch(/^Dibuka · /);
+    expect(pillText).not.toContain("Pendaftaran");
+  });
+
+  it("keeps the pending spinner beside the clamped title text, never inside it", () => {
+    linkStatus.pending = true;
+    try {
+      const { container } = renderCard(competition);
+
+      const titleText = container.querySelector(".competition-title-link .competition-title-text");
+      expect(titleText?.textContent).toBe("Lomba X");
+      expect(titleText?.querySelector(".spinner")).toBeNull();
+      expect(container.querySelector(".competition-title-link > .spinner")).not.toBeNull();
+    } finally {
+      linkStatus.pending = false;
+    }
+  });
+
+  it("gives the badge logo its size and lazy loading", () => {
+    const { container } = renderCard(competition);
+
+    const badgeLogo = container.querySelector(".competition-cover-logo");
+    expect(badgeLogo?.getAttribute("loading")).toBe("lazy");
+    expect(badgeLogo?.getAttribute("decoding")).toBe("async");
+    expect(badgeLogo?.getAttribute("width")).toBe("44");
+    expect(badgeLogo?.getAttribute("height")).toBe("44");
+  });
+
+  it("swaps a logo that fails to load for the trophy, so the badge is never empty", () => {
+    const { container } = renderCard(competition);
+    const badgeLogo = container.querySelector(".competition-cover-logo");
+
+    fireEvent.error(badgeLogo!);
+
+    expect(container.querySelector(".competition-cover-logo")).toBeNull();
+    expect(container.querySelector(".competition-cover-icon svg")).not.toBeNull();
   });
 });
