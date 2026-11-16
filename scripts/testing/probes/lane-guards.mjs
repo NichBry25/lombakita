@@ -39,19 +39,21 @@ const EXTENSION_CASE =
 /** A literal for embedding in a `reached` pattern, so a title containing `.` or `(` still matches. */
 const regexFree = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-const transitionCaseFailed = () =>
-  fails(
-    "npx",
-    ["vitest", "run", TRANSITION_TEST, "-t", TRANSITION_CASE],
-    new RegExp(`× .*${regexFree(TRANSITION_CASE)}`),
-  );
+// Each detector names the assertion that failed, not only the case, because a case can also fail
+// for a reason that has nothing to do with the mutation. The patterns read the received side of the
+// failed comparison, which is what the service returned or left stored.
+const transitionCaseFailedWith = (receivedLine) =>
+  fails("npx", ["vitest", "run", TRANSITION_TEST, "-t", TRANSITION_CASE], receivedLine);
 
-const extensionCaseFailed = () =>
-  fails(
-    "npx",
-    ["vitest", "run", RACE_TEST, "-t", EXTENSION_CASE],
-    new RegExp(`× .*${regexFree(EXTENSION_CASE)}`),
-  );
+const extensionCaseFailedWith = (reasonLine) =>
+  fails("npx", ["vitest", "run", RACE_TEST, "-t", EXTENSION_CASE], reasonLine);
+
+const TRANSITION_RETURNED_NO_REFUSAL = /\+\s+"refusal": null/;
+const TRANSITION_LEFT_DRAFT_STORED = /\+\s+"competitionStatus": "draft"/;
+const EXTENSION_NEVER_QUEUED = new RegExp(
+  regexFree("the close extension never queued behind the row this test holds"),
+);
+const EXTENSION_RETURNED_NO_REFUSAL = /\+\s+"refusal": null/;
 
 /** The refusal of published to draft, exactly as it stands in transitionCompetitionStatus. */
 const PUBLISHED_TO_DRAFT_REFUSAL = [
@@ -114,7 +116,7 @@ export const probes = [
         PUBLISHED_TO_DRAFT_REFUSAL,
         PUBLISHED_TO_DRAFT_REFUSAL_REMOVED,
       ),
-    detect: async () => transitionCaseFailed(),
+    detect: async () => transitionCaseFailedWith(TRANSITION_RETURNED_NO_REFUSAL),
   },
   {
     name: "published to draft: refusal MOVED below the status write",
@@ -133,7 +135,7 @@ export const probes = [
         PUBLISHED_TO_DRAFT_REFUSAL_MOVED + STATUS_WRITE_RESULT_CHECK,
       );
     },
-    detect: async () => transitionCaseFailed(),
+    detect: async () => transitionCaseFailedWith(TRANSITION_LEFT_DRAFT_STORED),
   },
   {
     name: "close extension: participation lock REMOVED from the close-move transaction",
@@ -146,7 +148,7 @@ export const probes = [
     appliedMarkers: ["// probe: the participation lock is not taken in the close-move transaction"],
     mutate: () =>
       substituteOnce(COMPETITION_SERVICE, LOCK_THEN_WAIT_CHECK, WAIT_CHECK_WITHOUT_LOCK),
-    detect: async () => extensionCaseFailed(),
+    detect: async () => extensionCaseFailedWith(EXTENSION_NEVER_QUEUED),
   },
   {
     name: "close extension: transfer-review read MOVED above the participation lock",
@@ -159,7 +161,7 @@ export const probes = [
     files: [COMPETITION_SERVICE],
     appliedMarkers: [WAIT_CHECK_THEN_LOCK],
     mutate: () => substituteOnce(COMPETITION_SERVICE, LOCK_THEN_WAIT_CHECK, WAIT_CHECK_THEN_LOCK),
-    detect: async () => extensionCaseFailed(),
+    detect: async () => extensionCaseFailedWith(EXTENSION_RETURNED_NO_REFUSAL),
   },
 ];
 
