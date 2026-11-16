@@ -336,9 +336,13 @@ const clearThenPressActionBar = (fieldSelectors, buttonName) => async (page) => 
 
 const clearLabelledFieldsThenPressActionBar = (labels, buttonName) => async (page) => {
   for (const label of labels) {
+    const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const labelWithOptionalMarker = new RegExp(
+      `^${escapedLabel}(?: \\* \\(wajib\\)| \\(opsional\\))?$`,
+    );
     await page
       .locator("label.form-field")
-      .filter({ has: page.locator("span.form-label", { hasText: new RegExp(`^${label}$`) }) })
+      .filter({ has: page.locator("span.form-label", { hasText: labelWithOptionalMarker }) })
       .locator("input, textarea")
       .fill("");
   }
