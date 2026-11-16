@@ -1,5 +1,15 @@
 import { parseAudienceFilterParam } from "@/lib/competitions/audiences";
 import { isCompetitionLocation } from "@/lib/competitions/locations";
+import {
+  ANY_FEE_FILTER,
+  FEE_HIGHEST,
+  FEE_LOWEST,
+  isFeeRangeNarrowed,
+  readFeeFilter,
+  type FeeFilter,
+  type FeeRange,
+} from "@/lib/competitions/fee-range";
+import { formatRupiah } from "@/lib/finance/payment-display";
 import type { CompetitionAudience } from "@/server/db/schema";
 import {
   FULL_TEAM_RANGE,
@@ -26,6 +36,9 @@ export type CompetitionSearchParams = {
   teamMax?: string;
   location?: string;
   audience?: string;
+  fee?: string;
+  feeMin?: string;
+  feeMax?: string;
   sort?: string;
   page?: string;
 };
@@ -63,6 +76,9 @@ export const readCompetitionSearchParams = (
   teamMax: firstValue(raw.teamMax),
   location: firstValue(raw.location),
   audience: firstValue(raw.audience),
+  fee: firstValue(raw.fee),
+  feeMin: firstValue(raw.feeMin),
+  feeMax: firstValue(raw.feeMax),
   sort: firstValue(raw.sort),
   page: firstValue(raw.page),
 });
@@ -77,6 +93,9 @@ export const CARRIED_FILTERS = [
   "teamMax",
   "location",
   "audience",
+  "fee",
+  "feeMin",
+  "feeMax",
   "sort",
 ] as const;
 
@@ -130,6 +149,51 @@ export const describeTeamRange = (range: TeamRange): string => {
   return `${describeTeamSizeEnd(range.min)} sampai ${describeTeamSizeEnd(range.max)}`;
 };
 
+/** The address parameters that clear the fee filter, its two ends included. */
+export const CLEAR_FEE_PARAMS: Partial<CompetitionSearchParams> = {
+  fee: undefined,
+  feeMin: undefined,
+  feeMax: undefined,
+};
+
+/**
+ * The address parameters for a fee filter. An end at the end of the track is left out, so the
+ * whole track writes `fee=paid` alone, and Gratis or no filter writes no ends.
+ */
+export const feeFilterToParams = (fee: FeeFilter): Partial<CompetitionSearchParams> => {
+  if (fee.kind === "any") return CLEAR_FEE_PARAMS;
+  if (fee.kind === "free") return { ...CLEAR_FEE_PARAMS, fee: "free" };
+  return {
+    fee: "paid",
+    feeMin: fee.min > FEE_LOWEST ? String(fee.min) : undefined,
+    feeMax: fee.max < FEE_HIGHEST ? String(fee.max) : undefined,
+  };
+};
+
+/** "Rp 25.000", or "Rp 250.000+" at the end of the track, where it means this amount or more. */
+export const describeFeeAmount = (amount: number): string => {
+  const rupiah = formatRupiah(amount, "IDR");
+  return amount === FEE_HIGHEST ? `${rupiah}+` : rupiah;
+};
+
+/** "Rp 25.000 sampai Rp 250.000+", the slider's words for its range. */
+export const describeFeeRange = (range: FeeRange): string =>
+  `${describeFeeAmount(range.min)} sampai ${describeFeeAmount(range.max)}`;
+
+const describePaidFee = (fee: FeeRange): string => {
+  if (!isFeeRangeNarrowed(fee)) return "Biaya: Berbayar";
+  if (fee.min === FEE_LOWEST) return `Biaya: sampai ${describeFeeAmount(fee.max)}`;
+  if (fee.max === FEE_HIGHEST) return `Biaya: mulai ${formatRupiah(fee.min, "IDR")}`;
+  return `Biaya: ${describeFeeRange(fee)}`;
+};
+
+/** The words of the fee pill and of its applied chip: "Biaya" when no fee filter is active. */
+export const describeFeeFilter = (fee: FeeFilter): string => {
+  if (fee.kind === "free") return "Biaya: Gratis";
+  if (fee.kind === "paid") return describePaidFee(fee);
+  return "Biaya";
+};
+
 export const DEFAULT_SORT = "created_desc";
 
 /** The filters a reader sets on the phone sheet, held together until they are applied. */
@@ -142,6 +206,7 @@ export type FilterSelection = {
   location: string;
   // The ticked levels. Umum is always shown ticked and is never held here.
   audience: CompetitionAudience[];
+  fee: FeeFilter;
 };
 
 const readLocationParam = (raw: string | undefined): string =>
@@ -154,6 +219,7 @@ export const readFilterSelection = (params: CompetitionSearchParams): FilterSele
   teamRange: readTeamRange(params),
   location: readLocationParam(params.location),
   audience: parseAudienceFilterParam(params.audience),
+  fee: readFeeFilter(params),
 });
 
 export const DEFAULT_FILTER_SELECTION: FilterSelection = {
@@ -163,6 +229,7 @@ export const DEFAULT_FILTER_SELECTION: FilterSelection = {
   teamRange: FULL_TEAM_RANGE,
   location: "",
   audience: [],
+  fee: ANY_FEE_FILTER,
 };
 
 /** The address parameter for ticked levels, "mahasiswa,smp", or nothing when none are ticked. */
@@ -189,6 +256,7 @@ export const selectionToParams = (
   audience: audienceToParam(selection.audience),
   ...DROPPED_TEAM_PARAMS,
   ...teamRangeToParams(selection.teamRange),
+  ...feeFilterToParams(selection.fee),
 });
 
 /** The address parameters that clear the team range, old ones included. */

@@ -13,7 +13,7 @@ import { useModal } from "@/components/ui/primitives";
 import { audienceFilterLevels } from "@/lib/competitions/audiences";
 import { TEAM_SIZE_HIGHEST, TEAM_SIZE_LOWEST } from "@/lib/competitions/team-range";
 import type { CompetitionAudience } from "@/server/db/schema";
-import { AudienceChecklist } from "./competition-filters";
+import { AudienceChecklist, FeeFilterControls } from "./competition-filters";
 import {
   DEFAULT_FILTER_SELECTION,
   competitionsQuery,
@@ -277,6 +277,16 @@ export function CompetitionFilterSheet({
             idPrefix="filter-sheet-audience"
             ticked={draft.audience}
             onToggle={toggleAudienceLevel}
+          />
+        </section>
+
+        <section className="filter-sheet-section" aria-labelledby="filter-sheet-fee">
+          <h3 id="filter-sheet-fee" className="filter-sheet-heading">
+            Biaya
+          </h3>
+          <FeeFilterControls
+            value={draft.fee}
+            onChange={(fee) => setDraft((current) => ({ ...current, fee }))}
           />
         </section>
 

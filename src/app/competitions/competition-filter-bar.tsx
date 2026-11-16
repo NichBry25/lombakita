@@ -12,14 +12,17 @@ import {
   SORT_OPTIONS,
   STATUS_OPTIONS,
 } from "./competition-filters";
+import type { FeeFilter } from "@/lib/competitions/fee-range";
 import type { TeamRange } from "@/lib/competitions/team-range";
 import type { CompetitionAudience } from "@/server/db/schema";
 import type { CompetitionSearchParams, FilterSelection } from "./search-params";
 import {
+  CLEAR_FEE_PARAMS,
   CLEAR_TEAM_RANGE_PARAMS,
   DROPPED_TEAM_PARAMS,
   audienceToParam,
   competitionsHref,
+  feeFilterToParams,
   readFilterSelection,
   selectionToParams,
   teamRangeToParams,
@@ -31,6 +34,7 @@ const CLEAR_EVERY_FILTER: Partial<CompetitionSearchParams> = {
   location: undefined,
   audience: undefined,
   ...CLEAR_TEAM_RANGE_PARAMS,
+  ...CLEAR_FEE_PARAMS,
 };
 
 /**
@@ -72,10 +76,19 @@ export function CompetitionFilterBar({
     ...teamRangeToParams(selection.teamRange),
   };
 
+  // The fee filter the page shows, written back so an ignored fee value, such as a feeMin without
+  // fee=paid, does not ride along after another filter changes.
+  const currentFeeParams = feeFilterToParams(selection.fee);
+
   const navigate = (overrides: Partial<CompetitionSearchParams>) => {
     // A changed filter re-selects the result set, so the old page number no longer refers to
     // anything. Landing on page 4 of a two-page set shows an empty grid.
-    const href = competitionsHref(params, { ...currentTeamParams, ...overrides, page: undefined });
+    const href = competitionsHref(params, {
+      ...currentTeamParams,
+      ...currentFeeParams,
+      ...overrides,
+      page: undefined,
+    });
     startTransition(() => router.push(href));
   };
 
@@ -87,8 +100,16 @@ export function CompetitionFilterBar({
     navigate({ audience: audienceToParam(levels) });
   };
 
+  const applyFee = (fee: FeeFilter) => {
+    navigate(feeFilterToParams(fee));
+  };
+
   const toggleOnlineLocation = () => {
     navigate({ location: selection.location === "online" ? undefined : "online" });
+  };
+
+  const toggleFreeFee = () => {
+    navigate(feeFilterToParams(selection.fee.kind === "free" ? { kind: "any" } : { kind: "free" }));
   };
 
   const applySheetSelection = (picked: FilterSelection) => {
@@ -132,6 +153,7 @@ export function CompetitionFilterBar({
         onTeamRange={applyTeamRange}
         onLocation={(location) => navigate({ location: location || undefined })}
         onAudience={applyAudience}
+        onFee={applyFee}
       />
       <CompetitionPhoneFilters
         isPending={isPending}
@@ -139,6 +161,7 @@ export function CompetitionFilterBar({
         onOpenSheet={openSheet}
         onToggleOpenStatus={toggleOpenStatus}
         onToggleOnlineLocation={toggleOnlineLocation}
+        onToggleFreeFee={toggleFreeFee}
         onClearChip={navigate}
         onClearAll={() => navigate(CLEAR_EVERY_FILTER)}
       />

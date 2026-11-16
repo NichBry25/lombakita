@@ -20,13 +20,27 @@ import { COMPETITION_LOCATION_OPTIONS } from "@/lib/competitions/locations";
 import type { CompetitionAudience } from "@/server/db/schema";
 import type { FilterSheetSection } from "./competition-filter-sheet";
 import {
+  ANY_FEE_FILTER,
+  FEE_HIGHEST,
+  FEE_LOWEST,
+  FEE_STEP,
+  FEE_UPPER_END_LOWEST,
+  FULL_FEE_RANGE,
+  type FeeFilter,
+  type FeeRange,
+} from "@/lib/competitions/fee-range";
+import {
   TEAM_SIZE_HIGHEST,
   TEAM_SIZE_LOWEST,
   isTeamRangeNarrowed,
   type TeamRange,
 } from "@/lib/competitions/team-range";
 import {
+  CLEAR_FEE_PARAMS,
   CLEAR_TEAM_RANGE_PARAMS,
+  describeFeeAmount,
+  describeFeeFilter,
+  describeFeeRange,
   describeTeamRange,
   describeTeamSizeForSpeech,
   type CompetitionSearchParams,
@@ -268,6 +282,130 @@ export function AudienceChecklist({ idPrefix, ticked, onToggle }: AudienceCheckl
   );
 }
 
+type FeeFilterControlsProps = {
+  value: FeeFilter;
+  onChange: (fee: FeeFilter) => void;
+};
+
+const FEE_CHOICES = [
+  { kind: "free", label: "Gratis" },
+  { kind: "paid", label: "Berbayar" },
+] as const;
+
+/**
+ * The two fee choices and, under Berbayar, the price range. Pressing the chosen choice again takes
+ * the filter off. Shared by the desktop menu and the sheet.
+ */
+export function FeeFilterControls({ value, onChange }: FeeFilterControlsProps) {
+  const toggleChoice = (kind: "free" | "paid") => {
+    if (value.kind === kind) {
+      onChange(ANY_FEE_FILTER);
+      return;
+    }
+    onChange(kind === "free" ? { kind: "free" } : { kind: "paid", ...FULL_FEE_RANGE });
+  };
+
+  const changeRange = (range: FeeRange) => onChange({ kind: "paid", ...range });
+
+  return (
+    <div className="filter-fee">
+      <div role="group" aria-label="Biaya" className="filter-sheet-options">
+        {FEE_CHOICES.map((choice) => {
+          const isSelected = value.kind === choice.kind;
+          return (
+            <button
+              key={choice.kind}
+              type="button"
+              aria-pressed={isSelected}
+              className="filter-dropdown-option filter-sheet-option"
+              data-selected={isSelected ? "true" : undefined}
+              onClick={() => toggleChoice(choice.kind)}
+            >
+              <span>{choice.label}</span>
+              <span className="filter-dropdown-option-check" aria-hidden="true">
+                {isSelected ? <Icon name="check" /> : null}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      {value.kind === "paid" ? (
+        <RangeSlider
+          floor={FEE_LOWEST}
+          ceiling={FEE_HIGHEST}
+          step={FEE_STEP}
+          maxHandleLowest={FEE_UPPER_END_LOWEST}
+          value={{ min: value.min, max: value.max }}
+          onChange={changeRange}
+          label="Rentang biaya"
+          minHandleLabel="Biaya minimum"
+          maxHandleLabel="Biaya maksimum"
+          summary={describeFeeRange(value)}
+          describeValue={describeFeeAmount}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+type FeeFilterMenuProps = {
+  fee: FeeFilter;
+  onApply: (fee: FeeFilter) => void;
+};
+
+// A pill that opens a menu with the fee choices and, under Berbayar, the price range. Like the team
+// size menu, the address changes when "Terapkan" is pressed and not on every move.
+function FeeFilterMenu({ fee, onApply }: FeeFilterMenuProps) {
+  const [draft, setDraft] = useState(fee);
+  const { open, setOpen, rootRef, triggerRef, closeAndFocusTrigger, closeOnEscape } =
+    useDialogFilterMenu("[aria-pressed]");
+
+  const triggerLabel = describeFeeFilter(fee);
+
+  const openMenu = () => {
+    setDraft(fee);
+    setOpen(true);
+  };
+
+  const applyDraft = () => {
+    onApply(draft);
+    closeAndFocusTrigger();
+  };
+
+  return (
+    <div className="filter-dropdown" ref={rootRef}>
+      <button
+        type="button"
+        ref={triggerRef}
+        className="filter-dropdown-trigger"
+        data-active={fee.kind !== "any" ? "true" : undefined}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-label={triggerLabel}
+        onClick={() => (open ? setOpen(false) : openMenu())}
+      >
+        <span className="filter-dropdown-trigger-label">{triggerLabel}</span>
+        <Icon name="chevron-down" className="filter-dropdown-chevron" />
+      </button>
+      {open ? (
+        <div
+          className="filter-dropdown-menu"
+          data-kind="range"
+          data-align="end"
+          role="dialog"
+          aria-label="Biaya"
+          onKeyDown={closeOnEscape}
+        >
+          <FeeFilterControls value={draft} onChange={setDraft} />
+          <Button variant="primary" size="md" onClick={applyDraft}>
+            Terapkan
+          </Button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 type CompetitionFiltersProps = {
   selection: FilterSelection;
   // A filter change navigates, and this row is the control that owns that navigation, so it
@@ -279,6 +417,7 @@ type CompetitionFiltersProps = {
   onTeamRange: (range: TeamRange) => void;
   onLocation: (value: string) => void;
   onAudience: (levels: CompetitionAudience[]) => void;
+  onFee: (fee: FeeFilter) => void;
 };
 
 /** The desktop pill row. On a phone it is hidden and the chip row below takes its place. */
@@ -291,6 +430,7 @@ export function CompetitionFilters({
   onTeamRange,
   onLocation,
   onAudience,
+  onFee,
 }: CompetitionFiltersProps) {
   return (
     <div className="filter-toolbar-filters" aria-label="Filter kompetisi" aria-busy={isPending}>
@@ -311,6 +451,7 @@ export function CompetitionFilters({
         align="end"
       />
       <AudienceFilter levels={selection.audience} onApply={onAudience} />
+      <FeeFilterMenu fee={selection.fee} onApply={onFee} />
       <FilterDropdown
         label="Status"
         options={STATUS_OPTIONS}
@@ -331,7 +472,7 @@ export function CompetitionFilters({
 }
 
 export type AppliedChip = {
-  key: "category" | "team" | "location" | "audience" | "status";
+  key: "category" | "team" | "location" | "audience" | "fee" | "status";
   label: string;
   // What removing the chip clears from the address.
   clears: Partial<CompetitionSearchParams>;
@@ -371,6 +512,13 @@ export const listAppliedChips = (selection: FilterSelection): AppliedChip[] => {
       clears: { audience: undefined },
     });
   }
+  if (selection.fee.kind !== "any") {
+    chips.push({
+      key: "fee",
+      label: describeFeeFilter(selection.fee),
+      clears: CLEAR_FEE_PARAMS,
+    });
+  }
   if (selection.status !== "") {
     chips.push({
       key: "status",
@@ -387,12 +535,13 @@ type CompetitionPhoneFiltersProps = {
   onOpenSheet: (section?: FilterSheetSection) => void;
   onToggleOpenStatus: () => void;
   onToggleOnlineLocation: () => void;
+  onToggleFreeFee: () => void;
   onClearChip: (clears: Partial<CompetitionSearchParams>) => void;
   onClearAll: () => void;
 };
 
 /**
- * The phone filter row: "Filter (n)" and four quick chips on one sideways row, the last one cut
+ * The phone filter row: "Filter (n)" and five quick chips on one sideways row, the last one cut
  * by the screen edge, and under it one removable chip per active filter. It is hidden above 640 px.
  */
 export function CompetitionPhoneFilters({
@@ -401,6 +550,7 @@ export function CompetitionPhoneFilters({
   onOpenSheet,
   onToggleOpenStatus,
   onToggleOnlineLocation,
+  onToggleFreeFee,
   onClearChip,
   onClearAll,
 }: CompetitionPhoneFiltersProps) {
@@ -408,6 +558,7 @@ export function CompetitionPhoneFilters({
   const filterLabel = appliedChips.length > 0 ? `Filter (${appliedChips.length})` : "Filter";
   const isOpenStatusOn = selection.status === OPEN_STATUS;
   const isOnlineLocationOn = selection.location === ONLINE_LOCATION;
+  const isFreeFeeOn = selection.fee.kind === "free";
 
   return (
     <div className="filter-phone" aria-busy={isPending}>
@@ -443,6 +594,15 @@ export function CompetitionPhoneFilters({
           onClick={onToggleOnlineLocation}
         >
           Online
+        </button>
+        <button
+          type="button"
+          className="action-chip"
+          aria-pressed={isFreeFeeOn}
+          data-selected={isFreeFeeOn ? "true" : undefined}
+          onClick={onToggleFreeFee}
+        >
+          Gratis
         </button>
         {isPending ? <Spinner size="sm" /> : null}
       </div>

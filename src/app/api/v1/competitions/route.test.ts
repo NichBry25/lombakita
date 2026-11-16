@@ -279,4 +279,26 @@ describe("GET /api/v1/competitions — public listing", () => {
       expect.objectContaining({ teamMin: undefined, teamMax: undefined }),
     );
   });
+
+  it("passes fee, feeMin and feeMax to listPublicCompetitions, for the filter sheet's count", async () => {
+    listPublicCompetitions.mockResolvedValue({
+      data: [],
+      meta: { total: 3, page: 1, limit: 1, totalPages: 3, searchEngine: "db" },
+    });
+    await GET(makeGet("?fee=paid&feeMin=25000&feeMax=100000&limit=1"));
+    expect(listPublicCompetitions).toHaveBeenCalledWith(
+      expect.objectContaining({ fee: "paid", feeMin: "25000", feeMax: "100000", limit: 1 }),
+    );
+  });
+
+  it("leaves fee, feeMin and feeMax undefined when the address has none", async () => {
+    listPublicCompetitions.mockResolvedValue({
+      data: [],
+      meta: { total: 0, page: 1, limit: 20, totalPages: 0, searchEngine: "db" },
+    });
+    await GET(makeGet("?q=lomba"));
+    expect(listPublicCompetitions).toHaveBeenCalledWith(
+      expect.objectContaining({ fee: undefined, feeMin: undefined, feeMax: undefined }),
+    );
+  });
 });

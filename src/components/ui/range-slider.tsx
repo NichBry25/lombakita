@@ -11,6 +11,9 @@ type RangeSliderProps = {
   floor: number;
   ceiling: number;
   step?: number;
+  // The lowest value the max handle can take, for a track whose upper end must stay above its start.
+  // Without it the max handle can go down to the min handle.
+  maxHandleLowest?: number;
   value: RangeSliderValue;
   onChange: (value: RangeSliderValue) => void;
   // Names the group the two handles sit in.
@@ -26,11 +29,18 @@ type RangeSliderProps = {
 const clamp = (value: number, lowest: number, highest: number): number =>
   Math.min(highest, Math.max(lowest, value));
 
-// A handle moves between its track end and the other handle, so the two never cross.
-const limitsFor = (handle: HandleName, value: RangeSliderValue, floor: number, ceiling: number) =>
+// A handle moves between its track end and the other handle, so the two never cross. The max
+// handle also stops at `maxHandleLowest` when a caller sets one.
+const limitsFor = (
+  handle: HandleName,
+  value: RangeSliderValue,
+  floor: number,
+  ceiling: number,
+  maxHandleLowest = floor,
+) =>
   handle === "min"
     ? { lowest: floor, highest: value.max }
-    : { lowest: value.min, highest: ceiling };
+    : { lowest: Math.max(value.min, maxHandleLowest), highest: ceiling };
 
 export const moveHandle = (
   value: RangeSliderValue,
@@ -38,8 +48,9 @@ export const moveHandle = (
   target: number,
   floor: number,
   ceiling: number,
+  maxHandleLowest?: number,
 ): RangeSliderValue => {
-  const { lowest, highest } = limitsFor(handle, value, floor, ceiling);
+  const { lowest, highest } = limitsFor(handle, value, floor, ceiling, maxHandleLowest);
   const moved = clamp(target, lowest, highest);
   return handle === "min" ? { min: moved, max: value.max } : { min: value.min, max: moved };
 };
@@ -62,8 +73,9 @@ export const targetForKey = (
   floor: number,
   ceiling: number,
   step: number,
+  maxHandleLowest?: number,
 ): number | undefined => {
-  const { lowest, highest } = limitsFor(handle, value, floor, ceiling);
+  const { lowest, highest } = limitsFor(handle, value, floor, ceiling, maxHandleLowest);
   const current = value[handle];
   if (key === "Home") return lowest;
   if (key === "End") return highest;
@@ -87,6 +99,7 @@ export function RangeSlider({
   floor,
   ceiling,
   step = 1,
+  maxHandleLowest,
   value,
   onChange,
   label,
@@ -146,7 +159,7 @@ export function RangeSlider({
     if (handle === "undecided") return;
     const handleElement = handle === "min" ? minHandleRef.current : maxHandleRef.current;
     handleElement?.focus();
-    onChange(moveHandle(value, handle, pointerValue, floor, ceiling));
+    onChange(moveHandle(value, handle, pointerValue, floor, ceiling, maxHandleLowest));
   };
 
   const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
@@ -158,7 +171,7 @@ export function RangeSlider({
       draggedHandleRef.current = handle;
     }
     if (!handle) return;
-    onChange(moveHandle(value, handle, pointerValue, floor, ceiling));
+    onChange(moveHandle(value, handle, pointerValue, floor, ceiling, maxHandleLowest));
   };
 
   const stopDragging = () => {
@@ -167,17 +180,17 @@ export function RangeSlider({
 
   const onHandleKeyDown = (handle: HandleName) => (event: KeyboardEvent<HTMLDivElement>) => {
     if (hasShortcutModifier(event)) return;
-    const target = targetForKey(event.key, handle, value, floor, ceiling, step);
+    const target = targetForKey(event.key, handle, value, floor, ceiling, step, maxHandleLowest);
     if (target === undefined) return;
     event.preventDefault();
-    onChange(moveHandle(value, handle, target, floor, ceiling));
+    onChange(moveHandle(value, handle, target, floor, ceiling, maxHandleLowest));
   };
 
   const minPercent = percentOf(value.min, floor, ceiling);
   const maxPercent = percentOf(value.max, floor, ceiling);
 
   const renderHandle = (handle: HandleName, label: string) => {
-    const { lowest, highest } = limitsFor(handle, value, floor, ceiling);
+    const { lowest, highest } = limitsFor(handle, value, floor, ceiling, maxHandleLowest);
     const current = value[handle];
     return (
       <div

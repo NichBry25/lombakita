@@ -53,6 +53,14 @@ import {
   readTeamRange,
 } from "@/lib/competitions/team-range";
 import {
+  FEE_HIGHEST,
+  FEE_LOWEST,
+  isFeeRangeNarrowed,
+  readFeeFilter,
+  type FeeFilter,
+} from "@/lib/competitions/fee-range";
+import { MAX_MINOR_UNIT_AMOUNT, type CurrencyCode } from "@/lib/finance/money";
+import {
   deriveCompetitionPhase,
   type CompetitionPhase,
 } from "@/lib/competitions/competition-phase";
@@ -261,6 +269,10 @@ export type PublicListingFilters = {
   teamSize?: string;
   teamMin?: string;
   teamMax?: string;
+  // free or paid. Anything else is ignored. feeMin and feeMax count only with paid.
+  fee?: string;
+  feeMin?: string;
+  feeMax?: string;
   // One of online, offline or hybrid. Anything else is ignored.
   location?: string;
   // Comma separated audience values. Anything unknown is dropped.
@@ -411,6 +423,46 @@ export const buildTeamRangeCondition = (filters: PublicListingFilters): SQL | un
   return or(individualFits, bothFits, teamFits);
 };
 
+// Fee filter (DB-only; the Meilisearch index carries no fee). Paid and free are the two halves of
+// isPaidCompetition (@/lib/competitions/paid-competition), restated in SQL: paid is a fee above 0
+// that is a safe integer, and free is everything else, null included, so every row falls under
+// exactly one. The fee is read here and never selected: no list item carries it (DEC-0166 makes it
+// public on the detail page only).
+const buildPaidFeeCondition = (): SQL =>
+  and(gt(competitions.feeAmount, 0), lte(competitions.feeAmount, MAX_MINOR_UNIT_AMOUNT))!;
+
+const buildFreeFeeCondition = (): SQL =>
+  or(
+    isNull(competitions.feeAmount),
+    lte(competitions.feeAmount, 0),
+    gt(competitions.feeAmount, MAX_MINOR_UNIT_AMOUNT),
+  )!;
+
+// The range is stated in whole rupiah, which are the stored unit only because IDR has exponent 0
+// (CURRENCY_EXPONENTS in @/lib/finance/money). The currency clause keeps an amount in another
+// currency from being compared in the wrong unit.
+const FEE_RANGE_CURRENCY: CurrencyCode = "IDR";
+
+const buildPaidFeeRangeCondition = (fee: Extract<FeeFilter, { kind: "paid" }>): SQL => {
+  if (!isFeeRangeNarrowed(fee)) return buildPaidFeeCondition();
+
+  const startsAtLowerEnd = fee.min > FEE_LOWEST ? gte(competitions.feeAmount, fee.min) : undefined;
+  const endsAtUpperEnd = fee.max < FEE_HIGHEST ? lte(competitions.feeAmount, fee.max) : undefined;
+  return and(
+    buildPaidFeeCondition(),
+    eq(competitions.feeCurrency, FEE_RANGE_CURRENCY),
+    startsAtLowerEnd,
+    endsAtUpperEnd,
+  )!;
+};
+
+export const buildFeeCondition = (filters: PublicListingFilters): SQL | undefined => {
+  const fee = readFeeFilter(filters);
+  if (fee.kind === "free") return buildFreeFeeCondition();
+  if (fee.kind === "paid") return buildPaidFeeRangeCondition(fee);
+  return undefined;
+};
+
 // Location filter (DB-only; the Meilisearch index carries no location). One chosen value: online
 // also shows hybrid, offline also shows hybrid, hybrid shows hybrid only. The value is parsed here
 // with the enum guard, so a raw API value never reaches the database, and anything unknown is
@@ -441,9 +493,9 @@ export const buildAudienceCondition = (filters: PublicListingFilters): SQL | und
 const hasSearchableQuery = (q: string | undefined): boolean =>
   Boolean(q && /[\p{L}\p{N}]/u.test(q));
 
-// Meili routing (spec §6): the index lacks registrationStartAt, team-size, location and audience
-// fields, so an active status, a narrowed team range, a location or a narrowing audience forces the
-// DB path to avoid partial filtering + count drift.
+// Meili routing (spec §6): the index lacks registrationStartAt, team-size, location, audience and
+// fee fields, so an active status, a narrowed team range, a location, a narrowing audience or a fee
+// filter forces the DB path to avoid partial filtering + count drift.
 // A token-less query is also kept off the search path (it would placeholder-match everything).
 export const resolveUseSearch = (filters: PublicListingFilters, meiliAvailable: boolean): boolean =>
   hasSearchableQuery(filters.q) &&
@@ -451,7 +503,8 @@ export const resolveUseSearch = (filters: PublicListingFilters, meiliAvailable: 
   !filters.status &&
   !isTeamRangeNarrowed(readTeamRange(filters)) &&
   readLocationFilter(filters) === null &&
-  parseAudienceFilterParam(filters.audience).length === 0;
+  parseAudienceFilterParam(filters.audience).length === 0 &&
+  readFeeFilter(filters).kind === "any";
 
 const buildDbWhere = (filters: PublicListingFilters) => {
   const conditions = [buildPublicVisibilityCondition(), buildStatusCondition(filters.status)];
@@ -471,6 +524,10 @@ const buildDbWhere = (filters: PublicListingFilters) => {
   const teamRangeCondition = buildTeamRangeCondition(filters);
   if (teamRangeCondition) {
     conditions.push(teamRangeCondition);
+  }
+  const feeCondition = buildFeeCondition(filters);
+  if (feeCondition) {
+    conditions.push(feeCondition);
   }
   const locationCondition = buildLocationCondition(filters);
   if (locationCondition) {

@@ -3544,6 +3544,12 @@ button.header-sheet-row {
   gap: var(--space-1);
 }
 
+/* The fee choices with the price range under them, in the desktop menu and in the sheet. */
+.filter-fee {
+  display: grid;
+  gap: var(--space-3);
+}
+
 /* A searchable menu keeps its field in place while the options under it scroll. */
 .filter-dropdown-menu[data-searchable="true"] {
   display: flex;

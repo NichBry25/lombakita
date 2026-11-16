@@ -24,6 +24,7 @@ vi.mock("@/lib/logger", () => ({
 
 import {
   buildAudienceCondition,
+  buildFeeCondition,
   buildLocationCondition,
   buildPublicVisibilityCondition,
   buildTeamRangeCondition,
@@ -398,6 +399,36 @@ describe("resolveUseSearch — the location and audience filters", () => {
   it("keeps the search index when the location is unknown or empty", () => {
     expect(resolveUseSearch({ q: "lomba", location: "mars" }, true)).toBe(true);
     expect(resolveUseSearch({ q: "lomba", location: "" }, true)).toBe(true);
+  });
+});
+
+describe("resolveUseSearch — the fee filter", () => {
+  it("leaves the search index when free or paid is chosen, with a search term", () => {
+    expect(resolveUseSearch({ q: "lomba", fee: "free" }, true)).toBe(false);
+    expect(resolveUseSearch({ q: "lomba", fee: "paid" }, true)).toBe(false);
+    expect(resolveUseSearch({ q: "lomba", fee: "paid", feeMin: "25000" }, true)).toBe(false);
+  });
+
+  it("keeps the search index when the fee filter is ignored", () => {
+    expect(resolveUseSearch({ q: "lomba", fee: "both" }, true)).toBe(true);
+    expect(resolveUseSearch({ q: "lomba", fee: "FREE" }, true)).toBe(true);
+    expect(resolveUseSearch({ q: "lomba", fee: "" }, true)).toBe(true);
+    expect(resolveUseSearch({ q: "lomba", feeMin: "25000", feeMax: "100000" }, true)).toBe(true);
+  });
+});
+
+describe("buildFeeCondition", () => {
+  it("applies no condition when the fee filter is absent or ignored", () => {
+    expect(buildFeeCondition({})).toBeUndefined();
+    expect(buildFeeCondition({ fee: "both" })).toBeUndefined();
+    expect(buildFeeCondition({ fee: "FREE" })).toBeUndefined();
+    expect(buildFeeCondition({ feeMin: "25000", feeMax: "100000" })).toBeUndefined();
+  });
+
+  it("applies a condition for free and for paid", () => {
+    expect(buildFeeCondition({ fee: "free" })).toBeDefined();
+    expect(buildFeeCondition({ fee: "paid" })).toBeDefined();
+    expect(buildFeeCondition({ fee: "paid", feeMin: "25000", feeMax: "100000" })).toBeDefined();
   });
 });
 

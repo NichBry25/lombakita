@@ -33,6 +33,16 @@ const renderBar = (params: CompetitionSearchParams = {}, total = 40) =>
     </UIPrimitivesProvider>,
   );
 
+// formatRupiah separates "Rp" from the digits with a no-break space.
+const rupiah = (digits: string): string => `Rp ${digits}`;
+
+// The text the fee slider shows for its range, read from the node because getByText folds the
+// no-break space of formatRupiah into a plain one.
+const sliderSummaryIn = (dialogName: string): string | null | undefined =>
+  screen
+    .getByRole("dialog", { name: dialogName })
+    .querySelector("[aria-label='Rentang biaya'] .range-slider-summary")?.textContent;
+
 const pillRow = () => within(document.querySelector<HTMLElement>(".filter-toolbar-filters")!);
 const phoneRow = () => within(document.querySelector<HTMLElement>(".filter-phone")!);
 const sheet = () => within(screen.getByRole("dialog", { name: "Filter" }));
@@ -48,14 +58,138 @@ const openSheet = () => {
 const sheetButton = () => sheet().getByRole("button", { name: /^Tampilkan/ });
 
 describe("the desktop pill row", () => {
-  it("shows Kategori, Ukuran tim, Lokasi, Untuk, Status and Urutkan, and no Mode", () => {
+  it("shows Kategori, Ukuran tim, Lokasi, Untuk, Biaya, Status and Urutkan, and no Mode", () => {
     renderBar();
 
     const labels = pillRow()
       .getAllByRole("button")
       .map((button) => button.getAttribute("aria-label"));
 
-    expect(labels).toEqual(["Kategori", "Ukuran tim", "Lokasi", "Untuk", "Status", "Urutkan"]);
+    expect(labels).toEqual([
+      "Kategori",
+      "Ukuran tim",
+      "Lokasi",
+      "Untuk",
+      "Biaya",
+      "Status",
+      "Urutkan",
+    ]);
+  });
+
+  it("offers Gratis and Berbayar in the Biaya menu, with the slider only under Berbayar", () => {
+    renderBar();
+    fireEvent.click(pillRow().getByRole("button", { name: "Biaya" }));
+    const menu = within(screen.getByRole("dialog", { name: "Biaya" }));
+
+    expect(menu.getByRole("button", { name: "Gratis" })).toBeTruthy();
+    expect(menu.getByRole("button", { name: "Berbayar" })).toBeTruthy();
+    expect(menu.queryByRole("slider")).toBeNull();
+
+    fireEvent.click(menu.getByRole("button", { name: "Berbayar" }));
+
+    expect(menu.getByRole("group", { name: "Rentang biaya" })).toBeTruthy();
+    expect(menu.getByRole("slider", { name: "Biaya minimum" })).toBeTruthy();
+    expect(menu.getByRole("slider", { name: "Biaya maksimum" })).toBeTruthy();
+    expect(sliderSummaryIn("Biaya")).toBe(`${rupiah("0")} sampai ${rupiah("250.000")}+`);
+    expect(menu.getByRole("button", { name: "Terapkan" })).toBeTruthy();
+  });
+
+  it("applies Gratis with Terapkan and writes fee=free", () => {
+    renderBar();
+    fireEvent.click(pillRow().getByRole("button", { name: "Biaya" }));
+    const menu = within(screen.getByRole("dialog", { name: "Biaya" }));
+
+    fireEvent.click(menu.getByRole("button", { name: "Gratis" }));
+    expect(mockPush).not.toHaveBeenCalled();
+    fireEvent.click(menu.getByRole("button", { name: "Terapkan" }));
+
+    expect(mockPush).toHaveBeenCalledWith("/competitions?fee=free");
+  });
+
+  it("applies Berbayar over the whole track as fee=paid alone", () => {
+    renderBar();
+    fireEvent.click(pillRow().getByRole("button", { name: "Biaya" }));
+    const menu = within(screen.getByRole("dialog", { name: "Biaya" }));
+
+    fireEvent.click(menu.getByRole("button", { name: "Berbayar" }));
+    fireEvent.click(menu.getByRole("button", { name: "Terapkan" }));
+
+    expect(mockPush).toHaveBeenCalledWith("/competitions?fee=paid");
+  });
+
+  it("applies a narrowed price range only when Terapkan is pressed", () => {
+    renderBar();
+    fireEvent.click(pillRow().getByRole("button", { name: "Biaya" }));
+    const menu = within(screen.getByRole("dialog", { name: "Biaya" }));
+
+    fireEvent.click(menu.getByRole("button", { name: "Berbayar" }));
+    pressKey(menu.getByRole("slider", { name: "Biaya minimum" }), "ArrowRight");
+    pressKey(menu.getByRole("slider", { name: "Biaya maksimum" }), "ArrowLeft", 6);
+    expect(sliderSummaryIn("Biaya")).toBe(`${rupiah("25.000")} sampai ${rupiah("100.000")}`);
+    expect(mockPush).not.toHaveBeenCalled();
+    fireEvent.click(menu.getByRole("button", { name: "Terapkan" }));
+
+    expect(mockPush).toHaveBeenCalledWith("/competitions?fee=paid&feeMin=25000&feeMax=100000");
+  });
+
+  it("never lets the max handle go below Rp 25.000", () => {
+    renderBar({ fee: "paid", feeMax: "50000" });
+    fireEvent.click(pillRow().getByRole("button", { name: `Biaya: sampai ${rupiah("50.000")}` }));
+    const menu = within(screen.getByRole("dialog", { name: "Biaya" }));
+
+    pressKey(menu.getByRole("slider", { name: "Biaya maksimum" }), "Home");
+
+    expect(menu.getByRole("slider", { name: "Biaya maksimum" }).getAttribute("aria-valuenow")).toBe(
+      "25000",
+    );
+  });
+
+  it("takes the filter off when the chosen choice is pressed again", () => {
+    renderBar({ fee: "free" });
+    fireEvent.click(pillRow().getByRole("button", { name: "Biaya: Gratis" }));
+    const menu = within(screen.getByRole("dialog", { name: "Biaya" }));
+
+    expect(menu.getByRole("button", { name: "Gratis" }).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(menu.getByRole("button", { name: "Gratis" }));
+    fireEvent.click(menu.getByRole("button", { name: "Terapkan" }));
+
+    expect(mockPush).toHaveBeenCalledWith("/competitions");
+  });
+
+  it("drops the price range from the address when Gratis replaces Berbayar", () => {
+    renderBar({ fee: "paid", feeMin: "25000", feeMax: "100000", q: "lomba" });
+    fireEvent.click(
+      pillRow().getByRole("button", {
+        name: `Biaya: ${rupiah("25.000")} sampai ${rupiah("100.000")}`,
+      }),
+    );
+    const menu = within(screen.getByRole("dialog", { name: "Biaya" }));
+
+    fireEvent.click(menu.getByRole("button", { name: "Gratis" }));
+    fireEvent.click(menu.getByRole("button", { name: "Terapkan" }));
+
+    expect(mockPush).toHaveBeenCalledWith("/competitions?fee=free&q=lomba");
+  });
+
+  it.each([
+    [{ fee: "free" }, "Biaya: Gratis"],
+    [{ fee: "paid" }, "Biaya: Berbayar"],
+    [
+      { fee: "paid", feeMin: "25000", feeMax: "100000" },
+      `Biaya: ${rupiah("25.000")} sampai ${rupiah("100.000")}`,
+    ],
+    [{ fee: "paid", feeMin: "50000" }, `Biaya: mulai ${rupiah("50.000")}`],
+    [{ fee: "paid", feeMax: "100000" }, `Biaya: sampai ${rupiah("100.000")}`],
+  ])("words the active pill for %j as %s", (params, words) => {
+    renderBar(params);
+
+    expect(pillRow().getByRole("button", { name: words })).toBeTruthy();
+  });
+
+  it("shows no fee in the pill for an address that only carries a stray end", () => {
+    renderBar({ feeMin: "25000", fee: "both" });
+
+    expect(pillRow().getByRole("button", { name: "Biaya" })).toBeTruthy();
   });
 
   it("changes the address with the chosen location and clears it with Semua lokasi", () => {
@@ -221,18 +355,78 @@ describe("the desktop pill row", () => {
 
     fireEvent.click(pillRow().getByRole("button", { name: "Untuk" }));
     expect(screen.getByRole("dialog", { name: "Untuk" }).getAttribute("data-align")).toBe("end");
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+
+    fireEvent.click(pillRow().getByRole("button", { name: "Biaya" }));
+    expect(screen.getByRole("dialog", { name: "Biaya" }).getAttribute("data-align")).toBe("end");
   });
 });
 
 describe("the phone chip row", () => {
-  it("starts with Filter, then Urutkan, Kategori, Dibuka and Online", () => {
+  it("starts with Filter, then Urutkan, Kategori, Dibuka, Online and Gratis", () => {
     renderBar();
 
     const labels = phoneRow()
       .getAllByRole("button")
       .map((button) => button.textContent);
 
-    expect(labels).toEqual(["Filter", "Urutkan", "Kategori", "Dibuka", "Online"]);
+    expect(labels).toEqual(["Filter", "Urutkan", "Kategori", "Dibuka", "Online", "Gratis"]);
+  });
+
+  it("toggles the free fee with Gratis", () => {
+    const first = renderBar();
+    fireEvent.click(phoneRow().getByRole("button", { name: "Gratis" }));
+    expect(mockPush).toHaveBeenLastCalledWith("/competitions?fee=free");
+
+    first.unmount();
+    renderBar({ fee: "free" });
+    const pressed = phoneRow().getByRole("button", { name: "Gratis" });
+    expect(pressed.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(pressed);
+    expect(mockPush).toHaveBeenLastCalledWith("/competitions");
+  });
+
+  it("replaces a paid range with the free fee when Gratis is pressed", () => {
+    renderBar({ fee: "paid", feeMin: "25000" });
+
+    fireEvent.click(phoneRow().getByRole("button", { name: "Gratis" }));
+
+    expect(mockPush).toHaveBeenLastCalledWith("/competitions?fee=free");
+  });
+
+  it("shows a removable chip for the fee, worded like the pill, and clears its range with it", () => {
+    renderBar({ fee: "paid", feeMin: "25000", feeMax: "100000" });
+    const applied = within(screen.getByRole("list", { name: "Filter yang dipakai" }));
+    const words = `Biaya: ${rupiah("25.000")} sampai ${rupiah("100.000")}`;
+
+    expect(applied.getByRole("button", { name: `Hapus filter ${words}` })).toBeTruthy();
+    expect(phoneRow().getByRole("button", { name: "Filter (1)" })).toBeTruthy();
+
+    fireEvent.click(applied.getByRole("button", { name: `Hapus filter ${words}` }));
+    expect(mockPush).toHaveBeenLastCalledWith("/competitions");
+  });
+
+  it.each([
+    [{ fee: "free" }, "Biaya: Gratis"],
+    [{ fee: "paid" }, "Biaya: Berbayar"],
+    [{ fee: "paid", feeMin: "50000" }, `Biaya: mulai ${rupiah("50.000")}`],
+    [{ fee: "paid", feeMax: "100000" }, `Biaya: sampai ${rupiah("100.000")}`],
+  ])("words the applied chip for %j as %s", (params, words) => {
+    renderBar(params);
+
+    expect(
+      within(screen.getByRole("list", { name: "Filter yang dipakai" })).getByRole("button", {
+        name: `Hapus filter ${words}`,
+      }),
+    ).toBeTruthy();
+  });
+
+  it("clears the fee with Hapus semua", () => {
+    renderBar({ fee: "paid", feeMin: "25000", q: "x" });
+
+    fireEvent.click(phoneRow().getByRole("button", { name: "Hapus semua" }));
+
+    expect(mockPush).toHaveBeenLastCalledWith("/competitions?q=x");
   });
 
   it("toggles the location to online with Online", () => {
@@ -419,7 +613,7 @@ describe("an old mode or teamSize link", () => {
 });
 
 describe("the phone filter sheet", () => {
-  it("opens full height with a title, a close button, Reset and the six sections", () => {
+  it("opens full height with a title, a close button, Reset and the seven sections", () => {
     renderBar();
     openSheet();
 
@@ -428,10 +622,66 @@ describe("the phone filter sheet", () => {
     expect(sheet().getByRole("heading", { name: "Filter" })).toBeTruthy();
     expect(sheet().getByRole("button", { name: "Tutup" })).toBeTruthy();
     expect(sheet().getByRole("button", { name: "Reset" })).toBeTruthy();
-    for (const section of ["Kategori", "Ukuran tim", "Lokasi", "Untuk", "Status", "Urutkan"]) {
+    const sections = ["Kategori", "Ukuran tim", "Lokasi", "Untuk", "Biaya", "Status", "Urutkan"];
+    for (const section of sections) {
       expect(sheet().getByRole("heading", { name: section })).toBeTruthy();
     }
     expect(sheet().getByRole("textbox", { name: "Cari kategori" })).toBeTruthy();
+  });
+
+  it("puts the Biaya section after Untuk and before Status", () => {
+    renderBar();
+    openSheet();
+
+    const headings = sheet()
+      .getAllByRole("heading", { level: 3 })
+      .map((heading) => heading.textContent);
+
+    expect(headings).toEqual([
+      "Kategori",
+      "Ukuran tim",
+      "Lokasi",
+      "Untuk",
+      "Biaya",
+      "Status",
+      "Urutkan",
+    ]);
+  });
+
+  it("applies a fee range from the sheet with Tampilkan", () => {
+    renderBar();
+    openSheet();
+
+    fireEvent.click(sheet().getByRole("button", { name: "Berbayar" }));
+    pressKey(sheet().getByRole("slider", { name: "Biaya minimum" }), "ArrowRight", 2);
+    pressKey(sheet().getByRole("slider", { name: "Biaya maksimum" }), "ArrowLeft", 5);
+    expect(sliderSummaryIn("Filter")).toBe(`${rupiah("50.000")} sampai ${rupiah("125.000")}`);
+    expect(mockPush).not.toHaveBeenCalled();
+    fireEvent.click(sheetButton());
+
+    expect(mockPush).toHaveBeenCalledWith(
+      "/competitions?fee=paid&feeMin=50000&feeMax=125000&sort=created_desc",
+    );
+  });
+
+  it("starts the Biaya section from the address, and Reset takes the fee off", () => {
+    renderBar({ fee: "paid", feeMin: "25000", feeMax: "100000" });
+    openSheet();
+
+    expect(sheet().getByRole("button", { name: "Berbayar" }).getAttribute("aria-pressed")).toBe(
+      "true",
+    );
+    expect(
+      sheet().getByRole("slider", { name: "Biaya minimum" }).getAttribute("aria-valuenow"),
+    ).toBe("25000");
+    expect(
+      sheet().getByRole("slider", { name: "Biaya maksimum" }).getAttribute("aria-valuenow"),
+    ).toBe("100000");
+
+    fireEvent.click(sheet().getByRole("button", { name: "Reset" }));
+    fireEvent.click(sheetButton());
+
+    expect(mockPush).toHaveBeenCalledWith("/competitions?sort=created_desc");
   });
 
   it("applies a location and ticked audience levels together with Tampilkan", () => {
@@ -611,6 +861,36 @@ describe("the live count on the sheet's button", () => {
     const requested = new URL(String(mockFetch.mock.calls[0]![0]), "http://localhost");
     expect(requested.searchParams.get("location")).toBe("online");
     expect(requested.searchParams.get("audience")).toBe("smp");
+  });
+
+  it("asks with the pending fee filter, so the sheet count matches the list", async () => {
+    useTimers();
+    renderBar({}, 40);
+    openSheet();
+
+    fireEvent.click(sheet().getByRole("button", { name: "Berbayar" }));
+    pressKey(sheet().getByRole("slider", { name: "Biaya minimum" }), "ArrowRight", 4);
+    await settle(300);
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const requested = new URL(String(mockFetch.mock.calls[0]![0]), "http://localhost");
+    expect(requested.searchParams.get("fee")).toBe("paid");
+    expect(requested.searchParams.get("feeMin")).toBe("100000");
+    expect(requested.searchParams.has("feeMax")).toBe(false);
+  });
+
+  it("asks with the free fee and without the ends of a range it replaced", async () => {
+    useTimers();
+    renderBar({ fee: "paid", feeMin: "25000", feeMax: "100000" }, 40);
+    openSheet();
+
+    fireEvent.click(sheet().getByRole("button", { name: "Gratis" }));
+    await settle(300);
+
+    const requested = new URL(String(mockFetch.mock.calls[0]![0]), "http://localhost");
+    expect(requested.searchParams.get("fee")).toBe("free");
+    expect(requested.searchParams.has("feeMin")).toBe(false);
+    expect(requested.searchParams.has("feeMax")).toBe(false);
   });
 
   it("asks at most once per 300 ms of changes", async () => {
