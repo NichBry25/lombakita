@@ -54,6 +54,7 @@ import { probes as operatorPageGuardProbes } from "./probes/operator-page-guards
 import { probes as sessionMfaDefaultProbes } from "./probes/session-mfa-default.mjs";
 import { probes as qrisPayerGateProbes } from "./probes/qris-payer-gate.mjs";
 import { probes as teamRowCancelProbes } from "./probes/team-row-cancel.mjs";
+import { probes as laneGuardsProbes } from "./probes/lane-guards.mjs";
 
 const SUITES: Record<string, Probe[]> = {
   "config-gates": configGateProbes,
@@ -87,6 +88,7 @@ const SUITES: Record<string, Probe[]> = {
   "session-mfa-default": sessionMfaDefaultProbes,
   "qris-payer-gate": qrisPayerGateProbes,
   "team-row-cancel": teamRowCancelProbes,
+  "lane-guards": laneGuardsProbes,
 };
 
 const everyProbe: [string, Probe][] = Object.entries(SUITES).flatMap(([suite, probes]) =>
