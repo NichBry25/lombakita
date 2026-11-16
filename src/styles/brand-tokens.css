@@ -486,9 +486,9 @@
   --header-sign-in-width: 5.4375rem;
   --header-sheet-row-height: 3.5rem;
   --header-sheet-row-text: 1.125rem;
-  --header-wordmark-tap-width: 4.625rem;
-  --header-wordmark-glyph-width: 3.625rem;
-  --header-wordmark-glyph-height: 1.875rem;
+  --header-wordmark-tap-width: 4.875rem;
+  --header-wordmark-glyph-width: 4.875rem;
+  --header-wordmark-glyph-height: 2.5rem;
   --header-skip-link-top: 0.625rem;
   --header-skeleton-delay: 300ms;
   --header-menu-min-width: 12.25rem;
@@ -501,7 +501,7 @@
   --detail-gap: 2.25rem;
   --wordmark-header-width: 6.75rem;
   --wordmark-header-height: 2.75rem;
-  --wordmark-header-mobile-width: 6rem;
+  --wordmark-header-mobile-width: 4.875rem;
   --wordmark-header-mobile-height: 2.5rem;
   --wordmark-footer-width: 8rem;
   --wordmark-footer-height: 4.75rem;

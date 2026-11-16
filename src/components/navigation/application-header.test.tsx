@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const navigation = vi.hoisted(() => ({ pathname: "/" }));
+const linkStatus = vi.hoisted(() => ({ pending: false }));
 const auth = vi.hoisted(() => ({
   session: null as null | { user: { role: string; verifiedRoles: string[] } },
   status: "unauthenticated" as "loading" | "authenticated" | "unauthenticated",
@@ -24,7 +25,7 @@ vi.mock("next/link", () => {
   return {
     default: ({ children, href, ...rest }: { children: unknown; href: string }) =>
       React.createElement("a", { href, ...rest }, children),
-    useLinkStatus: () => ({ pending: false }),
+    useLinkStatus: () => ({ pending: linkStatus.pending }),
   };
 });
 
@@ -54,6 +55,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  linkStatus.pending = false;
   navigation.pathname = "/";
   auth.session = null;
   auth.status = "unauthenticated";
@@ -83,6 +85,30 @@ describe("ApplicationHeader theme button", () => {
     expect(pressedToggle.getAttribute("aria-pressed")).toBe("true");
     expect(pressedToggle.getAttribute("data-tooltip")).toBe("Matikan tema gelap");
     expect(document.documentElement.dataset.theme).toBe("dark");
+  });
+});
+
+describe("ApplicationHeader logo", () => {
+  const logoLink = () => screen.getByRole("link", { name: "Lombakita, beranda" });
+
+  it("shows the wordmark in the logo's box and no spinner while nothing is loading", () => {
+    render(<ApplicationHeader />);
+
+    const slot = logoLink().querySelector(".brand-wordmark-slot");
+    expect(slot?.querySelectorAll(".brand-wordmark")).toHaveLength(2);
+    expect(slot?.querySelector(".spinner")).toBeNull();
+  });
+
+  it("swaps the wordmark for the spinner inside the same box while the home link is pending", () => {
+    linkStatus.pending = true;
+
+    render(<ApplicationHeader />);
+
+    const slot = logoLink().querySelector(".brand-wordmark-slot");
+    expect(slot).not.toBeNull();
+    expect(slot?.querySelector(".spinner")).not.toBeNull();
+    expect(logoLink().querySelector(".brand-wordmark")).toBeNull();
+    expect(logoLink().getAttribute("href")).toBe("/");
   });
 });
 

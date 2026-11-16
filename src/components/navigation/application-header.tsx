@@ -93,11 +93,18 @@ export function ApplicationHeader() {
       <div className="header-inner">
         {/* The landing page is the slowest indexable route to first byte and has no `loading.tsx`
             — an indexable route cannot have one — so the wordmark acknowledges its own click here
-            (§14). The slot renders nothing until the navigation is in flight. */}
+            (§14). While the navigation is in flight the spinner takes the wordmark's place. */}
         <Link href="/" className="brand-lockup" aria-label="Lombakita, beranda">
-          <span className="brand-wordmark brand-wordmark-primary" aria-hidden="true" />
-          <span className="brand-wordmark brand-wordmark-reversed" aria-hidden="true" />
-          <LinkPendingSlot />
+          <span className="brand-wordmark-slot">
+            <LinkPendingSlot
+              leadingIcon={
+                <>
+                  <span className="brand-wordmark brand-wordmark-primary" aria-hidden="true" />
+                  <span className="brand-wordmark brand-wordmark-reversed" aria-hidden="true" />
+                </>
+              }
+            />
+          </span>
         </Link>
 
         <nav className="desktop-nav" aria-label="Navigasi utama">

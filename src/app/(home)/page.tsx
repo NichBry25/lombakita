@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ButtonLink, Icon } from "@/components/ui";
 import { INDEXABLE_ROBOTS } from "@/config/indexable-routes";
-import { CategoryRow } from "@/components/home/category-row";
 import { MemphisHeroArt } from "@/components/home/memphis-hero-art";
 import { FeaturedCarousel } from "@/components/home/featured-carousel";
 import { listFeaturedCompetitions } from "@/server/competitions/competition-public-service";
@@ -30,9 +29,7 @@ export const metadata: Metadata = {
   },
 };
 
-// Different seeds give the two hero art panels different tile layouts.
 const HERO_ART_START_LAYOUT_SEED = 0x9e3779b1;
-const HERO_ART_END_LAYOUT_SEED = 0x7f4a7c15;
 
 const MARQUEE_WORDS = ["Temukan", "Daftar", "Berkarya", "Menang"] as const;
 // One half, repeated enough to overflow the ribbon even on a wide monitor, then doubled
@@ -63,7 +60,7 @@ export default async function HomePage() {
         <div className="home-hero-inner">
           <MemphisHeroArt layoutSeed={HERO_ART_START_LAYOUT_SEED} />
 
-          <div className="home-hero-main">
+          <div className="home-hero-main" data-hero-clearing>
             <div className="home-hero-copy stack-md">
               <h1>
                 Cari kompetisi, cek tenggat, dan daftar dari{" "}
@@ -85,8 +82,6 @@ export default async function HomePage() {
               </span>
             </Link>
           </div>
-
-          <MemphisHeroArt layoutSeed={HERO_ART_END_LAYOUT_SEED} />
         </div>
       </section>
 
@@ -97,18 +92,6 @@ export default async function HomePage() {
           ))}
         </div>
       </div>
-
-      <section className="page-section home-category-section">
-        <div className="content-shell stack-lg">
-          <header className="home-section-header">
-            <div className="stack-xs">
-              <h2 className="section-title">Kategori kompetisi</h2>
-            </div>
-          </header>
-
-          <CategoryRow />
-        </div>
-      </section>
 
       {featuredCompetitions.length > 0 ? (
         <section className="page-section">

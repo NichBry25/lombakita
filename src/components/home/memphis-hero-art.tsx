@@ -43,8 +43,15 @@ const MIN_FILLED_SHARE = 0.8;
 const INITIAL_EMPTY_SHARE = 0.1;
 const INITIAL_EMPTY_EVERY = 7;
 
+const CLEARING_MARGIN_PX = 48;
+const CLEARING_POINT_DEPTH_PX = 120;
+const CLEARING_ATTRIBUTE = "data-hero-clearing";
+
 type Cell = { col: number; row: number; w: number; h: number; depth: number; clip?: string };
 type GridShape = { columns: number; rows: number };
+type Box = { left: number; top: number; right: number; bottom: number };
+type CellSize = { width: number; height: number };
+type GridGeometry = { shape: GridShape; outsideClearing: boolean[] };
 
 function shapeFromPanelSize(width: number, height: number): GridShape | null {
   const columns = Math.round(width / CELL_TARGET_PX);
@@ -53,21 +60,103 @@ function shapeFromPanelSize(width: number, height: number): GridShape | null {
   return { columns, rows };
 }
 
-function isSameShape(a: GridShape | null, b: GridShape | null): boolean {
+function isSameGeometry(a: GridGeometry | null, b: GridGeometry | null): boolean {
   if (a === null || b === null) return a === b;
-  return a.columns === b.columns && a.rows === b.rows;
+  if (a.shape.columns !== b.shape.columns || a.shape.rows !== b.shape.rows) return false;
+  return a.outsideClearing.every((outside, index) => outside === b.outsideClearing[index]);
+}
+
+/*
+ * The clearing is a hexagon around the box that holds the heading and the search bar: flat top
+ * and bottom edges CLEARING_MARGIN_PX away from the box, and left and right edges that start
+ * CLEARING_MARGIN_PX out at the top and bottom and bend outward to a point at the box's vertical
+ * middle, CLEARING_POINT_DEPTH_PX further out.
+ */
+function clearingSpanAt(clearing: Box, y: number): { left: number; right: number } {
+  const zoneTop = clearing.top - CLEARING_MARGIN_PX;
+  const middle = (clearing.top + clearing.bottom) / 2;
+  const distanceFromEdgeToMiddle = middle - zoneTop;
+  const closenessToPoint = 1 - Math.abs(y - middle) / distanceFromEdgeToMiddle;
+  const outward = CLEARING_MARGIN_PX + CLEARING_POINT_DEPTH_PX * closenessToPoint;
+  return { left: clearing.left - outward, right: clearing.right + outward };
+}
+
+// Touching the zone's edge is not overlapping it. The zone is widest at the box's vertical middle,
+// so the row of the cell nearest that middle is the one where the cell reaches furthest in.
+function cellOverlapsClearing(cell: Box, clearing: Box): boolean {
+  const zoneTop = clearing.top - CLEARING_MARGIN_PX;
+  const zoneBottom = clearing.bottom + CLEARING_MARGIN_PX;
+  const overlapTop = Math.max(cell.top, zoneTop);
+  const overlapBottom = Math.min(cell.bottom, zoneBottom);
+  if (overlapTop >= overlapBottom) return false;
+
+  const middle = (clearing.top + clearing.bottom) / 2;
+  const nearestY = Math.min(Math.max(middle, overlapTop), overlapBottom);
+  const span = clearingSpanAt(clearing, nearestY);
+  return cell.right > span.left && cell.left < span.right;
+}
+
+/*
+ * Reports, per grid unit in row-major order, whether the unit lies wholly outside the clearing.
+ * The box is in the field's own coordinates, in pixels.
+ */
+export function findGridUnitsOutsideClearing({
+  columns,
+  rows,
+  cellSize,
+  clearing,
+}: GridShape & { cellSize: CellSize; clearing: Box }): boolean[] {
+  return Array.from({ length: columns * rows }, (_, index) => {
+    const col = index % columns;
+    const row = Math.floor(index / columns);
+    const cell: Box = {
+      left: col * cellSize.width,
+      top: row * cellSize.height,
+      right: (col + 1) * cellSize.width,
+      bottom: (row + 1) * cellSize.height,
+    };
+    return !cellOverlapsClearing(cell, clearing);
+  });
+}
+
+function measureGridGeometry(field: HTMLElement): GridGeometry | null {
+  const fieldRect = field.getBoundingClientRect();
+  const shape = shapeFromPanelSize(fieldRect.width, fieldRect.height);
+  if (!shape) return null;
+
+  const clearingElement = field.parentElement?.querySelector(`[${CLEARING_ATTRIBUTE}]`);
+  if (!clearingElement) {
+    return { shape, outsideClearing: new Array<boolean>(shape.columns * shape.rows).fill(true) };
+  }
+
+  const clearingRect = clearingElement.getBoundingClientRect();
+  const outsideClearing = findGridUnitsOutsideClearing({
+    ...shape,
+    cellSize: { width: fieldRect.width / shape.columns, height: fieldRect.height / shape.rows },
+    clearing: {
+      left: clearingRect.left - fieldRect.left,
+      top: clearingRect.top - fieldRect.top,
+      right: clearingRect.right - fieldRect.left,
+      bottom: clearingRect.bottom - fieldRect.top,
+    },
+  });
+  return { shape, outsideClearing };
 }
 
 /*
  * Tile the grid deterministically: scan cells row-major and drop the first shape that
  * fits into the top-left-most free cell, biased toward 2x1/1x2/2x2 pieces with 1x1 as
- * the always-available fallback. Row-major greedy placement can never get stuck, so the
- * pieces always cover the grid exactly with no gaps or overflow. The seed makes a layout
- * repeatable for one panel size, and a different seed gives the second panel its own
- * layout; every other 2x2 is clipped into an L-shape, palm showing through the notch.
+ * the always-available fallback. Units inside the clearing are marked occupied first, so no
+ * piece covers them and the clearing's edge is a staircase of whole units. Row-major greedy
+ * placement can never get stuck, so the pieces always cover every unit outside the clearing
+ * exactly with no gaps or overflow. The seed makes a layout repeatable for one panel size and
+ * clearing; every other 2x2 is clipped into an L-shape, palm showing through the notch.
  */
-function buildTileLayout({ columns, rows }: GridShape, layoutSeed: number): Cell[] {
-  const occupied = new Array<boolean>(columns * rows).fill(false);
+function buildTileLayout(
+  { shape: { columns, rows }, outsideClearing }: GridGeometry,
+  layoutSeed: number,
+): Cell[] {
+  const occupied = outsideClearing.map((outside) => !outside);
   const at = (row: number, col: number) => row * columns + col;
 
   let seed = layoutSeed >>> 0;
@@ -361,7 +450,7 @@ export function MemphisHeroArt({ layoutSeed }: { layoutSeed: number }): ReactEle
   const panelRef = useRef<HTMLDivElement>(null);
   const driftFrameRef = useRef<number | null>(null);
   const hoveredRef = useRef<number | null>(null);
-  const [gridShape, setGridShape] = useState<GridShape | null>(null);
+  const [gridGeometry, setGridGeometry] = useState<GridGeometry | null>(null);
   const [relocated, setRelocated] = useState<RelocatedTiles | null>(null);
   const [hovered, setHovered] = useState<number | null>(null);
   const [reducedMotion, setReducedMotion] = useState(false);
@@ -372,8 +461,8 @@ export function MemphisHeroArt({ layoutSeed }: { layoutSeed: number }): ReactEle
   const [isNarrow, setIsNarrow] = useState(false);
 
   const layout = useMemo(
-    () => (gridShape ? buildTileLayout(gridShape, layoutSeed) : []),
-    [gridShape, layoutSeed],
+    () => (gridGeometry ? buildTileLayout(gridGeometry, layoutSeed) : []),
+    [gridGeometry, layoutSeed],
   );
   const initialTiles = useMemo(() => buildInitialTiles(layout), [layout]);
   const tiles = relocated && relocated.layout === layout ? relocated.tiles : initialTiles;
@@ -381,12 +470,15 @@ export function MemphisHeroArt({ layoutSeed }: { layoutSeed: number }): ReactEle
   useEffect(() => {
     const panel = panelRef.current;
     if (!panel) return;
-    const observer = new ResizeObserver(([entry]) => {
-      if (!entry) return;
-      const nextShape = shapeFromPanelSize(entry.contentRect.width, entry.contentRect.height);
-      setGridShape((current) => (isSameShape(current, nextShape) ? current : nextShape));
+    const observer = new ResizeObserver(() => {
+      const nextGeometry = measureGridGeometry(panel);
+      setGridGeometry((current) =>
+        isSameGeometry(current, nextGeometry) ? current : nextGeometry,
+      );
     });
     observer.observe(panel);
+    const clearingElement = panel.parentElement?.querySelector(`[${CLEARING_ATTRIBUTE}]`);
+    if (clearingElement) observer.observe(clearingElement);
     return () => observer.disconnect();
   }, []);
 
@@ -444,10 +536,10 @@ export function MemphisHeroArt({ layoutSeed }: { layoutSeed: number }): ReactEle
     panel.style.setProperty("--drift-y", "0px");
   }
 
-  const gridTemplate: CSSProperties | undefined = gridShape
+  const gridTemplate: CSSProperties | undefined = gridGeometry
     ? {
-        gridTemplateColumns: `repeat(${gridShape.columns}, minmax(0, 1fr))`,
-        gridTemplateRows: `repeat(${gridShape.rows}, minmax(0, 1fr))`,
+        gridTemplateColumns: `repeat(${gridGeometry.shape.columns}, minmax(0, 1fr))`,
+        gridTemplateRows: `repeat(${gridGeometry.shape.rows}, minmax(0, 1fr))`,
       }
     : undefined;
 

@@ -26,12 +26,6 @@ vi.mock("@/lib/logger", () => ({
 }));
 
 import HomePage from "@/app/(home)/page";
-import {
-  COMPETITION_CATEGORY_LABELS,
-  COMPETITION_CATEGORY_VALUES,
-} from "@/lib/competitions/categories";
-
-const escapeHtmlText = (text: string) => text.replaceAll("&", "&amp;");
 
 const countOccurrences = (html: string, fragment: string) => html.split(fragment).length - 1;
 
@@ -89,65 +83,26 @@ describe("HomePage", () => {
     expect(html).not.toContain("Kompetisi unggulan");
     expect(html).not.toContain("featured-carousel");
     // Rest of the page still renders.
-    expect(html).toContain("Kategori kompetisi");
+    expect(html).toContain("Buka ruang kerja");
   });
 
-  it("links every category tile to the list filtered to that category, labelled as the list labels it", async () => {
+  it("does not bring back the category section", async () => {
+    mockListFeaturedCompetitions.mockResolvedValue([featuredItem(1)]);
+
+    const html = renderToStaticMarkup(await HomePage());
+
+    expect(html).not.toContain("Kategori kompetisi");
+    expect(html).not.toContain("home-category");
+    expect(html).not.toContain("/competitions?category=");
+  });
+
+  it("shows one art field, and marks the box the field keeps clear", async () => {
     mockListFeaturedCompetitions.mockResolvedValue([]);
 
     const html = renderToStaticMarkup(await HomePage());
 
-    const anchors = html.match(/<a\b[^>]*>[\s\S]*?<\/a>/g) ?? [];
-    for (const category of COMPETITION_CATEGORY_VALUES) {
-      const tile = anchors.find((anchor) =>
-        anchor.includes(`href="/competitions?category=${category}"`),
-      );
-      expect(tile, `a tile links to category ${category}`).toBeDefined();
-      expect(tile).toContain(escapeHtmlText(COMPETITION_CATEGORY_LABELS[category]));
-    }
-  });
-
-  it("renders one tile for each of the categories and no more", async () => {
-    mockListFeaturedCompetitions.mockResolvedValue([]);
-
-    const html = renderToStaticMarkup(await HomePage());
-
-    expect(countOccurrences(html, 'class="home-category-tile"')).toBe(
-      COMPETITION_CATEGORY_VALUES.length,
-    );
-  });
-
-  it("puts the nine categories a phone shows first, in order, and hides the rest from a phone", async () => {
-    mockListFeaturedCompetitions.mockResolvedValue([]);
-    const phoneNine = [
-      "olympiad",
-      "scientific_writing",
-      "essay",
-      "debate",
-      "quiz",
-      "business",
-      "hackathon",
-      "design",
-      "infographics",
-    ];
-
-    const html = renderToStaticMarkup(await HomePage());
-
-    const tileOrder = [...html.matchAll(/href="\/competitions\?category=([a-z_]+)"/g)].map(
-      (match) => match[1],
-    );
-    expect(tileOrder.slice(0, 9)).toEqual(phoneNine);
-    expect(countOccurrences(html, 'data-phone-hidden="true"')).toBe(
-      COMPETITION_CATEGORY_VALUES.length - phoneNine.length,
-    );
-  });
-
-  it("shows art on both sides of the centred hero column", async () => {
-    mockListFeaturedCompetitions.mockResolvedValue([]);
-
-    const html = renderToStaticMarkup(await HomePage());
-
-    expect(countOccurrences(html, 'class="home-memphis"')).toBe(2);
+    expect(countOccurrences(html, 'class="home-memphis"')).toBe(1);
+    expect(countOccurrences(html, "data-hero-clearing")).toBe(1);
   });
 
   it("does not bring back the hero sentence or the three check marks", async () => {
@@ -201,7 +156,7 @@ describe("HomePage", () => {
     const html = renderToStaticMarkup(await HomePage());
 
     expect(html).toContain("Cari kompetisi, cek tenggat");
-    expect(html).toContain("Kategori kompetisi");
+    expect(html).toContain("Buka ruang kerja");
     expect(html).not.toContain("Kompetisi unggulan");
 
     // Degraded, but not silently — the failure is logged for observability.

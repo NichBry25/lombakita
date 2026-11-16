@@ -2448,10 +2448,6 @@ a.ui-table-link,
   display: inline-flex;
   flex: none;
   align-items: center;
-  /* Only ever between the wordmark and the navigation spinner: exactly one of the two wordmarks
-     is displayed at a time, and the spinner exists only while a navigation is in flight, so this
-     contributes nothing to the resting header. */
-  gap: var(--space-2);
   min-inline-size: var(--header-wordmark-tap-width);
   min-height: var(--touch-target);
   margin-inline-start: calc(var(--space-2) * -1);
@@ -2462,6 +2458,14 @@ a.ui-table-link,
 
 .brand-lockup:hover {
   color: var(--color-ink);
+}
+
+/* The wordmark and the loading spinner share this box, so the swap moves nothing in the header. */
+.brand-wordmark-slot {
+  display: grid;
+  width: var(--header-wordmark-glyph-width);
+  height: var(--header-wordmark-glyph-height);
+  place-items: center;
 }
 
 .brand-wordmark {
@@ -2916,8 +2920,9 @@ button.header-sheet-row {
 
 .footer-legal-row {
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
   margin-block-start: var(--space-8);
+  padding-block-start: var(--space-6);
   border-block-start: var(--border-thin) solid var(--overlay-highlight);
 }
 
@@ -2942,10 +2947,6 @@ button.header-sheet-row {
 
   .footer-legal {
     padding-inline: var(--page-padding-mobile);
-  }
-
-  .footer-legal-row {
-    justify-content: flex-start;
   }
 }
 
@@ -3014,23 +3015,24 @@ button.header-sheet-row {
 
 /* Public discovery */
 /*
- * The hero spans the window so its two art panels reach the window edges. The panels stretch to
- * the band's full height; the centre column carries the band's vertical padding and sets it.
+ * The hero spans the window so its one art field reaches the window edges and fills the band from
+ * top to bottom. The field is laid over the band; the centre column carries the band's vertical
+ * padding and sets its height.
  */
 .home-hero-inner {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, var(--content-hero)) minmax(0, 1fr);
-  gap: var(--space-8);
-  align-items: stretch;
+  grid-template-columns: minmax(0, var(--content-hero));
+  justify-content: center;
+  padding: var(--space-20) var(--page-padding);
 }
 
 .home-hero-main {
+  position: relative;
   display: grid;
   align-content: center;
   justify-items: center;
   gap: var(--space-8);
   min-width: 0;
-  padding-block: var(--space-20);
   text-align: center;
 }
 
@@ -3069,16 +3071,16 @@ button.header-sheet-row {
 }
 
 /*
- * Neo-Memphis decorative panel. A dense grid of mixed-span tiles; palm shows through empty
+ * Neo-Memphis decorative field. A dense grid of mixed-span tiles; palm shows through empty
  * cells and L-shape notches. Tiles carry their ground colour inline; opacity and scale
  * animate the relocate/reveal, translate carries the cursor-follow drift. Individual
- * transform properties keep drift and pop separate. The panel takes the size of its grid
- * column and the grid is laid over it, so the component can measure the panel without the
- * tiles feeding back into its size.
+ * transform properties keep drift and pop separate. The field takes the size of the band and
+ * the grid is laid over it, so the component can measure the field without the tiles feeding
+ * back into its size. The tiles skip a clearing around the heading and the search bar.
  */
 .home-memphis {
-  position: relative;
-  min-width: 0;
+  position: absolute;
+  inset: var(--space-0);
   overflow: hidden;
 }
 
@@ -3249,104 +3251,6 @@ button.header-sheet-row {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-5);
-}
-
-/*
- * The category row spans the window. Its inline padding equals the distance from the window edge
- * to the heading's left edge, so at rest the first tile lines up with the heading and a dragged
- * tile slides out under the window edge; the same padding at the end lets the last tile stop at
- * the heading's right edge. Tiles are sized so six whole tiles and half of a seventh fit between
- * the heading's left edge and the right window edge, so the half tile reads as "more". The frame
- * is the size container: 100cqw is the content width, and (100vw - 100cqw) / 2 is the gap from
- * the content's edge to the window. The section clips the sideways overflow a scrollbar-wide
- * 100vw would otherwise add to the page.
- */
-.home-category-section {
-  overflow-x: clip;
-}
-
-.home-category-frame {
-  --category-row-bleed: calc((100vw - 100cqw) / 2);
-  --category-tile-width: calc((100cqw + var(--category-row-bleed) - 6 * var(--grid-gap)) / 6.5);
-  container-type: inline-size;
-}
-
-/* The block padding keeps a hovered tile's lift and shadow from being clipped by the scroller. */
-.home-category-row {
-  display: flex;
-  gap: var(--grid-gap);
-  margin-block: calc(-1 * var(--space-4)) calc(-1 * var(--space-8));
-  margin-inline: calc(var(--category-row-bleed) * -1);
-  padding: var(--space-4) var(--category-row-bleed) var(--space-8);
-  overflow-x: auto;
-  list-style: none;
-  cursor: grab;
-  scrollbar-width: none;
-  user-select: none;
-}
-
-.home-category-row::-webkit-scrollbar {
-  display: none;
-}
-
-.home-category-row[data-dragging] {
-  cursor: grabbing;
-}
-
-.home-category-item {
-  flex: 0 0 var(--category-tile-width);
-  min-width: 0;
-}
-
-/* A square Deep Palm tile: the drawing in the upper part, the label at the bottom. */
-.home-category-tile {
-  display: flex;
-  aspect-ratio: 1 / 1;
-  flex-direction: column;
-  overflow: hidden;
-  border-radius: var(--radius-card);
-  background: var(--brand-palm);
-  color: var(--brand-paper);
-  box-shadow: var(--shadow-sm);
-  text-decoration: none;
-  transition:
-    box-shadow var(--duration-card) var(--ease-primary),
-    transform var(--duration-card) var(--ease-primary);
-}
-
-.home-category-tile:hover {
-  box-shadow: var(--shadow-lg);
-  transform: translateY(var(--motion-lift-card));
-}
-
-.home-category-art {
-  position: relative;
-  display: block;
-  flex: 1 1 0;
-  min-height: 0;
-}
-
-/* The drawing is square and sits centred in the space above the label. */
-.home-category-art svg {
-  position: absolute;
-  inset-block-start: var(--space-3);
-  inset-inline-start: var(--space-3);
-  display: block;
-  width: calc(100% - 2 * var(--space-3));
-  height: calc(100% - var(--space-3));
-}
-
-/* The label shrinks with the tile so a narrow tile keeps a whole word on a line. */
-.home-category-label {
-  padding: var(--space-1) var(--space-3) var(--space-3);
-  font-family: var(--font-display);
-  font-size: clamp(
-    var(--text-meta),
-    calc(var(--category-tile-width) * 0.09),
-    var(--text-link-card-title)
-  );
-  line-height: var(--leading-heading);
-  text-wrap: balance;
 }
 
 .home-organizer-cta {
@@ -4325,17 +4229,13 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   flex-shrink: 0;
 }
 
-.featured-section-header {
-  container-type: inline-size;
-}
-
 .featured-view-all-arrow {
   display: inline-flex;
 }
 
-/* A heading row too narrow for the title and the words keeps only the arrow, underlined. The
+/* On a phone the link keeps only the arrow, underlined, so the heading row never wraps. The
    link's accessible name is set on the link itself, so it is the same either way. */
-@container (max-width: 20rem) {
+@media (max-width: 640px) {
   .featured-view-all {
     min-width: var(--touch-target);
   }
@@ -7612,17 +7512,11 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
 }
 
 /*
- * The hero art is decorative, and beside a centred column it needs the width the column cannot
+ * The hero art is decorative, and around a centred column it needs the width the column cannot
  * give up, so below here the column stands alone. The component watches the same breakpoint and
  * stops its tick so nothing animates off-screen.
  */
 @media (max-width: 1199px) {
-  .home-hero-inner {
-    grid-template-columns: minmax(0, var(--content-hero));
-    justify-content: center;
-    padding-inline: var(--page-padding);
-  }
-
   .home-memphis {
     display: none;
   }
@@ -7897,7 +7791,7 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
     height: var(--wordmark-header-mobile-height);
   }
 
-  .home-hero-main {
+  .home-hero-inner {
     padding-block: var(--space-14);
   }
 
@@ -7910,27 +7804,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   .listing-search .ui-button {
     grid-column: 1 / -1;
     width: 100%;
-  }
-
-  /* A fixed 3 by 3 block of the first nine categories; the other ten are on the list page. */
-  .home-category-row {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: var(--space-3);
-    margin-inline: var(--space-0);
-    padding-inline: var(--space-0);
-    overflow-x: visible;
-    cursor: auto;
-    user-select: auto;
-  }
-
-  .home-category-item[data-phone-hidden] {
-    display: none;
-  }
-
-  .home-category-label {
-    padding: var(--space-1) var(--space-2) var(--space-2);
-    font-size: var(--text-meta);
   }
 
   .home-organizer-cta {
@@ -8087,7 +7960,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   .primary-button:hover,
   .action-chip:hover,
   .competition-card:hover,
-  .home-category-tile:hover,
   .hub-card:hover,
   .home-search-entry:hover {
     transform: none;
