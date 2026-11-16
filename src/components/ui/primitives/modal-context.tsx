@@ -33,16 +33,16 @@ type FormSubmitModalAction = {
   onClick?: never;
 };
 
+// A full-height pop-up draws its own header, so `title` is only the dialog's accessible name and
+// must be plain text. Any other pop-up shows `title` as its heading.
+type ModalTitle = { fullHeight?: false; title: ReactNode } | { fullHeight: true; title: string };
+
 type ModalConfigFields = {
-  title: ReactNode;
   body: ReactNode;
   onClose?: () => void;
   // 560 wide instead of 480. Also means the pop-up holds a field or an image, so a tap outside
   // never closes it and typed text is not lost.
   wide?: boolean;
-  // A pop-up that fills the screen on a phone. `body` is the whole pop-up: it draws its own header
-  // and footer, and `title` is only the dialog's accessible name, so it must be plain text.
-  fullHeight?: boolean;
   // Rendered as role="alertdialog": destructive confirms and pop-ups that report a failure.
   alert?: boolean;
   // Where focus lands on open. Defaults to the first field when `formId` is set, the safe choice
@@ -54,6 +54,7 @@ type ModalConfigFields = {
 // outside do. A pop-up with only a main action (Informasi) uses that one instead. With a `formId`
 // the main button submits that form from the footer, so the form itself lives in `body`.
 export type ModalConfig = ModalConfigFields &
+  ModalTitle &
   (
     | { formId?: undefined; actions: ModalAction[] }
     | { formId: string; actions: Array<SafeModalAction | FormSubmitModalAction> }

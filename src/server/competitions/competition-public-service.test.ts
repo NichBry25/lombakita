@@ -23,6 +23,7 @@ vi.mock("@/lib/logger", () => ({
 }));
 
 import {
+  buildPublicVisibilityCondition,
   buildTeamRangeCondition,
   listPublicCompetitions,
   listFeaturedCompetitions,
@@ -996,6 +997,48 @@ describe("buildTeamRangeCondition", () => {
     expect(evaluateCondition(condition, { mode: "individual", min: null, max: null })).toBe(false);
     expect(evaluateCondition(condition, { mode: "team", min: 5, max: 6 })).toBe(true);
   });
+
+  it("filters an old mode link as the range it stands for", () => {
+    const individual = buildTeamRangeCondition({ mode: "individual" })!;
+    const team = buildTeamRangeCondition({ mode: "team" })!;
+    const individualAsRange = buildTeamRangeCondition({ teamMin: "1", teamMax: "1" })!;
+    const teamAsRange = buildTeamRangeCondition({ teamMin: "2" })!;
+
+    for (const row of TEAM_ROWS) {
+      expect(evaluateCondition(individual, row)).toBe(evaluateCondition(individualAsRange, row));
+      expect(evaluateCondition(team, row)).toBe(evaluateCondition(teamAsRange, row));
+    }
+  });
+
+  it("applies no condition for mode both or a mode it does not know", () => {
+    expect(buildTeamRangeCondition({ mode: "both" })).toBeUndefined();
+    expect(buildTeamRangeCondition({ mode: "online" })).toBeUndefined();
+  });
+
+  it("filters a link that has both old parameters on the narrower overlap of the two", () => {
+    const condition = buildTeamRangeCondition({ mode: "team", teamSize: "small" })!;
+    const asRange = buildTeamRangeCondition({ teamMin: "2", teamMax: "4" })!;
+
+    for (const row of TEAM_ROWS) {
+      expect(evaluateCondition(condition, row)).toBe(evaluateCondition(asRange, row));
+    }
+  });
+
+  it("lets a range override an old mode word", () => {
+    const condition = buildTeamRangeCondition({ mode: "individual", teamMin: "5", teamMax: "6" })!;
+
+    expect(evaluateCondition(condition, { mode: "individual", min: null, max: null })).toBe(false);
+    expect(evaluateCondition(condition, { mode: "team", min: 5, max: 6 })).toBe(true);
+  });
+
+  it("answers a reversed range with the rows of the range the slider shows", () => {
+    const reversed = buildTeamRangeCondition({ teamMin: "7", teamMax: "3" })!;
+    const shownOnSlider = buildTeamRangeCondition({ teamMin: "3", teamMax: "3" })!;
+
+    for (const row of TEAM_ROWS) {
+      expect(evaluateCondition(reversed, row)).toBe(evaluateCondition(shownOnSlider, row));
+    }
+  });
 });
 
 describe("resolveUseSearch — the team range forces the DB path", () => {
@@ -1007,19 +1050,30 @@ describe("resolveUseSearch — the team range forces the DB path", () => {
   it("treats empty teamMin and teamMax as absent", () => {
     expect(resolveUseSearch({ q: "lomba", teamMin: "", teamMax: "" }, true)).toBe(true);
   });
+
+  it("forces the DB path for an old mode link that stands for a range, and not for mode both", () => {
+    expect(resolveUseSearch({ q: "lomba", mode: "team" }, true)).toBe(false);
+    expect(resolveUseSearch({ q: "lomba", mode: "individual" }, true)).toBe(false);
+    expect(resolveUseSearch({ q: "lomba", mode: "both" }, true)).toBe(true);
+  });
+
+  it("does not force the DB path for a range that covers the whole track", () => {
+    expect(resolveUseSearch({ q: "lomba", teamMin: "1", teamMax: "10" }, true)).toBe(true);
+  });
 });
 
 describe("listPublicCompetitions — the filters reach the database query", () => {
   afterEach(() => vi.clearAllMocks());
 
-  // Hands back the WHERE of the listing query as compiled SQL with its values.
-  const compiledListingWhere = async (filters: Parameters<typeof listPublicCompetitions>[0]) => {
-    const whereCalls: unknown[] = [];
+  // Hands back the WHERE of the rows query and of the count query as compiled SQL with its values.
+  const compiledWheres = async (filters: Parameters<typeof listPublicCompetitions>[0]) => {
+    const rowsWheres: unknown[] = [];
+    const countWheres: unknown[] = [];
     const rowsChain = {
       from: vi.fn().mockReturnThis(),
       innerJoin: vi.fn().mockReturnThis(),
       where: vi.fn((condition: unknown) => {
-        whereCalls.push(condition);
+        rowsWheres.push(condition);
         return rowsChain;
       }),
       orderBy: vi.fn().mockReturnThis(),
@@ -1029,7 +1083,10 @@ describe("listPublicCompetitions — the filters reach the database query", () =
     const countChain = {
       from: vi.fn().mockReturnThis(),
       innerJoin: vi.fn().mockReturnThis(),
-      where: vi.fn().mockResolvedValue([{ count: 0 }]),
+      where: vi.fn((condition: unknown) => {
+        countWheres.push(condition);
+        return Promise.resolve([{ count: 0 }]);
+      }),
     };
     let callIndex = 0;
     const db = {
@@ -1037,8 +1094,15 @@ describe("listPublicCompetitions — the filters reach the database query", () =
     } as unknown as Database;
 
     await listPublicCompetitions(filters, db);
-    return new PgDialect().sqlToQuery(whereCalls[0] as SQL);
+    const dialect = new PgDialect();
+    return {
+      rows: dialect.sqlToQuery(rowsWheres[0] as SQL),
+      count: dialect.sqlToQuery(countWheres[0] as SQL),
+    };
   };
+
+  const compiledListingWhere = async (filters: Parameters<typeof listPublicCompetitions>[0]) =>
+    (await compiledWheres(filters)).rows;
 
   const withoutPlaceholderNumbers = (text: string) => text.replace(/\$\d+/g, "$");
 
@@ -1068,10 +1132,37 @@ describe("listPublicCompetitions — the filters reach the database query", () =
     expect(compiled.sql).not.toContain("max_team_size");
   });
 
-  it("still filters on an old mode link", async () => {
-    const compiled = await compiledListingWhere({ mode: "team" });
+  it("filters an old mode link through the range it stands for and not a second time", async () => {
+    const fromMode = await compiledListingWhere({ mode: "team" });
+    const fromRange = await compiledListingWhere({ teamMin: "2" });
 
-    expect(compiled.sql).toContain('"competitions"."mode" = $');
-    expect(compiled.params).toContain("team");
+    expect(fromMode).toEqual(fromRange);
+  });
+
+  it("leaves the mode column out for an old mode both link", async () => {
+    const compiled = await compiledListingWhere({ mode: "both" });
+
+    expect(compiled.sql).not.toContain('"competitions"."mode"');
+  });
+
+  it("carries the team range into the count query, with the same condition as the rows", async () => {
+    const filters = { teamMin: "2", teamMax: "4" };
+    const { rows, count } = await compiledWheres(filters);
+    const range = new PgDialect().sqlToQuery(buildTeamRangeCondition(filters)!);
+
+    expect(count).toEqual(rows);
+    expect(withoutPlaceholderNumbers(count.sql)).toContain(withoutPlaceholderNumbers(range.sql));
+    expect(count.params).toEqual(expect.arrayContaining(range.params));
+  });
+
+  it("combines the range with the public visibility condition by AND", async () => {
+    const filters = { teamMin: "2", teamMax: "4" };
+    const compiled = await compiledListingWhere(filters);
+    const visibility = new PgDialect().sqlToQuery(buildPublicVisibilityCondition());
+    const range = new PgDialect().sqlToQuery(buildTeamRangeCondition(filters)!);
+
+    const sql = withoutPlaceholderNumbers(compiled.sql);
+    expect(sql.startsWith(`(${withoutPlaceholderNumbers(visibility.sql)} and `)).toBe(true);
+    expect(sql.endsWith(` and ${withoutPlaceholderNumbers(range.sql)})`)).toBe(true);
   });
 });

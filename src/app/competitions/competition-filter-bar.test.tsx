@@ -87,13 +87,15 @@ describe("the desktop pill row", () => {
 
   it("drops an old teamSize word when a range is applied, and keeps the search term", () => {
     renderBar({ q: "lomba", teamSize: "small", sort: "deadline_asc" });
-    fireEvent.click(pillRow().getByRole("button", { name: "Ukuran tim" }));
+    fireEvent.click(pillRow().getByRole("button", { name: "Ukuran tim: 2 sampai 4" }));
     const menu = screen.getByRole("dialog", { name: "Ukuran tim" });
 
-    pressKey(within(menu).getByRole("slider", { name: "Ukuran tim minimum" }), "ArrowRight", 4);
+    pressKey(within(menu).getByRole("slider", { name: "Ukuran tim minimum" }), "ArrowRight");
     fireEvent.click(within(menu).getByRole("button", { name: "Terapkan" }));
 
-    expect(mockPush).toHaveBeenCalledWith("/competitions?q=lomba&sort=deadline_asc&teamMin=5");
+    expect(mockPush).toHaveBeenCalledWith(
+      "/competitions?q=lomba&sort=deadline_asc&teamMin=3&teamMax=4",
+    );
   });
 
   it("shows the applied range in the pill and opens the menu on it", () => {
@@ -219,6 +221,112 @@ describe("the phone chip row", () => {
   });
 });
 
+describe("an old mode or teamSize link", () => {
+  const chipNamed = (name: string) =>
+    within(screen.getByRole("list", { name: "Filter yang dipakai" })).getByRole("button", { name });
+
+  it("shows its range in the pill, in the sheet and as a removable chip", () => {
+    renderBar({ mode: "team" });
+
+    expect(pillRow().getByRole("button", { name: "Ukuran tim: 2 sampai 10+" })).toBeTruthy();
+    expect(chipNamed("Hapus filter Ukuran tim: 2 sampai 10+")).toBeTruthy();
+    expect(phoneRow().getByRole("button", { name: "Filter (1)" })).toBeTruthy();
+
+    openSheet();
+    expect(
+      sheet().getByRole("slider", { name: "Ukuran tim minimum" }).getAttribute("aria-valuenow"),
+    ).toBe("2");
+    expect(
+      sheet().getByRole("slider", { name: "Ukuran tim maksimum" }).getAttribute("aria-valuenow"),
+    ).toBe("10");
+  });
+
+  it("shows no range for mode both", () => {
+    renderBar({ mode: "both" });
+
+    expect(pillRow().getByRole("button", { name: "Ukuran tim" })).toBeTruthy();
+    expect(screen.queryByRole("list", { name: "Filter yang dipakai" })).toBeNull();
+  });
+
+  it("is cleared by removing its chip, which takes mode out of the address", () => {
+    renderBar({ mode: "team", category: "debate" });
+
+    fireEvent.click(chipNamed("Hapus filter Ukuran tim: 2 sampai 10+"));
+
+    expect(mockPush).toHaveBeenLastCalledWith("/competitions?category=debate");
+  });
+
+  it.each([
+    {
+      change: "picking a category in the pill row",
+      params: { mode: "team" },
+      act: () => {
+        fireEvent.click(pillRow().getByRole("button", { name: "Kategori" }));
+        fireEvent.click(screen.getByRole("option", { name: "Debat" }));
+      },
+      expected: "/competitions?teamMin=2&category=debate",
+    },
+    {
+      change: "pressing Dibuka",
+      params: { mode: "individual", teamSize: "solo" },
+      act: () => fireEvent.click(phoneRow().getByRole("button", { name: "Dibuka" })),
+      expected: "/competitions?teamMax=1&status=open",
+    },
+    {
+      change: "applying the sheet",
+      params: { mode: "team", teamSize: "large" },
+      act: () => {
+        openSheet();
+        fireEvent.click(sheet().getByRole("radio", { name: "Dibuka" }));
+        fireEvent.click(sheetButton());
+      },
+      expected: "/competitions?teamMin=5&status=open&sort=created_desc",
+    },
+    {
+      change: "applying a range in the pill row",
+      params: { mode: "team" },
+      act: () => {
+        fireEvent.click(pillRow().getByRole("button", { name: "Ukuran tim: 2 sampai 10+" }));
+        const menu = screen.getByRole("dialog", { name: "Ukuran tim" });
+        pressKey(within(menu).getByRole("slider", { name: "Ukuran tim maksimum" }), "ArrowLeft");
+        fireEvent.click(within(menu).getByRole("button", { name: "Terapkan" }));
+      },
+      expected: "/competitions?teamMin=2&teamMax=9",
+    },
+  ])(
+    "leaves no mode or teamSize in the address after $change",
+    ({ params, act: change, expected }) => {
+      renderBar(params);
+
+      change();
+
+      expect(mockPush).toHaveBeenCalledTimes(1);
+      expect(mockPush).toHaveBeenCalledWith(expected);
+      const pushed = String(mockPush.mock.calls[0]![0]);
+      expect(pushed).not.toMatch(/mode=|teamSize=/);
+    },
+  );
+
+  it("clears mode and teamSize with Reset in the sheet", () => {
+    renderBar({ mode: "team", teamSize: "small" });
+    openSheet();
+
+    fireEvent.click(sheet().getByRole("button", { name: "Reset" }));
+    fireEvent.click(sheetButton());
+
+    expect(mockPush).toHaveBeenCalledWith("/competitions?sort=created_desc");
+  });
+
+  it("rewrites a reversed range as the range the slider shows", () => {
+    renderBar({ teamMin: "7", teamMax: "3" });
+
+    expect(pillRow().getByRole("button", { name: "Ukuran tim: 3 sampai 3" })).toBeTruthy();
+    fireEvent.click(phoneRow().getByRole("button", { name: "Dibuka" }));
+
+    expect(mockPush).toHaveBeenCalledWith("/competitions?teamMin=3&teamMax=3&status=open");
+  });
+});
+
 describe("the phone filter sheet", () => {
   it("opens full height with a title, a close button, Reset and the four sections", () => {
     renderBar();
@@ -248,7 +356,7 @@ describe("the phone filter sheet", () => {
 
     expect(mockPush).toHaveBeenCalledTimes(1);
     expect(mockPush).toHaveBeenCalledWith(
-      "/competitions?category=debate&status=open&sort=created_desc&teamMin=2",
+      "/competitions?teamMin=2&category=debate&status=open&sort=created_desc",
     );
     expect(screen.queryByRole("dialog", { name: "Filter" })).toBeNull();
   });
@@ -390,6 +498,90 @@ describe("the live count on the sheet's button", () => {
     ).toBe("3");
   });
 
+  it("keeps the team range from the address in the request when another filter changes", async () => {
+    useTimers();
+    renderBar({ teamMin: "3", teamMax: "6" }, 40);
+    openSheet();
+
+    fireEvent.click(sheet().getByRole("radio", { name: "Dibuka" }));
+    await settle(300);
+
+    const requested = new URL(String(mockFetch.mock.calls[0]![0]), "http://localhost");
+    expect(requested.searchParams.get("status")).toBe("open");
+    expect(requested.searchParams.get("teamMin")).toBe("3");
+    expect(requested.searchParams.get("teamMax")).toBe("6");
+  });
+
+  it("asks for an old mode link as its range and without mode or teamSize", async () => {
+    useTimers();
+    renderBar({ mode: "team", teamSize: "small" }, 40);
+    openSheet();
+
+    fireEvent.click(sheet().getByRole("radio", { name: "Dibuka" }));
+    await settle(300);
+
+    const requested = new URL(String(mockFetch.mock.calls[0]![0]), "http://localhost");
+    expect(requested.searchParams.get("teamMin")).toBe("2");
+    expect(requested.searchParams.get("teamMax")).toBe("4");
+    expect(requested.searchParams.has("mode")).toBe(false);
+    expect(requested.searchParams.has("teamSize")).toBe(false);
+  });
+
+  it("aborts a request that a newer change supersedes and never shows its answer", async () => {
+    useTimers();
+    const requests: Array<{ signal: AbortSignal; answer: (total: number) => void }> = [];
+    // Like the browser's fetch, a request rejects as soon as its signal aborts.
+    mockFetch.mockImplementation(
+      (_url: string, init: { signal: AbortSignal }) =>
+        new Promise((resolve, reject) => {
+          init.signal.addEventListener("abort", () => reject(new DOMException("", "AbortError")));
+          requests.push({
+            signal: init.signal,
+            answer: (total) => resolve({ ok: true, json: async () => ({ meta: { total } }) }),
+          });
+        }),
+    );
+    renderBar({}, 40);
+    openSheet();
+    const minHandle = sheet().getByRole("slider", { name: "Ukuran tim minimum" });
+
+    pressKey(minHandle, "ArrowRight");
+    await settle(300);
+    pressKey(minHandle, "ArrowRight");
+    await settle(300);
+
+    expect(requests).toHaveLength(2);
+    expect(requests[0]!.signal.aborted).toBe(true);
+    expect(requests[1]!.signal.aborted).toBe(false);
+
+    requests[0]!.answer(99);
+    await settle(0);
+    expect(sheetButton().textContent).toBe("Tampilkan 40 lomba");
+    expect(sheetButton().getAttribute("aria-busy")).toBe("true");
+
+    requests[1]!.answer(7);
+    await settle(0);
+    expect(sheetButton().textContent).toBe("Tampilkan 7 lomba");
+    expect(sheetButton().hasAttribute("aria-busy")).toBe(false);
+  });
+
+  it("aborts the request in flight when the sheet closes", async () => {
+    useTimers();
+    let signalOfRequest: AbortSignal | undefined;
+    mockFetch.mockImplementation((_url: string, init: { signal: AbortSignal }) => {
+      signalOfRequest = init.signal;
+      return new Promise(() => undefined);
+    });
+    renderBar({}, 40);
+    openSheet();
+
+    pressKey(sheet().getByRole("slider", { name: "Ukuran tim minimum" }), "ArrowRight");
+    await settle(300);
+    fireEvent.click(sheet().getByRole("button", { name: "Tutup" }));
+
+    expect(signalOfRequest?.aborted).toBe(true);
+  });
+
   it("keeps the last count and shows its spinner while the request is out", async () => {
     useTimers();
     mockFetch.mockReturnValue(new Promise(() => undefined));
@@ -413,7 +605,7 @@ describe("the live count on the sheet's button", () => {
     await settle(300);
     fireEvent.click(sheetButton());
 
-    expect(mockPush).toHaveBeenCalledWith("/competitions?sort=created_desc&teamMin=2");
+    expect(mockPush).toHaveBeenCalledWith("/competitions?teamMin=2&sort=created_desc");
   });
 
   it("says Tampilkan hasil when the request fails", async () => {

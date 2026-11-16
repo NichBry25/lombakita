@@ -234,7 +234,7 @@ export function Modal() {
   const opensOutsideTapAsSafeChoice = !config.wide;
   const layout = footerLayoutFor(safeActions.length);
   const isFullHeight = config.fullHeight === true;
-  const fullHeightName = typeof config.title === "string" ? config.title : undefined;
+  const fullHeightName = config.fullHeight === true ? config.title : undefined;
 
   const safeButtons = safeActions.map((action, index) => (
     <Button

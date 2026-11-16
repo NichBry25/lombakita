@@ -13,7 +13,7 @@ import {
 
 const TITLE = "Kompetisi · Lombakita";
 const DESCRIPTION =
-  "Jelajahi kompetisi yang sedang dibuka di Indonesia. Saring berdasarkan kategori, mode, status, dan ukuran tim.";
+  "Jelajahi kompetisi yang sedang dibuka di Indonesia. Saring berdasarkan kategori, status, dan ukuran tim.";
 
 export const metadata: Metadata = {
   title: TITLE,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, type KeyboardEvent, type PointerEvent } from "react";
+import { useId, useRef, type KeyboardEvent, type PointerEvent } from "react";
 
 export type RangeSliderValue = { min: number; max: number };
 
@@ -13,9 +13,11 @@ type RangeSliderProps = {
   step?: number;
   value: RangeSliderValue;
   onChange: (value: RangeSliderValue) => void;
+  // Names the group the two handles sit in.
+  label: string;
   minHandleLabel: string;
   maxHandleLabel: string;
-  // The range in words, shown above the track.
+  // The range in words, shown above the track and read as the group's description.
   summary: string;
   // Turns a handle's number into the words a screen reader announces for it.
   describeValue?: (value: number) => string;
@@ -42,11 +44,14 @@ export const moveHandle = (
   return handle === "min" ? { min: moved, max: value.max } : { min: value.min, max: moved };
 };
 
-const KEYBOARD_STEP_DIRECTION: Record<string, number> = {
+// How many steps a key moves a handle: arrows one, Page Up and Page Down three.
+const KEYBOARD_STEP_COUNT: Record<string, number> = {
   ArrowRight: 1,
   ArrowUp: 1,
   ArrowLeft: -1,
   ArrowDown: -1,
+  PageUp: 3,
+  PageDown: -3,
 };
 
 // The number a key asks a handle to move to, or undefined for a key the slider does not use.
@@ -62,9 +67,13 @@ export const targetForKey = (
   const current = value[handle];
   if (key === "Home") return lowest;
   if (key === "End") return highest;
-  const direction = KEYBOARD_STEP_DIRECTION[key];
-  return direction === undefined ? undefined : current + direction * step;
+  const stepCount = KEYBOARD_STEP_COUNT[key];
+  return stepCount === undefined ? undefined : current + stepCount * step;
 };
+
+// A key held with Alt, Meta or Ctrl belongs to the browser or the system, such as Alt+Left to go back.
+const hasShortcutModifier = (event: KeyboardEvent): boolean =>
+  event.altKey || event.metaKey || event.ctrlKey;
 
 const percentOf = (value: number, floor: number, ceiling: number): number =>
   ((value - floor) / (ceiling - floor)) * 100;
@@ -80,11 +89,13 @@ export function RangeSlider({
   step = 1,
   value,
   onChange,
+  label,
   minHandleLabel,
   maxHandleLabel,
   summary,
   describeValue = String,
 }: RangeSliderProps) {
+  const summaryId = useId();
   const trackRef = useRef<HTMLDivElement>(null);
   // "undecided" is a press on two handles that share one value: the first move says which to drag.
   const draggedHandleRef = useRef<HandleName | "undecided" | null>(null);
@@ -126,6 +137,8 @@ export function RangeSlider({
   };
 
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    const isPrimaryButton = event.button === 0;
+    if (!isPrimaryButton) return;
     const pointerValue = valueAtPointer(event.clientX);
     const handle = pickHandleToDrag(event.target, pointerValue);
     draggedHandleRef.current = handle;
@@ -153,6 +166,7 @@ export function RangeSlider({
   };
 
   const onHandleKeyDown = (handle: HandleName) => (event: KeyboardEvent<HTMLDivElement>) => {
+    if (hasShortcutModifier(event)) return;
     const target = targetForKey(event.key, handle, value, floor, ceiling, step);
     if (target === undefined) return;
     event.preventDefault();
@@ -185,8 +199,10 @@ export function RangeSlider({
   };
 
   return (
-    <div className="range-slider">
-      <p className="range-slider-summary">{summary}</p>
+    <div className="range-slider" role="group" aria-label={label} aria-describedby={summaryId}>
+      <p id={summaryId} className="range-slider-summary">
+        {summary}
+      </p>
       <div
         ref={trackRef}
         className="range-slider-track"

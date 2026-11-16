@@ -209,7 +209,7 @@ export function FilterDropdown({
         ref={searchRef}
         type="text"
         role="combobox"
-        className="filter-dropdown-search"
+        className="form-input filter-dropdown-search"
         placeholder={`Cari ${label.toLowerCase()}…`}
         aria-label={`Cari ${label.toLowerCase()}`}
         aria-expanded="true"

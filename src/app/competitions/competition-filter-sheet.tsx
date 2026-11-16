@@ -10,10 +10,9 @@ import {
   type FilterOption,
 } from "@/components/ui";
 import { useModal } from "@/components/ui/primitives";
+import { TEAM_SIZE_HIGHEST, TEAM_SIZE_LOWEST } from "@/lib/competitions/team-range";
 import {
   DEFAULT_FILTER_SELECTION,
-  TEAM_SIZE_HIGHEST,
-  TEAM_SIZE_LOWEST,
   competitionsQuery,
   describeTeamRange,
   describeTeamSizeForSpeech,
@@ -150,7 +149,7 @@ function CategoryChoice({ options, value, onChange, takesOpeningFocus }: Categor
     <div className="filter-sheet-category">
       <input
         type="text"
-        className="filter-dropdown-search"
+        className="form-input"
         placeholder="Cari kategori…"
         aria-label="Cari kategori"
         autoComplete="off"
@@ -240,6 +239,7 @@ export function CompetitionFilterSheet({
             ceiling={TEAM_SIZE_HIGHEST}
             value={draft.teamRange}
             onChange={(teamRange) => setDraft((current) => ({ ...current, teamRange }))}
+            label="Ukuran tim"
             minHandleLabel="Ukuran tim minimum"
             maxHandleLabel="Ukuran tim maksimum"
             summary={describeTeamRange(draft.teamRange)}

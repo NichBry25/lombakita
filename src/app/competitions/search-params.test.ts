@@ -20,7 +20,6 @@ import {
   describeTeamRange,
   readCompetitionSearchParams,
   readFilterSelection,
-  readTeamRange,
   selectionToParams,
   teamRangeToParams,
 } from "./search-params";
@@ -85,20 +84,6 @@ describe("readCompetitionSearchParams", () => {
 });
 
 describe("the team size range in the address", () => {
-  it("reads an absent end as the end of the track", () => {
-    expect(readTeamRange({})).toEqual({ min: 1, max: 10 });
-    expect(readTeamRange({ teamMin: "3" })).toEqual({ min: 3, max: 10 });
-    expect(readTeamRange({ teamMax: "4" })).toEqual({ min: 1, max: 4 });
-  });
-
-  it("reads an unreadable end as the end of the track", () => {
-    expect(readTeamRange({ teamMin: "abc", teamMax: "99" })).toEqual({ min: 1, max: 10 });
-  });
-
-  it("never lets the lower end pass the upper end", () => {
-    expect(readTeamRange({ teamMin: "7", teamMax: "3" })).toEqual({ min: 3, max: 3 });
-  });
-
   it("writes both ends for a range inside the track and leaves an end on the track end out", () => {
     expect(teamRangeToParams({ min: 2, max: 4 })).toEqual({ teamMin: "2", teamMax: "4" });
     expect(teamRangeToParams({ min: 2, max: 10 })).toEqual({
@@ -144,7 +129,12 @@ describe("a filter selection", () => {
     expect(readFilterSelection({})).toEqual(DEFAULT_FILTER_SELECTION);
   });
 
-  it("becomes address parameters, and a team range replaces an old teamSize word", () => {
+  it("reads an old mode or teamSize link as the range it stands for", () => {
+    expect(readFilterSelection({ mode: "team" }).teamRange).toEqual({ min: 2, max: 10 });
+    expect(readFilterSelection({ teamSize: "small" }).teamRange).toEqual({ min: 2, max: 4 });
+  });
+
+  it("becomes address parameters, and a team range replaces an old mode and teamSize word", () => {
     const params = selectionToParams({
       category: "debat",
       status: "open",
@@ -156,6 +146,7 @@ describe("a filter selection", () => {
       category: "debat",
       status: "open",
       sort: "deadline_asc",
+      mode: undefined,
       teamSize: undefined,
       teamMin: "2",
       teamMax: "4",
@@ -164,7 +155,7 @@ describe("a filter selection", () => {
 
   it("leaves every filter out of the address when nothing is chosen", () => {
     const href = competitionsHref(
-      { teamSize: "small" },
+      { mode: "team", teamSize: "small" },
       selectionToParams(DEFAULT_FILTER_SELECTION),
     );
 

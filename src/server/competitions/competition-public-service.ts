@@ -40,7 +40,13 @@ import {
   COMPETITION_INDEX_NAME,
   type CompetitionIndexDocument,
 } from "@/server/search/competition-index";
-import { isCompetitionCategory, isCompetitionMode } from "@/server/competitions/competition-core";
+import { isCompetitionCategory } from "@/server/competitions/competition-core";
+import {
+  TEAM_SIZE_HIGHEST,
+  TEAM_SIZE_LOWEST,
+  isTeamRangeNarrowed,
+  readTeamRange,
+} from "@/lib/competitions/team-range";
 import {
   deriveCompetitionPhase,
   type CompetitionPhase,
@@ -360,64 +366,29 @@ const buildStatusCondition = (status: string | undefined): SQL => {
   return or(isNull(end), gte(end, sql`now()`))!;
 };
 
-// The team size range a reader asks for. `max: null` means "no upper bound".
-type TeamRange = { min: number; max: number | null };
-
-const TEAM_RANGE_LOWEST = 1;
-// The largest value the range control sends; as an upper end it means "this size or more".
-const TEAM_RANGE_OPEN_END = 10;
 // A team competition that leaves its minimum empty still needs a team.
 const DEFAULT_TEAM_MINIMUM = 2;
 
-// Links written before the range existed carry one of these words instead of teamMin and teamMax.
-const LEGACY_TEAM_SIZE_RANGES: Record<string, TeamRange> = {
-  solo: { min: 1, max: 1 },
-  small: { min: 2, max: 4 },
-  large: { min: 5, max: null },
-};
-
-const parseTeamBound = (raw: string | undefined): number | undefined => {
-  if (!raw || !/^\d+$/.test(raw)) return undefined;
-  const bound = Number.parseInt(raw, 10);
-  const isInRange = bound >= TEAM_RANGE_LOWEST && bound <= TEAM_RANGE_OPEN_END;
-  return isInRange ? bound : undefined;
-};
-
-// The range the filters ask for, or undefined when they leave every team size in. An unreadable
-// end counts as open, and a range that covers everything is the same as no range.
-const resolveTeamRange = (filters: PublicListingFilters): TeamRange | undefined => {
-  const min = parseTeamBound(filters.teamMin);
-  const max = parseTeamBound(filters.teamMax);
-  const asked: TeamRange | undefined =
-    min === undefined && max === undefined
-      ? LEGACY_TEAM_SIZE_RANGES[filters.teamSize ?? ""]
-      : {
-          min: min ?? TEAM_RANGE_LOWEST,
-          max: max === undefined || max === TEAM_RANGE_OPEN_END ? null : max,
-        };
-  if (!asked) return undefined;
-  const coversEverything = asked.min <= TEAM_RANGE_LOWEST && asked.max === null;
-  return coversEverything ? undefined : asked;
-};
-
-// Team-size range filter (DB-only; the Meilisearch index carries no team columns). A competition
-// shows when the sizes it allows overlap the range: 1 to 1 for individual, its minimum (2 when
-// empty) to its maximum for team, and 1 to its maximum for both. An empty maximum has no upper
-// bound. A competition with no mode allows no known size and never matches.
+// Team-size range filter (DB-only; the Meilisearch index carries no team columns). The range is
+// read through readTeamRange, which also turns an old `mode` or `teamSize` link into a range, so
+// this is the only team filter. A competition shows when the sizes it allows overlap the range:
+// 1 to 1 for individual, its minimum (2 when empty) to its maximum for team, and 1 to its maximum
+// for both. An empty maximum has no upper bound, and so does a range ending at the top of the
+// track. A competition with no mode allows no known size and never matches.
 export const buildTeamRangeCondition = (filters: PublicListingFilters): SQL | undefined => {
-  const range = resolveTeamRange(filters);
-  if (!range) return undefined;
+  const range = readTeamRange(filters);
+  if (!isTeamRangeNarrowed(range)) return undefined;
 
   const mode = competitions.mode;
   const minTeamSize = competitions.minTeamSize;
   const maxTeamSize = competitions.maxTeamSize;
   const reachesRangeStart = or(isNull(maxTeamSize), gte(maxTeamSize, range.min))!;
 
-  const individualFits = range.min <= TEAM_RANGE_LOWEST ? eq(mode, "individual") : undefined;
+  const individualFits = range.min <= TEAM_SIZE_LOWEST ? eq(mode, "individual") : undefined;
   const bothFits = and(eq(mode, "both"), reachesRangeStart)!;
 
   const teamStartsInsideRange =
-    range.max === null
+    range.max === TEAM_SIZE_HIGHEST
       ? undefined
       : or(
           DEFAULT_TEAM_MINIMUM <= range.max ? isNull(minTeamSize) : undefined,
@@ -435,16 +406,14 @@ export const buildTeamRangeCondition = (filters: PublicListingFilters): SQL | un
 const hasSearchableQuery = (q: string | undefined): boolean =>
   Boolean(q && /[\p{L}\p{N}]/u.test(q));
 
-// Meili routing (spec §6): the index lacks registrationStartAt and team-size fields, so any
-// active status or team size parameter forces the DB path to avoid partial filtering + count drift.
+// Meili routing (spec §6): the index lacks registrationStartAt and team-size fields, so an active
+// status or a narrowed team range forces the DB path to avoid partial filtering + count drift.
 // A token-less query is also kept off the search path (it would placeholder-match everything).
 export const resolveUseSearch = (filters: PublicListingFilters, meiliAvailable: boolean): boolean =>
   hasSearchableQuery(filters.q) &&
   meiliAvailable &&
   !filters.status &&
-  !filters.teamSize &&
-  !filters.teamMin &&
-  !filters.teamMax;
+  !isTeamRangeNarrowed(readTeamRange(filters));
 
 const buildDbWhere = (filters: PublicListingFilters) => {
   const conditions = [buildPublicVisibilityCondition(), buildStatusCondition(filters.status)];
@@ -460,9 +429,6 @@ const buildDbWhere = (filters: PublicListingFilters) => {
   }
   if (filters.category && isCompetitionCategory(filters.category)) {
     conditions.push(eq(competitions.category, filters.category));
-  }
-  if (filters.mode && isCompetitionMode(filters.mode)) {
-    conditions.push(eq(competitions.mode, filters.mode));
   }
   const teamRangeCondition = buildTeamRangeCondition(filters);
   if (teamRangeCondition) {
@@ -538,9 +504,6 @@ const listFromMeilisearch = async (
   ];
   if (filters.category && isCompetitionCategory(filters.category)) {
     filterParts.push(`category = "${filters.category}"`);
-  }
-  if (filters.mode && isCompetitionMode(filters.mode)) {
-    filterParts.push(`mode = "${filters.mode}"`);
   }
   if (filters.institutionSlug) {
     filterParts.push(`institutionSlug = "${filters.institutionSlug.trim().toLowerCase()}"`);

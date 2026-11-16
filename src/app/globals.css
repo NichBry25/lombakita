@@ -3552,26 +3552,11 @@ button.header-sheet-row {
   list-style: none;
 }
 
+/* The field is a .form-input. Inside a menu it keeps its place while the options scroll under it
+   and sits one size down, so the menu stays compact. */
 .filter-dropdown-search {
-  box-sizing: border-box;
-  inline-size: 100%;
   flex: none;
-  padding: var(--space-2) var(--space-4);
-  border: 0;
-  border-radius: var(--radius-control);
-  background: var(--color-raised);
-  color: var(--color-ink);
-  font-size: var(--text-body);
-  box-shadow: inset 0 0 0 1.5px var(--color-field-ring);
-}
-
-.filter-dropdown-search::placeholder {
-  color: var(--color-ink-faint);
-}
-
-.filter-dropdown-search:focus-visible {
-  outline: var(--focus-width) solid var(--focus-color);
-  outline-offset: var(--border-strong);
+  min-height: var(--control-height-sm);
 }
 
 .filter-dropdown-empty {
@@ -5473,10 +5458,17 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
 }
 
 /* Full height: the body supplies its own header and footer, so the dialog holds no padding of its
-   own and its content fills it. On a phone it also fills the width; the rule is under the 640px
-   block below. */
-.modal-dialog[data-height="full"] {
+   own and its content fills the whole screen at every width. */
+.modal-backdrop[data-height="full"] {
   padding: var(--space-0);
+}
+
+.modal-dialog[data-height="full"] {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  padding: var(--space-0);
+  border-radius: var(--space-0);
   overflow: hidden;
 }
 
@@ -8059,16 +8051,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
     max-height: 100%;
     padding: var(--modal-padding-phone);
     border-radius: var(--modal-radius-phone);
-  }
-
-  .modal-backdrop[data-height="full"] {
-    padding: var(--space-0);
-  }
-
-  .modal-dialog[data-height="full"] {
-    height: 100%;
-    padding: var(--space-0);
-    border-radius: var(--space-0);
   }
 
   .modal-title {

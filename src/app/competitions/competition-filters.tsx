@@ -14,12 +14,15 @@ import type { FilterSheetSection } from "./competition-filter-sheet";
 import {
   TEAM_SIZE_HIGHEST,
   TEAM_SIZE_LOWEST,
+  isTeamRangeNarrowed,
+  type TeamRange,
+} from "@/lib/competitions/team-range";
+import {
+  CLEAR_TEAM_RANGE_PARAMS,
   describeTeamRange,
   describeTeamSizeForSpeech,
-  isTeamRangeNarrowed,
   type CompetitionSearchParams,
   type FilterSelection,
-  type TeamRange,
 } from "./search-params";
 
 export const CATEGORY_OPTIONS: FilterOption[] = [
@@ -131,6 +134,7 @@ function TeamSizeFilter({ range, onApply }: TeamSizeFilterProps) {
             ceiling={TEAM_SIZE_HIGHEST}
             value={draft}
             onChange={setDraft}
+            label="Ukuran tim"
             minHandleLabel="Ukuran tim minimum"
             maxHandleLabel="Ukuran tim maksimum"
             summary={describeTeamRange(draft)}
@@ -219,7 +223,7 @@ export const listAppliedChips = (selection: FilterSelection): AppliedChip[] => {
     chips.push({
       key: "team",
       label: `Ukuran tim: ${describeTeamRange(selection.teamRange)}`,
-      clears: { teamMin: undefined, teamMax: undefined, teamSize: undefined },
+      clears: CLEAR_TEAM_RANGE_PARAMS,
     });
   }
   if (selection.status !== "") {

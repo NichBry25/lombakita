@@ -11,8 +11,11 @@ import {
   SORT_OPTIONS,
   STATUS_OPTIONS,
 } from "./competition-filters";
-import type { CompetitionSearchParams, FilterSelection, TeamRange } from "./search-params";
+import type { TeamRange } from "@/lib/competitions/team-range";
+import type { CompetitionSearchParams, FilterSelection } from "./search-params";
 import {
+  CLEAR_TEAM_RANGE_PARAMS,
+  DROPPED_TEAM_PARAMS,
   competitionsHref,
   readFilterSelection,
   selectionToParams,
@@ -21,11 +24,8 @@ import {
 
 const CLEAR_EVERY_FILTER: Partial<CompetitionSearchParams> = {
   category: undefined,
-  mode: undefined,
   status: undefined,
-  teamSize: undefined,
-  teamMin: undefined,
-  teamMax: undefined,
+  ...CLEAR_TEAM_RANGE_PARAMS,
 };
 
 /**
@@ -60,15 +60,22 @@ export function CompetitionFilterBar({
   const [isPending, startTransition] = useTransition();
   const selection = readFilterSelection(params);
 
+  // The range the page shows, written back as teamMin and teamMax with `mode` and `teamSize`
+  // removed, so any change from an old link leaves only the new parameters in the address.
+  const currentTeamParams = {
+    ...DROPPED_TEAM_PARAMS,
+    ...teamRangeToParams(selection.teamRange),
+  };
+
   const navigate = (overrides: Partial<CompetitionSearchParams>) => {
     // A changed filter re-selects the result set, so the old page number no longer refers to
     // anything. Landing on page 4 of a two-page set shows an empty grid.
-    const href = competitionsHref(params, { ...overrides, page: undefined });
+    const href = competitionsHref(params, { ...currentTeamParams, ...overrides, page: undefined });
     startTransition(() => router.push(href));
   };
 
   const applyTeamRange = (range: TeamRange) => {
-    navigate({ ...teamRangeToParams(range), teamSize: undefined });
+    navigate(teamRangeToParams(range));
   };
 
   const applySheetSelection = (picked: FilterSelection) => {

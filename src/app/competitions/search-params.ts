@@ -1,3 +1,11 @@
+import {
+  FULL_TEAM_RANGE,
+  TEAM_SIZE_HIGHEST,
+  TEAM_SIZE_LOWEST,
+  readTeamRange,
+  type TeamRange,
+} from "@/lib/competitions/team-range";
+
 /**
  * The listing's query string, in one place.
  *
@@ -92,35 +100,6 @@ export const competitionsHref = (
   return serialized ? `/competitions?${serialized}` : "/competitions";
 };
 
-/**
- * The team size range runs from 1 (individual) to 10, and 10 means "10 or more". The server reads
- * the same bounds in competition-public-service.ts.
- */
-export const TEAM_SIZE_LOWEST = 1;
-export const TEAM_SIZE_HIGHEST = 10;
-
-export type TeamRange = { min: number; max: number };
-
-const parseTeamBound = (raw: string | undefined): number | undefined => {
-  if (!raw || !/^\d+$/.test(raw)) return undefined;
-  const bound = Number.parseInt(raw, 10);
-  const isInRange = bound >= TEAM_SIZE_LOWEST && bound <= TEAM_SIZE_HIGHEST;
-  return isInRange ? bound : undefined;
-};
-
-/**
- * The range the address asks for, with an absent or unreadable end at the end of the track. A
- * lower end above the upper end is pulled down to it, because the handles never cross.
- */
-export const readTeamRange = (params: CompetitionSearchParams): TeamRange => {
-  const max = parseTeamBound(params.teamMax) ?? TEAM_SIZE_HIGHEST;
-  const min = Math.min(parseTeamBound(params.teamMin) ?? TEAM_SIZE_LOWEST, max);
-  return { min, max };
-};
-
-export const isTeamRangeNarrowed = (range: TeamRange): boolean =>
-  range.min > TEAM_SIZE_LOWEST || range.max < TEAM_SIZE_HIGHEST;
-
 /** The address parameters for a range. An end at the end of the track is left out. */
 export const teamRangeToParams = (
   range: TeamRange,
@@ -163,12 +142,18 @@ export const DEFAULT_FILTER_SELECTION: FilterSelection = {
   category: "",
   status: "",
   sort: DEFAULT_SORT,
-  teamRange: { min: TEAM_SIZE_LOWEST, max: TEAM_SIZE_HIGHEST },
+  teamRange: FULL_TEAM_RANGE,
+};
+
+/** The old team parameters an address drops the moment a team range is written to it. */
+export const DROPPED_TEAM_PARAMS: Partial<CompetitionSearchParams> = {
+  mode: undefined,
+  teamSize: undefined,
 };
 
 /**
- * The address parameters for a selection. A team range replaces a `teamSize` word from an old
- * link, so that link's filter does not linger beside the range.
+ * The address parameters for a selection. It writes only teamMin and teamMax and removes `mode`
+ * and `teamSize`, so an old link's filter does not linger beside the range.
  */
 export const selectionToParams = (
   selection: FilterSelection,
@@ -176,6 +161,13 @@ export const selectionToParams = (
   category: selection.category || undefined,
   status: selection.status || undefined,
   sort: selection.sort || undefined,
-  teamSize: undefined,
+  ...DROPPED_TEAM_PARAMS,
   ...teamRangeToParams(selection.teamRange),
 });
+
+/** The address parameters that clear the team range, old ones included. */
+export const CLEAR_TEAM_RANGE_PARAMS: Partial<CompetitionSearchParams> = {
+  ...DROPPED_TEAM_PARAMS,
+  teamMin: undefined,
+  teamMax: undefined,
+};

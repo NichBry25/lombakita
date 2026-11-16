@@ -4,7 +4,7 @@ import { useState } from "react";
 import { render, screen, act, waitFor, fireEvent } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { MAIN_CONTENT_ID } from "../main-content-id";
-import { ModalProvider, useModal, useModalTask } from "./modal-context";
+import { ModalProvider, useModal, useModalTask, type ModalConfig } from "./modal-context";
 import { Modal } from "./modal";
 
 // Renders the provider + the Modal surface, and exposes openModal to the test via a trigger button
@@ -580,6 +580,24 @@ describe("Modal — full height", () => {
 
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(document.activeElement).toBe(trigger);
+  });
+
+  it("asks for a text title, because the title is the only name the dialog has", () => {
+    // @ts-expect-error a full height pop-up has no heading of its own, so its title must be a string
+    const fullHeightWithMarkup: ModalConfig = {
+      title: <strong>Filter</strong>,
+      fullHeight: true,
+      actions: [],
+      body: null,
+    };
+    const ordinaryWithMarkup: ModalConfig = {
+      title: <strong>Konfirmasi</strong>,
+      actions: [],
+      body: null,
+    };
+
+    expect(fullHeightWithMarkup.fullHeight).toBe(true);
+    expect(ordinaryWithMarkup.fullHeight).toBeUndefined();
   });
 
   it("leaves an ordinary pop-up without the full height marks", () => {
