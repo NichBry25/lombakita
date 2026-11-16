@@ -15,8 +15,10 @@ export const PAYMENT_EXPIRY_CANCELLATION_REASON = "payment_deadline_expired";
  * Whether the registration was cancelled by the person's own withdrawal.
  *
  * A withdrawal is the one cancellation whose reason is text the person typed and is never empty.
- * The two cancellations the platform makes each write a named sentinel, so a cancelled row with
- * neither sentinel and a reason is the person's own.
+ * The platform writes named sentinels for its own cancellations, so a cancelled row with no
+ * sentinel and a reason is the person's own. This function checks two of them. A third,
+ * TEAM_BELOW_MINIMUM_CANCELLATION_REASON (team-close-check-service.ts), is written only for free
+ * competitions today, which have no payment view.
  */
 export const wasWithdrawnByCandidate = (registration: {
   status: CompetitionRegistrationStatus;

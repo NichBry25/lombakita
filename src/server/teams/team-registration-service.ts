@@ -221,7 +221,8 @@ export const hasFormingTeamSentPaymentProof = async (
   competitionId: string,
   db: DbOrTx = getDb(),
 ): Promise<boolean> => {
-  // Not findAnyTeamRegistrationRow: status = 'cancelled' keeps a submitted team's live proof out.
+  // A never-cancelled submitted team has no cancelled row, so its live proof is not counted. Not
+  // findAnyTeamRegistrationRow, which would count it.
   const [cancelledRow] = await db
     .select({ id: competitionRegistrations.id })
     .from(competitionRegistrations)
@@ -645,7 +646,8 @@ export const cancelTeamRegistration = async (
   // a solo entrant on the same competition, both having paid nothing, got different answers.
   // A team with no registration rows at all has no payment and therefore no proof. The anchor
   // lookup is shared with the surface that decides whether to OFFER the cancel control, so the
-  // control cannot appear on a team this guard would refuse.
+  // control cannot appear on a team this guard would refuse. It returns any row of the team, not
+  // the payment anchor.
   //
   // Asked of the TEAM'S OWN MONEY, never of the competition's current price, for the same reason
   // the individual arm is: a fee lowered to zero would otherwise skip the check against a team

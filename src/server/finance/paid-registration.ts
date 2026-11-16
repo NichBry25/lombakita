@@ -30,8 +30,9 @@ type TransactionClient = Parameters<Parameters<Database["transaction"]>[0]>[0];
 //                        whether the cancel affordance is OFFERED. Fires earliest and, unlike the
 //                        others, NEVER GOES BACK TO FALSE. A rejected or voided proof
 //                        still counts, because the platform cannot establish that no money moved.
-//   AWAITING REVIEW:     a proof is sent and the organiser has not decided it yet. Drives the hold
-//                        on extending a published close and on a draft's price. Narrower than
+//   AWAITING REVIEW:     a proof is sent and the organiser has not decided it yet. Drives only
+//                        the hold on extending a published close (the close-date path in
+//                        competition-service.ts). Narrower than
 //                        in flight: a verified transfer is settled and holds nothing back.
 //
 // Collapsing any pair into one "is this paid" helper would pick one of those moments and get the

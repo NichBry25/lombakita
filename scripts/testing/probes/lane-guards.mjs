@@ -1,16 +1,17 @@
 /*
  * Rule 36 probes for two guards of the manual payment lane.
  *
- * G1, CLASS B. transitionCompetitionStatus refuses published to draft before it writes anything.
+ * The published-to-draft refusal, CLASS B. transitionCompetitionStatus refuses published to draft
+ * before it writes anything.
  * Unpublishing cancels the registrations and refuses while a transfer proof is in flight, and only
  * unpublishCompetition does both. The harmful move is a published competition written to draft with
  * a proof in flight. The refusal has no transaction around it, so a refusal moved below the status
  * write commits draft and then throws the same error: the detector is the stored state that the
  * service test reads afterwards, never the refusal alone.
  *
- * G2, CLASS A1-IN. The close-move transaction takes the participation lock and then re-reads whether
- * a transfer awaits review, and the wait check throws inside the transaction, which rolls the write
- * back. The harmful move is the close moving while a proof sent during the extension waits for
+ * The close-extension wait, CLASS A1-IN. The close-move transaction takes the participation lock
+ * and then re-reads whether a transfer awaits review, and the wait check throws inside the
+ * transaction, which rolls the write back. The harmful move is the close moving while a proof sent during the extension waits for
  * review. The detector is a committing race: the extension parks on the lock, the lock holder
  * commits a proof, and the extension must be refused with the close unchanged. Moving the check
  * below the write inside the same transaction is benign, because the throw rolls the write back, so

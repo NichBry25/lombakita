@@ -1014,7 +1014,9 @@ export const transitionCompetitionStatus = async (
     );
   }
 
-  // DEC-0132: published → draft stays a defined move, but this primitive writes only the status.
+  // DEC-0132, DEC-0271: published → draft stays a defined move, but this primitive writes only the
+  // status. DEC-0271 states that no path takes a competition with a proof pending or verified back
+  // to draft.
   // Unpublishing also cancels the registrations and refuses while money is in flight, and only
   // unpublishCompetition does both.
   if (competition.status === "published" && targetStatus === "draft") {
@@ -1085,17 +1087,16 @@ export const transitionCompetitionStatus = async (
     );
   }
 
-  // Unpublish (published → draft) is not reached through this generic primitive — it is owned by
-  // unpublishCompetition, which cancels every active registration inside one transaction. The
-  // route layer calls that function directly, so this path serves the publish transition only.
+  // This function writes only draft → published. Unpublish (published → draft) is
+  // unpublishCompetition, which cancels every active registration inside one transaction.
 
   const updates: Record<string, unknown> = {
     status: targetStatus,
     updatedAt: sql`now()`,
   };
   if (targetStatus === "published") updates.publishedAt = new Date();
-  // publishedAt is intentionally NOT cleared on unpublish (published → draft). It records the
-  // first-publication timestamp as historical metadata — useful for audit and discovery signals.
+  // publishedAt records the first-publication timestamp as historical metadata, useful for audit
+  // and discovery signals. unpublishCompetition preserves it (DEC-0030).
 
   // An account deletion can clear the contact after the gate above read it, so the publish write
   // itself refuses a row without one (Rule 25).

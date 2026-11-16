@@ -40,9 +40,11 @@ import { notifyPaymentOutcome } from "@/server/finance/payment-notifications";
 //
 // DEC-0132 blocks an ORGANISER from unpublishing while a bukti transfer is in flight, because doing
 // so cancels every registration and would strand a candidate who has already transferred real
-// rupiah. The way out is resolving each transfer: the organiser verifies or rejects it, or an
-// operator voids one nobody will rule on. The operator's cancellation below holds to the same
+// rupiah. The way out is releasing each transfer: the organiser rejects it, or an operator voids
+// one nobody will rule on. The operator's cancellation below holds to the same
 // block, so no path takes a competition with a transfer in flight back to draft.
+// A verified transfer keeps the block for good: the void accepts only pending_review and rejected
+// proofs, so a competition holding a verified transfer can never be withdrawn.
 //
 // Both actions are AUDITED and both REQUIRE A REASON, because each is an operator's decision over an
 // organiser's competition or a payer's transfer, and the reason is the only record of why.
@@ -103,7 +105,7 @@ export type OpsCancelCompetitionResult = {
  * Holds the participation lock and CASes on `status = 'published'` for the same reason the sibling
  * paths do: a concurrent participation decision or organiser transition must not interleave with a
  * cascade that cancels every registration. Irreversible: cancelled registrations are terminal
- * (DEC-0070) and nothing here can put them back.
+ * and nothing here can put them back.
  *
  * Never clears a proof. Voiding one is a separate, separately audited decision
  * (`voidPaymentProofAsOps`), so one click never both cancels a competition and discards the evidence

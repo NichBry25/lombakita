@@ -1813,6 +1813,7 @@ describe.skipIf(skipWithoutDatabase)(
       return { candidateUserId: candidate!.id, paymentId: payment!.id };
     };
 
+    // The proof is inserted directly because submitManualPaymentProof takes the lock the barrier holds.
     const commitPendingProof = async (
       competitionId: string,
       candidateUserId: string,

@@ -34,6 +34,7 @@ import { logger } from "@/lib/logger";
 // deadline passes SUSPENDS expiry indefinitely. A candidate who transferred real money and uploaded
 // their evidence in time must never be cancelled because the organiser was slow to look at it.
 
+// Kept because two integration tests import the constant from this service.
 export { PAYMENT_EXPIRY_CANCELLATION_REASON };
 
 /**

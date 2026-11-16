@@ -78,7 +78,8 @@ type CompetitionErrorCode =
   | "competition_unpublish_blocked_after_start"
   | "competition_unpublish_blocked_after_participation_confirmation"
   // DEC-0132: money is in flight, so withdrawing would cancel a registration someone has already
-  // paid for. Resolving each transfer releases it.
+  // paid for. Rejecting or voiding a transfer releases it. A verified transfer keeps the block for
+  // good.
   | "competition_unpublish_blocked_payment_in_flight"
   // Publishing fixes the price: its amount and currency change only while the competition is a draft.
   | "competition_fee_locked_after_publish"

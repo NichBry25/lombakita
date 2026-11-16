@@ -21,7 +21,8 @@ import {
 // WHAT THE ESCAPE HATCH CAN SEE.
 //
 // DEC-0132 blocks an organiser's unpublish and an operator's cancellation alike while money is in
-// flight, and resolving each transfer is the way out. A list nobody can find is no way out, so this
+// flight. Rejecting or voiding a transfer is the way out, and a verified transfer keeps the block
+// for good. A list nobody can find is no way out, so this
 // read puts the blocked competitions in front of the operator rather than making them know an id.
 //
 // THE LIST IS BUILT FROM `IN_FLIGHT_PROOF_STATUSES`, the same exported constant

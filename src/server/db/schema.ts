@@ -1146,8 +1146,8 @@ export const competitionRegistrationTypeEnum = pgEnum("competition_registration_
 // `confirmed` is the only initial state, for a paid registration too (DEC-0175). `cancelled` is
 // terminal for the row: nothing moves a cancelled row back to confirmed. Registering again inserts
 // a new row and keeps the cancelled one as history.
-// Phase 7: pending_payment state — not reachable in MVP. Schema-present so the state machine
-// can grow into paid registration without a destructive enum migration.
+// `pending_payment` is an enum member that no code path writes. Dropping it would take a
+// destructive enum migration.
 export const competitionRegistrationStatusEnum = pgEnum("competition_registration_status", [
   "confirmed",
   "cancelled",
@@ -1175,7 +1175,7 @@ export type CompetitionRegistrationReviewStatus =
 // in the migration: UNIQUE (student_id, competition_id) WHERE status != 'cancelled'. Cancelled
 // rows are kept as history and sit outside the index, so registering again inserts a new row.
 // A cancelled individual row that a payment proof was sent for still blocks registering again
-// as an individual, in the service (DEC-0174), until an unpublish closes its publication.
+// as an individual, in the service (DEC-0264), until an unpublish closes its publication.
 //
 // `team_id` joins a registration row to a `teams` row when registration_type='team'.
 // The DB CHECK `competition_registrations_type_team_id_chk` enforces co-presence: a 'team' row
@@ -1200,6 +1200,8 @@ export const competitionRegistrations = pgTable(
       .notNull()
       .default("individual"),
     status: competitionRegistrationStatusEnum("status").notNull().default("confirmed"),
+    // DEC-0262: a payment's expiry cancels the team rows registered no later than the payment's own
+    // row, so this column is never rewritten after insert. Its value comes from the app server's clock.
     registeredAt: timestamp("registered_at", { mode: "date", withTimezone: true })
       .defaultNow()
       .notNull(),

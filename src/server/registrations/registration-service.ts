@@ -123,9 +123,10 @@ const findActiveRegistration = async (
 };
 
 // A cancelled individual registration that a payment proof was sent for keeps blocking a new one
-// (DEC-0174: the proof, not the competition's price) within its publication. A row whose
+// (DEC-0264: the proof, not the competition's price) within its publication. A row whose
 // publication an unpublish closed blocks nothing. The page asks the same question with this reader,
-// so the card never offers what the server refuses.
+// so the card does not offer what the server refuses. A stale tab can still show it, and the server
+// refuses.
 export const hasPaymentProofOnCancelledIndividualRegistrations = async (
   studentId: string,
   competitionId: string,
