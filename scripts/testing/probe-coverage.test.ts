@@ -55,6 +55,7 @@ import { probes as sessionMfaDefaultProbes } from "./probes/session-mfa-default.
 import { probes as qrisPayerGateProbes } from "./probes/qris-payer-gate.mjs";
 import { probes as teamRowCancelProbes } from "./probes/team-row-cancel.mjs";
 import { probes as laneGuardsProbes } from "./probes/lane-guards.mjs";
+import { probes as noticeRecipientsProbes } from "./probes/notice-recipients.mjs";
 
 const SUITES: Record<string, Probe[]> = {
   "config-gates": configGateProbes,
@@ -89,6 +90,7 @@ const SUITES: Record<string, Probe[]> = {
   "qris-payer-gate": qrisPayerGateProbes,
   "team-row-cancel": teamRowCancelProbes,
   "lane-guards": laneGuardsProbes,
+  "notice-recipients": noticeRecipientsProbes,
 };
 
 const everyProbe: [string, Probe][] = Object.entries(SUITES).flatMap(([suite, probes]) =>

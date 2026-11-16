@@ -243,6 +243,10 @@ jobs:
         if: ${{ !cancelled() && steps.database-ready.outcome == 'success' }}
         run: node scripts/testing/probes/lane-guards.mjs
 
+      - name: "Probe suite: notice-recipients"
+        if: ${{ !cancelled() && steps.database-ready.outcome == 'success' }}
+        run: node scripts/testing/probes/notice-recipients.mjs
+
       - name: "Probe suite: qris-payer-gate"
         if: ${{ !cancelled() && steps.database-ready.outcome == 'success' }}
         run: node scripts/testing/probes/qris-payer-gate.mjs
