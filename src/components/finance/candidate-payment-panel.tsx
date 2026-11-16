@@ -23,6 +23,8 @@ import {
 } from "@/lib/finance/payment-display";
 import type { ManualPaymentProofStatus } from "@/lib/finance/payment-model";
 import type { PaymentDerivedStatus } from "@/lib/finance/payment-state";
+import { wasWithdrawnByCandidate } from "@/lib/finance/registration-cancellation";
+import type { CompetitionRegistrationStatus } from "@/server/db/schema";
 import {
   describePaymentDeadline,
   formatTimeRemaining,
@@ -73,6 +75,8 @@ export type CandidatePaymentPanelProps = {
     dueAt: string | null;
     deadlineSuspended: boolean;
     status: PaymentDerivedStatus;
+    registrationStatus: CompetitionRegistrationStatus;
+    registrationCancellationReason: string | null;
     instructions: {
       bankName: string | null;
       accountNumber: string | null;
@@ -126,6 +130,16 @@ export function CandidatePaymentPanel({
   const headingId = "payment-panel-heading";
   const instructionsId = "payment-panel-instructions";
   const inputId = "payment-panel-proof-file";
+
+  // A team member's row is not the payer's, so it keeps the full panel and its own notice.
+  const payerWithdrew =
+    payment.isPayer &&
+    wasWithdrawnByCandidate({
+      status: payment.registrationStatus,
+      cancellationReason: payment.registrationCancellationReason,
+    });
+
+  if (payerWithdrew) return <WithdrawnRegistrationNotice headingId={headingId} />;
 
   const handleFileSelect = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] ?? null;
@@ -331,6 +345,26 @@ export function CandidatePaymentPanel({
           </Button>
         </div>
       ) : null}
+    </section>
+  );
+}
+
+/**
+ * The whole panel for a payment whose payer withdrew the registration it belongs to.
+ *
+ * No deadline, amount, account or QRIS: the person withdrew, so each of them would describe money
+ * they no longer owe, and the deadline passing would otherwise be reported as an automatic
+ * cancellation nobody withdrew.
+ */
+function WithdrawnRegistrationNotice({ headingId }: { headingId: string }) {
+  return (
+    <section className="content-section" aria-labelledby={headingId}>
+      <div className="section-heading">
+        <h2 id={headingId}>Pembayaran</h2>
+      </div>
+      <Feedback tone="info">
+        Anda telah membatalkan pendaftaran ini. Pembayarannya tidak perlu dilanjutkan.
+      </Feedback>
     </section>
   );
 }
@@ -558,7 +592,8 @@ function PaymentStateNotice({ payment }: { payment: CandidatePaymentPanelProps["
 
   // "secara otomatis" is load-bearing: nobody decided this. The organiser did not reject the
   // candidate and the candidate did not withdraw, and a cancellation with no visible author reads
-  // as one of those two. Whether the person may register again is the registration card's answer,
+  // as one of those two. A payer who did withdraw never reaches this branch, because the panel
+  // shows only the withdrawal notice. Whether the person may register again is the registration card's answer,
   // not this message's: the panel cannot tell an individual payment from a team captain's.
   if (payment.status === "expired") {
     return (

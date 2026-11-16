@@ -12,6 +12,7 @@ import {
   financePayments,
 } from "@/server/db/schema";
 import { foldPaymentEvents } from "@/lib/finance/payment-state";
+import { PAYMENT_EXPIRY_CANCELLATION_REASON } from "@/lib/finance/registration-cancellation";
 import { appendPaymentEvent } from "@/server/finance/payment-service";
 import { mintManualExpiryEventKey } from "@/server/finance/idempotency-key";
 import { notifyPaymentOutcome } from "@/server/finance/payment-notifications";
@@ -33,15 +34,7 @@ import { logger } from "@/lib/logger";
 // deadline passes SUSPENDS expiry indefinitely. A candidate who transferred real money and uploaded
 // their evidence in time must never be cancelled because the organiser was slow to look at it.
 
-/**
- * The cancellation reason written on an expired registration.
- *
- * A distinct sentinel rather than prose, because `cancellation_reason` is free text with no enum
- * and every later report has to separate "the candidate withdrew" from "the platform cancelled
- * this because nobody paid". Those are opposite facts about the same column, and a human-written
- * sentence cannot be filtered on reliably.
- */
-export const PAYMENT_EXPIRY_CANCELLATION_REASON = "payment_deadline_expired";
+export { PAYMENT_EXPIRY_CANCELLATION_REASON };
 
 /**
  * Whether a proof awaiting a verdict is holding this payment's deadline open.

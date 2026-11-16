@@ -5,6 +5,7 @@ assertServerOnly("server/finance/candidate-payment-view");
 import { and, desc, eq, gt, inArray } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
 import {
+  type CompetitionRegistrationStatus,
   competitionRegistrations,
   financeManualPaymentProofs,
   financePaymentEvents,
@@ -81,6 +82,14 @@ export type CandidatePaymentView = {
    */
   deadlineSuspended: boolean;
   status: PaymentDerivedStatus;
+  /**
+   * The viewer's own registration in the payment's group, with the reason it was cancelled.
+   *
+   * The payment status above is about the money and says nothing about who ended the registration,
+   * so a panel that read only it could not tell a lapsed deadline from the person's own withdrawal.
+   */
+  registrationStatus: CompetitionRegistrationStatus;
+  registrationCancellationReason: string | null;
   /**
    * Where to send the money, as it stood when the payment was created.
    *
@@ -188,7 +197,11 @@ export const loadCandidatePaymentView = async (
   // The person's newest row in the group decides whether the lane is open, so a row their team
   // withdrew does not close the lane of the registration that replaced it.
   const [membership] = await db
-    .select({ id: competitionRegistrations.id, status: competitionRegistrations.status })
+    .select({
+      id: competitionRegistrations.id,
+      status: competitionRegistrations.status,
+      cancellationReason: competitionRegistrations.cancellationReason,
+    })
     .from(competitionRegistrations)
     .where(
       and(
@@ -268,6 +281,8 @@ export const loadCandidatePaymentView = async (
     dueAt: payment.dueAt,
     deadlineSuspended: await isExpirySuspendedByPendingProof(payment.id, db),
     status,
+    registrationStatus: membership.status,
+    registrationCancellationReason: membership.cancellationReason,
     instructions: snapshot
       ? {
           bankName: snapshot.bankName,

@@ -58,6 +58,8 @@ export default async function SubmissionPage({
             dueAt: payment.dueAt ? payment.dueAt.toISOString() : null,
             deadlineSuspended: payment.deadlineSuspended,
             status: payment.status,
+            registrationStatus: payment.registrationStatus,
+            registrationCancellationReason: payment.registrationCancellationReason,
             instructions: payment.instructions,
             proof: payment.proof
               ? {

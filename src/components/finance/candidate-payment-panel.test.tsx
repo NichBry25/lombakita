@@ -33,7 +33,10 @@ const panelElement = (
   deadlineSuspended: boolean,
   overrides: {
     reason?: string;
-    status?: "pending" | "succeeded" | "refunded";
+    status?: "pending" | "succeeded" | "refunded" | "expired";
+    registrationStatus?: CandidatePaymentPanelProps["payment"]["registrationStatus"];
+    registrationCancellationReason?: string | null;
+    isPayer?: boolean;
     canSubmitProof?: boolean;
     canResubmitProof?: boolean;
     qris?: QrisState;
@@ -52,6 +55,8 @@ const panelElement = (
         dueAt: DUE,
         deadlineSuspended,
         status: overrides.status ?? "pending",
+        registrationStatus: overrides.registrationStatus ?? "confirmed",
+        registrationCancellationReason: overrides.registrationCancellationReason ?? null,
         instructions: {
           bankName: overrides.withBankDetails === false ? null : "Bank Mandiri",
           accountNumber: overrides.withBankDetails === false ? null : "1370012345678",
@@ -69,7 +74,7 @@ const panelElement = (
                 rejectionReason: overrides.reason ?? "Nominal tidak sesuai",
                 resubmissionAllowed: proof.resubmissionAllowed ?? true,
               },
-        isPayer: true,
+        isPayer: overrides.isPayer ?? true,
         canSubmitProof: overrides.canSubmitProof ?? false,
         canResubmitProof: overrides.canResubmitProof ?? false,
       }}
@@ -106,6 +111,99 @@ describe("the rejection notice and the clock", () => {
 
     expect(screen.getAllByText(SUSPENDED).length).toBeGreaterThan(0);
     expect(screen.queryByText(AUTO_CANCEL)).toBeNull();
+  });
+});
+
+// A REGISTRATION THE PERSON WITHDREW IS NOT OWED ANYTHING.
+//
+// After a withdrawal and a new registration, the old registration's page kept the old payment's
+// countdown, amount and account, and once the deadline passed it said the registration was
+// cancelled "secara otomatis" when nobody had cancelled it automatically. Each assertion below that
+// a detail is absent is paired with one that the same detail is present for a registration that
+// was not withdrawn, so a panel that never rendered the detail would not pass.
+describe("the panel of a registration the person withdrew", () => {
+  const WITHDRAWN_NOTICE =
+    "Anda telah membatalkan pendaftaran ini. Pembayarannya tidak perlu dilanjutkan.";
+  const QRIS_URL = "https://storage.example.test/signed-link";
+  const withdrawn = {
+    registrationStatus: "cancelled",
+    registrationCancellationReason: "Saya berhalangan hadir",
+  } as const;
+  const AUTOMATIC = /secara otomatis/i;
+
+  it("shows the withdrawal notice and no countdown, amount, account or QRIS", () => {
+    renderPanel(null, false, { ...withdrawn, qris: { kind: "shown", url: QRIS_URL } });
+
+    expect(screen.getByText(WITHDRAWN_NOTICE)).toBeTruthy();
+    expect(screen.queryByText(/hari lagi/)).toBeNull();
+    expect(screen.queryByText("Jumlah")).toBeNull();
+    expect(screen.queryByText(/150\.000/)).toBeNull();
+    expect(screen.queryByText("Batas waktu")).toBeNull();
+    expect(screen.queryByText("Tujuan transfer")).toBeNull();
+    expect(screen.queryByText("1370012345678")).toBeNull();
+    expect(document.querySelector("img")).toBeNull();
+    expect(document.querySelector(".status-badge")).toBeNull();
+  });
+
+  it("shows the same details for a registration that was not withdrawn", () => {
+    renderPanel(null, false, { qris: { kind: "shown", url: QRIS_URL } });
+
+    expect(screen.queryByText(WITHDRAWN_NOTICE)).toBeNull();
+    expect(screen.getByText("Jumlah")).toBeTruthy();
+    expect(screen.getByText("Batas waktu")).toBeTruthy();
+    expect(screen.getByText("Tujuan transfer")).toBeTruthy();
+    expect(screen.getByText("1370012345678")).toBeTruthy();
+    expect(document.querySelector("img")).not.toBeNull();
+    expect(document.querySelector(".section-heading .status-badge")?.textContent).toMatch(
+      /hari lagi/,
+    );
+  });
+
+  it("does not report an automatic cancellation once the old deadline has passed", () => {
+    renderPanel(null, false, { ...withdrawn, status: "expired" });
+
+    expect(screen.getByText(WITHDRAWN_NOTICE)).toBeTruthy();
+    expect(screen.queryByText(AUTOMATIC)).toBeNull();
+  });
+
+  it("still reports an automatic cancellation for an expired payment of a live registration", () => {
+    renderPanel(null, false, { status: "expired" });
+
+    expect(screen.getByText(AUTOMATIC)).toBeTruthy();
+    expect(screen.queryByText(WITHDRAWN_NOTICE)).toBeNull();
+  });
+
+  it("still reports an automatic cancellation when the platform cancelled it for the deadline", () => {
+    renderPanel(null, false, {
+      status: "expired",
+      registrationStatus: "cancelled",
+      registrationCancellationReason: "payment_deadline_expired",
+    });
+
+    expect(screen.getByText(AUTOMATIC)).toBeTruthy();
+    expect(screen.queryByText(WITHDRAWN_NOTICE)).toBeNull();
+  });
+
+  it("does not call a cancellation by the institution a withdrawal", () => {
+    renderPanel(null, false, {
+      registrationStatus: "cancelled",
+      registrationCancellationReason: "competition_cancelled_by_institution",
+    });
+
+    expect(screen.queryByText(WITHDRAWN_NOTICE)).toBeNull();
+    expect(screen.getByText("Jumlah")).toBeTruthy();
+  });
+
+  it("leaves a team member's panel as it was, even when the member's own row is cancelled", () => {
+    renderPanel(null, false, { ...withdrawn, isPayer: false });
+
+    expect(screen.queryByText(WITHDRAWN_NOTICE)).toBeNull();
+    expect(
+      screen.getByText(
+        "Pembayaran tim ini ditangani oleh ketua tim. Anda dapat memantau statusnya di sini.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText("Jumlah")).toBeTruthy();
   });
 });
 
