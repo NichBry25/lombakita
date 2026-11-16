@@ -20,7 +20,7 @@ type Props = { params: Promise<{ institutionSlug: string }> };
 
 const LINE_COLUMNS: readonly TableColumn[] = [
   { key: "date", header: "Tanggal", kind: "date" },
-  { key: "competition", header: "Kompetisi", kind: "long" },
+  { key: "competition", header: "Kompetisi", kind: "wrap" },
   { key: "grossAmount", header: "Biaya pendaftaran", kind: "number" },
   { key: "rate", header: "Tarif saat itu", kind: "number" },
   { key: "fee", header: "Biaya layanan", kind: "number" },

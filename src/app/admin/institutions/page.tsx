@@ -340,7 +340,7 @@ export default function AdminInstitutionsPage() {
     setRows((prev) => prev.map((r) => (r.id === rowId ? { ...r, ...patch } : r)));
   };
 
-  // A history that cannot be read opens as an empty one, as the page has always done.
+  // Deliberate: a history that cannot be read opens as an empty one, not as an error.
   const fetchAuditEntries = async (institutionId: string): Promise<AuditEntry[]> => {
     try {
       const auditRes = await fetch(`/api/admin/institutions/${institutionId}/audit`);

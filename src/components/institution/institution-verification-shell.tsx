@@ -56,7 +56,7 @@ const HISTORY_COLUMNS: readonly TableColumn[] = [
   { key: "status", header: "Status", kind: "pill" },
   { key: "documents", header: "Dokumen", kind: "number" },
   { key: "submittedAt", header: "Dikirim", kind: "date" },
-  { key: "notes", header: "Catatan", kind: "long" },
+  { key: "notes", header: "Catatan", kind: "wrap" },
 ];
 
 const submissionStatusTone = (status: SubmissionItem["status"]): string => {
