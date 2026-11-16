@@ -7754,6 +7754,26 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   border-radius: 0;
 }
 
+/* The padding is the quiet zone a scanner needs around a code that may be transparent, so the
+   plate is white in both themes. The image is square-cornered for the same reason as .mfa-qr. */
+.qris-plate {
+  box-sizing: border-box;
+  width: fit-content;
+  max-width: 100%;
+  padding: var(--space-4);
+  border: var(--border-thin) solid var(--color-line-soft);
+  border-radius: var(--radius-input);
+  background: var(--qris-plate);
+}
+
+.qris-plate img {
+  display: block;
+  width: var(--qris-image-max-width);
+  max-width: 100%;
+  height: auto;
+  border-radius: 0;
+}
+
 @media (max-width: 940px) {
   .hub-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));

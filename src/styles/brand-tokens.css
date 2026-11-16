@@ -587,6 +587,10 @@
   --crop-guide-ring: #ffffff;
   --crop-guide-ring-width: 2px;
 
+  /* The organiser's QRIS: a white plate in both themes and an image of at most 280px. */
+  --qris-plate: #ffffff;
+  --qris-image-max-width: 17.5rem;
+
   /* Layers */
   --z-base: 0;
   --z-content: 1;

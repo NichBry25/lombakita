@@ -12,14 +12,16 @@
 // The suspended state is asserted alongside as the counter-case: it must NOT carry deadline
 // urgency, because expiry cannot reach that candidate at all.
 
-import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { UIPrimitivesProvider } from "@/components/ui/primitives";
-import { CandidatePaymentPanel } from "./candidate-payment-panel";
+import { CandidatePaymentPanel, type CandidatePaymentPanelProps } from "./candidate-payment-panel";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }) }));
 
 const DUE = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString();
+
+type QrisState = NonNullable<CandidatePaymentPanelProps["payment"]["instructions"]>["qris"];
 
 type ProofOverride = {
   status: "pending_review" | "rejected" | "verified";
@@ -34,6 +36,9 @@ const renderPanel = (
     status?: "pending" | "succeeded" | "refunded";
     canSubmitProof?: boolean;
     canResubmitProof?: boolean;
+    qris?: QrisState;
+    withBankDetails?: boolean;
+    instructionsNote?: string | null;
   } = {},
 ) =>
   render(
@@ -49,11 +54,11 @@ const renderPanel = (
           deadlineSuspended,
           status: overrides.status ?? "pending",
           instructions: {
-            bankName: "Bank Mandiri",
-            accountNumber: "1370012345678",
-            accountHolderName: "Yayasan Uji",
-            qrisR2Key: null,
-            instructionsNote: null,
+            bankName: overrides.withBankDetails === false ? null : "Bank Mandiri",
+            accountNumber: overrides.withBankDetails === false ? null : "1370012345678",
+            accountHolderName: overrides.withBankDetails === false ? null : "Yayasan Uji",
+            qris: overrides.qris ?? { kind: "none" },
+            instructionsNote: overrides.instructionsNote ?? null,
           },
           proof:
             proof === null
@@ -214,5 +219,156 @@ describe("when the transfer instruction is shown", () => {
   it("drops it while the proof is under review, when there is nothing to send", () => {
     renderPanel({ status: "pending_review" }, true);
     expect(screen.queryByText(INSTRUCTION)).toBeNull();
+  });
+});
+
+// THE ORGANISER'S QRIS, STATE BY STATE.
+//
+// The view decides who may scan (see candidate-payment-qris-db.integration.test.ts); this panel
+// decides only what each state looks like. Every state is asserted in both directions, because a
+// present-assertion alone passes against a panel that shows the image to everyone.
+describe("the organiser's QRIS on the payment panel", () => {
+  const QRIS_URL = "https://storage.example.test/signed-link";
+  const SCAN_SENTENCE = "Pindai kode QRIS di atas, lalu unggah bukti transaksinya di sini.";
+  const ALREADY_PAID_SENTENCE =
+    "Jika Anda sudah membayar, jangan membayar lagi. Cukup unggah bukti yang baru.";
+  const UNAVAILABLE_WITH_BANK =
+    "Kode QRIS tidak dapat ditampilkan. Silakan transfer ke rekening di atas atau hubungi penyelenggara.";
+  const UNAVAILABLE_WITHOUT_BANK =
+    "Kode QRIS tidak dapat ditampilkan. Silakan hubungi penyelenggara.";
+  const qrisImage = () => document.querySelector("img");
+
+  it("shows the image on a white plate with the scan sentence to a payer who can send a proof", () => {
+    renderPanel(null, false, { canSubmitProof: true, qris: { kind: "shown", url: QRIS_URL } });
+
+    const image = screen.getByAltText("Kode QRIS penyelenggara");
+    expect(image.getAttribute("src")).toBe(QRIS_URL);
+    expect(image.getAttribute("loading")).toBe("eager");
+    expect(image.closest(".qris-plate")).not.toBeNull();
+    expect(screen.getByText(SCAN_SENTENCE)).toBeTruthy();
+    expect(screen.queryByText(ALREADY_PAID_SENTENCE)).toBeNull();
+  });
+
+  it("tells a payer who may already have paid not to pay again, in place of the scan sentence", () => {
+    renderPanel({ status: "rejected", resubmissionAllowed: true }, false, {
+      canResubmitProof: true,
+      qris: { kind: "shown", url: QRIS_URL },
+    });
+
+    expect(screen.getByAltText("Kode QRIS penyelenggara")).toBeTruthy();
+    expect(screen.getByText(ALREADY_PAID_SENTENCE)).toBeTruthy();
+    expect(screen.queryByText(SCAN_SENTENCE)).toBeNull();
+  });
+
+  it("keeps the Tujuan transfer block for a QRIS-only snapshot that is shown", () => {
+    renderPanel(null, false, {
+      canSubmitProof: true,
+      withBankDetails: false,
+      qris: { kind: "shown", url: QRIS_URL },
+    });
+
+    expect(screen.getByText("Tujuan transfer")).toBeTruthy();
+    expect(screen.getByAltText("Kode QRIS penyelenggara")).toBeTruthy();
+  });
+
+  it("shows one line and no image when the link could not be made, naming the bank account", () => {
+    renderPanel(null, false, { canSubmitProof: true, qris: { kind: "unavailable" } });
+
+    expect(qrisImage()).toBeNull();
+    expect(screen.getByText(UNAVAILABLE_WITH_BANK)).toBeTruthy();
+    expect(screen.queryByText(SCAN_SENTENCE)).toBeNull();
+  });
+
+  it("tells a QRIS-only payer to contact the organiser, naming no bank account", () => {
+    renderPanel(null, false, {
+      canSubmitProof: true,
+      withBankDetails: false,
+      qris: { kind: "unavailable" },
+    });
+
+    expect(qrisImage()).toBeNull();
+    expect(screen.getByText(UNAVAILABLE_WITHOUT_BANK)).toBeTruthy();
+    expect(screen.queryByText(UNAVAILABLE_WITH_BANK)).toBeNull();
+    expect(screen.getByText("Tujuan transfer")).toBeTruthy();
+  });
+
+  it("shows no QRIS line at all when the snapshot has none", () => {
+    renderPanel(null, false, { canSubmitProof: true, qris: { kind: "none" } });
+
+    expect(qrisImage()).toBeNull();
+    expect(screen.queryByText(/QRIS/)).toBeNull();
+  });
+
+  it("shows no image and no QRIS line to a viewer outside the payer's gate", () => {
+    renderPanel({ status: "pending_review" }, true, { qris: { kind: "hidden" } });
+
+    expect(qrisImage()).toBeNull();
+    expect(screen.queryByText(/QRIS/)).toBeNull();
+    expect(screen.getByText("Tujuan transfer")).toBeTruthy();
+  });
+
+  it("renders no empty Tujuan transfer block for a hidden QRIS-only snapshot", () => {
+    renderPanel({ status: "pending_review" }, true, {
+      withBankDetails: false,
+      qris: { kind: "hidden" },
+    });
+
+    expect(screen.queryByText("Tujuan transfer")).toBeNull();
+  });
+
+  it("keeps the block for a hidden QRIS-only snapshot that carries a note", () => {
+    renderPanel({ status: "pending_review" }, true, {
+      withBankDetails: false,
+      instructionsNote: "Hubungi panitia untuk pertanyaan pembayaran.",
+      qris: { kind: "hidden" },
+    });
+
+    expect(screen.getByText("Tujuan transfer")).toBeTruthy();
+    expect(screen.getByText("Hubungi panitia untuk pertanyaan pembayaran.")).toBeTruthy();
+  });
+
+  it("swaps the image for the unavailable line when the image fails to load", () => {
+    renderPanel(null, false, { canSubmitProof: true, qris: { kind: "shown", url: QRIS_URL } });
+
+    fireEvent.error(screen.getByAltText("Kode QRIS penyelenggara"));
+
+    expect(qrisImage()).toBeNull();
+    expect(screen.getByText(UNAVAILABLE_WITH_BANK)).toBeTruthy();
+    expect(screen.queryByText(SCAN_SENTENCE)).toBeNull();
+  });
+
+  describe("an image that failed before the page became interactive", () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it("swaps to the unavailable line on mount when the image is complete with no width", () => {
+      vi.spyOn(HTMLImageElement.prototype, "complete", "get").mockReturnValue(true);
+      vi.spyOn(HTMLImageElement.prototype, "naturalWidth", "get").mockReturnValue(0);
+
+      renderPanel(null, false, { canSubmitProof: true, qris: { kind: "shown", url: QRIS_URL } });
+
+      expect(qrisImage()).toBeNull();
+      expect(screen.getByText(UNAVAILABLE_WITH_BANK)).toBeTruthy();
+    });
+
+    it("keeps an image that loaded, which is complete with a width", () => {
+      vi.spyOn(HTMLImageElement.prototype, "complete", "get").mockReturnValue(true);
+      vi.spyOn(HTMLImageElement.prototype, "naturalWidth", "get").mockReturnValue(280);
+
+      renderPanel(null, false, { canSubmitProof: true, qris: { kind: "shown", url: QRIS_URL } });
+
+      expect(screen.getByAltText("Kode QRIS penyelenggara")).toBeTruthy();
+      expect(screen.getByText(SCAN_SENTENCE)).toBeTruthy();
+    });
+
+    it("keeps an image that is still loading, which is not complete", () => {
+      vi.spyOn(HTMLImageElement.prototype, "complete", "get").mockReturnValue(false);
+      vi.spyOn(HTMLImageElement.prototype, "naturalWidth", "get").mockReturnValue(0);
+
+      renderPanel(null, false, { canSubmitProof: true, qris: { kind: "shown", url: QRIS_URL } });
+
+      expect(screen.getByAltText("Kode QRIS penyelenggara")).toBeTruthy();
+    });
   });
 });

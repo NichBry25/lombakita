@@ -14,6 +14,7 @@ import {
 import { foldPaymentEvents, type PaymentDerivedStatus } from "@/lib/finance/payment-state";
 import type { ManualPaymentProofStatus } from "@/lib/finance/payment-model";
 import { isExpirySuspendedByPendingProof } from "@/server/finance/payment-expiry-service";
+import { signQrisImageLink } from "@/server/finance/candidate-payment-qris";
 
 // WHAT A CANDIDATE IS TOLD ABOUT MONEY THEY OWE.
 //
@@ -31,11 +32,26 @@ import { isExpirySuspendedByPendingProof } from "@/server/finance/payment-expiry
 // the cancel control. A non-captain teammate sees what is owed and sees no upload control, which is
 // the truth: `submitManualPaymentProof` filters on the payer and would refuse them.
 
+/**
+ * What the payer is shown of the organiser's QRIS. The bare storage key never appears here.
+ *
+ * - none: the snapshot holds no QRIS.
+ * - hidden: it holds one, and this viewer must not scan it (not the payer, a proof already sent
+ *   or barred from resending, or a closed lane).
+ * - unavailable: this viewer may scan it, and no link could be made.
+ * - shown: the link.
+ */
+export type CandidatePaymentQrisView =
+  | { kind: "none" }
+  | { kind: "hidden" }
+  | { kind: "unavailable" }
+  | { kind: "shown"; url: string };
+
 export type CandidatePaymentInstructionsView = {
   bankName: string | null;
   accountNumber: string | null;
   accountHolderName: string | null;
-  qrisR2Key: string | null;
+  qris: CandidatePaymentQrisView;
   instructionsNote: string | null;
 };
 
@@ -128,6 +144,26 @@ const loadGroupPayment = async (registrationId: string, db: Database) => {
 };
 
 /**
+ * The QRIS this viewer is shown, from the payment's snapshot and never the institution's current
+ * one.
+ *
+ * A signed link is made only for a viewer who can still send a proof. A teammate who is not the
+ * payer, a payer whose proof is already with the organiser and a payer barred from resending must
+ * not be handed a scannable code, because a second transfer has no row, no proof control and no
+ * record on the platform.
+ */
+const resolveQrisView = async (
+  snapshotQrisR2Key: string | null,
+  receivingInstitutionId: string,
+  viewerCanSendProof: boolean,
+): Promise<CandidatePaymentQrisView> => {
+  if (snapshotQrisR2Key === null) return { kind: "none" };
+  if (!viewerCanSendProof) return { kind: "hidden" };
+
+  return signQrisImageLink(snapshotQrisR2Key, receivingInstitutionId);
+};
+
+/**
  * Everything the candidate's payment page renders, or null when there is nothing to pay.
  *
  * Null covers three different situations on purpose: no such registration, a registration in
@@ -204,6 +240,17 @@ export const loadCandidatePaymentView = async (
     status !== "refunded" &&
     status !== "expired";
 
+  const canSubmitProof = isPayer && laneOpen && proof === undefined;
+
+  // The two reopenable arms, restated from the CAS they must agree with: a rejection the organiser
+  // left open, or a void. A void ignores the organiser's bar deliberately. It is platform_ops
+  // correcting something the organiser's rejection was not about.
+  const canResubmitProof =
+    isPayer &&
+    laneOpen &&
+    proof !== undefined &&
+    ((proof.status === "rejected" && proof.resubmissionAllowed) || proof.status === "voided");
+
   return {
     paymentId: payment.id,
     competitionId: anchor?.competitionId ?? "",
@@ -217,7 +264,11 @@ export const loadCandidatePaymentView = async (
           bankName: snapshot.bankName,
           accountNumber: snapshot.accountNumber,
           accountHolderName: snapshot.accountHolderName,
-          qrisR2Key: snapshot.qrisR2Key,
+          qris: await resolveQrisView(
+            snapshot.qrisR2Key,
+            payment.receivingInstitutionId,
+            canSubmitProof || canResubmitProof,
+          ),
           instructionsNote: snapshot.instructionsNote,
         }
       : null,
@@ -233,14 +284,7 @@ export const loadCandidatePaymentView = async (
         }
       : null,
     isPayer,
-    canSubmitProof: isPayer && laneOpen && proof === undefined,
-    // The two reopenable arms, restated from the CAS they must agree with: a rejection the organiser
-    // left open, or a void. A void ignores the organiser's bar deliberately. It is platform_ops
-    // correcting something the organiser's rejection was not about.
-    canResubmitProof:
-      isPayer &&
-      laneOpen &&
-      proof !== undefined &&
-      ((proof.status === "rejected" && proof.resubmissionAllowed) || proof.status === "voided"),
+    canSubmitProof,
+    canResubmitProof,
   };
 };

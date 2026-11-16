@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, useRef, useState } from "react";
+import { ChangeEvent, useCallback, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Feedback, FormLabel, Icon, Panel } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
@@ -77,7 +77,11 @@ export type CandidatePaymentPanelProps = {
       bankName: string | null;
       accountNumber: string | null;
       accountHolderName: string | null;
-      qrisR2Key: string | null;
+      qris:
+        | { kind: "none" }
+        | { kind: "hidden" }
+        | { kind: "unavailable" }
+        | { kind: "shown"; url: string };
       instructionsNote: string | null;
     } | null;
     proof: {
@@ -275,7 +279,11 @@ export function CandidatePaymentPanel({
         <PaymentDeadline deadline={deadline} />
       </dl>
 
-      <PaymentInstructions instructions={payment.instructions} id={instructionsId} />
+      <PaymentInstructions
+        instructions={payment.instructions}
+        canResubmitProof={payment.canResubmitProof}
+        id={instructionsId}
+      />
 
       <PaymentStateNotice payment={payment} />
 
@@ -348,9 +356,11 @@ const refusalMessage = async (
  */
 function PaymentInstructions({
   instructions,
+  canResubmitProof,
   id,
 }: {
   instructions: CandidatePaymentPanelProps["payment"]["instructions"];
+  canResubmitProof: boolean;
   id: string;
 }) {
   if (!instructions) {
@@ -368,6 +378,11 @@ function PaymentInstructions({
     instructions.bankName !== null ||
     instructions.accountNumber !== null ||
     instructions.accountHolderName !== null;
+
+  const showsQris = instructions.qris.kind === "shown" || instructions.qris.kind === "unavailable";
+
+  // No heading over nothing: a QRIS-only snapshot that the viewer may not scan has no content here.
+  if (!hasBankDetails && !showsQris && !instructions.instructionsNote) return null;
 
   return (
     <Panel id={id} className="stack-sm">
@@ -396,17 +411,84 @@ function PaymentInstructions({
         </dl>
       ) : null}
 
-      {instructions.qrisR2Key ? (
-        <p className="muted-copy">
-          Penyelenggara juga menerima pembayaran melalui QRIS. Pindai kode QRIS yang mereka
-          sediakan, lalu unggah bukti transaksinya di sini.
-        </p>
+      {instructions.qris.kind === "shown" ? (
+        <QrisCode
+          url={instructions.qris.url}
+          canResubmitProof={canResubmitProof}
+          hasBankDetails={hasBankDetails}
+        />
+      ) : null}
+
+      {instructions.qris.kind === "unavailable" ? (
+        <QrisUnavailableLine hasBankDetails={hasBankDetails} />
       ) : null}
 
       {instructions.instructionsNote ? (
         <p className="muted-copy">{instructions.instructionsNote}</p>
       ) : null}
     </Panel>
+  );
+}
+
+/**
+ * The organiser's QRIS on a fixed white plate, and the sentence that points at it.
+ *
+ * The plate stays white in both themes because a transparent QRIS is black modules on nothing, and
+ * a phone camera cannot read that against a dark surface. The image loads eagerly: the link lives
+ * an hour, and a deferred request made after that would break.
+ *
+ * An image that fails, whether after the page is interactive or before it, becomes the unavailable
+ * line. Signing never checks that the object exists, so a missing object still gets a valid link.
+ */
+function QrisCode({
+  url,
+  canResubmitProof,
+  hasBankDetails,
+}: {
+  url: string;
+  canResubmitProof: boolean;
+  hasBankDetails: boolean;
+}) {
+  const [imageFailed, setImageFailed] = useState(false);
+
+  // The error event of an image that failed before hydration has already fired and is not replayed,
+  // so the element is checked when it is attached.
+  const failIfAlreadyBroken = useCallback((image: HTMLImageElement | null) => {
+    if (image && image.complete && image.naturalWidth === 0) {
+      setImageFailed(true);
+    }
+  }, []);
+
+  if (imageFailed) return <QrisUnavailableLine hasBankDetails={hasBankDetails} />;
+
+  return (
+    <>
+      <div className="qris-plate">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          ref={failIfAlreadyBroken}
+          src={url}
+          alt="Kode QRIS penyelenggara"
+          loading="eager"
+          onError={() => setImageFailed(true)}
+        />
+      </div>
+      <p className="muted-copy">
+        {canResubmitProof
+          ? "Jika Anda sudah membayar, jangan membayar lagi. Cukup unggah bukti yang baru."
+          : "Pindai kode QRIS di atas, lalu unggah bukti transaksinya di sini."}
+      </p>
+    </>
+  );
+}
+
+function QrisUnavailableLine({ hasBankDetails }: { hasBankDetails: boolean }) {
+  return (
+    <p className="muted-copy">
+      {hasBankDetails
+        ? "Kode QRIS tidak dapat ditampilkan. Silakan transfer ke rekening di atas atau hubungi penyelenggara."
+        : "Kode QRIS tidak dapat ditampilkan. Silakan hubungi penyelenggara."}
+    </p>
   );
 }
 
