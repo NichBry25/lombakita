@@ -38,6 +38,8 @@ import {
   notifyPaymentProofSubmitted,
 } from "@/server/finance/payment-notifications";
 
+type TransactionClient = Parameters<Parameters<Database["transaction"]>[0]>[0];
+
 // THE BUKTI TRANSFER REVIEW LOOP. Services only. The upload, verdict, view and void routes are thin
 // wrappers that read a request body and call in here.
 //
@@ -237,7 +239,10 @@ type OpenManualLane = { paymentId: string; registrationId: string };
  * reordering a reviewer has to notice. There is no harmful move to detect because the ordering is
  * not expressible.
  */
-const requireOpenManualLane = async (tx: Database, paymentId: string): Promise<OpenManualLane> => {
+const requireOpenManualLane = async (
+  tx: TransactionClient,
+  paymentId: string,
+): Promise<OpenManualLane> => {
   const [payment] = await tx
     .select({ registrationId: financePayments.competitionRegistrationId })
     .from(financePayments)
@@ -611,7 +616,7 @@ export const submitManualPaymentProof = async (
     // lock, so a proof never lands between that read and the withdrawal's commit.
     await acquireCompetitionParticipationLock(tx, competitionId);
 
-    const lane = await requireOpenManualLane(scoped, payment.id);
+    const lane = await requireOpenManualLane(tx, payment.id);
 
     const [created] = await scoped
       .insert(financeManualPaymentProofs)
@@ -740,7 +745,7 @@ export const verifyManualPaymentProof = async (
       );
     }
 
-    const lane = await requireOpenManualLane(tx as unknown as Database, target.paymentId);
+    const lane = await requireOpenManualLane(tx, target.paymentId);
 
     const [proof] = await tx
       .update(financeManualPaymentProofs)
@@ -1011,7 +1016,7 @@ export const reopenManualPaymentProof = async (
     // must refuse the other. Without it a rejected proof could be refiled onto a registration the
     // expiry sweep had already cancelled, then verified, appending `succeeded` and accruing a
     // platform fee against a participation that no longer exists.
-    const lane = await requireOpenManualLane(scoped, existing.paymentId);
+    const lane = await requireOpenManualLane(tx, existing.paymentId);
 
     const [reopened] = await scoped
       .update(financeManualPaymentProofs)

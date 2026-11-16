@@ -376,18 +376,115 @@ describe("classifyCompetitionEdit: fee fields while money is in flight", () => {
     // An amount without its currency is not a price, so changing IDR to anything else restates what
     // the payer owes exactly as surely as changing the number.
     const blocked = classifyCompetitionEdit(
-      base({ feeCurrency: "IDR" }),
-      base({ feeCurrency: "USD" }),
+      base({ feeAmount: 50_000, feeCurrency: "IDR" }),
+      base({ feeAmount: 50_000, feeCurrency: "USD" }),
       snapshot({ hasTransferAwaitingReview: true }),
     );
     expect(blocked.blocked).toContain("feeCurrency");
 
     const notInFlight = classifyCompetitionEdit(
-      base({ feeCurrency: "IDR" }),
-      base({ feeCurrency: "USD" }),
+      base({ feeAmount: 50_000, feeCurrency: "IDR" }),
+      base({ feeAmount: 50_000, feeCurrency: "USD" }),
       snapshot({ hasTransferAwaitingReview: false }),
     );
     expect(notInFlight.blocked).toContain("feeCurrency");
+  });
+
+  describe("the currency of a free fee", () => {
+    const FREE_AMOUNTS = [0, null];
+
+    it.each(FREE_AMOUNTS)(
+      "does not block a stored currency beside a free amount (%s) that is cleared, in either direction",
+      (freeAmount) => {
+        const stored = base({ feeAmount: freeAmount, feeCurrency: "IDR" });
+        const cleared = base({ feeAmount: freeAmount, feeCurrency: null });
+
+        expect(classifyCompetitionEdit(stored, cleared, snapshot({})).blocked).toEqual([]);
+        expect(classifyCompetitionEdit(cleared, stored, snapshot({})).blocked).toEqual([]);
+      },
+    );
+
+    it.each(FREE_AMOUNTS)(
+      "does not block two different stored currencies beside a free amount (%s)",
+      (freeAmount) => {
+        const result = classifyCompetitionEdit(
+          base({ feeAmount: freeAmount, feeCurrency: "IDR" }),
+          base({ feeAmount: freeAmount, feeCurrency: "USD" }),
+          snapshot({}),
+        );
+
+        expect(result.blocked).toEqual([]);
+      },
+    );
+
+    // A real price never changes after publish, so every pair that differs in amount or currency
+    // with a non-zero amount on either side is blocked: [old, new, blocked or not].
+    const NON_ZERO_PAIRS: [ClassifiableCompetition, ClassifiableCompetition, boolean][] = [
+      [
+        base({ feeAmount: 50_000, feeCurrency: "IDR" }),
+        base({ feeAmount: 50_000, feeCurrency: "IDR" }),
+        false,
+      ],
+      [
+        base({ feeAmount: 50_000, feeCurrency: "IDR" }),
+        base({ feeAmount: 50_000, feeCurrency: "USD" }),
+        true,
+      ],
+      [
+        base({ feeAmount: 50_000, feeCurrency: "IDR" }),
+        base({ feeAmount: 75_000, feeCurrency: "IDR" }),
+        true,
+      ],
+      [
+        base({ feeAmount: 50_000, feeCurrency: "IDR" }),
+        base({ feeAmount: null, feeCurrency: null }),
+        true,
+      ],
+      [
+        base({ feeAmount: 50_000, feeCurrency: "IDR" }),
+        base({ feeAmount: 0, feeCurrency: null }),
+        true,
+      ],
+      [
+        base({ feeAmount: 50_000, feeCurrency: "IDR" }),
+        base({ feeAmount: 0, feeCurrency: "IDR" }),
+        true,
+      ],
+      [
+        base({ feeAmount: null, feeCurrency: null }),
+        base({ feeAmount: 50_000, feeCurrency: "IDR" }),
+        true,
+      ],
+      [
+        base({ feeAmount: 0, feeCurrency: "IDR" }),
+        base({ feeAmount: 50_000, feeCurrency: "IDR" }),
+        true,
+      ],
+      [
+        base({ feeAmount: null, feeCurrency: "IDR" }),
+        base({ feeAmount: 50_000, feeCurrency: "IDR" }),
+        true,
+      ],
+    ];
+
+    it.each(NON_ZERO_PAIRS)(
+      "keeps the answer for a pair with a non-zero amount (%#)",
+      (oldRow, newRow, isBlocked) => {
+        const result = classifyCompetitionEdit(oldRow, newRow, snapshot({}));
+
+        expect(result.blocked.length > 0).toBe(isBlocked);
+      },
+    );
+
+    it("names feeCurrency beside feeAmount when a free fee with a stored currency becomes a price", () => {
+      const result = classifyCompetitionEdit(
+        base({ feeAmount: 0, feeCurrency: "IDR" }),
+        base({ feeAmount: 50_000, feeCurrency: "IDR" }),
+        snapshot({}),
+      );
+
+      expect(result.blocked).toEqual(["feeAmount", "feeCurrency"]);
+    });
   });
 
   it("classifies paymentWindowDays as NOTIFY, never blocked", () => {

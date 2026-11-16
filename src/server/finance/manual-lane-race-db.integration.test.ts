@@ -53,9 +53,11 @@ vi.mock("@/server/async/enqueue", async (importOriginal) => ({
   enqueueRegistrationConfirmed: vi.fn(async () => ({})),
   enqueueRegistrationCancelled: vi.fn(async () => ({})),
   enqueueCompetitionCancelled: vi.fn(async () => ({})),
+  enqueueCompetitionEdited: vi.fn(async () => ({})),
   enqueueCompetitionSearchSync: vi.fn(async () => ({})),
 }));
 import * as schema from "@/server/db/schema";
+import { enqueueCompetitionEdited } from "@/server/async/enqueue";
 
 // Every row this file creates carries this marker in a slug, a username or an email.
 //
@@ -552,6 +554,9 @@ const purgeMarkedRows = async (): Promise<void> => {
   await control.sql`
     delete from teams where competition_id in
       (select id from competitions where slug like ${slug})`;
+  await control.sql`
+    delete from finance_fee_disclosure_acknowledgements where competition_id in
+      (select id from competitions where slug like ${slug})`;
   await control.sql`delete from competitions where slug like ${slug}`;
   await control.sql`
     delete from finance_fee_rules where institution_id in
@@ -587,6 +592,10 @@ const countMarkedSurvivors = async (): Promise<Record<string, number>> => {
     select 'finance_payments', count(*) from finance_payments p
       join competition_registrations r on r.id = p.competition_registration_id
       join competitions c on c.id = r.competition_id where c.slug like ${slug}
+    union all
+    select 'finance_fee_disclosure_acknowledgements', count(*)
+      from finance_fee_disclosure_acknowledgements a
+      join competitions c on c.id = a.competition_id where c.slug like ${slug}
     union all
     select 'teams', count(*) from teams t
       join competitions c on c.id = t.competition_id where c.slug like ${slug}
@@ -1256,6 +1265,29 @@ describe.skipIf(skipWithoutDatabase)(
       };
     };
 
+    it("a team withdrawal holds the participation lock while it queues on the payment's row", async () => {
+      const fixture = await registerCommittedTeam();
+      const [barrierPid, racerPid] = await Promise.all([
+        backendPidOf(barrier),
+        backendPidOf(racerOne),
+      ]);
+
+      const [held] = await withRowHeld(
+        "competition_registrations",
+        fixture.anchorRegistrationId,
+        async (track) => {
+          track(runWithdrawal(racerOne, fixture));
+          await awaitBlockedBy(racerPid, barrierPid, "the team withdrawal");
+          const rows = await control.sql<{ held: number }[]>`
+            select count(*)::int as held from pg_locks
+            where locktype = 'advisory' and granted and pid = ${racerPid}`;
+          return [rows[0]!.held] as const;
+        },
+      );
+
+      expect(held).toBe(1);
+    });
+
     it("PROOF FIRST: the upload lands, and the withdrawal queued behind it is refused", async () => {
       const fixture = await registerCommittedTeam();
 
@@ -1608,6 +1640,29 @@ describe.skipIf(skipWithoutDatabase)(
       });
     });
 
+    it("a candidate's cancel holds the participation lock while it queues on the payment's row", async () => {
+      const fixture = await registerCommittedIndividual();
+      const [barrierPid, racerPid] = await Promise.all([
+        backendPidOf(barrier),
+        backendPidOf(racerOne),
+      ]);
+
+      const [held] = await withRowHeld(
+        "competition_registrations",
+        fixture.anchorRegistrationId,
+        async (track) => {
+          track(runCancel(racerOne, fixture));
+          await awaitBlockedBy(racerPid, barrierPid, "the candidate's cancel");
+          const rows = await control.sql<{ held: number }[]>`
+            select count(*)::int as held from pg_locks
+            where locktype = 'advisory' and granted and pid = ${racerPid}`;
+          return [rows[0]!.held] as const;
+        },
+      );
+
+      expect(held).toBe(1);
+    });
+
     it("without a payment, a candidate's own cancel goes through as before", async () => {
       const { createIndividualRegistration, cancelRegistration } =
         await import("@/server/registrations/registration-service");
@@ -1638,6 +1693,263 @@ describe.skipIf(skipWithoutDatabase)(
         registrationStatus: (await registrationRow(registration.id)).status,
         payments: Number(payments[0]!.count),
       }).toEqual({ cancelOk: true, registrationStatus: "cancelled", payments: 0 });
+    });
+  },
+);
+
+describe.skipIf(skipWithoutDatabase)(
+  "a close extension and a fee edit decide under the participation lock",
+  () => {
+    const DAY_MS = 24 * 60 * 60 * 1000;
+
+    /**
+     * A priced competition that passes the publish checklist, COMMITTED, with an owner who may
+     * publish it. Draft or published as asked, so the same fixture serves the extension of a live
+     * close and the fee edit that a publish overtakes.
+     */
+    const seedCommittedPublishablePricedCompetition = async (status: "draft" | "published") => {
+      const id = `${Date.now()}_${seedCounter++}`;
+      const now = Date.now();
+      const registrationEndAt = new Date(now + 14 * DAY_MS);
+
+      const [owner] = await control.db
+        .insert(schema.users)
+        .values({
+          email: `${MARKER}_${id}_owner@example.test`,
+          username: `${MARKER}_${id}_owner`,
+          role: "recruiter",
+          candidateVerifiedAt: FEE_RULE_FROM,
+          recruiterVerifiedAt: FEE_RULE_FROM,
+          recruiterVerificationTier: "elevated",
+        })
+        .returning({ id: schema.users.id });
+
+      const [institution] = await control.db
+        .insert(schema.institutions)
+        .values({
+          slug: `${MARKER}-inst-${id}`,
+          institutionType: "company",
+          displayName: `Race close ${id}`,
+          verificationStatus: "verified",
+        })
+        .returning({ id: schema.institutions.id });
+
+      await control.db.insert(schema.institutionMemberships).values({
+        institutionId: institution!.id,
+        userId: owner!.id,
+        membershipRole: "institution_owner",
+        status: "active",
+      });
+
+      await control.db.insert(schema.institutionPaymentInstructions).values({
+        institutionId: institution!.id,
+        bankName: "Bank Contoh",
+        accountNumber: "1234567890",
+        accountHolderName: "Panitia Lomba",
+      });
+
+      await control.db.insert(schema.financeFeeRules).values({
+        institutionId: institution!.id,
+        currency: "IDR",
+        basisPoints: 250,
+        flatAmount: 0,
+        effectiveFrom: FEE_RULE_FROM,
+      });
+
+      const [competition] = await control.db
+        .insert(schema.competitions)
+        .values({
+          institutionId: institution!.id,
+          slug: `${MARKER}-comp-${id}`,
+          title: `Race close ${id}`,
+          description: "Deskripsi kompetisi untuk pengujian.",
+          category: "hackathon",
+          mode: "individual",
+          location: "online",
+          audience: ["umum"],
+          organizerContactKind: "whatsapp",
+          organizerContactValue: "6281234567890",
+          status,
+          registrationStartAt: new Date(now - DAY_MS),
+          registrationEndAt,
+          participantConfirmationAt: new Date(now + 20 * DAY_MS),
+          eventStartAt: new Date(now + 30 * DAY_MS),
+          eventEndAt: new Date(now + 31 * DAY_MS),
+          resultAnnouncementAt: new Date(now + 40 * DAY_MS),
+          allowCancellation: true,
+          cancellationCutoffDays: 1,
+          feeAmount: 150_000,
+          feeCurrency: "IDR",
+          paymentWindowDays: 3,
+        })
+        .returning({ id: schema.competitions.id });
+
+      return { ownerUserId: owner!.id, competitionId: competition!.id, registrationEndAt };
+    };
+
+    const registerCommittedCandidate = async (competitionId: string) => {
+      const { createIndividualRegistration } =
+        await import("@/server/registrations/registration-service");
+      const id = `${Date.now()}_${seedCounter++}`;
+      const [candidate] = await control.db
+        .insert(schema.users)
+        .values({
+          email: `${MARKER}_${id}_candidate@example.test`,
+          username: `${MARKER}_${id}_candidate`,
+          candidateVerifiedAt: FEE_RULE_FROM,
+        })
+        .returning({ id: schema.users.id });
+
+      const registration = await createIndividualRegistration(
+        candidate!.id,
+        competitionId,
+        control.db as never,
+      );
+      const payment = await control.db.query.financePayments.findFirst({
+        where: (fields, { eq }) => eq(fields.competitionRegistrationId, registration.id),
+      });
+
+      return { candidateUserId: candidate!.id, paymentId: payment!.id };
+    };
+
+    const commitPendingProof = async (
+      competitionId: string,
+      candidateUserId: string,
+      paymentId: string,
+    ) => {
+      await control.sql`
+        insert into finance_manual_payment_proofs (
+          payment_id, competition_id, submitted_by_user_id, status, r2_key,
+          original_file_name, file_size_bytes, content_type
+        ) values (
+          ${paymentId}, ${competitionId}, ${candidateUserId}, 'pending_review',
+          ${`payment-proofs/${competitionId}/${paymentId}/bukti.jpg`},
+          'bukti.jpg', 2048, 'image/jpeg'
+        )`;
+    };
+
+    const storedCloseOf = async (competitionId: string): Promise<number> => {
+      const rows = await control.sql<{ close_ms: string }[]>`
+        select floor(extract(epoch from registration_end_at) * 1000)::bigint as close_ms
+        from competitions where id = ${competitionId}`;
+      return Number(rows[0]!.close_ms);
+    };
+
+    const runCloseExtension = async (
+      connection: Connection,
+      ownerUserId: string,
+      competitionId: string,
+      newClose: Date,
+    ) => {
+      const { updateCompetitionDraft } = await import("@/server/competitions/competition-service");
+      return updateCompetitionDraft(
+        ownerUserId,
+        competitionId,
+        { registrationEndAt: newClose },
+        connection.db as never,
+      );
+    };
+
+    it("a proof committed while the extension waits for the lock refuses it, and the close stays", async () => {
+      const fixture = await seedCommittedPublishablePricedCompetition("published");
+      const { candidateUserId, paymentId } = await registerCommittedCandidate(
+        fixture.competitionId,
+      );
+      const originalClose = await storedCloseOf(fixture.competitionId);
+      const extendedClose = new Date(originalClose + DAY_MS);
+      const [barrierPid, racerPid] = await Promise.all([
+        backendPidOf(barrier),
+        backendPidOf(racerOne),
+      ]);
+
+      const [settled] = await withParticipationLockHeld(fixture.competitionId, async (track) => {
+        const run = track(
+          runCloseExtension(racerOne, fixture.ownerUserId, fixture.competitionId, extendedClose),
+        );
+        await awaitBlockedBy(racerPid, barrierPid, "the close extension");
+        await commitPendingProof(fixture.competitionId, candidateUserId, paymentId);
+        return [run] as const;
+      });
+
+      const outcome = await settled;
+      expect({
+        refusal: outcome.ok ? null : errorCodeOf(outcome.error),
+        storedClose: await storedCloseOf(fixture.competitionId),
+      }).toEqual({
+        refusal: "competition_close_waits_for_transfer_review",
+        storedClose: originalClose,
+      });
+    });
+
+    it("without a proof the same extension waits for the lock and then moves the close", async () => {
+      const fixture = await seedCommittedPublishablePricedCompetition("published");
+      await registerCommittedCandidate(fixture.competitionId);
+      const originalClose = await storedCloseOf(fixture.competitionId);
+      const extendedClose = new Date(originalClose + DAY_MS);
+      const [barrierPid, racerPid] = await Promise.all([
+        backendPidOf(barrier),
+        backendPidOf(racerOne),
+      ]);
+
+      const [settled] = await withParticipationLockHeld(fixture.competitionId, async (track) => {
+        const run = track(
+          runCloseExtension(racerOne, fixture.ownerUserId, fixture.competitionId, extendedClose),
+        );
+        await awaitBlockedBy(racerPid, barrierPid, "the close extension");
+        return [run] as const;
+      });
+
+      const outcome = await settled;
+      expect({
+        extensionOk: outcome.ok,
+        storedClose: await storedCloseOf(fixture.competitionId),
+      }).toEqual({ extensionOk: true, storedClose: extendedClose.getTime() });
+    });
+
+    it("a fee edit that waits for the lock announces from the status it wrote under", async () => {
+      const fixture = await seedCommittedPublishablePricedCompetition("draft");
+      const { setCompetitionFee } = await import("@/server/competitions/competition-fee-service");
+      const { transitionCompetitionStatus } =
+        await import("@/server/competitions/competition-service");
+      vi.mocked(enqueueCompetitionEdited).mockClear();
+      const [barrierPid, racerPid] = await Promise.all([
+        backendPidOf(barrier),
+        backendPidOf(racerOne),
+      ]);
+
+      const [settled] = await withParticipationLockHeld(fixture.competitionId, async (track) => {
+        const run = track(
+          setCompetitionFee(
+            fixture.ownerUserId,
+            fixture.competitionId,
+            {
+              feeAmount: 150_000,
+              feeCurrency: "IDR",
+              paymentWindowDays: 5,
+              feeDisclosureAcknowledged: true,
+            },
+            racerOne.db as never,
+          ),
+        );
+        await awaitBlockedBy(racerPid, barrierPid, "the fee edit");
+        // A publish takes no participation lock, so it lands while the fee edit is parked on it.
+        await transitionCompetitionStatus(
+          fixture.ownerUserId,
+          fixture.competitionId,
+          "published",
+          control.db as never,
+        );
+        return [run] as const;
+      });
+
+      const outcome = await settled;
+      if (!outcome.ok) throw outcome.error;
+      expect(vi.mocked(enqueueCompetitionEdited).mock.calls.map(([job]) => job)).toEqual([
+        expect.objectContaining({
+          competitionId: fixture.competitionId,
+          changedFields: ["paymentWindowDays"],
+        }),
+      ]);
     });
   },
 );

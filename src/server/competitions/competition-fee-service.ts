@@ -132,7 +132,7 @@ export const setCompetitionFee = async (
   // advisory lock is the same one every other path that reasons about the participation set takes:
   // registration, team registration, participation changes, results, unpublish, the operator's
   // cancellation, and a proof upload or refile.
-  const notify = await db.transaction(async (tx) => {
+  const { lockedStatus, notify } = await db.transaction(async (tx) => {
     await acquireCompetitionParticipationLock(tx, competitionId);
 
     const status = await loadCompetitionStatus(competitionId, tx);
@@ -165,7 +165,7 @@ export const setCompetitionFee = async (
       // Clearing a fee needs none of the gates below. They exist to stop money being taken; none
       // of them has anything to say about stopping.
       await writeFee(competitionId, null, null, input.paymentWindowDays, status, tx);
-      return announcedFields;
+      return { lockedStatus: status, notify: announcedFields };
     }
 
     const currency = input.feeCurrency;
@@ -217,12 +217,13 @@ export const setCompetitionFee = async (
 
     await writeFee(competitionId, feeAmount, currency, input.paymentWindowDays, status, tx);
 
-    return announcedFields;
+    return { lockedStatus: status, notify: announcedFields };
   });
 
   // AFTER COMMIT, matching every other path in this lane: a notification for a price change that
-  // was rolled back is a message about something that did not happen.
-  await notifyFeeEdit(competitionId, competition.status, notify);
+  // was rolled back is a message about something that did not happen. It announces from the status
+  // the write was judged under, because a publish can land between the first read and the lock.
+  await notifyFeeEdit(competitionId, lockedStatus, notify);
 };
 
 // THE WINDOW-ONLY WRITE PATH. Staff of the institution may move the payment window of a fee the

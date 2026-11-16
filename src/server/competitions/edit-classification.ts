@@ -76,6 +76,11 @@ const timeOf = (value: Date | null): number | null => (value ? value.getTime() :
 
 const feeToNumber = (value: number | null): number => value ?? 0;
 
+// A free fee is stored with no currency, so a stored currency beside a zero or null amount is not a
+// price and compares as absent.
+const priceCurrencyOf = (row: ClassifiableCompetition): string | null =>
+  feeToNumber(row.feeAmount) === 0 ? null : row.feeCurrency;
+
 // Lowered, raised and later hold only when both values are set. A value appearing or disappearing
 // is none of them, so every rule below that allows one direction refuses it.
 const isLowered = (from: number | null, to: number | null): boolean =>
@@ -151,7 +156,7 @@ export const classifyCompetitionEdit = (
   // currency moves after publish, in either direction and whoever has registered. An amount
   // without its currency is not a price (@/lib/finance/money), so both halves are named.
   if (feeToNumber(oldRow.feeAmount) !== feeToNumber(newRow.feeAmount)) blocked.push("feeAmount");
-  if (oldRow.feeCurrency !== newRow.feeCurrency) blocked.push("feeCurrency");
+  if (priceCurrencyOf(oldRow) !== priceCurrencyOf(newRow)) blocked.push("feeCurrency");
 
   // paymentWindowDays: NOTIFY, never blocked. Shortening the window cannot harm anyone already
   // paying: a deadline is snapshotted onto each payment at creation and never recomputed, so an

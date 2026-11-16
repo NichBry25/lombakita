@@ -13,6 +13,8 @@ import {
 import { IN_FLIGHT_PROOF_STATUSES } from "@/lib/finance/payment-model";
 import { foldPaymentEvents } from "@/lib/finance/payment-state";
 
+type TransactionClient = Parameters<Parameters<Database["transaction"]>[0]>[0];
+
 // THE PAID PREDICATES. They are different questions with different answers, and they are
 // kept apart here because the rules they drive are kept apart:
 //
@@ -102,7 +104,7 @@ export const findAnyTeamRegistrationRow = async (
  */
 export const lockRegistrationRow = async (
   registrationId: string,
-  tx: Database,
+  tx: TransactionClient,
 ): Promise<{ status: string } | null> => {
   const rows = await tx.execute(
     sql`select status from competition_registrations where id = ${registrationId} for update`,
@@ -124,10 +126,13 @@ export const lockRegistrationRow = async (
  *
  * A group's confirmed rows carry one payment at most: a team registers again only after every
  * earlier row was cancelled, and a teammate who joins later pays nothing.
+ *
+ * A caller that takes both locks takes the competition participation lock first and this row lock
+ * second, because a writer that takes the anchor first can deadlock the cancels (FINANCE-D50).
  */
 export const lockPaymentGroupAnchorRow = async (
   registrationId: string,
-  tx: Database,
+  tx: TransactionClient,
 ): Promise<string | null> => {
   const groupIds = await resolvePaymentGroupRegistrationIds(registrationId, tx);
   if (groupIds.length === 0) return null;

@@ -534,6 +534,22 @@ export const loadEditClassificationSnapshot = async (
   };
 };
 
+// A proof sent after the outer classification read its snapshot is committed under this same lock,
+// so reading again once the lock is held sees it.
+const assertNoTransferAwaitingReviewUnderLock = async (
+  tx: Database,
+  competitionId: string,
+): Promise<void> => {
+  const lockedSnapshot = await loadEditClassificationSnapshot(competitionId, tx);
+  if (!lockedSnapshot.hasTransferAwaitingReview) return;
+  throw new CompetitionError(
+    "competition_close_waits_for_transfer_review",
+    409,
+    CLOSE_WAITS_FOR_TRANSFER_REVIEW_REASON,
+    { fields: ["registrationEndAt"] },
+  );
+};
+
 const immutableCompetitionValuesEqual = (left: unknown, right: unknown): boolean => {
   if (left instanceof Date && right instanceof Date) {
     return left.getTime() === right.getTime();
@@ -762,6 +778,7 @@ const updatePublishedCompetition = async (
         ? await writePublishedCompetitionUpdates(db, competition.id, competition.updatedAt, updates)
         : await db.transaction(async (tx) => {
             await acquireCompetitionParticipationLock(tx, competition.id);
+            await assertNoTransferAwaitingReviewUnderLock(tx, competition.id);
             const rows = await writePublishedCompetitionUpdates(
               tx,
               competition.id,
@@ -996,6 +1013,17 @@ export const transitionCompetitionStatus = async (
       "competition_invalid_transition",
       422,
       `Cannot transition competition from '${competition.status}' to '${targetStatus}'`,
+    );
+  }
+
+  // DEC-0132: published → draft stays a defined move, but this primitive writes only the status.
+  // Unpublishing also cancels the registrations and refuses while money is in flight, and only
+  // unpublishCompetition does both.
+  if (competition.status === "published" && targetStatus === "draft") {
+    throw new CompetitionError(
+      "competition_invalid_transition",
+      422,
+      "Unpublishing goes through unpublishCompetition, which refuses while a transfer proof is pending review or verified",
     );
   }
 
