@@ -3195,6 +3195,26 @@ button.header-sheet-row {
   font-weight: 600;
 }
 
+.home-search-copy input {
+  width: 100%;
+  min-width: 0;
+  min-height: var(--touch-target);
+  border: 0;
+  background: transparent;
+  color: var(--color-ink);
+  font-size: var(--text-search);
+  outline: none;
+}
+
+.home-search-copy input::placeholder {
+  color: var(--color-ink-faint);
+}
+
+.home-search-entry:focus-within {
+  outline: var(--focus-width) solid var(--focus-color);
+  outline-offset: var(--focus-offset);
+}
+
 /*
  * A single full-bleed horizontal marquee band on the seam between the palm hero and
  * the paper section, its tangerine ground carrying the transition between the two.

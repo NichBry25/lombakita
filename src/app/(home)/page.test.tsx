@@ -18,6 +18,8 @@ vi.mock("next/link", () => {
     useLinkStatus: () => ({ pending: false }),
   };
 });
+// The home search form reads the router, which does not exist outside a mounted app.
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock("@/server/competitions/competition-public-service", () => ({
   listFeaturedCompetitions: mockListFeaturedCompetitions,
 }));
@@ -68,6 +70,18 @@ describe("HomePage", () => {
     expect(mockListFeaturedCompetitions).toHaveBeenCalledWith(4);
     expect(html).toContain("Cari kompetisi, cek tenggat");
     expect(html).toContain("Mulai mencari");
+  });
+
+  it("renders the home search bar as a form to the competition list with a field named q", async () => {
+    mockListFeaturedCompetitions.mockResolvedValue([]);
+
+    const html = renderToStaticMarkup(await HomePage());
+
+    const form = html.match(/<form\b[^>]*home-search-entry[^>]*>[\s\S]*?<\/form>/)?.[0] ?? "";
+    expect(form).toContain('action="/competitions"');
+    expect(form).toContain('name="q"');
+    expect(form).toContain('placeholder="Cari judul atau kata kunci…"');
+    expect(html).not.toContain("Nama, kategori, atau penyelenggara");
   });
 
   it("renders the featured carousel section when featured competitions exist", async () => {

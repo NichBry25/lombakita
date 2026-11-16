@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { ButtonLink, Icon } from "@/components/ui";
+import { CompetitionSearchForm } from "@/app/competitions/competition-search-form";
 import { INDEXABLE_ROBOTS } from "@/config/indexable-routes";
 import { MemphisHeroArt } from "@/components/home/memphis-hero-art";
 import { FeaturedCarousel } from "@/components/home/featured-carousel";
@@ -68,19 +68,7 @@ export default async function HomePage() {
               </h1>
             </div>
 
-            <Link href="/competitions" className="glass-focus home-search-entry">
-              <span className="home-search-icon" aria-hidden="true">
-                <Icon name="search" size="lg" />
-              </span>
-              <span className="home-search-copy">
-                <span className="home-search-label">Cari kompetisi</span>
-                <span>Nama, kategori, atau penyelenggara</span>
-              </span>
-              <span className="ui-button" data-variant="primary" data-size="lg">
-                Mulai mencari
-                <Icon name="arrow-right" size="md" />
-              </span>
-            </Link>
+            <CompetitionSearchForm params={{}} variant="home" />
           </div>
         </div>
       </section>
