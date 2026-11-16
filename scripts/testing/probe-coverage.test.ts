@@ -52,6 +52,7 @@ import { probes as publishedEditUnchangedProbes } from "./probes/published-edit-
 import { probes as registrationCancelSessionProbes } from "./probes/registration-cancel-session.mjs";
 import { probes as operatorPageGuardProbes } from "./probes/operator-page-guards.mjs";
 import { probes as sessionMfaDefaultProbes } from "./probes/session-mfa-default.mjs";
+import { probes as qrisPayerGateProbes } from "./probes/qris-payer-gate.mjs";
 
 const SUITES: Record<string, Probe[]> = {
   "config-gates": configGateProbes,
@@ -83,6 +84,7 @@ const SUITES: Record<string, Probe[]> = {
   "registration-cancel-session": registrationCancelSessionProbes,
   "operator-page-guards": operatorPageGuardProbes,
   "session-mfa-default": sessionMfaDefaultProbes,
+  "qris-payer-gate": qrisPayerGateProbes,
 };
 
 const everyProbe: [string, Probe][] = Object.entries(SUITES).flatMap(([suite, probes]) =>
