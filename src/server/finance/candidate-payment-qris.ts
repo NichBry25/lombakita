@@ -25,6 +25,7 @@ const UNAVAILABLE: QrisImageLink = { kind: "unavailable" };
 export const signQrisImageLink = async (
   qrisR2Key: string,
   receivingInstitutionId: string,
+  paymentId: string,
 ): Promise<QrisImageLink> => {
   if (!isR2Available()) {
     return UNAVAILABLE;
@@ -32,6 +33,13 @@ export const signQrisImageLink = async (
 
   try {
     assertQrisKeyBelongsToInstitution(qrisR2Key, receivingInstitutionId);
+  } catch {
+    // The storage key is a path to a private object, so the log carries the payment id instead.
+    logger.warn("candidate.payment.qris-link.key-refused", { paymentId });
+    return UNAVAILABLE;
+  }
+
+  try {
     const url = await generatePresignedGetUrl(qrisR2Key, QRIS_LINK_LIFETIME_SECONDS, {
       responseContentType: QRIS_RESPONSE_CONTENT_TYPE,
       responseContentDisposition: QRIS_RESPONSE_CONTENT_DISPOSITION,
@@ -39,6 +47,7 @@ export const signQrisImageLink = async (
     return { kind: "shown", url };
   } catch (error) {
     logger.warn("candidate.payment.qris-link.failed", {
+      paymentId,
       error: error instanceof Error ? error.message : String(error),
     });
     return UNAVAILABLE;

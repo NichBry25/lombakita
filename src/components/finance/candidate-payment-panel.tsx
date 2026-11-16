@@ -413,6 +413,7 @@ function PaymentInstructions({
 
       {instructions.qris.kind === "shown" ? (
         <QrisCode
+          key={instructions.qris.url}
           url={instructions.qris.url}
           canResubmitProof={canResubmitProof}
           hasBankDetails={hasBankDetails}

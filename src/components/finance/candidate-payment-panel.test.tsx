@@ -28,7 +28,7 @@ type ProofOverride = {
   resubmissionAllowed?: boolean;
 };
 
-const renderPanel = (
+const panelElement = (
   proof: ProofOverride | null,
   deadlineSuspended: boolean,
   overrides: {
@@ -40,43 +40,44 @@ const renderPanel = (
     withBankDetails?: boolean;
     instructionsNote?: string | null;
   } = {},
-) =>
-  render(
-    <UIPrimitivesProvider>
-      <CandidatePaymentPanel
-        expectedUserId="user-1"
-        competitionId="comp-1"
-        registrationId="reg-1"
-        payment={{
-          currency: "IDR",
-          grossAmount: 150_000,
-          dueAt: DUE,
-          deadlineSuspended,
-          status: overrides.status ?? "pending",
-          instructions: {
-            bankName: overrides.withBankDetails === false ? null : "Bank Mandiri",
-            accountNumber: overrides.withBankDetails === false ? null : "1370012345678",
-            accountHolderName: overrides.withBankDetails === false ? null : "Yayasan Uji",
-            qris: overrides.qris ?? { kind: "none" },
-            instructionsNote: overrides.instructionsNote ?? null,
-          },
-          proof:
-            proof === null
-              ? null
-              : {
-                  status: proof.status,
-                  submittedAt: new Date().toISOString(),
-                  originalFileName: "bukti.jpg",
-                  rejectionReason: overrides.reason ?? "Nominal tidak sesuai",
-                  resubmissionAllowed: proof.resubmissionAllowed ?? true,
-                },
-          isPayer: true,
-          canSubmitProof: overrides.canSubmitProof ?? false,
-          canResubmitProof: overrides.canResubmitProof ?? false,
-        }}
-      />
-    </UIPrimitivesProvider>,
-  );
+) => (
+  <UIPrimitivesProvider>
+    <CandidatePaymentPanel
+      expectedUserId="user-1"
+      competitionId="comp-1"
+      registrationId="reg-1"
+      payment={{
+        currency: "IDR",
+        grossAmount: 150_000,
+        dueAt: DUE,
+        deadlineSuspended,
+        status: overrides.status ?? "pending",
+        instructions: {
+          bankName: overrides.withBankDetails === false ? null : "Bank Mandiri",
+          accountNumber: overrides.withBankDetails === false ? null : "1370012345678",
+          accountHolderName: overrides.withBankDetails === false ? null : "Yayasan Uji",
+          qris: overrides.qris ?? { kind: "none" },
+          instructionsNote: overrides.instructionsNote ?? null,
+        },
+        proof:
+          proof === null
+            ? null
+            : {
+                status: proof.status,
+                submittedAt: new Date().toISOString(),
+                originalFileName: "bukti.jpg",
+                rejectionReason: overrides.reason ?? "Nominal tidak sesuai",
+                resubmissionAllowed: proof.resubmissionAllowed ?? true,
+              },
+        isPayer: true,
+        canSubmitProof: overrides.canSubmitProof ?? false,
+        canResubmitProof: overrides.canResubmitProof ?? false,
+      }}
+    />
+  </UIPrimitivesProvider>
+);
+
+const renderPanel = (...args: Parameters<typeof panelElement>) => render(panelElement(...args));
 
 const DEADLINE_REFERENCE = /sebelum batas waktu/i;
 const AUTO_CANCEL = /dibatalkan secara otomatis/i;
@@ -335,6 +336,25 @@ describe("the organiser's QRIS on the payment panel", () => {
     expect(qrisImage()).toBeNull();
     expect(screen.getByText(UNAVAILABLE_WITH_BANK)).toBeTruthy();
     expect(screen.queryByText(SCAN_SENTENCE)).toBeNull();
+  });
+
+  it("shows the image again when a refresh brings a new link after the old one failed", () => {
+    const LINK_A = "https://storage.example.test/signed-link-a";
+    const LINK_B = "https://storage.example.test/signed-link-b";
+    const { rerender } = renderPanel(null, false, {
+      canSubmitProof: true,
+      qris: { kind: "shown", url: LINK_A },
+    });
+
+    fireEvent.error(screen.getByAltText("Kode QRIS penyelenggara"));
+    expect(screen.getByText(UNAVAILABLE_WITH_BANK)).toBeTruthy();
+
+    rerender(
+      panelElement(null, false, { canSubmitProof: true, qris: { kind: "shown", url: LINK_B } }),
+    );
+
+    expect(screen.getByAltText("Kode QRIS penyelenggara").getAttribute("src")).toBe(LINK_B);
+    expect(screen.queryByText(UNAVAILABLE_WITH_BANK)).toBeNull();
   });
 
   describe("an image that failed before the page became interactive", () => {

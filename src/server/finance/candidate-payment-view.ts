@@ -156,11 +156,12 @@ const resolveQrisView = async (
   snapshotQrisR2Key: string | null,
   receivingInstitutionId: string,
   viewerCanSendProof: boolean,
+  paymentId: string,
 ): Promise<CandidatePaymentQrisView> => {
   if (snapshotQrisR2Key === null) return { kind: "none" };
   if (!viewerCanSendProof) return { kind: "hidden" };
 
-  return signQrisImageLink(snapshotQrisR2Key, receivingInstitutionId);
+  return signQrisImageLink(snapshotQrisR2Key, receivingInstitutionId, paymentId);
 };
 
 /**
@@ -251,6 +252,14 @@ export const loadCandidatePaymentView = async (
     proof !== undefined &&
     ((proof.status === "rejected" && proof.resubmissionAllowed) || proof.status === "voided");
 
+  const viewerCanSendProof = canSubmitProof || canResubmitProof;
+  const qris = await resolveQrisView(
+    snapshot?.qrisR2Key ?? null,
+    payment.receivingInstitutionId,
+    viewerCanSendProof,
+    payment.id,
+  );
+
   return {
     paymentId: payment.id,
     competitionId: anchor?.competitionId ?? "",
@@ -264,11 +273,7 @@ export const loadCandidatePaymentView = async (
           bankName: snapshot.bankName,
           accountNumber: snapshot.accountNumber,
           accountHolderName: snapshot.accountHolderName,
-          qris: await resolveQrisView(
-            snapshot.qrisR2Key,
-            payment.receivingInstitutionId,
-            canSubmitProof || canResubmitProof,
-          ),
+          qris,
           instructionsNote: snapshot.instructionsNote,
         }
       : null,

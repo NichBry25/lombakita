@@ -27,6 +27,7 @@ import { signQrisImageLink } from "./candidate-payment-qris";
 const INSTITUTION_ID = "institution-1";
 const OWN_KEY = `payment-instructions/${INSTITUTION_ID}/6f1c2d3e-0000-4000-8000-000000000001`;
 const SIGNED_URL = "https://storage.example.test/signed";
+const PAYMENT_ID = "payment-1";
 
 beforeEach(() => {
   mockIsR2Available.mockReset();
@@ -38,7 +39,7 @@ beforeEach(() => {
 
 describe("signQrisImageLink", () => {
   it("signs the institution's own key for 3600 seconds as an inline PNG", async () => {
-    const result = await signQrisImageLink(OWN_KEY, INSTITUTION_ID);
+    const result = await signQrisImageLink(OWN_KEY, INSTITUTION_ID, PAYMENT_ID);
 
     expect(result).toEqual({ kind: "shown", url: SIGNED_URL });
     expect(mockGeneratePresignedGetUrl).toHaveBeenCalledTimes(1);
@@ -52,6 +53,7 @@ describe("signQrisImageLink", () => {
     const result = await signQrisImageLink(
       "payment-instructions/institution-2/6f1c2d3e-0000-4000-8000-000000000002",
       INSTITUTION_ID,
+      PAYMENT_ID,
     );
 
     expect(result).toEqual({ kind: "unavailable" });
@@ -62,28 +64,45 @@ describe("signQrisImageLink", () => {
     const result = await signQrisImageLink(
       `payment-instructions/${INSTITUTION_ID}/../institution-2/object`,
       INSTITUTION_ID,
+      PAYMENT_ID,
     );
 
     expect(result).toEqual({ kind: "unavailable" });
     expect(mockGeneratePresignedGetUrl).not.toHaveBeenCalled();
   });
 
+  it("logs a refused key under its own event with the payment id and not the key", async () => {
+    const foreignKey = "payment-instructions/institution-2/6f1c2d3e-0000-4000-8000-000000000002";
+
+    await signQrisImageLink(foreignKey, INSTITUTION_ID, PAYMENT_ID);
+
+    expect(mockWarn).toHaveBeenCalledTimes(1);
+    expect(mockWarn).toHaveBeenCalledWith("candidate.payment.qris-link.key-refused", {
+      paymentId: PAYMENT_ID,
+    });
+    expect(JSON.stringify(mockWarn.mock.calls)).not.toContain(foreignKey);
+  });
+
   it("returns unavailable without signing when storage is not configured", async () => {
     mockIsR2Available.mockReturnValue(false);
 
-    const result = await signQrisImageLink(OWN_KEY, INSTITUTION_ID);
+    const result = await signQrisImageLink(OWN_KEY, INSTITUTION_ID, PAYMENT_ID);
 
     expect(result).toEqual({ kind: "unavailable" });
     expect(mockGeneratePresignedGetUrl).not.toHaveBeenCalled();
   });
 
-  it("returns unavailable instead of throwing when signing fails, and logs without the key", async () => {
+  it("returns unavailable instead of throwing when signing fails, and logs the payment id without the key", async () => {
     mockGeneratePresignedGetUrl.mockRejectedValue(new Error("R2_BUCKET is not configured"));
 
-    const result = await signQrisImageLink(OWN_KEY, INSTITUTION_ID);
+    const result = await signQrisImageLink(OWN_KEY, INSTITUTION_ID, PAYMENT_ID);
 
     expect(result).toEqual({ kind: "unavailable" });
     expect(mockWarn).toHaveBeenCalledTimes(1);
+    expect(mockWarn).toHaveBeenCalledWith("candidate.payment.qris-link.failed", {
+      paymentId: PAYMENT_ID,
+      error: "R2_BUCKET is not configured",
+    });
     expect(JSON.stringify(mockWarn.mock.calls)).not.toContain(OWN_KEY);
   });
 });
