@@ -3956,7 +3956,7 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   transition:
     opacity var(--duration-bar) var(--ease-primary),
     transform var(--duration-bar) var(--ease-primary),
-    visibility var(--space-0) var(--duration-bar);
+    visibility 0s var(--duration-bar);
 }
 
 .form-action-bar[data-variant="register"][data-visible="false"] {
@@ -7997,5 +7997,13 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   .hub-card:hover,
   .home-search-entry:hover {
     transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .form-action-bar[data-variant="register"][data-visible] {
+    transform: none;
+    /* The fade is the only cue that the bar appeared, so it is kept while the movement goes. */
+    transition-duration: var(--duration-bar), 0s, 0s !important;
   }
 }
