@@ -534,20 +534,23 @@ export const loadEditClassificationSnapshot = async (
   };
 };
 
+const closeWaitsForTransferReviewError = (fields: string[]): CompetitionError =>
+  new CompetitionError(
+    "competition_close_waits_for_transfer_review",
+    409,
+    CLOSE_WAITS_FOR_TRANSFER_REVIEW_REASON,
+    { fields },
+  );
+
 // A proof sent after the outer classification read its snapshot is committed under this same lock,
 // so reading again once the lock is held sees it.
 const assertNoTransferAwaitingReviewUnderLock = async (
   tx: Database,
   competitionId: string,
 ): Promise<void> => {
-  const lockedSnapshot = await loadEditClassificationSnapshot(competitionId, tx);
-  if (!lockedSnapshot.hasTransferAwaitingReview) return;
-  throw new CompetitionError(
-    "competition_close_waits_for_transfer_review",
-    409,
-    CLOSE_WAITS_FOR_TRANSFER_REVIEW_REASON,
-    { fields: ["registrationEndAt"] },
-  );
+  const transferAwaitingReview = await hasCompetitionTransferAwaitingReview(competitionId, tx);
+  if (!transferAwaitingReview) return;
+  throw closeWaitsForTransferReviewError(["registrationEndAt"]);
 };
 
 const immutableCompetitionValuesEqual = (left: unknown, right: unknown): boolean => {
@@ -747,12 +750,7 @@ const updatePublishedCompetition = async (
   }
 
   if (classification.waitsForTransferReview.length > 0) {
-    throw new CompetitionError(
-      "competition_close_waits_for_transfer_review",
-      409,
-      CLOSE_WAITS_FOR_TRANSFER_REVIEW_REASON,
-      { fields: classification.waitsForTransferReview },
-    );
+    throw closeWaitsForTransferReviewError(classification.waitsForTransferReview);
   }
 
   const updates: Record<string, unknown> = { updatedAt: sql`now()` };

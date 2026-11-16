@@ -51,7 +51,7 @@ const extensionCaseFailedWith = (reasonLine) =>
 const TRANSITION_RETURNED_NO_REFUSAL = /\+\s+"refusal": null/;
 const TRANSITION_LEFT_DRAFT_STORED = /\+\s+"competitionStatus": "draft"/;
 const EXTENSION_NEVER_QUEUED = new RegExp(
-  regexFree("the close extension never queued behind the row this test holds"),
+  regexFree("the close extension never queued; it settled ok"),
 );
 const EXTENSION_RETURNED_NO_REFUSAL = /\+\s+"refusal": null/;
 
@@ -143,7 +143,8 @@ export const probes = [
     harmfulMove:
       "the close moving while a proof sent during the extension waits for review. Without the lock " +
       "the extension never parks, so a proof committed by the lock holder cannot be seen. The " +
-      "detector is the committing race, whose barrier times out when the extension never queues",
+      "detector is the committing race: the barrier times out and the extension settled ok, so an " +
+      "extension that failed for another reason is not read as the lock gap",
     files: [COMPETITION_SERVICE],
     appliedMarkers: ["// probe: the participation lock is not taken in the close-move transaction"],
     mutate: () =>

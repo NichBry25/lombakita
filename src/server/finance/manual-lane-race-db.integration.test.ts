@@ -58,6 +58,7 @@ vi.mock("@/server/async/enqueue", async (importOriginal) => ({
 }));
 import * as schema from "@/server/db/schema";
 import { enqueueCompetitionEdited } from "@/server/async/enqueue";
+import { CompetitionError } from "@/server/competitions/competition-core";
 
 // Every row this file creates carries this marker in a slug, a username or an email.
 //
@@ -1850,6 +1851,23 @@ describe.skipIf(skipWithoutDatabase)(
       );
     };
 
+    // Says why the extension never queued, so an extension that failed for another reason is not
+    // read as the lock being gone.
+    const describeUnqueuedCloseExtension = async (run: Promise<Settled<unknown>>) => {
+      const stillRunning = new Promise<"pending">((resolve) =>
+        setTimeout(() => resolve("pending"), BARRIER_TIMEOUT_MS),
+      );
+      const outcome = await Promise.race([run, stillRunning]);
+      if (outcome === "pending") return "the close extension never queued; it did not settle";
+      if (outcome.ok) return "the close extension never queued; it settled ok";
+      if (outcome.error instanceof CompetitionError) {
+        return `the close extension never queued; it settled with ${outcome.error.code}`;
+      }
+      const failure =
+        outcome.error instanceof Error ? outcome.error.message : String(outcome.error);
+      return `the close extension never queued; it failed with ${failure}`;
+    };
+
     it("a proof committed while the extension waits for the lock refuses it, and the close stays", async () => {
       const fixture = await seedCommittedPublishablePricedCompetition("published");
       const { candidateUserId, paymentId } = await registerCommittedCandidate(
@@ -1866,7 +1884,11 @@ describe.skipIf(skipWithoutDatabase)(
         const run = track(
           runCloseExtension(racerOne, fixture.ownerUserId, fixture.competitionId, extendedClose),
         );
-        await awaitBlockedBy(racerPid, barrierPid, "the close extension");
+        try {
+          await awaitBlockedBy(racerPid, barrierPid, "the close extension");
+        } catch {
+          throw new Error(await describeUnqueuedCloseExtension(run));
+        }
         await commitPendingProof(fixture.competitionId, candidateUserId, paymentId);
         return [run] as const;
       });
