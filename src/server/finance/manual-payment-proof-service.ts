@@ -19,7 +19,10 @@ import { appendPaymentEvent } from "@/server/finance/payment-service";
 import { foldPaymentEvents } from "@/lib/finance/payment-state";
 import { recordFeeAccrual, recordFeeAccrualReversal } from "@/server/finance/fee-accrual-service";
 import { mintManualPaymentEventKey } from "@/server/finance/idempotency-key";
-import { lockRegistrationRow } from "@/server/finance/paid-registration";
+import {
+  lockRegistrationRow,
+  resolveActivePaymentGroupMemberUserIdsByPaymentId,
+} from "@/server/finance/paid-registration";
 import { acquireCompetitionParticipationLock } from "@/server/competitions/competition-participation-lock";
 import {
   deleteObject,
@@ -702,7 +705,7 @@ export const verifyManualPaymentProof = async (
   db: Database = getDb(),
   now: Date = new Date(),
 ): Promise<FinanceManualPaymentProofRecord> => {
-  const verified = await db.transaction(async (tx) => {
+  const { proof: verified, recipientUserIds } = await db.transaction(async (tx) => {
     // A CANCELLED REGISTRATION CANNOT BECOME PAID. Resolved and locked BEFORE the CAS, because the
     // verdict is the write that turns a proof into money: it appends `succeeded` and accrues a
     // platform fee, and under DEC-0133 both are append-only. There is no participation for that
@@ -824,10 +827,15 @@ export const verifyManualPaymentProof = async (
 
     await recordFeeAccrual(payment.id, tx);
 
-    return proof;
+    const recipientUserIds = await resolveActivePaymentGroupMemberUserIdsByPaymentId(
+      payment.id,
+      tx,
+    );
+
+    return { proof, recipientUserIds };
   });
 
-  await notifyPaymentOutcome(verified.paymentId, "verified", {}, db);
+  await notifyPaymentOutcome(verified.paymentId, "verified", { recipientUserIds }, db);
 
   return verified;
 };
@@ -865,7 +873,7 @@ export const rejectManualPaymentProof = async (
   // The CAS and the history row are one transaction: a rejection recorded on the live row while its
   // attempt failed to reach the history would lose the attempt the moment the candidate resubmits
   // over it, which is precisely the loss the history exists to prevent.
-  const rejected = await db.transaction(async (tx) => {
+  const { proof: rejected, recipientUserIds } = await db.transaction(async (tx) => {
     const [proof] = await tx
       .update(financeManualPaymentProofs)
       .set({
@@ -916,7 +924,12 @@ export const rejectManualPaymentProof = async (
 
     await recordProofAttempt(tx as unknown as Database, proof, "rejected", trimmedReason);
 
-    return proof;
+    const recipientUserIds = await resolveActivePaymentGroupMemberUserIdsByPaymentId(
+      proof.paymentId,
+      tx,
+    );
+
+    return { proof, recipientUserIds };
   });
 
   // The reason and the bar both ride along: a rejection notice that omits either tells the payer
@@ -924,7 +937,7 @@ export const rejectManualPaymentProof = async (
   await notifyPaymentOutcome(
     rejected.paymentId,
     "rejected",
-    { rejectionReason: trimmedReason, resubmissionAllowed },
+    { rejectionReason: trimmedReason, resubmissionAllowed, recipientUserIds },
     db,
   );
 

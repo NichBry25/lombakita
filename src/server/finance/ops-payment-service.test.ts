@@ -58,10 +58,15 @@ vi.mock("@/server/teams/team-service", () => ({ disbandEveryTeamOfCompetition })
 vi.mock("@/server/registrations/registration-service", () => ({
   markCompetitionRegistrationsPublicationClosed,
 }));
-const { hasCompetitionPaymentInFlight } = vi.hoisted(() => ({
-  hasCompetitionPaymentInFlight: vi.fn().mockResolvedValue(false),
+const { hasCompetitionPaymentInFlight, resolveActivePaymentGroupMemberUserIdsByPaymentId } =
+  vi.hoisted(() => ({
+    hasCompetitionPaymentInFlight: vi.fn().mockResolvedValue(false),
+    resolveActivePaymentGroupMemberUserIdsByPaymentId: vi.fn().mockResolvedValue(["u_payer"]),
+  }));
+vi.mock("@/server/finance/paid-registration", () => ({
+  hasCompetitionPaymentInFlight,
+  resolveActivePaymentGroupMemberUserIdsByPaymentId,
 }));
-vi.mock("@/server/finance/paid-registration", () => ({ hasCompetitionPaymentInFlight }));
 
 import { cancelCompetitionAsOps, voidPaymentProofAsOps } from "./ops-payment-service";
 import type { Database } from "@/server/db/client";
@@ -86,6 +91,7 @@ beforeEach(() => {
   enqueueCompetitionSearchSync.mockResolvedValue(undefined);
   notifyPaymentOutcome.mockResolvedValue(undefined);
   hasCompetitionPaymentInFlight.mockResolvedValue(false);
+  resolveActivePaymentGroupMemberUserIdsByPaymentId.mockResolvedValue(["u_payer"]);
 });
 
 const makeTx = (reads: SelectRows[], updateReturns: SelectRows[] = []) => {

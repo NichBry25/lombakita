@@ -169,7 +169,8 @@ export type PaymentProofSubmittedPayload = {
 // What became of the money (R13). A verdict goes to every member of the payment group, because a
 // team pays once and a verdict on that payment decides whether the whole team is still entered.
 // An expiry goes to the members whose registrations made with the payment carry its reason.
-// Both sets are resolved at delivery, not carried on this payload.
+// A verdict's recipients are carried on this payload (`recipientUserIds`); an expiry's are
+// resolved at delivery.
 //
 // FOUR OUTCOMES, THREE DIFFERENT ACTORS, and the copy has to name the right one each time.
 // `verified` and `rejected` are the organiser's decisions. `expired` has NO human behind it, only
@@ -195,6 +196,10 @@ export type PaymentOutcomePayload = {
   resubmissionAllowed: boolean | null;
   grossAmount: number;
   currency: string;
+  // The members the verdict is true for, read inside the verdict's own transaction. Absent on a
+  // job queued before the field existed, and on `expired`; the job then resolves at delivery. An
+  // empty list is a recipient list and means nobody is told.
+  recipientUserIds?: string[];
 };
 
 export type RegistrationDocumentReviewedPayload = {

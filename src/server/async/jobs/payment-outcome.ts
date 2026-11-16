@@ -4,7 +4,7 @@ assertServerOnly("server/async/jobs/payment-outcome");
 
 import { inArray } from "drizzle-orm";
 import type { Job } from "bullmq";
-import { getDb } from "@/server/db/client";
+import { getDb, type Database } from "@/server/db/client";
 import { users } from "@/server/db/schema";
 import { logger } from "@/lib/logger";
 import { ASYNC_JOB_NAMES, type PaymentOutcomePayload } from "@/server/async/contracts";
@@ -74,26 +74,38 @@ const inboxCopy = (
 };
 
 /**
+ * A verdict's recipients are carried on the payload, read when the verdict was given. A job queued
+ * before the payload carried them resolves the whole payment group at delivery. An expiry's are
+ * read at delivery, from the rows that this payment's expiry cancelled.
+ */
+const resolveRecipientUserIds = async (
+  payload: PaymentOutcomePayload,
+  db: Database,
+): Promise<string[]> => {
+  if (payload.outcome === "expired") {
+    return resolveMemberUserIdsCancelledByExpiry(payload.registrationId, payload.paymentId, db);
+  }
+
+  if (payload.recipientUserIds !== undefined) return payload.recipientUserIds;
+
+  return resolvePaymentGroupMemberUserIds(payload.registrationId, db);
+};
+
+/**
  * Announces a payment's outcome to the people it decides (R13).
  *
  * A team pays once, anchored on the captain's row. A verdict (verified, rejected or voided) decides
- * whether the whole team is still entered, so it goes to every member of the payment group.
- * Telling the captain alone leaves the other members to discover from the competition page that
- * they are no longer registered. An expiry goes only to the members whose registrations made with
- * the payment carry the expiry's reason, so a teammate who joined after the payment keeps a live
- * registration and is not told otherwise.
- *
- * Recipients are resolved at delivery rather than carried on the payload. An expiry's are read
- * from the rows the expiry sweep cancels by, narrowed to those that carry the expiry's reason.
+ * whether the team is still entered, so it goes to the members whose rows were active when it was
+ * given. Telling the captain alone leaves the other members to discover from the competition page
+ * that they are no longer registered. An expiry goes only to the members whose registrations were
+ * cancelled by that expiry, so a teammate who joined after the payment keeps a live registration
+ * and is not told otherwise.
  */
 export const processPaymentOutcomeJob = async (job: PaymentOutcomeJob): Promise<void> => {
-  const { paymentId, registrationId, competitionTitle, outcome } = job.data;
+  const { paymentId, competitionTitle, outcome } = job.data;
 
   const db = getDb();
-  const recipientIds =
-    outcome === "expired"
-      ? await resolveMemberUserIdsCancelledByExpiry(registrationId, db)
-      : await resolvePaymentGroupMemberUserIds(registrationId, db);
+  const recipientIds = await resolveRecipientUserIds(job.data, db);
 
   if (recipientIds.length === 0) {
     logger.warn("notification.skipped", {

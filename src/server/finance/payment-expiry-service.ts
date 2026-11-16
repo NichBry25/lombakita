@@ -147,15 +147,33 @@ const resolveRegistrationIdsMadeWithPayment = async (
 };
 
 /**
- * The holders of the registrations made with this payment that carry the expiry's reason. A
- * teammate who joined after the payment, and a former member whose row a withdrawal cancelled,
- * are left out. A row that an earlier expiry of the team cancelled carries the same reason and is
- * counted too.
+ * The holders of the registrations that this payment's expiry cancelled: the registrations made
+ * with the payment, cancelled at the time of the payment's `expired` event with the expiry's
+ * reason. A teammate who joined after the payment, a former member whose row a withdrawal
+ * cancelled, a row that an earlier expiry of the team cancelled and a withdrawal typed with the
+ * expiry's reason are left out. A payment with no `expired` event has no recipients.
+ *
+ * The expiry writes one time into the event and onto the rows, so the event is the only source
+ * this reads.
  */
 export const resolveMemberUserIdsCancelledByExpiry = async (
   anchorRegistrationId: string,
+  paymentId: string,
   db: Database = getDb(),
 ): Promise<string[]> => {
+  const [expiredEvent] = await db
+    .select({ occurredAt: financePaymentEvents.occurredAt })
+    .from(financePaymentEvents)
+    .where(
+      and(
+        eq(financePaymentEvents.paymentId, paymentId),
+        eq(financePaymentEvents.eventType, "expired"),
+      ),
+    )
+    .limit(1);
+
+  if (!expiredEvent) return [];
+
   const registrationIds = await resolveRegistrationIdsMadeWithPayment(anchorRegistrationId, db);
   if (registrationIds.length === 0) return [];
 
@@ -166,6 +184,7 @@ export const resolveMemberUserIdsCancelledByExpiry = async (
       and(
         inArray(competitionRegistrations.id, registrationIds),
         eq(competitionRegistrations.cancellationReason, PAYMENT_EXPIRY_CANCELLATION_REASON),
+        eq(competitionRegistrations.cancelledAt, expiredEvent.occurredAt),
       ),
     );
 

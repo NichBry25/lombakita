@@ -22,7 +22,10 @@ import {
 import { assertOperatorIsNotPayer } from "@/server/finance/operator-payer-conflict";
 import { INSTITUTION_CANCELLATION_REASON } from "@/server/competitions/competition-lifecycle";
 import { acquireCompetitionParticipationLock } from "@/server/competitions/competition-participation-lock";
-import { hasCompetitionPaymentInFlight } from "@/server/finance/paid-registration";
+import {
+  hasCompetitionPaymentInFlight,
+  resolveActivePaymentGroupMemberUserIdsByPaymentId,
+} from "@/server/finance/paid-registration";
 import { disbandEveryTeamOfCompetition } from "@/server/teams/team-service";
 import { markCompetitionRegistrationsPublicationClosed } from "@/server/registrations/registration-service";
 import { enqueueCompetitionCancelled, enqueueCompetitionSearchSync } from "@/server/async/enqueue";
@@ -258,7 +261,7 @@ export const voidPaymentProofAsOps = async (
 ): Promise<FinanceManualPaymentProofRecord> => {
   const auditReason = requireReason(reason);
 
-  const voided = await db.transaction(async (tx) => {
+  const { proof: voided, recipientUserIds } = await db.transaction(async (tx) => {
     const actor = await resolvePlatformOpsActor(tx, actorUserId);
 
     // A proof that does not exist has no parties to refuse: voidManualPaymentProof raises its own
@@ -307,14 +310,24 @@ export const voidPaymentProofAsOps = async (
       },
     });
 
-    return proof;
+    const recipientUserIds = await resolveActivePaymentGroupMemberUserIdsByPaymentId(
+      proof.paymentId,
+      tx,
+    );
+
+    return { proof, recipientUserIds };
   });
 
   // AFTER the commit, like every other dispatch in this lane. The payer has to be told: their proof
   // has left `pending_review` without a verdict, and nothing else on their panel explains why. The
   // reason travels because an unexplained void is indistinguishable from the platform losing their
   // evidence.
-  await notifyPaymentOutcome(voided.paymentId, "voided", { rejectionReason: auditReason }, db);
+  await notifyPaymentOutcome(
+    voided.paymentId,
+    "voided",
+    { rejectionReason: auditReason, recipientUserIds },
+    db,
+  );
 
   return voided;
 };

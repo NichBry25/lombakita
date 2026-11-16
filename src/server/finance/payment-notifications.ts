@@ -135,9 +135,10 @@ export const notifyPaymentProofSubmitted = async (
 };
 
 /**
- * Tells what became of the money (R13): a verdict to every member of the payment group, an expiry
- * to the members whose registrations made with the payment carry its reason. The job resolves both
- * at delivery.
+ * Tells what became of the money (R13): a verdict to the members of the payment group who were
+ * active when it was given, an expiry to the members whose registrations made with the payment
+ * carry its reason. The verdict's caller reads its recipients inside its own transaction and passes
+ * them in `recipientUserIds`; the job resolves an expiry's at delivery.
  *
  * `expired` carries no reason and no resubmission flag because there is no organiser decision to
  * describe, and the copy downstream says so outright.
@@ -145,7 +146,11 @@ export const notifyPaymentProofSubmitted = async (
 export const notifyPaymentOutcome = async (
   paymentId: string,
   outcome: "verified" | "rejected" | "expired" | "voided",
-  options: { rejectionReason?: string | null; resubmissionAllowed?: boolean | null } = {},
+  options: {
+    rejectionReason?: string | null;
+    resubmissionAllowed?: boolean | null;
+    recipientUserIds?: string[];
+  } = {},
   db: Database = getDb(),
 ): Promise<void> => {
   try {
@@ -166,6 +171,7 @@ export const notifyPaymentOutcome = async (
       resubmissionAllowed: outcome === "rejected" ? (options.resubmissionAllowed ?? null) : null,
       grossAmount: facts.grossAmount,
       currency: facts.currency,
+      recipientUserIds: options.recipientUserIds,
     });
   } catch (error) {
     warnDispatchFailed("payment.outcome", paymentId, error);

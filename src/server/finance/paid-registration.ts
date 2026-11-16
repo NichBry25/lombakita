@@ -218,6 +218,70 @@ export const resolvePaymentGroupMemberUserIds = async (
   return [...new Set(rows.map((row) => row.studentId))];
 };
 
+/**
+ * Every candidate a verdict on this payment is true for: the single payer, or the team's rows that
+ * are not cancelled at the moment of the call.
+ *
+ * Meant to be called inside the verdict's own transaction. Rows can be cancelled between the
+ * verdict and the delivery of its notice, by the organiser's unpublish, an ops cancellation, the
+ * expiry sweep or an insufficient-participation decision, so "active at the verdict" can only be
+ * read at the verdict. A member whose row was cancelled earlier is not told a verdict or a
+ * rejection reason that was never theirs.
+ *
+ * An individual payment keeps its single payer whatever the row's status, so an individual's
+ * notice never changes. The team's rows need no registration-time bound: a team that ever sent a
+ * proof cannot register again, so every row of the team that is not cancelled belongs to this
+ * payment.
+ */
+export const resolveActivePaymentGroupMemberUserIds = async (
+  registrationId: string,
+  tx: TransactionClient,
+): Promise<string[]> => {
+  const [self] = await tx
+    .select({
+      teamId: competitionRegistrations.teamId,
+      studentId: competitionRegistrations.studentId,
+    })
+    .from(competitionRegistrations)
+    .where(eq(competitionRegistrations.id, registrationId))
+    .limit(1);
+
+  if (!self) return [];
+  if (self.teamId === null) return [self.studentId];
+
+  const rows = await tx
+    .select({ studentId: competitionRegistrations.studentId })
+    .from(competitionRegistrations)
+    .where(
+      and(
+        eq(competitionRegistrations.teamId, self.teamId),
+        ne(competitionRegistrations.status, "cancelled"),
+      ),
+    );
+
+  return [...new Set(rows.map((row) => row.studentId))];
+};
+
+/**
+ * The same read as `resolveActivePaymentGroupMemberUserIds`, started from a payment: the verdict
+ * transactions hold a payment id and not its registration. A payment with no registration has no
+ * recipients.
+ */
+export const resolveActivePaymentGroupMemberUserIdsByPaymentId = async (
+  paymentId: string,
+  tx: TransactionClient,
+): Promise<string[]> => {
+  const [payment] = await tx
+    .select({ registrationId: financePayments.competitionRegistrationId })
+    .from(financePayments)
+    .where(eq(financePayments.id, paymentId))
+    .limit(1);
+
+  if (!payment?.registrationId) return [];
+
+  return resolveActivePaymentGroupMemberUserIds(payment.registrationId, tx);
+};
+
 /** The priced payments anchored anywhere on this registration's payment group. */
 const loadChargeablePaymentIds = async (
   registrationId: string,
