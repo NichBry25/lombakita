@@ -2,13 +2,16 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/competitions/competition-eligibility-service");
 
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, or, sql } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
 import { competitions, type CompetitionAudience } from "@/server/db/schema";
 import { assertCompetitionAccess } from "@/server/competitions/competition-access";
 import { CompetitionError } from "@/server/competitions/competition-core";
 import { isCompetitionAudience, normalizeAudience } from "@/lib/competitions/audiences";
-import { COMPETITION_CHANGED_DURING_EDIT_REASON } from "@/lib/competitions/publish-locks";
+import {
+  COMPETITION_AUDIENCE_CANNOT_BE_EMPTIED_REASON,
+  COMPETITION_CHANGED_DURING_EDIT_REASON,
+} from "@/lib/competitions/publish-locks";
 
 const MAX_ELIGIBILITY_LENGTH = 2000;
 
@@ -64,7 +67,7 @@ export const parseEligibilityNote = (payload: unknown): string | null => {
 };
 
 // Pure parser: undefined when the payload has no audience key, which leaves the stored audience
-// alone so an editor tab opened before this field existed cannot wipe it. An empty list and null
+// alone, so a client that does not send the audience cannot wipe it. An empty list and null
 // both mean "empty" and parse to null. Duplicates drop and the order is the fixed display order.
 // The audience is a label only and never gates registration (DEC-0106).
 export const parseEligibilityAudience = (
@@ -96,23 +99,43 @@ export const getCompetitionEligibilityForEditor = async (
   return { eligibilityNote: row?.eligibilityNote ?? null, audience: row?.audience ?? null };
 };
 
-const loadStoredAudience = async (
-  competitionId: string,
-  db: Database,
-): Promise<CompetitionAudience[] | null> => {
-  const [row] = await db
-    .select({ audience: competitions.audience })
-    .from(competitions)
-    .where(eq(competitions.id, competitionId));
-  return row?.audience ?? null;
-};
+// Decided in the WHERE of the write and not from an earlier read, so a competition that was
+// published or given an audience between two requests cannot have its audience emptied.
+const audienceMayBeEmptied = or(
+  eq(competitions.status, "draft"),
+  isNull(competitions.audience),
+  sql`cardinality(${competitions.audience}) = 0`,
+);
 
-// A set audience can be emptied on a draft only. The write then names status = 'draft', so a
-// competition published after the status was read matches nothing instead of going live empty.
-const isEmptyingASetAudience = (
-  requested: CompetitionAudience[] | null | undefined,
-  stored: CompetitionAudience[] | null,
-): boolean => requested === null && stored !== null && stored.length > 0;
+const buildRefusalForUnsavedEligibility = async (
+  competitionId: string,
+  isEmptyingAudience: boolean,
+  db: Database,
+): Promise<CompetitionError> => {
+  if (isEmptyingAudience) {
+    const [row] = await db
+      .select({ status: competitions.status, audience: competitions.audience })
+      .from(competitions)
+      .where(eq(competitions.id, competitionId));
+    const isSetAudienceOnLiveCompetition =
+      row !== undefined &&
+      row.status !== "draft" &&
+      row.audience !== null &&
+      row.audience.length > 0;
+    if (isSetAudienceOnLiveCompetition) {
+      return new CompetitionError(
+        "competition_audience_cannot_be_emptied",
+        409,
+        COMPETITION_AUDIENCE_CANNOT_BE_EMPTIED_REASON,
+      );
+    }
+  }
+  return new CompetitionError(
+    "competition_changed_during_edit",
+    409,
+    COMPETITION_CHANGED_DURING_EDIT_REASON,
+  );
+};
 
 export const setCompetitionEligibilityForEditor = async (
   actorUserId: string,
@@ -123,8 +146,7 @@ export const setCompetitionEligibilityForEditor = async (
   const { competition } = await assertCompetitionAccess(actorUserId, competitionId, "member", db);
   const eligibilityNote = parseEligibilityNote(payload);
   const audience = parseEligibilityAudience(payload);
-  const storedAudience = await loadStoredAudience(competition.id, db);
-  const draftOnly = isEmptyingASetAudience(audience, storedAudience);
+  const isEmptyingAudience = audience === null;
 
   const [saved] = await db
     .update(competitions)
@@ -136,17 +158,13 @@ export const setCompetitionEligibilityForEditor = async (
     .where(
       and(
         eq(competitions.id, competition.id),
-        draftOnly ? eq(competitions.status, "draft") : undefined,
+        isEmptyingAudience ? audienceMayBeEmptied : undefined,
       ),
     )
     .returning({ eligibilityNote: competitions.eligibilityNote, audience: competitions.audience });
 
   if (!saved) {
-    throw new CompetitionError(
-      "competition_changed_during_edit",
-      409,
-      COMPETITION_CHANGED_DURING_EDIT_REASON,
-    );
+    throw await buildRefusalForUnsavedEligibility(competition.id, isEmptyingAudience, db);
   }
   return saved;
 };

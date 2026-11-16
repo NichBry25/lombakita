@@ -140,6 +140,29 @@ describe("the audience of the eligibility part", () => {
         "Kompetisi ini baru saja diubah atau diterbitkan. Muat ulang halaman lalu coba lagi.",
     });
   });
+
+  it("says a published competition keeps at least one choice when the server refuses to empty it", async () => {
+    stubEligibility(
+      { eligibilityNote: null, audience: ["mahasiswa"] },
+      new Response(
+        JSON.stringify({
+          error: { code: "competition_audience_cannot_be_emptied", message: "x" },
+        }),
+        { status: 409 },
+      ),
+    );
+    mount();
+    await screen.findByRole("group", { name: "Untuk" });
+
+    fireEvent.click(tick("Mahasiswa"));
+    const result = await saveReportedPart();
+
+    expect(result).toEqual({
+      ok: false,
+      errorMessage:
+        "Untuk tidak bisa dikosongkan setelah kompetisi terbit. Biarkan minimal satu pilihan.",
+    });
+  });
 });
 
 describe("the eligibility request", () => {

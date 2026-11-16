@@ -88,6 +88,8 @@ type CompetitionErrorCode =
   | "competition_close_waits_for_transfer_review"
   // The row changed between the read a change was judged on and its write.
   | "competition_changed_during_edit"
+  // A set audience stays set once the competition is published.
+  | "competition_audience_cannot_be_emptied"
   // The organiser must be shown, and confirm, what the platform charges before a price goes live.
   // The confirmation is recorded; this refusal is what makes it unskippable.
   | "competition_fee_disclosure_required"

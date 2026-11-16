@@ -1,11 +1,25 @@
 import { describe, expect, it } from "vitest";
+import { competitionAudienceEnum } from "@/server/db/schema";
 import {
+  COMPETITION_AUDIENCE_LABELS,
+  COMPETITION_AUDIENCE_VALUES,
   audienceFilterLevels,
   formatAudienceLabels,
   isCompetitionAudience,
   normalizeAudience,
   parseAudienceFilterParam,
 } from "./audiences";
+
+describe("the audience value list", () => {
+  it("holds exactly the values of the database enum, so a new enum value cannot be left out", () => {
+    expect([...COMPETITION_AUDIENCE_VALUES].sort()).toEqual(
+      [...competitionAudienceEnum.enumValues].sort(),
+    );
+    expect(Object.keys(COMPETITION_AUDIENCE_LABELS).sort()).toEqual(
+      [...competitionAudienceEnum.enumValues].sort(),
+    );
+  });
+});
 
 describe("normalizeAudience", () => {
   it("puts the values in the fixed order and drops duplicates", () => {

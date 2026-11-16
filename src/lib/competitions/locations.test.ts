@@ -1,10 +1,24 @@
 import { describe, expect, it } from "vitest";
+import { competitionLocationEnum } from "@/server/db/schema";
 import {
+  COMPETITION_LOCATION_LABELS,
   COMPETITION_LOCATION_OPTIONS,
+  COMPETITION_LOCATION_VALUES,
   getCompetitionLocationLabel,
   isCompetitionLocation,
   locationsMatchedByFilter,
 } from "./locations";
+
+describe("the location value list", () => {
+  it("holds exactly the values of the database enum, so a new enum value cannot be left out", () => {
+    expect([...COMPETITION_LOCATION_VALUES].sort()).toEqual(
+      [...competitionLocationEnum.enumValues].sort(),
+    );
+    expect(Object.keys(COMPETITION_LOCATION_LABELS).sort()).toEqual(
+      [...competitionLocationEnum.enumValues].sort(),
+    );
+  });
+});
 
 describe("locationsMatchedByFilter", () => {
   it("shows hybrid under both online and offline, and hybrid alone under hybrid", () => {

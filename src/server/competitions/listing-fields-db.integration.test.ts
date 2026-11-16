@@ -310,6 +310,42 @@ const saveEligibilityVia = async (
   return answerOf(response);
 };
 
+// A database whose first UPDATE runs `writeBeforeUpdate` first, as another request would between
+// the save's reads and its write. The write itself goes through the unwrapped transaction.
+const withWriteBeforeEligibilityUpdate = (tx: Tx, writeBeforeUpdate: () => Promise<void>): Tx => {
+  let hasWritten = false;
+  const runWriteOnce = async (): Promise<void> => {
+    if (hasWritten) return;
+    hasWritten = true;
+    await writeBeforeUpdate();
+  };
+
+  const delayExecution = (chain: object): object =>
+    new Proxy(chain, {
+      get(target, property) {
+        const value: unknown = Reflect.get(target, property, target);
+        if (property === "then" && typeof value === "function") {
+          return (resolve: (result: unknown) => void, reject: (reason: unknown) => void) =>
+            runWriteOnce().then(() => Reflect.apply(value, target, [resolve, reject]), reject);
+        }
+        if (typeof value !== "function") return value;
+        return (...args: unknown[]) => {
+          const result: unknown = Reflect.apply(value, target, args);
+          return typeof result === "object" && result !== null ? delayExecution(result) : result;
+        };
+      },
+    });
+
+  return new Proxy(tx, {
+    get(target, property) {
+      const value: unknown = Reflect.get(target, property, target);
+      if (typeof value !== "function") return value;
+      if (property !== "update") return value.bind(target);
+      return (...args: unknown[]) => delayExecution(Reflect.apply(value, target, args));
+    },
+  });
+};
+
 const publishVia = async (tx: Tx, seed: Seed): Promise<RouteAnswer> => {
   stageActor(tx, seed.ownerId);
   const request = new Request(
@@ -528,17 +564,50 @@ describe.skipIf(skipWithoutDatabase)("the audience save of the eligibility part"
     });
   });
 
-  it("refuses to empty the audience of a published competition and keeps it", async () => {
+  it.each([
+    ["an empty list", []],
+    ["null", null],
+  ])(
+    "refuses to empty the audience of a published competition with %s and keeps it",
+    async (_name, emptyAudience) => {
+      await inRollback(async (tx) => {
+        const seed = await seedCompetition(tx, {
+          status: "published",
+          location: "online",
+          audience: ["mahasiswa"],
+        });
+
+        const answer = await saveEligibilityVia(tx, seed.ownerId, seed, {
+          eligibilityNote: "Tidak boleh tersimpan.",
+          audience: emptyAudience,
+        });
+
+        expect({
+          status: answer.status,
+          code: errorCodeOf(answer),
+          stored: await readStored(tx, seed.competitionId),
+        }).toEqual({
+          status: 409,
+          code: "competition_audience_cannot_be_emptied",
+          stored: expect.objectContaining({ audience: ["mahasiswa"], eligibilityNote: null }),
+        });
+      });
+    },
+  );
+
+  it("refuses to empty an audience that was set and published after the save was read", async () => {
     await inRollback(async (tx) => {
-      const seed = await seedCompetition(tx, {
-        status: "published",
-        location: "online",
-        audience: ["mahasiswa"],
+      const seed = await seedCompetition(tx, { status: "draft", location: null, audience: null });
+      const racingTx = withWriteBeforeEligibilityUpdate(tx, async () => {
+        await tx
+          .update(competitions)
+          .set({ audience: ["mahasiswa"], status: "published", publishedAt: new Date() })
+          .where(eq(competitions.id, seed.competitionId));
       });
 
-      const answer = await saveEligibilityVia(tx, seed.ownerId, seed, {
-        eligibilityNote: "Tidak boleh tersimpan.",
-        audience: [],
+      const answer = await saveEligibilityVia(racingTx, seed.ownerId, seed, {
+        eligibilityNote: null,
+        audience: null,
       });
 
       expect({
@@ -547,8 +616,8 @@ describe.skipIf(skipWithoutDatabase)("the audience save of the eligibility part"
         stored: await readStored(tx, seed.competitionId),
       }).toEqual({
         status: 409,
-        code: "competition_changed_during_edit",
-        stored: expect.objectContaining({ audience: ["mahasiswa"], eligibilityNote: null }),
+        code: "competition_audience_cannot_be_emptied",
+        stored: expect.objectContaining({ audience: ["mahasiswa"], status: "published" }),
       });
     });
   });

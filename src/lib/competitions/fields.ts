@@ -7,7 +7,6 @@ const COMPETITION_FIELD_LABELS: Record<string, string> = {
   category: "Kategori",
   mode: "Format peserta (mode)",
   location: "Lokasi",
-  audience: "Untuk",
   minTeamSize: "Minimum anggota tim",
   maxTeamSize: "Maksimum anggota tim",
   registrationStartAt: "Pendaftaran mulai",

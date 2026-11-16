@@ -9,7 +9,10 @@ import {
   type CompetitionPartSaveResult,
 } from "@/components/institution/competition-editor-parts";
 import { COMPETITION_AUDIENCE_OPTIONS, normalizeAudience } from "@/lib/competitions/audiences";
-import { COMPETITION_CHANGED_DURING_EDIT_REASON } from "@/lib/competitions/publish-locks";
+import {
+  COMPETITION_AUDIENCE_CANNOT_BE_EMPTIED_REASON,
+  COMPETITION_CHANGED_DURING_EDIT_REASON,
+} from "@/lib/competitions/publish-locks";
 import { errorMessageFor } from "@/lib/errors/error-copy";
 import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
 import type { CompetitionAudience } from "@/server/db/schema";
@@ -21,6 +24,7 @@ const SAVE_ERROR_COPY: Partial<Record<string, string>> = {
   competition_eligibility_invalid_value:
     "Informasi kelayakan terlalu panjang. Persingkat lalu coba lagi.",
   competition_changed_during_edit: COMPETITION_CHANGED_DURING_EDIT_REASON,
+  competition_audience_cannot_be_emptied: COMPETITION_AUDIENCE_CANNOT_BE_EMPTIED_REASON,
 };
 
 const audienceKey = (values: readonly CompetitionAudience[]): string => values.join(",");

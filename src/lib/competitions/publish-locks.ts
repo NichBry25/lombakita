@@ -30,3 +30,6 @@ export const DRAFT_PRICE_HELD_BY_REGISTRATIONS_REASON =
 
 export const COMPETITION_CHANGED_DURING_EDIT_REASON =
   "Kompetisi ini baru saja diubah atau diterbitkan. Muat ulang halaman lalu coba lagi.";
+
+export const COMPETITION_AUDIENCE_CANNOT_BE_EMPTIED_REASON =
+  "Untuk tidak bisa dikosongkan setelah kompetisi terbit. Biarkan minimal satu pilihan.";

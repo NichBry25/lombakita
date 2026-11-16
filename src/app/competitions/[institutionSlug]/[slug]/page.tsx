@@ -46,8 +46,7 @@ import { formatTeamSizeText } from "./team-size-utils";
 import { isPaidCompetition } from "@/lib/competitions/paid-competition";
 import { COMPETITION_HOST_CANNOT_JOIN_MESSAGE } from "@/lib/errors/error-copy";
 
-// Shown for a location or an audience the host has not filled in, which is every competition that
-// was published before the two fields existed.
+// Shown for a location or an audience the host has not filled in.
 const NOT_FILLED_IN_TEXT = "Belum diisi";
 
 // The fee and its currency are read TOGETHER. `fee_amount` is an integer count of the currency's
