@@ -31,6 +31,9 @@ type Props = {
   // registration's payment group in ANY status. When true the cancel control is WITHHELD, not
   // rendered disabled, and not rendered and then refused.
   cancellationClosedByPaymentProof: boolean;
+  // The row is a team row, so the individual cancel is withheld and the team section is the way
+  // out. Separate from the proof flag: its sentence speaks of a sent transfer proof.
+  cancellationClosedForTeamRow: boolean;
   // The organiser cannot take payment, so a new entrant has nothing to do here. The register
   // control is WITHHELD rather than disabled, and the sentence explaining its absence takes its
   // place. A disabled "Daftar" invites a candidate to look for the permission that would enable it,
@@ -38,6 +41,9 @@ type Props = {
   registrationWithheld: boolean;
   registerAgainClosedByPaymentProof: boolean;
 };
+
+const TEAM_ROW_CANCEL_MESSAGE =
+  "Pendaftaran ini terdaftar sebagai tim. Hanya ketua tim yang dapat membatalkan pendaftaran tim, lewat bagian Tim di halaman ini.";
 
 const ERROR_MESSAGES: Record<string, string> = {
   competition_not_published: "Kompetisi tidak tersedia untuk pendaftaran.",
@@ -50,6 +56,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   registration_not_found: "Pendaftaran tidak ditemukan.",
   registration_not_owner: "Anda tidak dapat membatalkan pendaftaran orang lain.",
   registration_wrong_status: "Pendaftaran ini sudah dibatalkan.",
+  registration_team_row_use_team_flow: TEAM_ROW_CANCEL_MESSAGE,
   cancellation_reason_required: "Alasan pembatalan wajib diisi.",
   cancellation_reason_too_long: "Alasan pembatalan terlalu panjang (maksimal 500 karakter).",
   // The organiser cannot take payment right now: unverified, no published account, or no fee rule
@@ -139,6 +146,7 @@ export function IndividualRegistrationSection({
   expectedUserId,
   modeLabel,
   cancellationClosedByPaymentProof,
+  cancellationClosedForTeamRow,
   registrationWithheld,
   registerAgainClosedByPaymentProof,
 }: Props) {
@@ -225,6 +233,11 @@ export function IndividualRegistrationSection({
   const offersRegisterAgain =
     !registerAgainClosedByPaymentProof && ctaState === "open" && !registrationWithheld;
 
+  const cancelWithheld = cancellationClosedForTeamRow || cancellationClosedByPaymentProof;
+  const cancelWithheldSentence = cancellationClosedForTeamRow
+    ? TEAM_ROW_CANCEL_MESSAGE
+    : "Pendaftaran tidak dapat dibatalkan sendiri setelah bukti transfer dikirim. Hubungi penyelenggara jika ada kekeliruan.";
+
   return (
     <section className="content-section registration-path-card">
       <div className="section-heading">
@@ -239,7 +252,7 @@ export function IndividualRegistrationSection({
             <span className="status-badge" data-status="open">
               Terdaftar
             </span>
-            {cancellationClosedByPaymentProof ? null : (
+            {cancelWithheld ? null : (
               <div className="stack-xs">
                 <Button onClick={handleCancel} loading={loading} variant="outline" size="sm">
                   Batalkan pendaftaran
@@ -257,12 +270,7 @@ export function IndividualRegistrationSection({
               inside that panel renders background on background and the explanation disappears.
               The team section's equivalent note sits in `.team-roster`, which sets no background,
               so it needs no such placement. */}
-          {cancellationClosedByPaymentProof ? (
-            <Feedback tone="neutral">
-              Pendaftaran tidak dapat dibatalkan sendiri setelah bukti transfer dikirim. Hubungi
-              penyelenggara jika ada kekeliruan.
-            </Feedback>
-          ) : null}
+          {cancelWithheld ? <Feedback tone="neutral">{cancelWithheldSentence}</Feedback> : null}
         </>
       ) : registration && registration.status === "cancelled" ? (
         <div className="registration-state stack-xs">

@@ -391,6 +391,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 // Enforcement order (fail-closed, ownership before any policy or reason error):
 //   (a) registration exists and matches the URL competitionId
 //   (b) registration belongs to this candidate (ownership)
+//   (b2) registration is not a team row: a team row leaves through the team flows only
 //   (c) registration.status === 'confirmed' (cancelled terminal; pending_payment is Phase 7)
 //   (d) cancellationReason required (non-empty, <= 500 chars)
 //   (e) if the competition is priced, no bukti transfer has been submitted for this payment group
@@ -415,6 +416,15 @@ export const cancelRegistration = async (
     throw new RegistrationError(
       "registration_not_owner",
       "Registration does not belong to the current user",
+    );
+  }
+
+  // The registration_type CHECK ties registration_type 'team' to a non-null team_id, and no code
+  // path changes either column on an existing row, so this read cannot go stale before the write.
+  if (registration.registrationType === "team") {
+    throw new RegistrationError(
+      "registration_team_row_use_team_flow",
+      "Pendaftaran ini terdaftar sebagai tim. Hanya ketua tim yang dapat membatalkan pendaftaran tim, lewat bagian Tim di halaman ini.",
     );
   }
 

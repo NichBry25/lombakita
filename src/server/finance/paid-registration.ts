@@ -78,16 +78,11 @@ export const resolvePaymentGroupRegistrationIds = async (
 };
 
 /**
- * A registration id belonging to this team, or null when the team holds none.
- *
- * ANY member's row identifies the group. `hasSubmittedPaymentProof` resolves the whole payment
- * group from whichever row it is handed, so singling out the captain's would add a way to get the
- * wrong answer for no benefit. The caller needs an anchor, not a particular person's row.
- *
- * Shared by the team cancel guard and the surface that decides whether to offer the cancel control,
- * so the page cannot answer a question the service would answer differently.
+ * Any registration row of the team, a cancelled row of an earlier registration included. It is not
+ * the payment anchor: lockPaymentGroupAnchorRow returns the confirmed row that carries the current
+ * payment.
  */
-export const findTeamPaymentGroupAnchor = async (
+export const findAnyTeamRegistrationRow = async (
   teamId: string,
   db: Database = getDb(),
 ): Promise<string | null> => {

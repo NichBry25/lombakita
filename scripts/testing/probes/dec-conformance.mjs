@@ -147,7 +147,7 @@ const INDIVIDUAL_LOCKED_REFUSE = [
  * Anchored on the guard as fada388 left it: one condition, no `isPaidCompetition` wrapper.
  */
 const TEAM_PAID_REFUSE = [
-  "  const anchorRegistrationId = await findTeamPaymentGroupAnchor(teamId, db);",
+  "  const anchorRegistrationId = await findAnyTeamRegistrationRow(teamId, db);",
   "",
   "  if (anchorRegistrationId !== null && (await hasSubmittedPaymentProof(anchorRegistrationId, db))) {",
   "    throw new TeamError(",
@@ -161,7 +161,7 @@ const TEAM_PAID_REFUSE = [
 
 const TEAM_REFUSE_MOVED = [
   "  // probe: the team paid-registration refuse now runs after the cancellation has committed",
-  "  const anchorRegistrationId = await findTeamPaymentGroupAnchor(teamId, db);",
+  "  const anchorRegistrationId = await findAnyTeamRegistrationRow(teamId, db);",
   "",
   "  if (anchorRegistrationId !== null && (await hasSubmittedPaymentProof(anchorRegistrationId, db))) {",
   "    throw new TeamError(",

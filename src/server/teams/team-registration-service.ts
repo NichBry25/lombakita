@@ -25,7 +25,7 @@ import { isPaidCompetition } from "@/lib/competitions/paid-competition";
 import { acquireCompetitionParticipationLock } from "@/server/competitions/competition-participation-lock";
 import { isCompetitionHost } from "@/server/competitions/competition-access";
 import {
-  findTeamPaymentGroupAnchor,
+  findAnyTeamRegistrationRow,
   hasSubmittedPaymentProof,
   lockPaymentGroupAnchorRow,
 } from "@/server/finance/paid-registration";
@@ -221,6 +221,7 @@ export const hasFormingTeamSentPaymentProof = async (
   competitionId: string,
   db: DbOrTx = getDb(),
 ): Promise<boolean> => {
+  // Not findAnyTeamRegistrationRow: status = 'cancelled' keeps a submitted team's live proof out.
   const [cancelledRow] = await db
     .select({ id: competitionRegistrations.id })
     .from(competitionRegistrations)
@@ -649,7 +650,7 @@ export const cancelTeamRegistration = async (
   // Asked of the TEAM'S OWN MONEY, never of the competition's current price, for the same reason
   // the individual arm is: a fee lowered to zero would otherwise skip the check against a team
   // whose payment row still carries its original gross amount.
-  const anchorRegistrationId = await findTeamPaymentGroupAnchor(teamId, db);
+  const anchorRegistrationId = await findAnyTeamRegistrationRow(teamId, db);
 
   if (anchorRegistrationId !== null && (await hasSubmittedPaymentProof(anchorRegistrationId, db))) {
     throw new TeamError(

@@ -92,7 +92,7 @@ export default async function CompetitionRegistrationPage({
 
   // Whether either cancel control may be offered at all (DEC-0131). Resolved through the same
   // predicate the two cancel services call, so the page cannot offer what the server refuses.
-  const { individualCancellationClosed, teamCancellationClosed } =
+  const { individualCancellationClosed, teamRowCancellationClosed, teamCancellationClosed } =
     await resolveCancelAffordanceState({
       individualRegistration: initialRegistration,
       team: teamSnapshot?.team ?? null,
@@ -153,6 +153,7 @@ export default async function CompetitionRegistrationPage({
           expectedUserId={session.user.id}
           modeLabel={competition.mode === "both" ? "Daftar sebagai individu" : "Daftar"}
           cancellationClosedByPaymentProof={individualCancellationClosed}
+          cancellationClosedForTeamRow={teamRowCancellationClosed}
           registrationWithheld={paidRegistrationUnavailable}
           registerAgainClosedByPaymentProof={registerAgainClosedByPaymentProof}
         />

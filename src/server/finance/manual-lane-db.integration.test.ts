@@ -4879,7 +4879,7 @@ describe.skipIf(skipWithoutDatabase)(
     const resolve = async (
       tx: Tx,
       input: {
-        individualRegistration?: { id: string; status: string } | null;
+        individualRegistration?: { id: string; status: string; registrationType: string } | null;
         team?: { id: string; status: string } | null;
       },
     ) => {
@@ -4953,10 +4953,45 @@ describe.skipIf(skipWithoutDatabase)(
         // anything: the candidate owes money and has sent none, so leaving costs nobody anything.
         expect(
           await resolve(tx, {
-            individualRegistration: { id: fixture.registrationId, status: "confirmed" },
+            individualRegistration: {
+              id: fixture.registrationId,
+              status: "confirmed",
+              registrationType: "individual",
+            },
             team: { id: teamId, status: "submitted" },
           }),
-        ).toEqual({ individualCancellationClosed: false, teamCancellationClosed: false });
+        ).toEqual({
+          individualCancellationClosed: false,
+          teamRowCancellationClosed: false,
+          teamCancellationClosed: false,
+        });
+      });
+    });
+
+    it("WITHHOLDS the individual control on a team row, read from the stored row, with no proof sent", async () => {
+      await inRollback(async (tx) => {
+        const fixture = await seedFixture(tx);
+        const { teamId } = await seedSubmittedTeam(tx, fixture);
+        await seedManualPayment(tx, fixture);
+        const [storedRow] = await tx
+          .select({ registrationType: competitionRegistrations.registrationType })
+          .from(competitionRegistrations)
+          .where(eq(competitionRegistrations.id, fixture.registrationId));
+
+        expect(
+          await resolve(tx, {
+            individualRegistration: {
+              id: fixture.registrationId,
+              status: "confirmed",
+              registrationType: storedRow!.registrationType,
+            },
+            team: { id: teamId, status: "submitted" },
+          }),
+        ).toEqual({
+          individualCancellationClosed: false,
+          teamRowCancellationClosed: true,
+          teamCancellationClosed: false,
+        });
       });
     });
 
@@ -4967,7 +5002,11 @@ describe.skipIf(skipWithoutDatabase)(
         await submitProofFor(tx, fixture, paymentId);
 
         const state = await resolve(tx, {
-          individualRegistration: { id: fixture.registrationId, status: "confirmed" },
+          individualRegistration: {
+            id: fixture.registrationId,
+            status: "confirmed",
+            registrationType: "individual",
+          },
         });
 
         expect(state.individualCancellationClosed).toBe(true);
@@ -5000,7 +5039,11 @@ describe.skipIf(skipWithoutDatabase)(
         expect(
           (
             await resolve(tx, {
-              individualRegistration: { id: fixture.registrationId, status: "confirmed" },
+              individualRegistration: {
+                id: fixture.registrationId,
+                status: "confirmed",
+                registrationType: "individual",
+              },
             })
           ).individualCancellationClosed,
         ).toBe(true);
@@ -5059,10 +5102,18 @@ describe.skipIf(skipWithoutDatabase)(
 
         expect(
           await resolve(tx, {
-            individualRegistration: { id: fixture.registrationId, status: "confirmed" },
+            individualRegistration: {
+              id: fixture.registrationId,
+              status: "confirmed",
+              registrationType: "individual",
+            },
             team: { id: team!.id, status: "submitted" },
           }),
-        ).toEqual({ individualCancellationClosed: true, teamCancellationClosed: false });
+        ).toEqual({
+          individualCancellationClosed: true,
+          teamRowCancellationClosed: false,
+          teamCancellationClosed: false,
+        });
       });
     });
 
@@ -5077,10 +5128,18 @@ describe.skipIf(skipWithoutDatabase)(
         // asked, because neither state renders a cancel control to withhold.
         expect(
           await resolve(tx, {
-            individualRegistration: { id: fixture.registrationId, status: "cancelled" },
+            individualRegistration: {
+              id: fixture.registrationId,
+              status: "cancelled",
+              registrationType: "individual",
+            },
             team: { id: teamId, status: "forming" },
           }),
-        ).toEqual({ individualCancellationClosed: false, teamCancellationClosed: false });
+        ).toEqual({
+          individualCancellationClosed: false,
+          teamRowCancellationClosed: false,
+          teamCancellationClosed: false,
+        });
       });
     });
 
@@ -5099,7 +5158,11 @@ describe.skipIf(skipWithoutDatabase)(
         expect(
           (
             await resolve(tx, {
-              individualRegistration: { id: fixture.registrationId, status: "confirmed" },
+              individualRegistration: {
+                id: fixture.registrationId,
+                status: "confirmed",
+                registrationType: "individual",
+              },
             })
           ).individualCancellationClosed,
         ).toBe(false);
@@ -5730,7 +5793,11 @@ describe.skipIf(skipWithoutDatabase)("what the deadline means to the payer (real
         (
           await resolveCancelAffordanceState(
             {
-              individualRegistration: { id: fixture.registrationId, status: "confirmed" },
+              individualRegistration: {
+                id: fixture.registrationId,
+                status: "confirmed",
+                registrationType: "individual",
+              },
               team: null,
             },
             tx as never,
@@ -5746,12 +5813,20 @@ describe.skipIf(skipWithoutDatabase)("what the deadline means to the payer (real
       expect(
         await resolveCancelAffordanceState(
           {
-            individualRegistration: { id: fixture.registrationId, status: "cancelled" },
+            individualRegistration: {
+              id: fixture.registrationId,
+              status: "cancelled",
+              registrationType: "individual",
+            },
             team: null,
           },
           tx as never,
         ),
-      ).toEqual({ individualCancellationClosed: false, teamCancellationClosed: false });
+      ).toEqual({
+        individualCancellationClosed: false,
+        teamRowCancellationClosed: false,
+        teamCancellationClosed: false,
+      });
     });
   });
 });

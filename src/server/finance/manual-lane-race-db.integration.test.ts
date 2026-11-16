@@ -1572,46 +1572,39 @@ describe.skipIf(skipWithoutDatabase)(
       });
     });
 
-    it("PROOF FIRST ON A TEAM ROW: the captain's upload lands, and a member's own cancel queued behind it is refused", async () => {
+    it("A TEAM ROW: a member's own cancel is refused without waiting on the captain's row, and every row stays confirmed", async () => {
       const fixture = await registerCommittedTeamMember();
 
-      const [barrierPid, uploadPid, cancelPid] = await Promise.all([
-        backendPidOf(barrier),
-        backendPidOf(racerOne),
-        backendPidOf(racerTwo),
-      ]);
-
-      const [uploadResult, cancelResult] = await withRowHeld(
+      const outcome = await withRowHeld(
         "competition_registrations",
         fixture.anchorRegistrationId,
         async (track) => {
-          const uploadRun = track(runUpload(racerOne, fixture));
-          await awaitBlockedBy(uploadPid, barrierPid, "submitManualPaymentProof");
-
-          const cancelRun = track(runCancel(racerTwo, fixture));
-          await awaitBlockedBy(cancelPid, barrierPid, "the member's own cancel");
-
-          return [uploadRun, cancelRun] as const;
+          const cancelRun = track(runCancel(racerOne, fixture));
+          const waitedTooLong = new Promise<"waited">((resolve) =>
+            setTimeout(() => resolve("waited"), BARRIER_TIMEOUT_MS),
+          );
+          return Promise.race([cancelRun, waitedTooLong]);
         },
-      ).then(async ([uploadRun, cancelRun]) => [await uploadRun, await cancelRun] as const);
+      );
 
       const after = await readAfterRace(fixture);
       expect({
-        uploadOk: uploadResult.ok,
-        cancelOk: cancelResult.ok,
-        cancelCode: cancelResult.ok ? undefined : errorCodeOf(cancelResult.error),
-        cancelStatus: cancelResult.ok
-          ? undefined
-          : (cancelResult.error as { status?: number }).status,
+        cancelOutcome: outcome === "waited" ? "waited on the captain's row" : "settled",
+        cancelOk: outcome === "waited" ? undefined : outcome.ok,
+        cancelCode: outcome === "waited" || outcome.ok ? undefined : errorCodeOf(outcome.error),
+        cancelStatus:
+          outcome === "waited" || outcome.ok
+            ? undefined
+            : (outcome.error as { status?: number }).status,
         ...after,
       }).toEqual({
-        uploadOk: true,
+        cancelOutcome: "settled",
         cancelOk: false,
-        cancelCode: "cancellation_not_supported_for_paid",
-        cancelStatus: 422,
+        cancelCode: "registration_team_row_use_team_flow",
+        cancelStatus: 409,
         registrationStatus: "confirmed",
         anchorStatus: "confirmed",
-        proofStatuses: ["pending_review"],
+        proofStatuses: [],
       });
     });
 

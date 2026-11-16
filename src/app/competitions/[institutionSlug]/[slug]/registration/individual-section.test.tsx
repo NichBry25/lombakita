@@ -33,6 +33,7 @@ const renderCancelledCard = (overrides: {
         expectedUserId="user-1"
         modeLabel="Daftar"
         cancellationClosedByPaymentProof={false}
+        cancellationClosedForTeamRow={false}
         registrationWithheld={overrides.registrationWithheld ?? false}
         registerAgainClosedByPaymentProof={overrides.registerAgainClosedByPaymentProof}
       />
@@ -97,6 +98,7 @@ describe("the cancelled registration card", () => {
           expectedUserId="user-1"
           modeLabel="Daftar"
           cancellationClosedByPaymentProof={false}
+          cancellationClosedForTeamRow={false}
           registrationWithheld={false}
           registerAgainClosedByPaymentProof={false}
         />
@@ -135,6 +137,7 @@ describe("the register button's refusals", () => {
           expectedUserId="user-1"
           modeLabel="Daftar"
           cancellationClosedByPaymentProof={false}
+          cancellationClosedForTeamRow={false}
           registrationWithheld={false}
           registerAgainClosedByPaymentProof={false}
         />
@@ -164,6 +167,7 @@ describe("the cancel pop-up", () => {
           expectedUserId="user-1"
           modeLabel="Daftar"
           cancellationClosedByPaymentProof={false}
+          cancellationClosedForTeamRow={false}
           registrationWithheld={false}
           registerAgainClosedByPaymentProof={false}
         />
@@ -205,6 +209,7 @@ describe("the cancel pop-up", () => {
           expectedUserId="user-1"
           modeLabel="Daftar"
           cancellationClosedByPaymentProof={false}
+          cancellationClosedForTeamRow={false}
           registrationWithheld={false}
           registerAgainClosedByPaymentProof={false}
         />
@@ -219,6 +224,44 @@ describe("the cancel pop-up", () => {
     fireEvent.click(confirmButtons[confirmButtons.length - 1]!);
 
     expect(await screen.findByText("Batas waktu pembatalan telah terlewat.")).toBeTruthy();
+    expect(screen.getByRole("dialog")).toBeTruthy();
+  });
+
+  it("tells a stale page that the registration is a team row, and points to the team section", async () => {
+    vi.mocked(sessionFetch).mockClear();
+    vi.mocked(sessionFetch).mockResolvedValueOnce({
+      ok: false,
+      json: async () => ({ error: { code: "registration_team_row_use_team_flow" } }),
+    } as unknown as Response);
+    render(
+      <UIPrimitivesProvider>
+        <IndividualRegistrationSection
+          competitionId="comp-1"
+          competitionTitle="Seed Hackathon Nusantara"
+          ctaState="open"
+          initialRegistration={{ id: "reg-1", status: "confirmed" }}
+          expectedUserId="user-1"
+          modeLabel="Daftar"
+          cancellationClosedByPaymentProof={false}
+          cancellationClosedForTeamRow={false}
+          registrationWithheld={false}
+          registerAgainClosedByPaymentProof={false}
+        />
+      </UIPrimitivesProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Batalkan pendaftaran" }));
+    fireEvent.change(screen.getByLabelText(/Alasan pembatalan/), {
+      target: { value: "jadwal bentrok" },
+    });
+    const confirmButtons = screen.getAllByRole("button", { name: "Batalkan pendaftaran" });
+    fireEvent.click(confirmButtons[confirmButtons.length - 1]!);
+
+    expect(
+      await screen.findByText(
+        "Pendaftaran ini terdaftar sebagai tim. Hanya ketua tim yang dapat membatalkan pendaftaran tim, lewat bagian Tim di halaman ini.",
+      ),
+    ).toBeTruthy();
     expect(screen.getByRole("dialog")).toBeTruthy();
   });
 });

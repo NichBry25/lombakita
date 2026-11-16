@@ -24,7 +24,13 @@ const CANCEL_LABEL = "Batalkan pendaftaran";
 const TEAM_CANCEL_LABEL = "Batalkan pendaftaran tim";
 const WITHHELD_COPY = /tidak dapat dibatalkan sendiri setelah bukti transfer dikirim/i;
 
-const renderIndividual = (cancellationClosedByPaymentProof: boolean) =>
+const TEAM_ROW_COPY =
+  "Pendaftaran ini terdaftar sebagai tim. Hanya ketua tim yang dapat membatalkan pendaftaran tim, lewat bagian Tim di halaman ini.";
+
+const renderIndividual = (
+  cancellationClosedByPaymentProof: boolean,
+  cancellationClosedForTeamRow = false,
+) =>
   render(
     <UIPrimitivesProvider>
       <IndividualRegistrationSection
@@ -37,6 +43,7 @@ const renderIndividual = (cancellationClosedByPaymentProof: boolean) =>
         registrationWithheld={false}
         registerAgainClosedByPaymentProof={false}
         cancellationClosedByPaymentProof={cancellationClosedByPaymentProof}
+        cancellationClosedForTeamRow={cancellationClosedForTeamRow}
       />
     </UIPrimitivesProvider>,
   );
@@ -105,6 +112,23 @@ describe("the individual cancel affordance", () => {
     renderIndividual(true);
 
     expect(screen.getByText("Terdaftar")).toBeTruthy();
+  });
+
+  it("WITHHOLDS the control on a team row and shows the team sentence in its place", () => {
+    renderIndividual(false, true);
+
+    expect(screen.queryByRole("button", { name: CANCEL_LABEL })).toBeNull();
+    expect(screen.getByText(TEAM_ROW_COPY)).toBeTruthy();
+    expect(screen.queryByText(WITHHELD_COPY)).toBeNull();
+    expect(screen.getByText("Terdaftar")).toBeTruthy();
+  });
+
+  it("shows only the team sentence when a team row also has a proof sent", () => {
+    renderIndividual(true, true);
+
+    expect(screen.queryByRole("button", { name: CANCEL_LABEL })).toBeNull();
+    expect(screen.getAllByText(TEAM_ROW_COPY)).toHaveLength(1);
+    expect(screen.queryByText(WITHHELD_COPY)).toBeNull();
   });
 });
 
@@ -199,6 +223,7 @@ const renderIndividualEntry = (registrationWithheld: boolean) =>
         registrationWithheld={registrationWithheld}
         registerAgainClosedByPaymentProof={false}
         cancellationClosedByPaymentProof={false}
+        cancellationClosedForTeamRow={false}
       />
     </UIPrimitivesProvider>,
   );
