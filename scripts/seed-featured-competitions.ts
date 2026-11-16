@@ -19,6 +19,10 @@ const INSTITUTION_ID = "seed-inst-juara-nusantara";
 const INSTITUTION_SLUG = "juara-nusantara";
 const INSTITUTION_NAME = "Yayasan Juara Nusantara";
 
+// A database seeded by an older run may still feature this competition, which would put a fifth
+// card in the row.
+const RETIRED_FEATURED_COMPETITION_ID = "seed-comp-business-case";
+
 const DAY = 24 * 60 * 60 * 1000;
 
 type Seed = {
@@ -91,7 +95,7 @@ const main = async (): Promise<void> => {
       INSERT INTO institutions (
         id, display_name, slug, status, institution_type, verification_status, verified_at
       ) VALUES (
-        ${INSTITUTION_ID}, ${INSTITUTION_NAME}, ${INSTITUTION_SLUG}, 'active', NULL, 'verified', now()
+        ${INSTITUTION_ID}, ${INSTITUTION_NAME}, ${INSTITUTION_SLUG}, 'active', 'foundation', 'verified', now()
       )
       ON CONFLICT (id) DO UPDATE SET
         display_name = EXCLUDED.display_name,
@@ -135,6 +139,12 @@ const main = async (): Promise<void> => {
           updated_at = now()
       `;
     }
+
+    await client`
+      UPDATE competitions
+      SET is_featured = false, featured_order = NULL, updated_at = now()
+      WHERE id = ${RETIRED_FEATURED_COMPETITION_ID}
+    `;
 
     const rows = await client<{ count: number }[]>`
       SELECT COUNT(*)::int AS count FROM competitions

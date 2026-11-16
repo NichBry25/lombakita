@@ -90,7 +90,10 @@ export function FeaturedCarousel({ items }: { items: FeaturedItem[] }) {
         </div>
       </header>
 
-      <div className="featured-carousel-wrap">
+      <div
+        className="featured-carousel-wrap"
+        data-has-arrows={fitsWithoutScrolling ? undefined : "true"}
+      >
         {fitsWithoutScrolling ? null : (
           <IconButton
             icon="arrow-left"

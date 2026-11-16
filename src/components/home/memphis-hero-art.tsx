@@ -327,7 +327,7 @@ export function MemphisHeroArt(): ReactElement {
   const [tiles, setTiles] = useState<TileState[]>(INITIAL_TILES);
   const [hovered, setHovered] = useState<number | null>(null);
   const [reducedMotion, setReducedMotion] = useState(false);
-  // The panel is hidden at 940px and below (see .home-memphis in globals.css). CSS alone
+  // The panel is hidden at 1199px and below (see .home-memphis in globals.css). CSS alone
   // would stop it being seen but not being computed — the tick below would keep re-rendering the
   // whole tile grid off-screen, on the devices least able to afford it. This mirrors the
   // reduced-motion query so both conditions silence the same interval.
@@ -342,7 +342,7 @@ export function MemphisHeroArt(): ReactElement {
   }, []);
 
   useEffect(() => {
-    const query = window.matchMedia("(max-width: 940px)");
+    const query = window.matchMedia("(max-width: 1199px)");
     const sync = () => setIsNarrow(query.matches);
     sync();
     query.addEventListener("change", sync);

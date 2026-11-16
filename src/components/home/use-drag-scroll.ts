@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
 
 const DRAG_THRESHOLD_PX = 6;
@@ -15,14 +15,19 @@ type DragStart = { pointerX: number; scrollLeft: number; moved: boolean };
 export function useDragScroll<T extends HTMLElement>() {
   const rowRef = useRef<T>(null);
   const swallowNextClickRef = useRef(false);
+  const removeDragListenersRef = useRef<(() => void) | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+
+  useEffect(() => () => removeDragListenersRef.current?.(), []);
 
   function startDrag(event: ReactPointerEvent<T>) {
     const row = rowRef.current;
     if (!row) return;
+    if (removeDragListenersRef.current) return;
     if (event.pointerType !== "mouse" || event.button !== 0) return;
     if (row.scrollWidth <= row.clientWidth) return;
 
+    // The null check above does not carry into the nested function declarations below.
     const scrollableRow: T = row;
     const drag: DragStart = {
       pointerX: event.clientX,
@@ -38,10 +43,15 @@ export function useDragScroll<T extends HTMLElement>() {
       scrollableRow.scrollLeft = drag.scrollLeft - distance;
     }
 
-    function endDrag() {
+    function removeDragListeners() {
       window.removeEventListener("pointermove", followPointer);
       window.removeEventListener("pointerup", endDrag);
       window.removeEventListener("pointercancel", endDrag);
+      removeDragListenersRef.current = null;
+    }
+
+    function endDrag() {
+      removeDragListeners();
       setIsDragging(false);
       if (!drag.moved) return;
       swallowNextClickRef.current = true;
@@ -51,6 +61,7 @@ export function useDragScroll<T extends HTMLElement>() {
       }, 0);
     }
 
+    removeDragListenersRef.current = removeDragListeners;
     window.addEventListener("pointermove", followPointer);
     window.addEventListener("pointerup", endDrag);
     window.addEventListener("pointercancel", endDrag);

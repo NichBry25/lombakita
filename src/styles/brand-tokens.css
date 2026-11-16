@@ -648,13 +648,12 @@
    * Text and chips that sit on category/cover artwork. Two different backgrounds live here and
    * they move in opposite directions, so they need separate ink tokens:
    *
-   *   --on-cover-ink / -soft  sit directly on the WASH, which darkens in dark mode, so they
+   *   --on-cover-ink          sits directly on the WASH, which darkens in dark mode, so it
    *                           must follow the theme.
    *   --on-cover-chip-ink     sits on the CHIP, a near-white pill in BOTH themes, so it stays
    *                           dark always — theming it would put light ink on white.
    */
   --on-cover-ink: #14453d;
-  --on-cover-ink-soft: #3d5c56;
   --on-cover-chip: rgba(255, 255, 255, 0.88);
   --on-cover-chip-ink: #14453d;
 
@@ -702,12 +701,11 @@
   --category-blob-lightness: 42%;
 
   /*
-   * The ink on that wash has to invert with it. These must stay in this block, next to the wash
-   * they are measured against: worst case is the amber wash (hue 42), where paper reads 7.78:1
-   * and the soft ink 5.18:1. --on-cover-chip-ink is deliberately absent — the chip is still white.
+   * The ink on that wash has to invert with it. It must stay in this block, next to the wash
+   * it is measured against: worst case is the amber wash (hue 42), where paper reads 7.78:1.
+   * --on-cover-chip-ink is deliberately absent — the chip is still white.
    */
   --on-cover-ink: #f1ede2;
-  --on-cover-ink-soft: #a8c0b8;
 
   /* The pop-up shell takes the menu fill in dark, one step below the card ground. */
   --modal-fill: #12403a;

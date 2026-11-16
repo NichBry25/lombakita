@@ -12,11 +12,16 @@ vi.mock("next/link", () => {
 
 import { CategoryRow } from "@/components/home/category-row";
 
-type PointerInit = { pointerType: "mouse" | "touch"; clientX: number };
+type PointerInit = { pointerType: "mouse" | "touch"; clientX: number; button?: number };
 
 // jsdom has no PointerEvent, so a mouse event of the pointer type carries the pointer kind.
 const firePointer = (target: Element | Window, type: string, init: PointerInit) => {
-  const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: init.clientX });
+  const event = new MouseEvent(type, {
+    bubbles: true,
+    cancelable: true,
+    clientX: init.clientX,
+    button: init.button ?? 0,
+  });
   Object.defineProperty(event, "pointerType", { value: init.pointerType });
   fireEvent(target, event);
 };
@@ -59,11 +64,35 @@ describe("CategoryRow drag", () => {
     const { watch, stop } = watchClicksReachingDocument();
 
     dragBy(tile, -120);
-    fireEvent.click(tile);
+    const clickWasNotCancelled = fireEvent.click(tile);
     stop();
 
     expect(row.scrollLeft).toBe(420);
     expect(watch.reached).toBe(false);
+    expect(clickWasNotCancelled).toBe(false);
+  });
+
+  it("does not start a drag with a button other than the primary one", () => {
+    const { row, tile } = renderScrollableRow();
+    const { watch, stop } = watchClicksReachingDocument();
+
+    firePointer(tile, "pointerdown", { pointerType: "mouse", clientX: 500, button: 2 });
+    firePointer(window, "pointermove", { pointerType: "mouse", clientX: 380 });
+    firePointer(window, "pointerup", { pointerType: "mouse", clientX: 380 });
+    fireEvent.click(tile);
+    stop();
+
+    expect(row.scrollLeft).toBe(300);
+    expect(watch.reached).toBe(true);
+  });
+
+  it("stops following the pointer once the drag is released", () => {
+    const { row, tile } = renderScrollableRow();
+
+    dragBy(tile, -120);
+    firePointer(window, "pointermove", { pointerType: "mouse", clientX: 200 });
+
+    expect(row.scrollLeft).toBe(420);
   });
 
   it("lets a click through after a movement of 6px or less", () => {
