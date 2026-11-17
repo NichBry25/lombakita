@@ -3390,7 +3390,7 @@ button.header-sheet-row {
 }
 
 /* Filter toolbar: one row that never wraps. Each pill grows to its text and stops at the pill
-   maximum, where the text is cut. Urutkan stays at the right end. */
+   maximum, where the text is cut. The Urutkan icon button stays at the right end. */
 .filter-toolbar-filters {
   display: flex;
   flex-wrap: nowrap;
@@ -3404,6 +3404,61 @@ button.header-sheet-row {
 
 .filter-toolbar-sort {
   margin-inline-start: auto;
+}
+
+/* The Filter pill is the main control of the row, so it is filled where the other pills are not,
+   the same fill the phone bar's Filter pill has. Its hover and pressed states follow the primary
+   button's. */
+.filter-toolbar-filters .filter-dropdown-trigger.filter-toolbar-pill {
+  background: var(--color-action);
+  color: var(--color-action-ink);
+  box-shadow: none;
+}
+
+.filter-toolbar-filters .filter-dropdown-trigger.filter-toolbar-pill:hover {
+  background: var(--color-action-hover);
+  box-shadow: none;
+}
+
+.filter-toolbar-filters .filter-dropdown-trigger.filter-toolbar-pill:active {
+  background: var(--color-action-hover);
+  transform: translateY(var(--border-thin));
+}
+
+/* Urutkan is an icon button drawn like its neighbouring pills: the pills' field ring and raised
+   fill, and the set look of a pill (ink ring, hover fill) while the sort is not the default. */
+.filter-toolbar-sort .ui-icon-button {
+  border-color: transparent;
+  border-radius: var(--radius-control);
+  background: var(--color-raised);
+  box-shadow: inset 0 0 0 1.5px var(--color-field-ring);
+}
+
+.filter-toolbar-sort .ui-icon-button:hover:not(:disabled),
+.filter-toolbar-sort .ui-icon-button[aria-expanded="true"],
+.filter-toolbar-sort .ui-icon-button[data-active="true"] {
+  box-shadow: inset 0 0 0 var(--border-strong) var(--color-ink);
+}
+
+.filter-toolbar-sort .ui-icon-button[data-active="true"] {
+  background: var(--color-hover-surface);
+}
+
+/* The button sits at the right end of the row, so its tooltip grows leftwards from the button's
+   right edge instead of overhanging the screen, and it steps aside while the menu is open under it. */
+.filter-toolbar-sort .ui-icon-button[data-tooltip]::after {
+  inset-inline-start: auto;
+  inset-inline-end: 0;
+  transform: translateX(0) scale(0);
+}
+
+.filter-toolbar-sort .ui-icon-button[data-tooltip]:hover::after,
+.filter-toolbar-sort .ui-icon-button[data-tooltip]:focus-visible::after {
+  transform: translateX(0) scale(1);
+}
+
+.filter-toolbar-sort .ui-icon-button[data-tooltip][aria-expanded="true"]::after {
+  opacity: 0;
 }
 
 .filter-toolbar-filters .filter-dropdown-trigger {
@@ -3627,7 +3682,8 @@ button.header-sheet-row {
   background: var(--color-action-hover);
 }
 
-.filter-phone-pill .filter-count-badge {
+.filter-phone-pill .filter-count-badge,
+.filter-toolbar-pill .filter-count-badge {
   background: var(--color-action-ink);
   color: var(--color-action);
 }
@@ -3646,14 +3702,34 @@ button.header-sheet-row {
   display: none;
 }
 
-.filter-phone-row > .action-chip {
+.filter-phone-row > .action-chip,
+.filter-phone-row > .ui-icon-button {
   flex: none;
 }
 
-/* 928px is the narrowest width at which the desktop row fits on one line. Below it the row gives
+/* The Urutkan icon button takes the chips' shape, and their set look while the sort is not the
+   default. The row scrolls sideways, which would clip a tooltip, and a touch screen has no hover
+   to show one, so the tooltip is left out. */
+.filter-phone-row > .ui-icon-button {
+  border-radius: var(--radius-control);
+}
+
+.filter-phone-row > .ui-icon-button[data-tooltip]::after {
+  display: none;
+}
+
+.filter-phone-row > .ui-icon-button[data-active="true"],
+.filter-phone-row
+  > .ui-icon-button[data-active="true"]:hover:not(:disabled):not([aria-disabled="true"]) {
+  border-color: var(--brand-palm);
+  background: var(--brand-palm);
+  color: var(--brand-paper);
+}
+
+/* 832px is the narrowest width at which the desktop row fits on one line. Below it the row gives
    way to the bar, and the page keeps the bar's height free at its end so the last card and the
    footer are never under it. */
-@media (max-width: 927.98px) {
+@media (max-width: 831.98px) {
   .filter-toolbar-filters {
     display: none;
   }
@@ -4570,8 +4646,8 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   display: inline-flex;
 }
 
-/* On a phone the link keeps only the arrow, underlined, so the heading row never wraps. The
-   link's accessible name is set on the link itself, so it is the same either way. */
+/* On a phone the link keeps only the arrow, so the heading row never wraps. The link's accessible
+   name is set on the link itself, so it is the same either way. */
 @media (max-width: 640px) {
   .featured-view-all {
     min-width: var(--touch-target);
@@ -4579,10 +4655,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
 
   .featured-view-all-text {
     display: none;
-  }
-
-  .featured-view-all-arrow {
-    border-block-end: var(--border-strong) solid currentcolor;
   }
 }
 

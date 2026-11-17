@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { Icon } from "./icon";
+import { IconButton } from "./button";
+import { Icon, type IconName } from "./icon";
 
 export type FilterOption = { value: string; label: string };
 
@@ -14,6 +15,9 @@ type FilterDropdownProps = {
   searchable?: boolean;
   // "end" opens the menu with its right edge on the right edge of the trigger.
   align?: "start" | "end";
+  // Draws the trigger as an icon-only button whose name and tooltip are the label followed by the
+  // chosen option, so the current choice is spoken and shown even though no text is drawn.
+  triggerIcon?: IconName;
 };
 
 type ShownOption = { option: FilterOption; index: number };
@@ -30,12 +34,12 @@ export function FilterDropdown({
   onChange,
   searchable = false,
   align = "start",
+  triggerIcon,
 }: FilterDropdownProps) {
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const [query, setQuery] = useState("");
   const rootRef = useRef<HTMLDivElement>(null);
-  const buttonRef = useRef<HTMLButtonElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const optionIdPrefix = useId();
@@ -94,9 +98,15 @@ export function FilterDropdown({
     setOpen(true);
   };
 
+  // The trigger is the first element of the root, whether it is the pill or the icon button.
+  const focusTrigger = () => {
+    const trigger = rootRef.current?.firstElementChild;
+    if (trigger instanceof HTMLElement) trigger.focus();
+  };
+
   const closeAndFocusTrigger = () => {
     setOpen(false);
-    buttonRef.current?.focus();
+    focusTrigger();
   };
 
   const commit = (shownIndex: number) => {
@@ -240,22 +250,38 @@ export function FilterDropdown({
 
   const menu = searchable ? searchableMenu : plainMenu;
 
+  const toggleMenu = () => (open ? setOpen(false) : openMenu());
+
+  const trigger = triggerIcon ? (
+    <IconButton
+      variant="outline"
+      icon={triggerIcon}
+      label={`${label}: ${selected?.label}`}
+      data-active={isDefault ? undefined : "true"}
+      aria-haspopup="listbox"
+      aria-expanded={open}
+      onClick={toggleMenu}
+      onKeyDown={onTriggerKeyDown}
+    />
+  ) : (
+    <button
+      type="button"
+      className="filter-dropdown-trigger"
+      data-active={isDefault ? undefined : "true"}
+      aria-haspopup="listbox"
+      aria-expanded={open}
+      aria-label={accessibleName}
+      onClick={toggleMenu}
+      onKeyDown={onTriggerKeyDown}
+    >
+      <span className="filter-dropdown-trigger-label">{triggerLabel}</span>
+      <Icon name="chevron-down" className="filter-dropdown-chevron" />
+    </button>
+  );
+
   return (
     <div className="filter-dropdown" ref={rootRef}>
-      <button
-        type="button"
-        ref={buttonRef}
-        className="filter-dropdown-trigger"
-        data-active={isDefault ? undefined : "true"}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-label={accessibleName}
-        onClick={() => (open ? setOpen(false) : openMenu())}
-        onKeyDown={onTriggerKeyDown}
-      >
-        <span className="filter-dropdown-trigger-label">{triggerLabel}</span>
-        <Icon name="chevron-down" className="filter-dropdown-chevron" />
-      </button>
+      {trigger}
       {open ? menu : null}
     </div>
   );

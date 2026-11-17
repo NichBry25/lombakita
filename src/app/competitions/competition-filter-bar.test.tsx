@@ -26,14 +26,10 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-const renderBar = (params: CompetitionSearchParams = {}, total = 40) =>
+const renderBar = (params: CompetitionSearchParams = {}) =>
   render(
     <UIPrimitivesProvider>
-      <CompetitionFilterBar
-        params={params}
-        total={total}
-        resultCount={<h2>{total} kompetisi ditemukan</h2>}
-      />
+      <CompetitionFilterBar params={params} resultCount={<h2>40 kompetisi ditemukan</h2>} />
     </UIPrimitivesProvider>,
   );
 
@@ -71,7 +67,10 @@ const openSheet = (section?: string) => {
   if (section) expandSection(section);
 };
 
-const sheetButton = () => sheet().getByRole("button", { name: /^Tampilkan/ });
+const sheetButton = () => sheet().getByRole("button", { name: "Terapkan" });
+
+const nameOrText = (button: HTMLElement): string | null =>
+  button.getAttribute("aria-label") ?? button.textContent;
 
 const openSectionNames = (): string[] =>
   sheet()
@@ -82,14 +81,27 @@ const openSectionNames = (): string[] =>
 const SECTION_NAMES = ["Kategori", "Ukuran tim", "Lokasi", "Untuk", "Biaya", "Status", "Urutkan"];
 
 describe("the desktop row", () => {
-  it("shows Kategori, Status, Lokasi, the Filter pill and Urutkan, and no pill for the rest", () => {
+  it("starts with the Filter pill, then Kategori, Status and Lokasi, and ends with Urutkan", () => {
     renderBar();
 
-    const labels = pillRow()
-      .getAllByRole("button")
-      .map((button) => button.getAttribute("aria-label") ?? button.textContent);
+    const labels = pillRow().getAllByRole("button").map(nameOrText);
 
-    expect(labels).toEqual(["Kategori", "Status", "Lokasi", "Filter", "Urutkan"]);
+    expect(labels).toEqual(["Filter", "Kategori", "Status", "Lokasi", "Urutkan: Terbaru"]);
+  });
+
+  it("puts the trash icon after Lokasi and before Urutkan while a filter is set", () => {
+    renderBar({ category: "debate" });
+
+    const labels = pillRow().getAllByRole("button").map(nameOrText);
+
+    expect(labels).toEqual([
+      "Filter (1)",
+      "Kategori: Debat",
+      "Status",
+      "Lokasi",
+      "Hapus semua filter",
+      "Urutkan: Terbaru",
+    ]);
   });
 
   it("keeps Urutkan on its own at the right end of the row", () => {
@@ -98,7 +110,9 @@ describe("the desktop row", () => {
     const sortSlot = document.querySelector(".filter-toolbar-sort")!;
 
     expect(sortSlot.parentElement?.lastElementChild).toBe(sortSlot);
-    expect(within(sortSlot as HTMLElement).getByRole("button", { name: "Urutkan" })).toBeTruthy();
+    expect(
+      within(sortSlot as HTMLElement).getByRole("button", { name: "Urutkan: Terbaru" }),
+    ).toBeTruthy();
   });
 
   it("draws the phone bar outside the toolbar, so its position is the screen's", () => {
@@ -139,7 +153,7 @@ describe("the desktop row", () => {
 
   it("applies a sort from its pill and keeps the filters", () => {
     renderBar({ category: "debate" });
-    fireEvent.click(pillRow().getByRole("button", { name: "Urutkan" }));
+    fireEvent.click(pillRow().getByRole("button", { name: "Urutkan: Terbaru" }));
     fireEvent.click(screen.getByRole("option", { name: "Deadline terdekat" }));
 
     expect(mockPush).toHaveBeenLastCalledWith("/competitions?category=debate&sort=deadline_asc");
@@ -165,7 +179,7 @@ describe("the desktop row", () => {
       ["Kategori", undefined],
       ["Status", undefined],
       ["Lokasi", undefined],
-      ["Urutkan", "end"],
+      ["Urutkan: Terbaru", "end"],
     ];
     for (const [name, align] of expectedAlign) {
       fireEvent.click(pillRow().getByRole("button", { name }));
@@ -273,19 +287,17 @@ describe("the trash button", () => {
     expect(pillRow().queryByRole("button", { name: "Hapus semua filter" })).toBeNull();
   });
 
-  it("appears at the end of the front row, after the Filter pill, once a filter is set", () => {
+  it("appears after Lokasi once a filter is set, as an icon with its name as the tooltip", () => {
     renderBar({ category: "debate" });
 
     const trash = pillRow().getByRole("button", { name: "Hapus semua filter" });
-    const filterPill = pillRow().getByRole("button", { name: "Filter (1)" });
+    const lokasi = pillRow().getByRole("button", { name: "Lokasi" });
 
     expect(trash.textContent).toBe("");
     expect(trash.getAttribute("title") ?? trash.getAttribute("data-tooltip")).toBe(
       "Hapus semua filter",
     );
-    expect(
-      filterPill.compareDocumentPosition(trash) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    expect(lokasi.compareDocumentPosition(trash) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("clears every filter and keeps the search term and the sort", () => {
@@ -316,11 +328,16 @@ describe("the phone bar", () => {
   it("starts with Filter, then Urutkan, Kategori, Dibuka, Online and Gratis", () => {
     renderBar();
 
-    const labels = phoneBar()
-      .getAllByRole("button")
-      .map((button) => button.textContent);
+    const labels = phoneBar().getAllByRole("button").map(nameOrText);
 
-    expect(labels).toEqual(["Filter", "Urutkan", "Kategori", "Dibuka", "Online", "Gratis"]);
+    expect(labels).toEqual([
+      "Filter",
+      "Urutkan: Terbaru",
+      "Kategori",
+      "Dibuka",
+      "Online",
+      "Gratis",
+    ]);
   });
 
   it("fixes the Filter pill outside the sideways row and fills it, unlike the other chips", () => {
@@ -403,7 +420,7 @@ describe("the phone bar", () => {
     first.unmount();
 
     renderBar({ sort: "deadline_asc" });
-    fireEvent.click(phoneBar().getByRole("button", { name: "Urutkan" }));
+    fireEvent.click(phoneBar().getByRole("button", { name: "Urutkan: Deadline terdekat" }));
     expect(openSectionNames()).toEqual(["Urutkan · Deadline terdekat"]);
     expect(document.activeElement).toBe(sheet().getByRole("radio", { name: "Deadline terdekat" }));
   });
@@ -698,7 +715,7 @@ describe("the filter panel", () => {
     expect(choices).toEqual(["Semua lokasi", "Online", "Offline", "Hybrid"]);
   });
 
-  it("applies a fee range from the panel with Tampilkan", () => {
+  it("applies a fee range from the panel with Terapkan", () => {
     renderBar();
     openSheet("Biaya");
 
@@ -782,7 +799,7 @@ describe("the filter panel", () => {
     expect(mockPush).toHaveBeenCalledWith("/competitions?sort=created_desc");
   });
 
-  it("applies a location and ticked audience levels together with Tampilkan", () => {
+  it("applies a location and ticked audience levels together with Terapkan", () => {
     renderBar();
     openSheet("Lokasi");
 
@@ -813,7 +830,7 @@ describe("the filter panel", () => {
     expect(umum.disabled).toBe(true);
   });
 
-  it("does not change the address until Tampilkan is pressed", () => {
+  it("does not change the address until Terapkan is pressed", () => {
     renderBar();
     openSheet("Ukuran tim");
 
@@ -878,7 +895,7 @@ describe("the filter panel", () => {
     ).toBe("true");
   });
 
-  it("clears every filter with the trash button, keeps the sort, and still waits for Tampilkan", () => {
+  it("clears every filter with the trash button, keeps the sort, and still waits for Terapkan", () => {
     renderBar({ category: "debate", status: "open", teamMin: "3", sort: "deadline_asc" });
     openSheet();
 
@@ -927,243 +944,140 @@ describe("the filter panel", () => {
   });
 });
 
-describe("the live count on the panel's button", () => {
-  // Moves the clock and lets the promises the timer started finish, so the count has landed.
-  const settle = async (milliseconds: number) => {
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(milliseconds);
-      for (let turn = 0; turn < 5; turn++) await Promise.resolve();
-    });
-  };
-
-  const useTimers = () => vi.useFakeTimers({ shouldAdvanceTime: false });
-
-  it("starts from the page's total and does not ask the server for it", async () => {
-    useTimers();
-    renderBar({}, 40);
+describe("applying the panel", () => {
+  it("labels the apply button Terapkan and shows no result count", () => {
+    renderBar();
     openSheet();
-    await settle(1000);
 
-    expect(sheetButton().textContent).toBe("Tampilkan 40 lomba");
-    expect(mockFetch).not.toHaveBeenCalled();
-  });
-
-  it("reads total from the list route with the pending filters and a limit of 1", async () => {
-    useTimers();
-    renderBar({ q: "lomba" }, 40);
-    openSheet("Ukuran tim");
-
-    pressKey(sheet().getByRole("slider", { name: "Ukuran tim minimum" }), "ArrowRight");
-    await settle(300);
-
-    expect(mockFetch).toHaveBeenCalledTimes(1);
-    const requested = new URL(String(mockFetch.mock.calls[0]![0]), "http://localhost");
-    expect(requested.pathname).toBe("/api/v1/competitions");
-    expect(requested.searchParams.get("teamMin")).toBe("2");
-    expect(requested.searchParams.get("q")).toBe("lomba");
-    expect(requested.searchParams.get("limit")).toBe("1");
-    expect(requested.searchParams.has("page")).toBe(false);
-    expect(sheetButton().textContent).toBe("Tampilkan 12 lomba");
-  });
-
-  it("asks with the pending location and audience, so the count matches the list", async () => {
-    useTimers();
-    renderBar({}, 40);
-    openSheet("Lokasi");
-
-    fireEvent.click(sheet().getByRole("radio", { name: "Online" }));
-    expandSection("Untuk");
-    fireEvent.click(sheet().getByRole("checkbox", { name: "SMP" }));
-    await settle(300);
-
-    expect(mockFetch).toHaveBeenCalledTimes(1);
-    const requested = new URL(String(mockFetch.mock.calls[0]![0]), "http://localhost");
-    expect(requested.searchParams.get("location")).toBe("online");
-    expect(requested.searchParams.get("audience")).toBe("smp");
-  });
-
-  it("asks with the pending fee filter, so the panel count matches the list", async () => {
-    useTimers();
-    renderBar({}, 40);
-    openSheet("Biaya");
-
-    fireEvent.click(sheet().getByRole("button", { name: "Berbayar" }));
-    pressKey(sheet().getByRole("slider", { name: "Biaya minimum" }), "ArrowRight", 4);
-    await settle(300);
-
-    expect(mockFetch).toHaveBeenCalledTimes(1);
-    const requested = new URL(String(mockFetch.mock.calls[0]![0]), "http://localhost");
-    expect(requested.searchParams.get("fee")).toBe("paid");
-    expect(requested.searchParams.get("feeMin")).toBe("100000");
-    expect(requested.searchParams.has("feeMax")).toBe(false);
-  });
-
-  it("asks with the free fee and without the ends of a range it replaced", async () => {
-    useTimers();
-    renderBar({ fee: "paid", feeMin: "25000", feeMax: "100000" }, 40);
-    openSheet("Biaya");
-
-    fireEvent.click(sheet().getByRole("button", { name: "Gratis" }));
-    await settle(300);
-
-    const requested = new URL(String(mockFetch.mock.calls[0]![0]), "http://localhost");
-    expect(requested.searchParams.get("fee")).toBe("free");
-    expect(requested.searchParams.has("feeMin")).toBe(false);
-    expect(requested.searchParams.has("feeMax")).toBe(false);
-  });
-
-  it("asks at most once per 300 ms of changes", async () => {
-    useTimers();
-    renderBar({}, 40);
-    openSheet("Ukuran tim");
-
-    const minHandle = sheet().getByRole("slider", { name: "Ukuran tim minimum" });
-    pressKey(minHandle, "ArrowRight");
-    await settle(299);
-    expect(mockFetch).not.toHaveBeenCalled();
-    pressKey(minHandle, "ArrowRight");
-    await settle(299);
-    expect(mockFetch).not.toHaveBeenCalled();
-    await settle(1);
-
-    expect(mockFetch).toHaveBeenCalledTimes(1);
-    expect(
-      new URL(String(mockFetch.mock.calls[0]![0]), "http://localhost").searchParams.get("teamMin"),
-    ).toBe("3");
-  });
-
-  it("keeps the team range from the address in the request when another filter changes", async () => {
-    useTimers();
-    renderBar({ teamMin: "3", teamMax: "6" }, 40);
-    openSheet("Status");
-
-    fireEvent.click(sheet().getByRole("radio", { name: "Dibuka" }));
-    await settle(300);
-
-    const requested = new URL(String(mockFetch.mock.calls[0]![0]), "http://localhost");
-    expect(requested.searchParams.get("status")).toBe("open");
-    expect(requested.searchParams.get("teamMin")).toBe("3");
-    expect(requested.searchParams.get("teamMax")).toBe("6");
-  });
-
-  it("asks for an old mode link as its range and without mode or teamSize", async () => {
-    useTimers();
-    renderBar({ mode: "team", teamSize: "small" }, 40);
-    openSheet("Status");
-
-    fireEvent.click(sheet().getByRole("radio", { name: "Dibuka" }));
-    await settle(300);
-
-    const requested = new URL(String(mockFetch.mock.calls[0]![0]), "http://localhost");
-    expect(requested.searchParams.get("teamMin")).toBe("2");
-    expect(requested.searchParams.get("teamMax")).toBe("4");
-    expect(requested.searchParams.has("mode")).toBe(false);
-    expect(requested.searchParams.has("teamSize")).toBe(false);
-  });
-
-  it("aborts a request that a newer change supersedes and never shows its answer", async () => {
-    useTimers();
-    const requests: Array<{ signal: AbortSignal; answer: (total: number) => void }> = [];
-    // Like the browser's fetch, a request rejects as soon as its signal aborts.
-    mockFetch.mockImplementation(
-      (_url: string, init: { signal: AbortSignal }) =>
-        new Promise((resolve, reject) => {
-          init.signal.addEventListener("abort", () => reject(new DOMException("", "AbortError")));
-          requests.push({
-            signal: init.signal,
-            answer: (total) => resolve({ ok: true, json: async () => ({ meta: { total } }) }),
-          });
-        }),
-    );
-    renderBar({}, 40);
-    openSheet("Ukuran tim");
-    const minHandle = sheet().getByRole("slider", { name: "Ukuran tim minimum" });
-
-    pressKey(minHandle, "ArrowRight");
-    await settle(300);
-    pressKey(minHandle, "ArrowRight");
-    await settle(300);
-
-    expect(requests).toHaveLength(2);
-    expect(requests[0]!.signal.aborted).toBe(true);
-    expect(requests[1]!.signal.aborted).toBe(false);
-
-    requests[0]!.answer(99);
-    await settle(0);
-    expect(sheetButton().textContent).toBe("Tampilkan 40 lomba");
-    expect(sheetButton().getAttribute("aria-busy")).toBe("true");
-
-    requests[1]!.answer(7);
-    await settle(0);
-    expect(sheetButton().textContent).toBe("Tampilkan 7 lomba");
+    expect(sheetButton().textContent).toBe("Terapkan");
+    expect(sheet().queryByRole("button", { name: /^Tampilkan/ })).toBeNull();
     expect(sheetButton().hasAttribute("aria-busy")).toBe(false);
   });
 
-  it("aborts the request in flight when the panel closes", async () => {
-    useTimers();
-    let signalOfRequest: AbortSignal | undefined;
-    mockFetch.mockImplementation((_url: string, init: { signal: AbortSignal }) => {
-      signalOfRequest = init.signal;
-      return new Promise(() => undefined);
-    });
-    renderBar({}, 40);
-    openSheet("Ukuran tim");
+  it("closes the panel and writes the address in one press", () => {
+    renderBar({ q: "lomba" });
+    openSheet("Kategori");
 
-    pressKey(sheet().getByRole("slider", { name: "Ukuran tim minimum" }), "ArrowRight");
-    await settle(300);
-    fireEvent.click(sheet().getByRole("button", { name: "Tutup" }));
-
-    expect(signalOfRequest?.aborted).toBe(true);
-  });
-
-  it("keeps the last count and shows its spinner while the request is out", async () => {
-    useTimers();
-    mockFetch.mockReturnValue(new Promise(() => undefined));
-    renderBar({}, 40);
-    openSheet("Ukuran tim");
-
-    pressKey(sheet().getByRole("slider", { name: "Ukuran tim minimum" }), "ArrowRight");
-    await settle(300);
-
-    expect(sheetButton().textContent).toBe("Tampilkan 40 lomba");
-    expect(sheetButton().getAttribute("aria-busy")).toBe("true");
-  });
-
-  it("can still apply while the count is loading", async () => {
-    useTimers();
-    mockFetch.mockReturnValue(new Promise(() => undefined));
-    renderBar({}, 40);
-    openSheet("Ukuran tim");
-
-    pressKey(sheet().getByRole("slider", { name: "Ukuran tim minimum" }), "ArrowRight");
-    await settle(300);
+    fireEvent.click(sheet().getByRole("radio", { name: "Debat" }));
+    expandSection("Lokasi");
+    fireEvent.click(sheet().getByRole("radio", { name: "Online" }));
+    expect(mockPush).not.toHaveBeenCalled();
     fireEvent.click(sheetButton());
 
-    expect(mockPush).toHaveBeenCalledWith("/competitions?teamMin=2&sort=created_desc");
+    expect(mockPush).toHaveBeenCalledTimes(1);
+    expect(mockPush).toHaveBeenCalledWith(
+      "/competitions?q=lomba&category=debate&sort=created_desc&location=online",
+    );
+    expect(screen.queryByRole("dialog", { name: "Filter" })).toBeNull();
   });
 
-  it("says Tampilkan hasil when the request fails", async () => {
-    useTimers();
-    mockFetch.mockRejectedValue(new Error("offline"));
-    renderBar({}, 40);
+  it("makes no request to the competitions route while the panel is open and being changed", async () => {
+    vi.useFakeTimers();
+    renderBar();
     openSheet("Ukuran tim");
 
     pressKey(sheet().getByRole("slider", { name: "Ukuran tim minimum" }), "ArrowRight");
-    await settle(300);
+    expandSection("Lokasi");
+    fireEvent.click(sheet().getByRole("radio", { name: "Online" }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
 
-    expect(sheetButton().textContent).toBe("Tampilkan hasil");
-    expect(sheetButton().hasAttribute("aria-busy")).toBe(false);
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(sheetButton().textContent).toBe("Terapkan");
   });
 
-  it("says Tampilkan hasil when the route answers with an error status", async () => {
-    useTimers();
-    mockFetch.mockResolvedValue({ ok: false, json: async () => ({}) });
-    renderBar({}, 40);
-    openSheet("Ukuran tim");
+  it("makes no request when the panel applies either", async () => {
+    vi.useFakeTimers();
+    renderBar();
+    openSheet("Status");
 
-    pressKey(sheet().getByRole("slider", { name: "Ukuran tim minimum" }), "ArrowRight");
-    await settle(300);
+    fireEvent.click(sheet().getByRole("radio", { name: "Dibuka" }));
+    fireEvent.click(sheetButton());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
 
-    expect(sheetButton().textContent).toBe("Tampilkan hasil");
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("keeps the trash button in the panel clearing the copy without applying", () => {
+    renderBar({ category: "debate" });
+    openSheet();
+
+    fireEvent.click(sheet().getByRole("button", { name: "Hapus semua filter" }));
+
+    expect(mockPush).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: "Filter" })).toBeTruthy();
+  });
+});
+
+describe("the Urutkan icon button", () => {
+  it("is named and given its tooltip from the sort in force, on the desktop row", () => {
+    renderBar();
+
+    const sortButton = pillRow().getByRole("button", { name: "Urutkan: Terbaru" });
+
+    expect(sortButton.textContent).toBe("");
+    expect(sortButton.getAttribute("data-tooltip")).toBe("Urutkan: Terbaru");
+    expect(sortButton.querySelector("svg")).not.toBeNull();
+    expect(sortButton.hasAttribute("data-active")).toBe(false);
+  });
+
+  it("is named and given its tooltip from the sort in force, on the phone bar", () => {
+    renderBar();
+
+    const sortButton = phoneBar().getByRole("button", { name: "Urutkan: Terbaru" });
+
+    expect(sortButton.textContent).toBe("");
+    expect(sortButton.getAttribute("data-tooltip")).toBe("Urutkan: Terbaru");
+    expect(sortButton.hasAttribute("data-active")).toBe(false);
+  });
+
+  it.each([
+    ["deadline_asc", "Urutkan: Deadline terdekat"],
+    ["deadline_desc", "Urutkan: Deadline terjauh"],
+  ])("follows a sort of %s in its name and shows the selected state", (sort, name) => {
+    renderBar({ sort });
+
+    const desktop = pillRow().getByRole("button", { name });
+    const phone = phoneBar().getByRole("button", { name });
+
+    expect(desktop.getAttribute("data-tooltip")).toBe(name);
+    expect(desktop.getAttribute("data-active")).toBe("true");
+    expect(phone.getAttribute("data-tooltip")).toBe(name);
+    expect(phone.getAttribute("data-active")).toBe("true");
+  });
+
+  it("reads a sort the list does not know as the default", () => {
+    renderBar({ sort: "unknown" });
+
+    expect(pillRow().getByRole("button", { name: "Urutkan: Terbaru" })).toBeTruthy();
+    expect(
+      phoneBar().getByRole("button", { name: "Urutkan: Terbaru" }).hasAttribute("data-active"),
+    ).toBe(false);
+  });
+
+  it("opens the sort menu on desktop and the panel at Urutkan on the phone bar", () => {
+    renderBar();
+
+    fireEvent.click(pillRow().getByRole("button", { name: "Urutkan: Terbaru" }));
+    expect(screen.getByRole("listbox", { name: "Urutkan" })).toBeTruthy();
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+
+    fireEvent.click(phoneBar().getByRole("button", { name: "Urutkan: Terbaru" }));
+    expect(openSectionNames()).toEqual(["Urutkan"]);
+  });
+});
+
+describe("the filled Filter pill", () => {
+  it("is the first control of the desktop row and carries the pill class that fills it", () => {
+    renderBar();
+
+    const row = document.querySelector<HTMLElement>(".filter-toolbar-filters")!;
+    const filterPill = pillRow().getByRole("button", { name: "Filter" });
+
+    expect(row.firstElementChild).toBe(filterPill);
+    expect(filterPill.classList.contains("filter-toolbar-pill")).toBe(true);
   });
 });

@@ -147,6 +147,16 @@ describe("HomePage", () => {
     expect(html).toContain('aria-label="Lihat semua kompetisi"');
   });
 
+  it("keeps the all-competitions link going to /competitions, named in full beside its arrow", async () => {
+    mockListFeaturedCompetitions.mockResolvedValue([featuredItem(1)]);
+
+    const html = renderToStaticMarkup(await HomePage());
+
+    const link = html.match(/<a[^>]*aria-label="Lihat semua kompetisi"[^>]*>/)?.[0];
+    expect(link).toContain('href="/competitions"');
+    expect(html).toContain("featured-view-all-arrow");
+  });
+
   it("does not show the editor's pick pill on a featured card", async () => {
     mockListFeaturedCompetitions.mockResolvedValue([featuredItem(1), featuredItem(2)]);
 

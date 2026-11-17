@@ -210,6 +210,14 @@ export const listSetFilters = (selection: FilterSelection): SetFilter[] => {
 export const describeNonDefaultSort = (sort: string): string | undefined =>
   sort === DEFAULT_SORT ? undefined : labelOfOption(SORT_OPTIONS, sort);
 
+// A sort the list does not know is shown, and counted, as the default, like the Urutkan menu does.
+const knownSort = (sort: string): string =>
+  SORT_OPTIONS.some((option) => option.value === sort) ? sort : DEFAULT_SORT;
+
+/** The phone bar's Urutkan button name: "Urutkan: " and the label of the sort in force. */
+const describeSortButton = (sort: string): string =>
+  `Urutkan: ${labelOfOption(SORT_OPTIONS, knownSort(sort))}`;
+
 /** The section the Filter pill opens the panel on: the first with a filter set, else Kategori. */
 export const sectionToOpenForFilterPill = (selection: FilterSelection): FilterSheetSection =>
   listSetFilters(selection)[0]?.section ?? "category";
@@ -258,10 +266,10 @@ type CompetitionFiltersProps = {
 };
 
 /**
- * The desktop row: Kategori, Status and Lokasi in front, the Filter pill that opens the panel with
- * every filter, a trash button that shows while a filter is set, and Urutkan at the right end. It
- * never wraps. Where the screen is too narrow for it, it is hidden and the bar at the bottom of the
- * screen takes its place.
+ * The desktop row: the filled Filter pill that opens the panel with every filter comes first, then
+ * Kategori, Status and Lokasi, a trash button that shows while a filter is set, and the Urutkan
+ * icon button at the right end. It never wraps. Where the screen is too narrow for it, it is hidden
+ * and the bar at the bottom of the screen takes its place.
  */
 export function CompetitionFilters({
   selection,
@@ -277,6 +285,11 @@ export function CompetitionFilters({
 
   return (
     <div className="filter-toolbar-filters" aria-label="Filter kompetisi" aria-busy={isPending}>
+      <FilterPill
+        count={setFilterCount}
+        className="filter-dropdown-trigger filter-toolbar-pill"
+        onClick={onOpenPanel}
+      />
       <FilterDropdown
         label="Kategori"
         options={CATEGORY_OPTIONS}
@@ -296,11 +309,6 @@ export function CompetitionFilters({
         value={selection.location}
         onChange={onLocation}
       />
-      <FilterPill
-        count={setFilterCount}
-        className="filter-dropdown-trigger"
-        onClick={onOpenPanel}
-      />
       {setFilterCount > 0 ? (
         <IconButton
           variant="outline"
@@ -316,6 +324,7 @@ export function CompetitionFilters({
           value={selection.sort}
           onChange={onSort}
           align="end"
+          triggerIcon="arrow-up-down"
         />
       </div>
     </div>
@@ -334,7 +343,8 @@ type CompetitionPhoneFiltersProps = {
 
 /**
  * The phone filter bar, pinned to the bottom of the screen: the Filter pill stays at its left end
- * and five quick chips scroll sideways beside it. It is hidden where the desktop row shows.
+ * and the Urutkan icon button and four quick chips scroll sideways beside it. It is hidden where
+ * the desktop row shows.
  */
 export function CompetitionPhoneFilters({
   selection,
@@ -348,6 +358,7 @@ export function CompetitionPhoneFilters({
   const isOpenStatusOn = selection.status === OPEN_STATUS;
   const isOnlineLocationOn = selection.location === ONLINE_LOCATION;
   const isFreeFeeOn = selection.fee.kind === "free";
+  const isSortSet = knownSort(selection.sort) !== DEFAULT_SORT;
   const barRef = useRef<HTMLDivElement>(null);
   useToastLiftAbove(barRef, true);
 
@@ -359,9 +370,14 @@ export function CompetitionPhoneFilters({
         onClick={onOpenPanel}
       />
       <div className="filter-phone-row">
-        <button type="button" className="action-chip" onClick={() => onOpenSection("sort")}>
-          Urutkan
-        </button>
+        <IconButton
+          variant="outline"
+          icon="arrow-up-down"
+          label={describeSortButton(selection.sort)}
+          data-active={isSortSet ? "true" : undefined}
+          aria-haspopup="dialog"
+          onClick={() => onOpenSection("sort")}
+        />
         <button type="button" className="action-chip" onClick={() => onOpenSection("category")}>
           Kategori
         </button>

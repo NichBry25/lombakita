@@ -6,6 +6,7 @@ export type IconName =
   | "alert-triangle"
   | "arrow-left"
   | "arrow-right"
+  | "arrow-up-down"
   | "bookmark"
   | "building"
   | "calendar"
@@ -79,6 +80,15 @@ function IconPaths({ name }: { name: IconName }) {
         <>
           <path d="M5 12h14" />
           <path d="m13 6 6 6-6 6" />
+        </>
+      );
+    case "arrow-up-down":
+      return (
+        <>
+          <path d="M8 20V4" />
+          <path d="m4 8 4-4 4 4" />
+          <path d="M16 4v16" />
+          <path d="m12 16 4 4 4-4" />
         </>
       );
     case "bookmark":

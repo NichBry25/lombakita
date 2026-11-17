@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import {
   Button,
   Icon,
@@ -21,11 +21,8 @@ import {
 } from "./competition-filters";
 import {
   DEFAULT_FILTER_SELECTION,
-  competitionsQuery,
   describeTeamRange,
   describeTeamSizeForSpeech,
-  selectionToParams,
-  type CompetitionSearchParams,
   type FilterSelection,
 } from "./search-params";
 
@@ -37,75 +34,6 @@ export type FilterSheetSection =
   | "fee"
   | "status"
   | "sort";
-
-const COUNT_DEBOUNCE_MS = 300;
-
-type CountOutcome = { query: string; failed: boolean };
-
-// The address the count is read from: the sheet's pending filters on top of the page's own search
-// term and untouched parameters, limited to one row because only `meta.total` is read.
-const countQueryFor = (baseParams: CompetitionSearchParams, selection: FilterSelection): string => {
-  const query = new URLSearchParams(
-    competitionsQuery(baseParams, { ...selectionToParams(selection), page: undefined }),
-  );
-  query.set("limit", "1");
-  return query.toString();
-};
-
-const readTotalFromApi = async (query: string, signal: AbortSignal): Promise<number> => {
-  const response = await fetch(`/api/v1/competitions?${query}`, { signal });
-  if (!response.ok) throw new Error(`count request failed with ${response.status}`);
-  const body = (await response.json()) as { meta?: { total?: unknown } };
-  const total = body.meta?.total;
-  if (typeof total !== "number") throw new Error("count response had no total");
-  return total;
-};
-
-/**
- * How many competitions the sheet's pending filters would show, read from the public listing
- * route at most once per 300 ms of changes. While a request is out the last count stays on
- * screen, and a failed request says so instead of showing a stale number.
- */
-function useLiveResultCount(
-  baseParams: CompetitionSearchParams,
-  selection: FilterSelection,
-  initialTotal: number,
-  initialSelection: FilterSelection,
-) {
-  const [lastTotal, setLastTotal] = useState(initialTotal);
-  const [outcome, setOutcome] = useState<CountOutcome | null>(null);
-
-  const query = countQueryFor(baseParams, selection);
-  const initialQuery = countQueryFor(baseParams, initialSelection);
-  const isInitialSelection = query === initialQuery;
-
-  useEffect(() => {
-    if (isInitialSelection) return;
-
-    const controller = new AbortController();
-    const timer = setTimeout(async () => {
-      try {
-        const total = await readTotalFromApi(query, controller.signal);
-        setLastTotal(total);
-        setOutcome({ query, failed: false });
-      } catch {
-        if (controller.signal.aborted) return;
-        setOutcome({ query, failed: true });
-      }
-    }, COUNT_DEBOUNCE_MS);
-
-    return () => {
-      clearTimeout(timer);
-      controller.abort();
-    };
-  }, [query, isInitialSelection]);
-
-  if (isInitialSelection) return { total: initialTotal, isLoading: false, failed: false };
-  if (outcome === null || outcome.query !== query) {
-    return { total: lastTotal, isLoading: true, failed: false };
-  }
-  return { total: lastTotal, isLoading: false, failed: outcome.failed };
-}
 
 type OptionChoiceListProps = {
   label: string;
@@ -190,9 +118,6 @@ function CategoryChoice({ options, value, onChange, takesOpeningFocus }: Categor
 
 type CompetitionFilterSheetProps = {
   initial: FilterSelection;
-  // The page's own parameters, so the count keeps the search term the sheet does not edit.
-  baseParams: CompetitionSearchParams;
-  initialTotal: number;
   categoryOptions: FilterOption[];
   locationOptions: FilterOption[];
   statusOptions: FilterOption[];
@@ -255,13 +180,12 @@ function CollapsibleSection({
 
 /**
  * The filter panel, drawn inside the full-height pop-up: a drawer on desktop and the whole screen
- * on a phone. It edits a copy of the filters, so nothing reaches the address until "Tampilkan",
- * and closing or Esc throws the copy away. One section is open at a time.
+ * on a phone. It edits a copy of the filters, so nothing reaches the address until "Terapkan",
+ * and closing or Esc throws the copy away. It makes no request of its own: applying hands the copy
+ * to the page, which closes the panel and shows the loading itself. One section is open at a time.
  */
 export function CompetitionFilterSheet({
   initial,
-  baseParams,
-  initialTotal,
   categoryOptions,
   locationOptions,
   statusOptions,
@@ -273,7 +197,6 @@ export function CompetitionFilterSheet({
   const { closeModal } = useModal();
   const [draft, setDraft] = useState(initial);
   const [openSection, setOpenSection] = useState<FilterSheetSection | null>(openAtSection);
-  const count = useLiveResultCount(baseParams, draft, initialTotal, initial);
   const setFilters = listSetFilters(draft);
 
   const toggleAudienceLevel = (level: CompetitionAudience, isTicked: boolean) => {
@@ -299,8 +222,6 @@ export function CompetitionFilterSheet({
     isOpen: openSection === id,
     onToggle: toggleSection,
   });
-
-  const showButtonLabel = count.failed ? "Tampilkan hasil" : `Tampilkan ${count.total} lomba`;
 
   return (
     <div className="filter-sheet">
@@ -386,17 +307,8 @@ export function CompetitionFilterSheet({
       </div>
 
       <footer className="filter-sheet-footer">
-        {/* The button stays pressable while the count loads, so a slow or hung request never
-            keeps the reader from applying what they chose. */}
-        <Button
-          variant="primary"
-          size="lg"
-          fullWidth
-          loading={count.isLoading}
-          keepFocusWhileLoading
-          onClick={() => onApply(draft)}
-        >
-          {showButtonLabel}
+        <Button variant="primary" size="lg" fullWidth onClick={() => onApply(draft)}>
+          Terapkan
         </Button>
       </footer>
     </div>

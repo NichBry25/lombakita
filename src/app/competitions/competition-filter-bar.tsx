@@ -60,11 +60,9 @@ const CLEAR_EVERY_FILTER: Partial<CompetitionSearchParams> = {
  */
 export function CompetitionFilterBar({
   params,
-  total,
   resultCount,
 }: {
   params: CompetitionSearchParams;
-  total: number;
   // The line that says how many competitions were found, drawn above the desktop row.
   resultCount: ReactNode;
 }) {
@@ -108,9 +106,10 @@ export function CompetitionFilterBar({
     navigate(feeFilterToParams(selection.fee.kind === "free" ? { kind: "any" } : { kind: "free" }));
   };
 
+  // The panel closes first so the page behind it is what shows the transition's pending signals.
   const applySheetSelection = (picked: FilterSelection) => {
-    navigate(selectionToParams(picked));
     closeModal();
+    navigate(selectionToParams(picked));
   };
 
   const toggleOpenStatus = () => {
@@ -126,8 +125,6 @@ export function CompetitionFilterBar({
       body: (
         <CompetitionFilterSheet
           initial={selection}
-          baseParams={params}
-          initialTotal={total}
           categoryOptions={CATEGORY_OPTIONS}
           locationOptions={LOCATION_OPTIONS}
           statusOptions={STATUS_OPTIONS}

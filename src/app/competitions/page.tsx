@@ -86,7 +86,6 @@ export default async function PublicCompetitionsPage({
         <section className="stack-lg" aria-labelledby="competition-results-title">
           <CompetitionFilterBar
             params={params}
-            total={meta.total}
             resultCount={
               <h2 id="competition-results-title" className="filter-result-title">
                 <span role="status">{meta.total} kompetisi ditemukan</span>

@@ -113,6 +113,84 @@ describe("FilterDropdown align", () => {
   });
 });
 
+describe("FilterDropdown triggerIcon", () => {
+  it("draws an icon-only trigger named and given its tooltip from the label and the chosen option", () => {
+    render(
+      <FilterDropdown
+        label="Status"
+        options={options}
+        value=""
+        onChange={vi.fn()}
+        triggerIcon="arrow-up-down"
+      />,
+    );
+
+    const trigger = screen.getByRole("button", { name: "Status: Semua status" });
+    expect(trigger.textContent).toBe("");
+    expect(trigger.getAttribute("data-tooltip")).toBe("Status: Semua status");
+    expect(trigger.querySelector("svg")).not.toBeNull();
+    expect(trigger.hasAttribute("data-active")).toBe(false);
+  });
+
+  it("follows the chosen option in its name and shows the selected state", () => {
+    render(
+      <FilterDropdown
+        label="Status"
+        options={options}
+        value="open"
+        onChange={vi.fn()}
+        triggerIcon="arrow-up-down"
+      />,
+    );
+
+    const trigger = screen.getByRole("button", { name: "Status: Dibuka" });
+    expect(trigger.getAttribute("data-tooltip")).toBe("Status: Dibuka");
+    expect(trigger.getAttribute("data-active")).toBe("true");
+  });
+
+  it("opens the same listbox, chooses on click and returns focus to the trigger", () => {
+    const onChange = vi.fn();
+    render(
+      <FilterDropdown
+        label="Status"
+        options={options}
+        value=""
+        onChange={onChange}
+        triggerIcon="arrow-up-down"
+      />,
+    );
+    const trigger = screen.getByRole("button", { name: "Status: Semua status" });
+
+    fireEvent.click(trigger);
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    expect(trigger.getAttribute("aria-haspopup")).toBe("listbox");
+    fireEvent.click(screen.getByRole("option", { name: "Ditutup" }));
+
+    expect(onChange).toHaveBeenCalledWith("closed");
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("closes on Escape and returns focus to the trigger", () => {
+    render(
+      <FilterDropdown
+        label="Status"
+        options={options}
+        value=""
+        onChange={vi.fn()}
+        triggerIcon="arrow-up-down"
+      />,
+    );
+    const trigger = screen.getByRole("button", { name: "Status: Semua status" });
+
+    fireEvent.click(trigger);
+    fireEvent.keyDown(screen.getByRole("listbox"), { key: "Escape" });
+
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+});
+
 describe("FilterDropdown searchable", () => {
   const categories: FilterOption[] = [
     { value: "", label: "Semua kategori" },
