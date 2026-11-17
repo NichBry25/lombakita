@@ -235,7 +235,7 @@ export function Modal() {
   const layout = footerLayoutFor(safeActions.length);
   const isFullHeight = config.fullHeight === true;
   const fullHeightName = config.fullHeight === true ? config.title : undefined;
-  const sideEdge = config.fullHeight === true && config.side === true ? "end" : undefined;
+  const sideEdge = config.fullHeight === true && config.drawer === true ? "end" : undefined;
 
   const safeButtons = safeActions.map((action, index) => (
     <Button

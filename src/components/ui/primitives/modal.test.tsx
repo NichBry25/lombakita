@@ -600,16 +600,16 @@ describe("Modal — full height", () => {
     expect(ordinaryWithMarkup.fullHeight).toBeUndefined();
   });
 
-  it("marks a side pop-up on the dialog and its backdrop, and leaves a plain full-height one unmarked", () => {
+  it("marks a drawer pop-up on the dialog and its backdrop, and leaves a plain full-height one unmarked", () => {
     const { openModal } = renderModal();
     act(() =>
-      openModal({ title: "Filter", fullHeight: true, side: true, actions: [], body: <p>Isi</p> }),
+      openModal({ title: "Filter", fullHeight: true, drawer: true, actions: [], body: <p>Isi</p> }),
     );
 
-    const sideDialog = screen.getByRole("dialog", { name: "Filter" });
-    expect(sideDialog.getAttribute("data-side")).toBe("end");
-    expect(sideDialog.getAttribute("data-height")).toBe("full");
-    expect(sideDialog.parentElement?.getAttribute("data-side")).toBe("end");
+    const drawerDialog = screen.getByRole("dialog", { name: "Filter" });
+    expect(drawerDialog.getAttribute("data-side")).toBe("end");
+    expect(drawerDialog.getAttribute("data-height")).toBe("full");
+    expect(drawerDialog.parentElement?.getAttribute("data-side")).toBe("end");
 
     act(() => openModal({ title: "Filter", fullHeight: true, actions: [], body: <p>Isi</p> }));
 
@@ -618,17 +618,17 @@ describe("Modal — full height", () => {
     expect(plainDialog.parentElement?.hasAttribute("data-side")).toBe(false);
   });
 
-  it("only offers the side drawer to a full-height pop-up", () => {
-    const ordinaryWithSide: ModalConfig = {
+  it("only offers the drawer to a full-height pop-up", () => {
+    const ordinaryWithDrawer: ModalConfig = {
       title: "Konfirmasi",
       fullHeight: false,
-      // @ts-expect-error `side` belongs to the full-height pop-up, and an ordinary one has no such edge
-      side: true,
+      // @ts-expect-error `drawer` belongs to the full-height pop-up, and an ordinary one has no such edge
+      drawer: true,
       actions: [],
       body: null,
     };
 
-    expect(ordinaryWithSide.title).toBe("Konfirmasi");
+    expect(ordinaryWithDrawer.title).toBe("Konfirmasi");
   });
 
   it("leaves an ordinary pop-up without the full height marks", () => {

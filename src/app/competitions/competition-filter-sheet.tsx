@@ -199,8 +199,9 @@ type CompetitionFilterSheetProps = {
   sortOptions: FilterOption[];
   // The one section that is open when the panel opens.
   openAtSection: FilterSheetSection;
-  // Moves focus into the opened section, for a panel opened from the chip of that section.
-  focusesOpenSection?: boolean;
+  // The section whose opening target takes focus when the panel opens, for a panel opened from the
+  // chip of that section. Absent leaves focus where the pop-up puts it.
+  focusSection?: FilterSheetSection;
   onApply: (selection: FilterSelection) => void;
 };
 
@@ -245,7 +246,7 @@ function CollapsibleSection({
           <Icon name="chevron-down" className="filter-sheet-chevron" />
         </button>
       </h3>
-      <div id={panelId} role="group" aria-labelledby={headerId} hidden={!isOpen}>
+      <div id={panelId} hidden={!isOpen}>
         {children}
       </div>
     </section>
@@ -266,7 +267,7 @@ export function CompetitionFilterSheet({
   statusOptions,
   sortOptions,
   openAtSection,
-  focusesOpenSection = false,
+  focusSection,
   onApply,
 }: CompetitionFilterSheetProps) {
   const { closeModal } = useModal();
@@ -322,7 +323,7 @@ export function CompetitionFilterSheet({
             options={categoryOptions}
             value={draft.category}
             onChange={(category) => setDraft({ ...draft, category })}
-            takesOpeningFocus={focusesOpenSection && openAtSection === "category"}
+            takesOpeningFocus={focusSection === "category"}
           />
         </CollapsibleSection>
 
@@ -379,7 +380,7 @@ export function CompetitionFilterSheet({
             options={sortOptions}
             value={draft.sort}
             onChange={(sort) => setDraft({ ...draft, sort })}
-            takesOpeningFocus={focusesOpenSection && openAtSection === "sort"}
+            takesOpeningFocus={focusSection === "sort"}
           />
         </CollapsibleSection>
       </div>

@@ -101,16 +101,6 @@ describe("the desktop row", () => {
     expect(within(sortSlot as HTMLElement).getByRole("button", { name: "Urutkan" })).toBeTruthy();
   });
 
-  it("puts the result count above the row, inside the same toolbar", () => {
-    renderBar();
-
-    const toolbar = document.querySelector(".filter-toolbar")!;
-    const count = within(toolbar as HTMLElement).getByText("40 kompetisi ditemukan");
-    const row = toolbar.querySelector(".filter-toolbar-filters")!;
-
-    expect(count.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  });
-
   it("draws the phone bar outside the toolbar, so its position is the screen's", () => {
     renderBar();
 

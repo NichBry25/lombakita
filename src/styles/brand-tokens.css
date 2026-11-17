@@ -582,8 +582,9 @@
   /* The widest a pill of the competition list's desktop filter row grows before its text is cut. */
   --filter-pill-max-width: 10rem;
 
-  /* The phone filter bar: one 44px chip row between two 12px paddings, without the safe area. */
-  --filter-bar-height: calc(var(--touch-target) + var(--space-3) * 2);
+  /* The phone filter bar: one 44px chip row between two 12px paddings and the 1px top border,
+     without the safe area. */
+  --filter-bar-height: calc(var(--touch-target) + var(--space-3) * 2 + var(--border-thin));
 
   /* Crop area (496 by 320 in a 560 pop-up) and the white ring of the guide inside it. */
   --crop-area-ratio: 31 / 20;

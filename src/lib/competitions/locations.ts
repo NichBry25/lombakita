@@ -1,4 +1,5 @@
-// Single source of truth for where a competition takes place: labels and order. Client-safe (the `import type` is erased at compile time).
+// Single source of truth for where a competition takes place: labels and order.
+// Client-safe (the `import type` is erased at compile time).
 import type { CompetitionLocation } from "@/server/db/schema";
 
 export const COMPETITION_LOCATION_LABELS: Record<CompetitionLocation, string> = {

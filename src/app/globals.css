@@ -3362,6 +3362,12 @@ button.header-sheet-row {
   border-radius: var(--radius-card);
 }
 
+.filter-result-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 .filter-result-title {
   font-family: var(--font-body);
   font-size: var(--text-body);
@@ -3599,7 +3605,14 @@ button.header-sheet-row {
   min-inline-size: 0;
   padding: var(--space-3) var(--page-padding-mobile);
   padding-block-end: calc(var(--space-3) + env(safe-area-inset-bottom));
+  /* A hairline along the top edge only, and a shadow that lifts upward off the screen's edge. */
+  border-inline-width: var(--space-0);
+  border-block-end-width: var(--space-0);
   border-block-start: var(--border-thin) solid var(--color-line);
+  box-shadow:
+    0 -24px 52px -34px var(--glow-peach),
+    0 -12px 32px -12px var(--glass-shadow-color),
+    inset 0 1px 0 var(--glass-edge);
 }
 
 /* The Filter pill is the main control of the bar, so it is filled where the quick chips are not. */
@@ -3651,6 +3664,15 @@ button.header-sheet-row {
 
   body:has(.filter-phone) {
     padding-block-end: calc(var(--filter-bar-height) + env(safe-area-inset-bottom));
+  }
+
+  /* A focused element scrolls to clear the bar instead of landing under it. */
+  html:has(.filter-phone) {
+    scroll-padding-block-end: calc(var(--filter-bar-height) + env(safe-area-inset-bottom));
+  }
+
+  .filter-result-spinner {
+    display: none;
   }
 }
 

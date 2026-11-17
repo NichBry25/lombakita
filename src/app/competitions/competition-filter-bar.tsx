@@ -2,6 +2,7 @@
 
 import { useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import { Spinner } from "@/components/ui";
 import { useModal } from "@/components/ui/primitives";
 import { CompetitionFilterSheet, type FilterSheetSection } from "./competition-filter-sheet";
 import {
@@ -53,8 +54,9 @@ const CLEAR_EVERY_FILTER: Partial<CompetitionSearchParams> = {
  * Next stream a skeleton into the shell and deliver the listing inside a hidden element that only
  * a script can reveal, which leaves a reader without JavaScript looking at a placeholder forever.
  * That is the defect this page was rewritten to remove. A navigation still has to show that it is
- * running, so the transition drives the spinner beside the controls and `aria-busy` on the row
- * that owns them.
+ * running, so the transition drives the spinner at the end of the result count line and
+ * `aria-busy` on the row that owns the controls. The spinner stays out of the row so the row's
+ * width does not change while a navigation runs.
  */
 export function CompetitionFilterBar({
   params,
@@ -115,11 +117,11 @@ export function CompetitionFilterBar({
     navigate({ status: selection.status === "open" ? undefined : "open" });
   };
 
-  const openPanel = (openAtSection: FilterSheetSection, focusesOpenSection: boolean) => {
+  const openPanel = (openAtSection: FilterSheetSection, focusSection?: FilterSheetSection) => {
     openModal({
       title: "Filter",
       fullHeight: true,
-      side: true,
+      drawer: true,
       actions: [],
       body: (
         <CompetitionFilterSheet
@@ -131,7 +133,7 @@ export function CompetitionFilterBar({
           statusOptions={STATUS_OPTIONS}
           sortOptions={SORT_OPTIONS}
           openAtSection={openAtSection}
-          focusesOpenSection={focusesOpenSection}
+          focusSection={focusSection}
           onApply={applySheetSelection}
         />
       ),
@@ -139,17 +141,20 @@ export function CompetitionFilterBar({
   };
 
   const openPanelFromFilterPill = () => {
-    openPanel(sectionToOpenForFilterPill(selection), false);
+    openPanel(sectionToOpenForFilterPill(selection));
   };
 
   const openPanelFromSectionChip = (section: FilterSheetSection) => {
-    openPanel(section, true);
+    openPanel(section, section);
   };
 
   return (
     <>
       <div className="glass-chrome filter-toolbar">
-        {resultCount}
+        <div className="filter-result-line">
+          {resultCount}
+          {isPending ? <Spinner size="sm" className="filter-result-spinner" /> : null}
+        </div>
         <CompetitionFilters
           isPending={isPending}
           selection={selection}

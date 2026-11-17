@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef } from "react";
 import {
   CheckboxField,
   FilterDropdown,
@@ -7,6 +8,7 @@ import {
   IconButton,
   RangeSlider,
   Spinner,
+  useToastLiftAbove,
   type FilterOption,
 } from "@/components/ui";
 import { COMPETITION_AUDIENCE_OPTIONS, formatAudienceLabels } from "@/lib/competitions/audiences";
@@ -245,7 +247,7 @@ function FilterPill({ count, className, onClick }: FilterPillProps) {
 type CompetitionFiltersProps = {
   selection: FilterSelection;
   // A filter change navigates, and this row is the control that owns that navigation, so it
-  // carries the busy state and shows the spinner while the next result set is being fetched.
+  // carries the busy state while the next result set is being fetched.
   isPending?: boolean;
   onCategory: (value: string) => void;
   onStatus: (value: string) => void;
@@ -258,7 +260,8 @@ type CompetitionFiltersProps = {
 /**
  * The desktop row: Kategori, Status and Lokasi in front, the Filter pill that opens the panel with
  * every filter, a trash button that shows while a filter is set, and Urutkan at the right end. It
- * never wraps. Below 928 px it is hidden and the bar at the bottom of the screen takes its place.
+ * never wraps. Where the screen is too narrow for it, it is hidden and the bar at the bottom of the
+ * screen takes its place.
  */
 export function CompetitionFilters({
   selection,
@@ -306,7 +309,6 @@ export function CompetitionFilters({
           onClick={onClearAll}
         />
       ) : null}
-      {isPending ? <Spinner size="sm" /> : null}
       <div className="filter-toolbar-sort">
         <FilterDropdown
           label="Urutkan"
@@ -332,7 +334,7 @@ type CompetitionPhoneFiltersProps = {
 
 /**
  * The phone filter bar, pinned to the bottom of the screen: the Filter pill stays at its left end
- * and five quick chips scroll sideways beside it. It is hidden from 928 px up, where the row shows.
+ * and five quick chips scroll sideways beside it. It is hidden where the desktop row shows.
  */
 export function CompetitionPhoneFilters({
   selection,
@@ -346,9 +348,11 @@ export function CompetitionPhoneFilters({
   const isOpenStatusOn = selection.status === OPEN_STATUS;
   const isOnlineLocationOn = selection.location === ONLINE_LOCATION;
   const isFreeFeeOn = selection.fee.kind === "free";
+  const barRef = useRef<HTMLDivElement>(null);
+  useToastLiftAbove(barRef, true);
 
   return (
-    <div className="filter-phone glass-chrome" aria-busy={isPending}>
+    <div ref={barRef} className="filter-phone glass-chrome" aria-busy={isPending}>
       <FilterPill
         count={listSetFilters(selection).length}
         className="action-chip filter-phone-pill"

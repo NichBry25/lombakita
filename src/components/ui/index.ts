@@ -1,6 +1,7 @@
 export { Button, ButtonLink, IconButton, IconButtonLink } from "./button";
 export type { ButtonSize, ButtonVariant, IconButtonSize, IconButtonVariant } from "./button";
 export { FormActionBar } from "./form-action-bar";
+export { useToastLiftAbove } from "./use-toast-lift-above";
 export { BarNote } from "./bar-note";
 export { findInvalidFields, focusFirstInvalidField } from "./invalid-fields";
 export { SelectField } from "./select-field";
