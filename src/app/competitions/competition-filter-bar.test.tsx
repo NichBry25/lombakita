@@ -15,7 +15,6 @@ vi.mock("next/navigation", () => ({
 const mockFetch = vi.fn();
 
 beforeEach(() => {
-  mockFetch.mockResolvedValue({ ok: true, json: async () => ({ meta: { total: 12 } }) });
   vi.stubGlobal("fetch", mockFetch);
 });
 
@@ -485,7 +484,7 @@ describe("an old mode or teamSize link", () => {
         fireEvent.click(sheet().getByRole("radio", { name: "Dibuka" }));
         fireEvent.click(sheetButton());
       },
-      expected: "/competitions?teamMin=5&status=open&sort=created_desc",
+      expected: "/competitions?teamMin=5&status=open",
     },
     {
       change: "applying a range in the panel",
@@ -495,7 +494,7 @@ describe("an old mode or teamSize link", () => {
         pressKey(sheet().getByRole("slider", { name: "Ukuran tim maksimum" }), "ArrowLeft");
         fireEvent.click(sheetButton());
       },
-      expected: "/competitions?teamMin=2&teamMax=9&sort=created_desc",
+      expected: "/competitions?teamMin=2&teamMax=9",
     },
   ])(
     "leaves no mode or teamSize in the address after $change",
@@ -518,7 +517,7 @@ describe("an old mode or teamSize link", () => {
     fireEvent.click(sheet().getByRole("button", { name: "Hapus semua filter" }));
     fireEvent.click(sheetButton());
 
-    expect(mockPush).toHaveBeenCalledWith("/competitions?sort=created_desc");
+    expect(mockPush).toHaveBeenCalledWith("/competitions");
   });
 
   it("rewrites a reversed range as the range the slider shows", () => {
@@ -726,9 +725,7 @@ describe("the filter panel", () => {
     expect(mockPush).not.toHaveBeenCalled();
     fireEvent.click(sheetButton());
 
-    expect(mockPush).toHaveBeenCalledWith(
-      "/competitions?fee=paid&feeMin=50000&feeMax=125000&sort=created_desc",
-    );
+    expect(mockPush).toHaveBeenCalledWith("/competitions?fee=paid&feeMin=50000&feeMax=125000");
   });
 
   it("offers Gratis and Berbayar in Biaya, with the slider only under Berbayar", () => {
@@ -766,7 +763,7 @@ describe("the filter panel", () => {
     fireEvent.click(sheet().getByRole("button", { name: "Gratis" }));
     fireEvent.click(sheetButton());
 
-    expect(mockPush).toHaveBeenCalledWith("/competitions?sort=created_desc");
+    expect(mockPush).toHaveBeenCalledWith("/competitions");
   });
 
   it("drops the price range from the address when Gratis replaces Berbayar", () => {
@@ -776,7 +773,7 @@ describe("the filter panel", () => {
     fireEvent.click(sheet().getByRole("button", { name: "Gratis" }));
     fireEvent.click(sheetButton());
 
-    expect(mockPush).toHaveBeenCalledWith("/competitions?fee=free&q=lomba&sort=created_desc");
+    expect(mockPush).toHaveBeenCalledWith("/competitions?fee=free&q=lomba");
   });
 
   it("starts the Biaya section from the address, and the trash button takes the fee off", () => {
@@ -796,7 +793,7 @@ describe("the filter panel", () => {
     fireEvent.click(sheet().getByRole("button", { name: "Hapus semua filter" }));
     fireEvent.click(sheetButton());
 
-    expect(mockPush).toHaveBeenCalledWith("/competitions?sort=created_desc");
+    expect(mockPush).toHaveBeenCalledWith("/competitions");
   });
 
   it("applies a location and ticked audience levels together with Terapkan", () => {
@@ -811,9 +808,7 @@ describe("the filter panel", () => {
 
     fireEvent.click(sheetButton());
 
-    expect(mockPush).toHaveBeenCalledWith(
-      "/competitions?sort=created_desc&location=offline&audience=mahasiswa%2Csd",
-    );
+    expect(mockPush).toHaveBeenCalledWith("/competitions?location=offline&audience=mahasiswa%2Csd");
   });
 
   it("starts from the location and audience in the address, with Umum ticked and fixed", () => {
@@ -844,9 +839,7 @@ describe("the filter panel", () => {
     fireEvent.click(sheetButton());
 
     expect(mockPush).toHaveBeenCalledTimes(1);
-    expect(mockPush).toHaveBeenCalledWith(
-      "/competitions?teamMin=2&category=debate&status=open&sort=created_desc",
-    );
+    expect(mockPush).toHaveBeenCalledWith("/competitions?teamMin=2&category=debate&status=open");
     expect(screen.queryByRole("dialog", { name: "Filter" })).toBeNull();
   });
 
@@ -965,9 +958,7 @@ describe("applying the panel", () => {
     fireEvent.click(sheetButton());
 
     expect(mockPush).toHaveBeenCalledTimes(1);
-    expect(mockPush).toHaveBeenCalledWith(
-      "/competitions?q=lomba&category=debate&sort=created_desc&location=online",
-    );
+    expect(mockPush).toHaveBeenCalledWith("/competitions?q=lomba&category=debate&location=online");
     expect(screen.queryByRole("dialog", { name: "Filter" })).toBeNull();
   });
 
@@ -1001,6 +992,36 @@ describe("applying the panel", () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
+  it("writes the address it was opened from when nothing was changed", () => {
+    renderBar({ q: "lomba", category: "debate" });
+    openSheet();
+
+    fireEvent.click(sheetButton());
+
+    expect(mockPush).toHaveBeenCalledWith("/competitions?q=lomba&category=debate");
+  });
+
+  it("shows the loading on the page behind the closed panel while the navigation runs", () => {
+    mockPush.mockReturnValueOnce(new Promise(() => {}));
+    renderBar();
+    openSheet("Status");
+
+    fireEvent.click(sheet().getByRole("radio", { name: "Dibuka" }));
+    fireEvent.click(sheetButton());
+
+    const phoneBarElement = document.querySelector<HTMLElement>(".filter-phone")!;
+    const phoneSpinner = phoneBarElement.querySelector(":scope > .spinner");
+    const desktopRow = document.querySelector<HTMLElement>(".filter-toolbar-filters")!;
+
+    expect(screen.queryByRole("dialog", { name: "Filter" })).toBeNull();
+    expect(phoneSpinner).not.toBeNull();
+    expect(phoneSpinner?.parentElement?.classList.contains("filter-phone")).toBe(true);
+    expect(phoneBarElement.querySelector(".filter-phone-row .spinner")).toBeNull();
+    expect(phoneBarElement.getAttribute("aria-busy")).toBe("true");
+    expect(desktopRow.getAttribute("aria-busy")).toBe("true");
+    expect(document.querySelector(".filter-result-spinner")).not.toBeNull();
+  });
+
   it("keeps the trash button in the panel clearing the copy without applying", () => {
     renderBar({ category: "debate" });
     openSheet();
@@ -1024,13 +1045,12 @@ describe("the Urutkan icon button", () => {
     expect(sortButton.hasAttribute("data-active")).toBe(false);
   });
 
-  it("is named and given its tooltip from the sort in force, on the phone bar", () => {
+  it("is named from the sort in force, on the phone bar", () => {
     renderBar();
 
     const sortButton = phoneBar().getByRole("button", { name: "Urutkan: Terbaru" });
 
     expect(sortButton.textContent).toBe("");
-    expect(sortButton.getAttribute("data-tooltip")).toBe("Urutkan: Terbaru");
     expect(sortButton.hasAttribute("data-active")).toBe(false);
   });
 
@@ -1056,6 +1076,13 @@ describe("the Urutkan icon button", () => {
     expect(
       phoneBar().getByRole("button", { name: "Urutkan: Terbaru" }).hasAttribute("data-active"),
     ).toBe(false);
+  });
+
+  it("shows no raw value in the panel's Urutkan header for a sort the list does not know", () => {
+    renderBar({ sort: "unknown" });
+    openSheet();
+
+    expect(sectionHeader("Urutkan").textContent).toBe("Urutkan");
   });
 
   it("opens the sort menu on desktop and the panel at Urutkan on the phone bar", () => {

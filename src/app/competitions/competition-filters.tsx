@@ -206,13 +206,15 @@ export const listSetFilters = (selection: FilterSelection): SetFilter[] => {
   return filters;
 };
 
-/** The sort in words when it is not the default, else undefined. Sort has no entry in the list above. */
-export const describeNonDefaultSort = (sort: string): string | undefined =>
-  sort === DEFAULT_SORT ? undefined : labelOfOption(SORT_OPTIONS, sort);
-
 // A sort the list does not know is shown, and counted, as the default, like the Urutkan menu does.
 const knownSort = (sort: string): string =>
   SORT_OPTIONS.some((option) => option.value === sort) ? sort : DEFAULT_SORT;
+
+/** The sort in words when it is not the default, else undefined. Sort has no entry in the list above. */
+export const describeNonDefaultSort = (sort: string): string | undefined => {
+  const shownSort = knownSort(sort);
+  return shownSort === DEFAULT_SORT ? undefined : labelOfOption(SORT_OPTIONS, shownSort);
+};
 
 /** The phone bar's Urutkan button name: "Urutkan: " and the label of the sort in force. */
 const describeSortButton = (sort: string): string =>
@@ -408,8 +410,8 @@ export function CompetitionPhoneFilters({
         >
           Gratis
         </button>
-        {isPending ? <Spinner size="sm" /> : null}
       </div>
+      {isPending ? <Spinner size="sm" /> : null}
     </div>
   );
 }

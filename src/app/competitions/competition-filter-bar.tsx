@@ -55,8 +55,9 @@ const CLEAR_EVERY_FILTER: Partial<CompetitionSearchParams> = {
  * a script can reveal, which leaves a reader without JavaScript looking at a placeholder forever.
  * That is the defect this page was rewritten to remove. A navigation still has to show that it is
  * running, so the transition drives the spinner at the end of the result count line and
- * `aria-busy` on the row that owns the controls. The spinner stays out of the row so the row's
- * width does not change while a navigation runs.
+ * `aria-busy` on the row that owns the controls. The phone bar shows its own spinner after its
+ * scrolling chip row, so it stays on screen however far the chips are scrolled. Neither spinner
+ * sits inside the controls it follows, so no control's width changes while a navigation runs.
  */
 export function CompetitionFilterBar({
   params,

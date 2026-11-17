@@ -3426,8 +3426,9 @@ button.header-sheet-row {
 }
 
 /* Urutkan is an icon button drawn like its neighbouring pills: the pills' field ring and raised
-   fill, and the set look of a pill (ink ring, hover fill) while the sort is not the default. */
-.filter-toolbar-sort .ui-icon-button {
+   fill, and the set look of a pill (ink ring, hover fill) while the sort is not the default. The
+   selector names the variant so it outranks the outline variant's ink border. */
+.filter-toolbar-sort .ui-icon-button[data-variant="outline"] {
   border-color: transparent;
   border-radius: var(--radius-control);
   background: var(--color-raised);

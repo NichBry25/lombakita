@@ -17,7 +17,6 @@ import {
   CLEAR_FEE_PARAMS,
   DEFAULT_FILTER_SELECTION,
   competitionsHref,
-  competitionsQuery,
   describeFeeAmount,
   describeFeeValue,
   describeFeeRange,
@@ -144,10 +143,12 @@ describe("the team size range in the address", () => {
   });
 });
 
-describe("competitionsQuery", () => {
-  it("has no leading question mark and drops what an override clears", () => {
-    expect(competitionsQuery({ q: "a", category: "x" }, { category: undefined })).toBe("q=a");
-    expect(competitionsQuery({})).toBe("");
+describe("competitionsHref query", () => {
+  it("drops what an override clears, and is the bare path when nothing is left", () => {
+    expect(competitionsHref({ q: "a", category: "x" }, { category: undefined })).toBe(
+      "/competitions?q=a",
+    );
+    expect(competitionsHref({})).toBe("/competitions");
   });
 });
 
@@ -287,6 +288,17 @@ describe("a filter selection", () => {
       selectionToParams(DEFAULT_FILTER_SELECTION),
     );
 
-    expect(href).toBe("/competitions?sort=created_desc");
+    expect(href).toBe("/competitions");
+  });
+
+  it("writes no sort for the default and takes a default sort out of an address that had one", () => {
+    expect(selectionToParams(DEFAULT_FILTER_SELECTION).sort).toBeUndefined();
+
+    const href = competitionsHref(
+      { sort: "created_desc", category: "debat" },
+      selectionToParams({ ...DEFAULT_FILTER_SELECTION, category: "debat" }),
+    );
+
+    expect(href).toBe("/competitions?category=debat");
   });
 });

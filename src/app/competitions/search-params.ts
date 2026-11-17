@@ -105,7 +105,7 @@ export const CARRIED_FILTERS = [
  * An override set to `undefined` removes the parameter, which is how a filter is cleared and how a
  * filter change drops the page number it invalidated.
  */
-export const competitionsQuery = (
+const competitionsQuery = (
   params: CompetitionSearchParams,
   overrides: Partial<CompetitionSearchParams> = {},
 ): string => {
@@ -249,14 +249,15 @@ export const DROPPED_TEAM_PARAMS: Partial<CompetitionSearchParams> = {
 
 /**
  * The address parameters for a selection. It writes only teamMin and teamMax and removes `mode`
- * and `teamSize`, so an old link's filter does not linger beside the range.
+ * and `teamSize`, so an old link's filter does not linger beside the range. The default sort is
+ * left out, so applying an unchanged selection does not add a sort parameter to the address.
  */
 export const selectionToParams = (
   selection: FilterSelection,
 ): Partial<CompetitionSearchParams> => ({
   category: selection.category || undefined,
   status: selection.status || undefined,
-  sort: selection.sort || undefined,
+  sort: selection.sort === DEFAULT_SORT ? undefined : selection.sort,
   location: selection.location || undefined,
   audience: audienceToParam(selection.audience),
   ...DROPPED_TEAM_PARAMS,
