@@ -70,8 +70,8 @@ export default function AboutPage() {
         <section className="stack-md document-clause">
           <h2 className="section-title">Biaya dan pembayaran</h2>
           <p>
-            Sebagian kompetisi gratis, sebagian memungut biaya pendaftaran. Biaya itu ditetapkan
-            oleh penyelenggara dan tertera di halaman kompetisi sebelum kamu mendaftar.
+            Kompetisi bisa gratis atau memungut biaya pendaftaran. Bila memungut biaya, biaya itu
+            ditetapkan oleh penyelenggara dan tertera di halaman kompetisi sebelum kamu mendaftar.
           </p>
           <p>
             Kamu membayar langsung kepada penyelenggara, bukan kepada Lombakita. Saat ini pembayaran
@@ -81,8 +81,8 @@ export default function AboutPage() {
             sedang direncanakan.
           </p>
           <p>
-            Untuk penyelenggara: bila ada biaya layanan Lombakita, rinciannya ditampilkan kepada
-            penyelenggara dan harus disetujui sebelum pendaftaran berbayar diaktifkan.
+            Untuk penyelenggara: rincian biaya layanan Lombakita yang berlaku saat itu ditampilkan
+            kepada penyelenggara dan harus disetujui saat ia mengaktifkan pendaftaran berbayar.
           </p>
         </section>
 
@@ -99,7 +99,7 @@ export default function AboutPage() {
         <section className="stack-md document-clause">
           <h2 className="section-title">Bantuan</h2>
           <p>
-            Pertanyaan tentang jumlah biaya, bukti transfer, jadwal, penilaian, dan hasil lomba
+            Pertanyaan tentang jumlah biaya, bukti pembayaran, jadwal, penilaian, dan hasil lomba
             dijawab oleh penyelenggara kompetisi yang bersangkutan.
           </p>
           <p>

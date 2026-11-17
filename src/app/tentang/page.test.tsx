@@ -29,14 +29,18 @@ const HEADINGS = [
   "Bantuan",
 ];
 
+const FEE_SECTION_PARAGRAPHS = [
+  "Kompetisi bisa gratis atau memungut biaya pendaftaran. Bila memungut biaya, biaya itu ditetapkan oleh penyelenggara dan tertera di halaman kompetisi sebelum kamu mendaftar.",
+  "Kamu membayar langsung kepada penyelenggara, bukan kepada Lombakita. Saat ini pembayaran lewat transfer manual atau QRIS, dengan bukti pembayaran yang diperiksa penyelenggara. Lombakita tidak menampung, menyimpan, atau meneruskan uang pendaftaran, dan tidak memungut biaya dari peserta. Pembayaran online melalui penyedia pembayaran berlisensi sedang direncanakan.",
+  "Untuk penyelenggara: rincian biaya layanan Lombakita yang berlaku saat itu ditampilkan kepada penyelenggara dan harus disetujui saat ia mengaktifkan pendaftaran berbayar.",
+];
+
 const PARAGRAPHS = [
   "Lombakita adalah platform untuk menemukan dan mendaftar kompetisi di Indonesia. Penyelenggara menerbitkan kompetisinya di sini, dan peserta mendaftar tanpa pindah situs.",
   "Untuk peserta: jelajahi kompetisi menurut kategori, penyelenggara, dan tenggat, simpan yang menarik, lalu daftar langsung dari halaman kompetisi, sebagai individu atau tim.",
   "Untuk penyelenggara: institusi membuat ruang kerja, menerbitkan kompetisi, dan mengelola pendaftar serta hasilnya. Lombakita tidak menilai peserta dan tidak ikut menentukan pemenang.",
-  "Sebagian kompetisi gratis, sebagian memungut biaya pendaftaran. Biaya itu ditetapkan oleh penyelenggara dan tertera di halaman kompetisi sebelum kamu mendaftar.",
-  "Kamu membayar langsung kepada penyelenggara, bukan kepada Lombakita. Saat ini pembayaran lewat transfer manual atau QRIS, dengan bukti pembayaran yang diperiksa penyelenggara. Lombakita tidak menampung, menyimpan, atau meneruskan uang pendaftaran, dan tidak memungut biaya dari peserta. Pembayaran online melalui penyedia pembayaran berlisensi sedang direncanakan.",
-  "Untuk penyelenggara: bila ada biaya layanan Lombakita, rinciannya ditampilkan kepada penyelenggara dan harus disetujui sebelum pendaftaran berbayar diaktifkan.",
-  "Pertanyaan tentang jumlah biaya, bukti transfer, jadwal, penilaian, dan hasil lomba dijawab oleh penyelenggara kompetisi yang bersangkutan.",
+  ...FEE_SECTION_PARAGRAPHS,
+  "Pertanyaan tentang jumlah biaya, bukti pembayaran, jadwal, penilaian, dan hasil lomba dijawab oleh penyelenggara kompetisi yang bersangkutan.",
 ];
 
 const LIST_ITEMS = [
@@ -49,9 +53,11 @@ const LIST_ITEMS = [
   "Buat draf kompetisi, lengkapi detailnya, lalu terbitkan.",
 ];
 
-// The fee section may state only what stays true under any platform fee rule, so a first fee rule
-// cannot make the page false. Each pattern is paired with a sentence it must match, which proves
-// the pattern is live and not a regex that can never fire.
+// The page may state only what stays true under any platform fee rule, so a first fee rule cannot
+// make it false. The guard is the closed ALLOWED_FEE_SENTENCES list below: a blocklist of
+// phrasings lets any rewording through. These patterns only name the claim in the failure message
+// when an unlisted sentence matches one, and each is paired with a sentence it must match, which
+// proves the pattern is live and not a regex that can never fire.
 const FALSE_FEE_CLAIMS = [
   {
     claim: "that all competitions are free",
@@ -76,44 +82,71 @@ const FALSE_FEE_CLAIMS = [
   },
 ];
 
-// The facts that stay true at a 0% fee and at a non-zero fee, one case each.
-const FEE_FACTS = [
-  {
-    fact: "some competitions are free and some charge a registration fee",
-    text: "Sebagian kompetisi gratis, sebagian memungut biaya pendaftaran.",
-  },
-  {
-    fact: "the organiser sets the fee and the competition page shows it before registering",
-    text: "Biaya itu ditetapkan oleh penyelenggara dan tertera di halaman kompetisi sebelum kamu mendaftar.",
-  },
-  {
-    fact: "participants pay the organiser directly, not Lombakita",
-    text: "Kamu membayar langsung kepada penyelenggara, bukan kepada Lombakita.",
-  },
-  {
-    fact: "payment is by manual transfer or QRIS, with proof checked by the organiser",
-    text: "lewat transfer manual atau QRIS, dengan bukti pembayaran yang diperiksa penyelenggara.",
-  },
-  {
-    fact: "Lombakita does not hold, store or pass on registration money",
-    text: "Lombakita tidak menampung, menyimpan, atau meneruskan uang pendaftaran",
-  },
-  {
-    fact: "Lombakita charges participants nothing",
-    text: "tidak memungut biaya dari peserta.",
-  },
-  {
-    fact: "an organiser sees and approves any Lombakita service fee before turning on paid registration",
-    text: "bila ada biaya layanan Lombakita, rinciannya ditampilkan kepada penyelenggara dan harus disetujui sebelum pendaftaran berbayar diaktifkan.",
-  },
-  {
-    fact: "online payment through a licensed provider is planned",
-    text: "Pembayaran online melalui penyedia pembayaran berlisensi sedang direncanakan.",
-  },
+// Every sentence on the page that mentions money, and nothing else. Adding a fee sentence to the
+// page fails the guard until it is added here on purpose.
+const ALLOWED_FEE_SENTENCES = [
+  "Biaya dan pembayaran",
+  "Kompetisi bisa gratis atau memungut biaya pendaftaran.",
+  "Bila memungut biaya, biaya itu ditetapkan oleh penyelenggara dan tertera di halaman kompetisi sebelum kamu mendaftar.",
+  "Kamu membayar langsung kepada penyelenggara, bukan kepada Lombakita.",
+  "Saat ini pembayaran lewat transfer manual atau QRIS, dengan bukti pembayaran yang diperiksa penyelenggara.",
+  "Lombakita tidak menampung, menyimpan, atau meneruskan uang pendaftaran, dan tidak memungut biaya dari peserta.",
+  "Pembayaran online melalui penyedia pembayaran berlisensi sedang direncanakan.",
+  "Untuk penyelenggara: rincian biaya layanan Lombakita yang berlaku saat itu ditampilkan kepada penyelenggara dan harus disetujui saat ia mengaktifkan pendaftaran berbayar.",
+  "Biaya pendaftaran yang sudah dibayarkan tidak dikembalikan atas permintaan peserta sendiri.",
+  "Pertanyaan tentang jumlah biaya, bukti pembayaran, jadwal, penilaian, dan hasil lomba dijawab oleh penyelenggara kompetisi yang bersangkutan.",
 ];
 
+// Matched as a substring so inflections such as "pembayaran" and "biayanya" count as fee words.
+const FEE_WORDS = /gratis|biaya|bayar|membayar|dibayarkan|memungut|berbayar/i;
+
+function textOfMarkup(markup: string): string {
+  return markup
+    .replace(/<[^>]+>/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// One line per heading, paragraph and list item. A heading has no closing period, so without the
+// line breaks it would run into the first sentence after it.
+function renderedTextOf(markup: string): string {
+  const blocks = markup.split(/<\/(?:h1|h2|p|li)>/);
+  return blocks.map(textOfMarkup).filter(Boolean).join("\n");
+}
+
+function paragraphsUnderHeading(markup: string, heading: string): string[] {
+  const afterHeading = markup.split(`<h2 class="section-title">${heading}</h2>`)[1] ?? "";
+  const section = afterHeading.split("<h2")[0] ?? "";
+  const paragraphs = [...section.matchAll(/<p>(.*?)<\/p>/g)];
+  return paragraphs.map(([, inner]) => textOfMarkup(inner ?? ""));
+}
+
+function sentencesOf(text: string): string[] {
+  return text
+    .split(/(?<=[.?!])\s+|\n/)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+}
+
+function describeUnlistedFeeSentence(sentence: string): string {
+  const knownClaim = FALSE_FEE_CLAIMS.find(({ pattern }) => pattern.test(sentence));
+  const reason = knownClaim
+    ? `it claims ${knownClaim.claim}`
+    : "it is not in ALLOWED_FEE_SENTENCES";
+  return `Fee sentence "${sentence}": ${reason}`;
+}
+
+function assertEveryFeeSentenceIsAllowed(text: string): void {
+  const unlisted = sentencesOf(text).filter(
+    (sentence) => FEE_WORDS.test(sentence) && !ALLOWED_FEE_SENTENCES.includes(sentence),
+  );
+  if (unlisted.length > 0) {
+    throw new Error(unlisted.map(describeUnlistedFeeSentence).join("\n"));
+  }
+}
+
 const html = renderToStaticMarkup(AboutPage());
-const pageText = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+const pageText = renderedTextOf(html);
 
 describe("AboutPage", () => {
   it("renders the h1", () => {
@@ -145,13 +178,30 @@ describe("AboutPage", () => {
     expect(example).toMatch(pattern);
   });
 
-  it.each(FALSE_FEE_CLAIMS)("does not claim $claim", ({ pattern }) => {
-    expect(pageText).not.toMatch(pattern);
+  it("carries exactly the expected paragraphs in the fee section", () => {
+    expect(paragraphsUnderHeading(html, "Biaya dan pembayaran")).toEqual(FEE_SECTION_PARAGRAPHS);
   });
 
-  it.each(FEE_FACTS)("states that $fact", ({ text }) => {
-    expect(pageText).toContain(text);
+  it("states no fee sentence that is missing from the allowlist", () => {
+    expect(() => assertEveryFeeSentenceIsAllowed(pageText)).not.toThrow();
   });
+
+  it("names a plain extra fee sentence when it is appended to the page", () => {
+    const extraSentence = "Mengikuti kompetisi di Lombakita tidak dikenakan biaya.";
+
+    expect(() => assertEveryFeeSentenceIsAllowed(`${pageText} ${extraSentence}`)).toThrow(
+      `Fee sentence "${extraSentence}": it is not in ALLOWED_FEE_SENTENCES`,
+    );
+  });
+
+  it.each(FALSE_FEE_CLAIMS)(
+    "names the claim $claim when its example is appended",
+    ({ claim, example }) => {
+      expect(() => assertEveryFeeSentenceIsAllowed(`${pageText} ${example}`)).toThrow(
+        `Fee sentence "${example}": it claims ${claim}`,
+      );
+    },
+  );
 
   it("links the terms from the refund paragraph and cites clauses 5 to 7", () => {
     expect(html).toContain(
