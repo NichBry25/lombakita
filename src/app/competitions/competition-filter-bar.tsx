@@ -1,6 +1,6 @@
 "use client";
 
-import { useTransition } from "react";
+import { useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useModal } from "@/components/ui/primitives";
 import { CompetitionFilterSheet, type FilterSheetSection } from "./competition-filter-sheet";
@@ -11,16 +11,13 @@ import {
   LOCATION_OPTIONS,
   SORT_OPTIONS,
   STATUS_OPTIONS,
+  sectionToOpenForFilterPill,
 } from "./competition-filters";
-import type { FeeFilter } from "@/lib/competitions/fee-range";
-import type { TeamRange } from "@/lib/competitions/team-range";
-import type { CompetitionAudience } from "@/server/db/schema";
 import type { CompetitionSearchParams, FilterSelection } from "./search-params";
 import {
   CLEAR_FEE_PARAMS,
   CLEAR_TEAM_RANGE_PARAMS,
   DROPPED_TEAM_PARAMS,
-  audienceToParam,
   competitionsHref,
   feeFilterToParams,
   readFilterSelection,
@@ -47,8 +44,10 @@ const CLEAR_EVERY_FILTER: Partial<CompetitionSearchParams> = {
  * The applied filters arrive as props rather than from `useSearchParams`, so this component reads
  * the same values the server rendered from and does not have to re-derive them.
  *
- * It draws both layouts: the pill row for wide screens and the chip row for phones. CSS shows one
- * of them, so the server and the browser render the same markup.
+ * It draws both layouts: the pill row for wide screens and the bar at the bottom of the screen for
+ * phones. CSS shows one of them, so the server and the browser render the same markup. The bar
+ * sits outside the glass toolbar because a backdrop filter would make the toolbar, and not the
+ * screen, the box that "fixed" is measured against.
  *
  * PENDING STATE. This route has no `loading.tsx`, because a route-level Suspense boundary makes
  * Next stream a skeleton into the shell and deliver the listing inside a hidden element that only
@@ -60,9 +59,12 @@ const CLEAR_EVERY_FILTER: Partial<CompetitionSearchParams> = {
 export function CompetitionFilterBar({
   params,
   total,
+  resultCount,
 }: {
   params: CompetitionSearchParams;
   total: number;
+  // The line that says how many competitions were found, drawn above the desktop row.
+  resultCount: ReactNode;
 }) {
   const router = useRouter();
   const { openModal, closeModal } = useModal();
@@ -92,16 +94,8 @@ export function CompetitionFilterBar({
     startTransition(() => router.push(href));
   };
 
-  const applyTeamRange = (range: TeamRange) => {
-    navigate(teamRangeToParams(range));
-  };
-
-  const applyAudience = (levels: CompetitionAudience[]) => {
-    navigate({ audience: audienceToParam(levels) });
-  };
-
-  const applyFee = (fee: FeeFilter) => {
-    navigate(feeFilterToParams(fee));
+  const clearEveryFilter = () => {
+    navigate(CLEAR_EVERY_FILTER);
   };
 
   const toggleOnlineLocation = () => {
@@ -121,10 +115,11 @@ export function CompetitionFilterBar({
     navigate({ status: selection.status === "open" ? undefined : "open" });
   };
 
-  const openSheet = (openAtSection?: FilterSheetSection) => {
+  const openPanel = (openAtSection: FilterSheetSection, focusesOpenSection: boolean) => {
     openModal({
       title: "Filter",
       fullHeight: true,
+      side: true,
       actions: [],
       body: (
         <CompetitionFilterSheet
@@ -136,34 +131,44 @@ export function CompetitionFilterBar({
           statusOptions={STATUS_OPTIONS}
           sortOptions={SORT_OPTIONS}
           openAtSection={openAtSection}
+          focusesOpenSection={focusesOpenSection}
           onApply={applySheetSelection}
         />
       ),
     });
   };
 
+  const openPanelFromFilterPill = () => {
+    openPanel(sectionToOpenForFilterPill(selection), false);
+  };
+
+  const openPanelFromSectionChip = (section: FilterSheetSection) => {
+    openPanel(section, true);
+  };
+
   return (
     <>
-      <CompetitionFilters
-        isPending={isPending}
-        selection={selection}
-        onCategory={(category) => navigate({ category: category || undefined })}
-        onStatus={(status) => navigate({ status: status || undefined })}
-        onSort={(sort) => navigate({ sort: sort || undefined })}
-        onTeamRange={applyTeamRange}
-        onLocation={(location) => navigate({ location: location || undefined })}
-        onAudience={applyAudience}
-        onFee={applyFee}
-      />
+      <div className="glass-chrome filter-toolbar">
+        {resultCount}
+        <CompetitionFilters
+          isPending={isPending}
+          selection={selection}
+          onCategory={(category) => navigate({ category: category || undefined })}
+          onStatus={(status) => navigate({ status: status || undefined })}
+          onLocation={(location) => navigate({ location: location || undefined })}
+          onSort={(sort) => navigate({ sort: sort || undefined })}
+          onOpenPanel={openPanelFromFilterPill}
+          onClearAll={clearEveryFilter}
+        />
+      </div>
       <CompetitionPhoneFilters
         isPending={isPending}
         selection={selection}
-        onOpenSheet={openSheet}
+        onOpenPanel={openPanelFromFilterPill}
+        onOpenSection={openPanelFromSectionChip}
         onToggleOpenStatus={toggleOpenStatus}
         onToggleOnlineLocation={toggleOnlineLocation}
         onToggleFreeFee={toggleFreeFee}
-        onClearChip={navigate}
-        onClearAll={() => navigate(CLEAR_EVERY_FILTER)}
       />
     </>
   );

@@ -36,6 +36,16 @@ describe("the home search form", () => {
     expect(screen.getByRole("button", { name: "Mulai mencari" })).toBeTruthy();
   });
 
+  it("names the field through aria-label and shows no visible label above the placeholder", () => {
+    const { container } = render(<CompetitionSearchForm params={{}} variant="home" />);
+
+    const field = document.getElementById("home-search") as HTMLInputElement;
+    expect(field.getAttribute("aria-label")).toBe("Cari kompetisi");
+    expect(field.placeholder).toBe("Cari judul atau kata kunci…");
+    expect(container.querySelector("label")).toBeNull();
+    expect(screen.queryByText("Cari kompetisi")).toBeNull();
+  });
+
   it("opens the list with the typed term", () => {
     render(<CompetitionSearchForm params={{}} variant="home" />);
 

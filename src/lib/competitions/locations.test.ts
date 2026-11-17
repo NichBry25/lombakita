@@ -6,7 +6,6 @@ import {
   COMPETITION_LOCATION_VALUES,
   getCompetitionLocationLabel,
   isCompetitionLocation,
-  locationsMatchedByFilter,
 } from "./locations";
 
 describe("the location value list", () => {
@@ -17,14 +16,6 @@ describe("the location value list", () => {
     expect(Object.keys(COMPETITION_LOCATION_LABELS).sort()).toEqual(
       [...competitionLocationEnum.enumValues].sort(),
     );
-  });
-});
-
-describe("locationsMatchedByFilter", () => {
-  it("shows hybrid under both online and offline, and hybrid alone under hybrid", () => {
-    expect(locationsMatchedByFilter("online")).toEqual(["online", "hybrid"]);
-    expect(locationsMatchedByFilter("offline")).toEqual(["offline", "hybrid"]);
-    expect(locationsMatchedByFilter("hybrid")).toEqual(["hybrid"]);
   });
 });
 

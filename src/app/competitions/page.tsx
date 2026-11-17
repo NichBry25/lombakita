@@ -74,29 +74,25 @@ export default async function PublicCompetitionsPage({
 
   return (
     <main>
+      <h1 className="sr-only">Kompetisi</h1>
+
       <section className="brand-band listing-hero">
         <div className="content-shell listing-hero-inner">
-          <div className="stack-sm listing-heading">
-            <h1>Temukan kompetisi yang layak kamu kejar</h1>
-            <p>
-              Cari berdasarkan judul, lalu saring arena yang paling sesuai dengan minat dan waktumu.
-            </p>
-          </div>
-
           <CompetitionSearchForm params={params} />
         </div>
       </section>
 
       <div className="page-shell discovery-page">
         <section className="stack-lg" aria-labelledby="competition-results-title">
-          <div className="glass-chrome filter-toolbar">
-            <div>
+          <CompetitionFilterBar
+            params={params}
+            total={meta.total}
+            resultCount={
               <h2 id="competition-results-title" className="filter-result-title">
                 <span role="status">{meta.total} kompetisi ditemukan</span>
               </h2>
-            </div>
-            <CompetitionFilterBar params={params} total={meta.total} />
-          </div>
+            }
+          />
 
           {competitions.length === 0 ? (
             <EmptyState

@@ -164,16 +164,8 @@ const titlesFor = async (tx: Tx, seed: Seed, filters: PublicListingFilters): Pro
 
 const MATCHING_CASES: Array<[string, PublicListingFilters, string[]]> = [
   ["no filter shows every live competition, empty ones included", {}, LIVE_TITLES],
-  [
-    "online shows online and hybrid",
-    { location: "online" },
-    ["A online mahasiswa", "C hybrid umum", "D online sd"],
-  ],
-  [
-    "offline shows offline and hybrid",
-    { location: "offline" },
-    ["B offline mahasiswa smp", "C hybrid umum"],
-  ],
+  ["online shows online only", { location: "online" }, ["A online mahasiswa", "D online sd"]],
+  ["offline shows offline only", { location: "offline" }, ["B offline mahasiswa smp"]],
   ["hybrid shows hybrid only", { location: "hybrid" }, ["C hybrid umum"]],
   ["an unknown location is ignored", { location: "mars" }, LIVE_TITLES],
   ["a location in the wrong case is ignored", { location: "Online" }, LIVE_TITLES],
@@ -198,7 +190,7 @@ const MATCHING_CASES: Array<[string, PublicListingFilters, string[]]> = [
   [
     "a location and an audience both apply",
     { location: "online", audience: "mahasiswa" },
-    ["A online mahasiswa", "C hybrid umum"],
+    ["A online mahasiswa"],
   ],
 ];
 
@@ -210,6 +202,19 @@ describe.skipIf(skipWithoutDatabase)("the location and audience filters of the l
       expect(await titlesFor(tx, seed, filters)).toEqual([...expected].sort());
     });
   });
+
+  it.each(["online", "offline", "hybrid"])(
+    "never shows a competition with no location under %s",
+    async (location) => {
+      await inRollback(async (tx) => {
+        const seed = await seedListing(tx);
+
+        const titles = await titlesFor(tx, seed, { location });
+
+        expect(titles).not.toContain("E belum diisi");
+      });
+    },
+  );
 
   it("never shows a draft or a deleted competition because a filter matches it", async () => {
     await inRollback(async (tx) => {
@@ -269,10 +274,7 @@ describe.skipIf(skipWithoutDatabase)("the list API route", () => {
 
       const answer = await askRoute(tx, seed, "location=online&audience=mahasiswa");
 
-      expect(answer).toEqual({
-        status: 200,
-        titles: ["A online mahasiswa", "C hybrid umum"],
-      });
+      expect(answer).toEqual({ status: 200, titles: ["A online mahasiswa"] });
     });
   });
 

@@ -35,6 +35,7 @@ export type IconName =
   | "search-x"
   | "settings"
   | "share"
+  | "sliders"
   | "sprout"
   | "sun"
   | "trash"
@@ -252,6 +253,15 @@ function IconPaths({ name }: { name: IconName }) {
           <path d="m8.5 8.5 5 5" />
           <circle cx="11" cy="11" r="8" />
           <path d="m21 21-4.3-4.3" />
+        </>
+      );
+    case "sliders":
+      return (
+        <>
+          <path d="M4 7h9M17 7h3" />
+          <path d="M4 17h3M11 17h9" />
+          <circle cx="15" cy="7" r="2" />
+          <circle cx="9" cy="17" r="2" />
         </>
       );
     case "sprout":

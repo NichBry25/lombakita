@@ -45,7 +45,7 @@ import {
 } from "@/server/search/competition-index";
 import { isCompetitionCategory } from "@/server/competitions/competition-core";
 import { parseAudienceFilterParam } from "@/lib/competitions/audiences";
-import { isCompetitionLocation, locationsMatchedByFilter } from "@/lib/competitions/locations";
+import { isCompetitionLocation } from "@/lib/competitions/locations";
 import {
   TEAM_SIZE_HIGHEST,
   TEAM_SIZE_LOWEST,
@@ -463,17 +463,17 @@ export const buildFeeCondition = (filters: PublicListingFilters): SQL | undefine
   return undefined;
 };
 
-// Location filter (DB-only; the Meilisearch index carries no location). One chosen value: online
-// also shows hybrid, offline also shows hybrid, hybrid shows hybrid only. The value is parsed here
-// with the enum guard, so a raw API value never reaches the database, and anything unknown is
-// ignored. A competition with no location never matches.
+// Location filter (DB-only; the Meilisearch index carries no location). One chosen value shows only
+// competitions stored with that value: online is online only, offline is offline only and hybrid is
+// hybrid only. The value is parsed here with the enum guard, so a raw API value never reaches the
+// database, and anything unknown is ignored. A competition with no location never matches.
 const readLocationFilter = (filters: PublicListingFilters): CompetitionLocation | null =>
   isCompetitionLocation(filters.location) ? filters.location : null;
 
 export const buildLocationCondition = (filters: PublicListingFilters): SQL | undefined => {
   const chosen = readLocationFilter(filters);
   if (!chosen) return undefined;
-  return inArray(competitions.location, [...locationsMatchedByFilter(chosen)]);
+  return eq(competitions.location, chosen);
 };
 
 // Audience filter (DB-only). The ticked levels narrow the list to competitions tagged with any of

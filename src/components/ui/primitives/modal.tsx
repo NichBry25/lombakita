@@ -235,6 +235,7 @@ export function Modal() {
   const layout = footerLayoutFor(safeActions.length);
   const isFullHeight = config.fullHeight === true;
   const fullHeightName = config.fullHeight === true ? config.title : undefined;
+  const sideEdge = config.fullHeight === true && config.side === true ? "end" : undefined;
 
   const safeButtons = safeActions.map((action, index) => (
     <Button
@@ -273,6 +274,7 @@ export function Modal() {
       role="presentation"
       className="modal-backdrop"
       data-height={isFullHeight ? "full" : undefined}
+      data-side={sideEdge}
       onClick={opensOutsideTapAsSafeChoice ? doSafeChoice : undefined}
     >
       <div
@@ -286,6 +288,7 @@ export function Modal() {
         className="modal-dialog"
         data-width={config.wide ? "wide" : "narrow"}
         data-height={isFullHeight ? "full" : undefined}
+        data-side={sideEdge}
         onClick={(e) => e.stopPropagation()}
       >
         {isFullHeight ? (

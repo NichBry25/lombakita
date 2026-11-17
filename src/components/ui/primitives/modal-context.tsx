@@ -34,8 +34,11 @@ type FormSubmitModalAction = {
 };
 
 // A full-height pop-up draws its own header, so `title` is only the dialog's accessible name and
-// must be plain text. Any other pop-up shows `title` as its heading.
-type ModalTitle = { fullHeight?: false; title: ReactNode } | { fullHeight: true; title: string };
+// must be plain text. Any other pop-up shows `title` as its heading. `side` turns a full-height
+// pop-up into a drawer on the right edge, 420 px wide where the screen is wider than that.
+type ModalTitle =
+  | { fullHeight?: false; title: ReactNode }
+  | { fullHeight: true; title: string; side?: boolean };
 
 type ModalConfigFields = {
   body: ReactNode;

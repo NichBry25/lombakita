@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   Button,
   Icon,
@@ -13,7 +13,12 @@ import { useModal } from "@/components/ui/primitives";
 import { audienceFilterLevels } from "@/lib/competitions/audiences";
 import { TEAM_SIZE_HIGHEST, TEAM_SIZE_LOWEST } from "@/lib/competitions/team-range";
 import type { CompetitionAudience } from "@/server/db/schema";
-import { AudienceChecklist, FeeFilterControls } from "./competition-filters";
+import {
+  AudienceChecklist,
+  FeeFilterControls,
+  describeNonDefaultSort,
+  listSetFilters,
+} from "./competition-filters";
 import {
   DEFAULT_FILTER_SELECTION,
   competitionsQuery,
@@ -24,7 +29,14 @@ import {
   type FilterSelection,
 } from "./search-params";
 
-export type FilterSheetSection = "category" | "sort";
+export type FilterSheetSection =
+  | "category"
+  | "team"
+  | "location"
+  | "audience"
+  | "fee"
+  | "status"
+  | "sort";
 
 const COUNT_DEBOUNCE_MS = 300;
 
@@ -100,7 +112,7 @@ type OptionChoiceListProps = {
   options: FilterOption[];
   value: string;
   onChange: (value: string) => void;
-  // Marks the selected option as where focus lands when the sheet opens on this section.
+  // Marks the selected option as where focus lands when the panel opens on this section.
   takesOpeningFocus?: boolean;
 };
 
@@ -185,13 +197,65 @@ type CompetitionFilterSheetProps = {
   locationOptions: FilterOption[];
   statusOptions: FilterOption[];
   sortOptions: FilterOption[];
-  openAtSection?: FilterSheetSection;
+  // The one section that is open when the panel opens.
+  openAtSection: FilterSheetSection;
+  // Moves focus into the opened section, for a panel opened from the chip of that section.
+  focusesOpenSection?: boolean;
   onApply: (selection: FilterSelection) => void;
 };
 
+type CollapsibleSectionProps = {
+  id: FilterSheetSection;
+  title: string;
+  // The section's current filter in words, shown after its name. Absent when nothing is set.
+  value: string | undefined;
+  isOpen: boolean;
+  onToggle: (id: FilterSheetSection) => void;
+  children: ReactNode;
+};
+
+// A closed section keeps its content in the page, hidden, so what was typed in it survives a
+// collapse and the open section is the only one a reader can reach.
+function CollapsibleSection({
+  id,
+  title,
+  value,
+  isOpen,
+  onToggle,
+  children,
+}: CollapsibleSectionProps) {
+  const headerId = `filter-sheet-${id}-header`;
+  const panelId = `filter-sheet-${id}-panel`;
+
+  return (
+    <section className="filter-sheet-section">
+      <h3 className="filter-sheet-heading">
+        <button
+          id={headerId}
+          type="button"
+          className="filter-sheet-toggle"
+          aria-expanded={isOpen}
+          aria-controls={panelId}
+          onClick={() => onToggle(id)}
+        >
+          <span>
+            {title}
+            {value ? <span className="filter-sheet-value"> · {value}</span> : null}
+          </span>
+          <Icon name="chevron-down" className="filter-sheet-chevron" />
+        </button>
+      </h3>
+      <div id={panelId} role="group" aria-labelledby={headerId} hidden={!isOpen}>
+        {children}
+      </div>
+    </section>
+  );
+}
+
 /**
- * The phone filter sheet, drawn inside the full-height pop-up. It edits a copy of the filters,
- * so nothing reaches the address until "Tampilkan", and closing or Esc throws the copy away.
+ * The filter panel, drawn inside the full-height pop-up: a drawer on desktop and the whole screen
+ * on a phone. It edits a copy of the filters, so nothing reaches the address until "Tampilkan",
+ * and closing or Esc throws the copy away. One section is open at a time.
  */
 export function CompetitionFilterSheet({
   initial,
@@ -202,16 +266,38 @@ export function CompetitionFilterSheet({
   statusOptions,
   sortOptions,
   openAtSection,
+  focusesOpenSection = false,
   onApply,
 }: CompetitionFilterSheetProps) {
   const { closeModal } = useModal();
   const [draft, setDraft] = useState(initial);
+  const [openSection, setOpenSection] = useState<FilterSheetSection | null>(openAtSection);
   const count = useLiveResultCount(baseParams, draft, initialTotal, initial);
+  const setFilters = listSetFilters(draft);
 
   const toggleAudienceLevel = (level: CompetitionAudience, isTicked: boolean) => {
     const next = isTicked ? [...draft.audience, level] : draft.audience.filter((i) => i !== level);
     setDraft({ ...draft, audience: audienceFilterLevels(next) });
   };
+
+  const clearEveryFilter = () => {
+    setDraft((current) => ({ ...DEFAULT_FILTER_SELECTION, sort: current.sort }));
+  };
+
+  const toggleSection = (id: FilterSheetSection) => {
+    setOpenSection((current) => (current === id ? null : id));
+  };
+
+  const valueOfSection = (id: FilterSheetSection): string | undefined =>
+    setFilters.find((filter) => filter.section === id)?.value;
+
+  const sectionProps = (id: FilterSheetSection, title: string) => ({
+    id,
+    title,
+    value: id === "sort" ? describeNonDefaultSort(draft.sort) : valueOfSection(id),
+    isOpen: openSection === id,
+    onToggle: toggleSection,
+  });
 
   const showButtonLabel = count.failed ? "Tampilkan hasil" : `Tampilkan ${count.total} lomba`;
 
@@ -220,30 +306,27 @@ export function CompetitionFilterSheet({
       <header className="filter-sheet-header">
         <h2 className="filter-sheet-title">Filter</h2>
         <div className="filter-sheet-header-actions">
-          <Button variant="link" size="sm" onClick={() => setDraft(DEFAULT_FILTER_SELECTION)}>
-            Reset
-          </Button>
+          <IconButton
+            variant="plain"
+            icon="trash"
+            label="Hapus semua filter"
+            onClick={clearEveryFilter}
+          />
           <IconButton variant="plain" icon="close" label="Tutup" onClick={closeModal} />
         </div>
       </header>
 
       <div className="filter-sheet-body">
-        <section className="filter-sheet-section" aria-labelledby="filter-sheet-category">
-          <h3 id="filter-sheet-category" className="filter-sheet-heading">
-            Kategori
-          </h3>
+        <CollapsibleSection {...sectionProps("category", "Kategori")}>
           <CategoryChoice
             options={categoryOptions}
             value={draft.category}
             onChange={(category) => setDraft({ ...draft, category })}
-            takesOpeningFocus={openAtSection === "category"}
+            takesOpeningFocus={focusesOpenSection && openAtSection === "category"}
           />
-        </section>
+        </CollapsibleSection>
 
-        <section className="filter-sheet-section" aria-labelledby="filter-sheet-team">
-          <h3 id="filter-sheet-team" className="filter-sheet-heading">
-            Ukuran tim
-          </h3>
+        <CollapsibleSection {...sectionProps("team", "Ukuran tim")}>
           <RangeSlider
             floor={TEAM_SIZE_LOWEST}
             ceiling={TEAM_SIZE_HIGHEST}
@@ -255,65 +338,50 @@ export function CompetitionFilterSheet({
             summary={describeTeamRange(draft.teamRange)}
             describeValue={describeTeamSizeForSpeech}
           />
-        </section>
+        </CollapsibleSection>
 
-        <section className="filter-sheet-section" aria-labelledby="filter-sheet-location">
-          <h3 id="filter-sheet-location" className="filter-sheet-heading">
-            Lokasi
-          </h3>
+        <CollapsibleSection {...sectionProps("location", "Lokasi")}>
           <OptionChoiceList
             label="Lokasi"
             options={locationOptions}
             value={draft.location}
             onChange={(location) => setDraft({ ...draft, location })}
           />
-        </section>
+        </CollapsibleSection>
 
-        <section className="filter-sheet-section" aria-labelledby="filter-sheet-audience">
-          <h3 id="filter-sheet-audience" className="filter-sheet-heading">
-            Untuk
-          </h3>
+        <CollapsibleSection {...sectionProps("audience", "Untuk")}>
           <AudienceChecklist
             idPrefix="filter-sheet-audience"
             ticked={draft.audience}
             onToggle={toggleAudienceLevel}
           />
-        </section>
+        </CollapsibleSection>
 
-        <section className="filter-sheet-section" aria-labelledby="filter-sheet-fee">
-          <h3 id="filter-sheet-fee" className="filter-sheet-heading">
-            Biaya
-          </h3>
+        <CollapsibleSection {...sectionProps("fee", "Biaya")}>
           <FeeFilterControls
             value={draft.fee}
             onChange={(fee) => setDraft((current) => ({ ...current, fee }))}
           />
-        </section>
+        </CollapsibleSection>
 
-        <section className="filter-sheet-section" aria-labelledby="filter-sheet-status">
-          <h3 id="filter-sheet-status" className="filter-sheet-heading">
-            Status
-          </h3>
+        <CollapsibleSection {...sectionProps("status", "Status")}>
           <OptionChoiceList
             label="Status"
             options={statusOptions}
             value={draft.status}
             onChange={(status) => setDraft({ ...draft, status })}
           />
-        </section>
+        </CollapsibleSection>
 
-        <section className="filter-sheet-section" aria-labelledby="filter-sheet-sort">
-          <h3 id="filter-sheet-sort" className="filter-sheet-heading">
-            Urutkan
-          </h3>
+        <CollapsibleSection {...sectionProps("sort", "Urutkan")}>
           <OptionChoiceList
             label="Urutkan"
             options={sortOptions}
             value={draft.sort}
             onChange={(sort) => setDraft({ ...draft, sort })}
-            takesOpeningFocus={openAtSection === "sort"}
+            takesOpeningFocus={focusesOpenSection && openAtSection === "sort"}
           />
-        </section>
+        </CollapsibleSection>
       </div>
 
       <footer className="filter-sheet-footer">

@@ -1,20 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import {
-  Button,
   CheckboxField,
   FilterDropdown,
   Icon,
+  IconButton,
   RangeSlider,
   Spinner,
   type FilterOption,
 } from "@/components/ui";
-import {
-  COMPETITION_AUDIENCE_OPTIONS,
-  audienceFilterLevels,
-  formatAudienceLabels,
-} from "@/lib/competitions/audiences";
+import { COMPETITION_AUDIENCE_OPTIONS, formatAudienceLabels } from "@/lib/competitions/audiences";
 import { COMPETITION_CATEGORY_OPTIONS } from "@/lib/competitions/categories";
 import { COMPETITION_LOCATION_OPTIONS } from "@/lib/competitions/locations";
 import type { CompetitionAudience } from "@/server/db/schema";
@@ -29,21 +24,13 @@ import {
   type FeeFilter,
   type FeeRange,
 } from "@/lib/competitions/fee-range";
+import { isTeamRangeNarrowed } from "@/lib/competitions/team-range";
 import {
-  TEAM_SIZE_HIGHEST,
-  TEAM_SIZE_LOWEST,
-  isTeamRangeNarrowed,
-  type TeamRange,
-} from "@/lib/competitions/team-range";
-import {
-  CLEAR_FEE_PARAMS,
-  CLEAR_TEAM_RANGE_PARAMS,
+  DEFAULT_SORT,
   describeFeeAmount,
-  describeFeeFilter,
   describeFeeRange,
+  describeFeeValue,
   describeTeamRange,
-  describeTeamSizeForSpeech,
-  type CompetitionSearchParams,
   type FilterSelection,
 } from "./search-params";
 
@@ -78,194 +65,20 @@ export const SORT_OPTIONS: FilterOption[] = [
 const OPEN_STATUS = "open";
 const ONLINE_LOCATION = "online";
 
-type TeamSizeFilterProps = {
-  range: TeamRange;
-  onApply: (range: TeamRange) => void;
-};
-
-// The open state of a pill whose menu is a dialog holding its own controls and a "Terapkan" button.
-// The menu closes on a press or focus outside it and on Escape, and focus lands on the control that
-// `firstFocusSelector` names when it opens.
-function useDialogFilterMenu(firstFocusSelector: string) {
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const closeWhenOutside = (event: Event) => {
-      if (rootRef.current && !rootRef.current.contains(event.target as Node)) setOpen(false);
-    };
-    document.addEventListener("pointerdown", closeWhenOutside);
-    document.addEventListener("focusin", closeWhenOutside);
-    return () => {
-      document.removeEventListener("pointerdown", closeWhenOutside);
-      document.removeEventListener("focusin", closeWhenOutside);
-    };
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    rootRef.current?.querySelector<HTMLElement>(firstFocusSelector)?.focus();
-  }, [open, firstFocusSelector]);
-
-  const closeAndFocusTrigger = () => {
-    setOpen(false);
-    triggerRef.current?.focus();
-  };
-
-  const closeOnEscape = (event: KeyboardEvent) => {
-    if (event.key !== "Escape") return;
-    event.preventDefault();
-    closeAndFocusTrigger();
-  };
-
-  return { open, setOpen, rootRef, triggerRef, closeAndFocusTrigger, closeOnEscape };
-}
-
-// A pill that opens a menu holding the team size slider. The address changes when "Terapkan" is
-// pressed and not on every drag, so a drag never fires a navigation per step.
-function TeamSizeFilter({ range, onApply }: TeamSizeFilterProps) {
-  const [draft, setDraft] = useState(range);
-  const { open, setOpen, rootRef, triggerRef, closeAndFocusTrigger, closeOnEscape } =
-    useDialogFilterMenu("[role='slider']");
-
-  const isNarrowed = isTeamRangeNarrowed(range);
-  const triggerLabel = isNarrowed ? `Ukuran tim: ${describeTeamRange(range)}` : "Ukuran tim";
-
-  const openMenu = () => {
-    setDraft(range);
-    setOpen(true);
-  };
-
-  const applyDraft = () => {
-    onApply(draft);
-    closeAndFocusTrigger();
-  };
-
-  return (
-    <div className="filter-dropdown" ref={rootRef}>
-      <button
-        type="button"
-        ref={triggerRef}
-        className="filter-dropdown-trigger"
-        data-active={isNarrowed ? "true" : undefined}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        aria-label={triggerLabel}
-        onClick={() => (open ? setOpen(false) : openMenu())}
-      >
-        <span className="filter-dropdown-trigger-label">{triggerLabel}</span>
-        <Icon name="chevron-down" className="filter-dropdown-chevron" />
-      </button>
-      {open ? (
-        <div
-          className="filter-dropdown-menu"
-          data-kind="range"
-          data-align="end"
-          role="dialog"
-          aria-label="Ukuran tim"
-          onKeyDown={closeOnEscape}
-        >
-          <RangeSlider
-            floor={TEAM_SIZE_LOWEST}
-            ceiling={TEAM_SIZE_HIGHEST}
-            value={draft}
-            onChange={setDraft}
-            label="Ukuran tim"
-            minHandleLabel="Ukuran tim minimum"
-            maxHandleLabel="Ukuran tim maksimum"
-            summary={describeTeamRange(draft)}
-            describeValue={describeTeamSizeForSpeech}
-          />
-          <Button variant="primary" size="md" onClick={applyDraft}>
-            Terapkan
-          </Button>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-type AudienceFilterProps = {
-  levels: readonly CompetitionAudience[];
-  onApply: (levels: CompetitionAudience[]) => void;
-};
-
-// A pill that opens a menu of tick boxes. Umum is shown ticked and cannot be unticked, because a
-// competition for everyone is always in the list. Like the team size menu, the address changes
-// when "Terapkan" is pressed and not on every tick.
-function AudienceFilter({ levels, onApply }: AudienceFilterProps) {
-  const [draft, setDraft] = useState<CompetitionAudience[]>([...levels]);
-  const { open, setOpen, rootRef, triggerRef, closeAndFocusTrigger, closeOnEscape } =
-    useDialogFilterMenu("input:not(:disabled)");
-
-  const isNarrowed = levels.length > 0;
-  const triggerLabel = isNarrowed ? `Untuk: ${formatAudienceLabels(levels)}` : "Untuk";
-
-  const openMenu = () => {
-    setDraft([...levels]);
-    setOpen(true);
-  };
-
-  const toggleLevel = (level: CompetitionAudience, isTicked: boolean) => {
-    const next = isTicked ? [...draft, level] : draft.filter((item) => item !== level);
-    setDraft(audienceFilterLevels(next));
-  };
-
-  const applyDraft = () => {
-    onApply(draft);
-    closeAndFocusTrigger();
-  };
-
-  return (
-    <div className="filter-dropdown" ref={rootRef}>
-      <button
-        type="button"
-        ref={triggerRef}
-        className="filter-dropdown-trigger"
-        data-active={isNarrowed ? "true" : undefined}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        aria-label={triggerLabel}
-        onClick={() => (open ? setOpen(false) : openMenu())}
-      >
-        <span className="filter-dropdown-trigger-label">{triggerLabel}</span>
-        <Icon name="chevron-down" className="filter-dropdown-chevron" />
-      </button>
-      {open ? (
-        <div
-          className="filter-dropdown-menu"
-          data-kind="checks"
-          data-align="end"
-          role="dialog"
-          aria-label="Untuk"
-          onKeyDown={closeOnEscape}
-        >
-          <AudienceChecklist idPrefix="filter-audience" ticked={draft} onToggle={toggleLevel} />
-          <Button variant="primary" size="md" onClick={applyDraft}>
-            Terapkan
-          </Button>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 type AudienceChecklistProps = {
   idPrefix: string;
   ticked: readonly CompetitionAudience[];
   onToggle: (level: CompetitionAudience, isTicked: boolean) => void;
 };
 
-/** Umum ticked and fixed, then one tick box per level. Shared by the desktop menu and the sheet. */
+/** Umum ticked and fixed, then one tick box per level. Used by the filter panel. */
 export function AudienceChecklist({ idPrefix, ticked, onToggle }: AudienceChecklistProps) {
   return (
     <div role="group" aria-label="Untuk" className="filter-checks">
       {COMPETITION_AUDIENCE_OPTIONS.map((option) =>
         option.value === "umum" ? (
           <CheckboxField key={option.value} id={`${idPrefix}-${option.value}`} checked disabled>
-            {option.label} (selalu termasuk)
+            {option.label}
           </CheckboxField>
         ) : (
           <CheckboxField
@@ -294,7 +107,7 @@ const FEE_CHOICES = [
 
 /**
  * The two fee choices and, under Berbayar, the price range. Pressing the chosen choice again takes
- * the filter off. Shared by the desktop menu and the sheet.
+ * the filter off. Used by the filter panel.
  */
 export function FeeFilterControls({ value, onChange }: FeeFilterControlsProps) {
   const toggleChoice = (kind: "free" | "paid") => {
@@ -348,61 +161,84 @@ export function FeeFilterControls({ value, onChange }: FeeFilterControlsProps) {
   );
 }
 
-type FeeFilterMenuProps = {
-  fee: FeeFilter;
-  onApply: (fee: FeeFilter) => void;
+export type SetFilter = {
+  section: FilterSheetSection;
+  // The filter in words, without the name of its section.
+  value: string;
 };
 
-// A pill that opens a menu with the fee choices and, under Berbayar, the price range. Like the team
-// size menu, the address changes when "Terapkan" is pressed and not on every move.
-function FeeFilterMenu({ fee, onApply }: FeeFilterMenuProps) {
-  const [draft, setDraft] = useState(fee);
-  const { open, setOpen, rootRef, triggerRef, closeAndFocusTrigger, closeOnEscape } =
-    useDialogFilterMenu("[aria-pressed]");
+const labelOfOption = (options: FilterOption[], value: string): string =>
+  options.find((option) => option.value === value)?.label ?? value;
 
-  const triggerLabel = describeFeeFilter(fee);
+/**
+ * One entry per filter that is set, in the order of the panel's sections. Sort is a way of
+ * ordering and not a filter, so it has no entry.
+ */
+export const listSetFilters = (selection: FilterSelection): SetFilter[] => {
+  const filters: SetFilter[] = [];
+  if (selection.category !== "") {
+    filters.push({
+      section: "category",
+      value: labelOfOption(CATEGORY_OPTIONS, selection.category),
+    });
+  }
+  if (isTeamRangeNarrowed(selection.teamRange)) {
+    filters.push({ section: "team", value: describeTeamRange(selection.teamRange) });
+  }
+  if (selection.location !== "") {
+    filters.push({
+      section: "location",
+      value: labelOfOption(LOCATION_OPTIONS, selection.location),
+    });
+  }
+  if (selection.audience.length > 0) {
+    filters.push({ section: "audience", value: formatAudienceLabels(selection.audience) });
+  }
+  const feeValue = describeFeeValue(selection.fee);
+  if (feeValue !== undefined) {
+    filters.push({ section: "fee", value: feeValue });
+  }
+  if (selection.status !== "") {
+    filters.push({ section: "status", value: labelOfOption(STATUS_OPTIONS, selection.status) });
+  }
+  return filters;
+};
 
-  const openMenu = () => {
-    setDraft(fee);
-    setOpen(true);
-  };
+/** The sort in words when it is not the default, else undefined. Sort has no entry in the list above. */
+export const describeNonDefaultSort = (sort: string): string | undefined =>
+  sort === DEFAULT_SORT ? undefined : labelOfOption(SORT_OPTIONS, sort);
 
-  const applyDraft = () => {
-    onApply(draft);
-    closeAndFocusTrigger();
-  };
+/** The section the Filter pill opens the panel on: the first with a filter set, else Kategori. */
+export const sectionToOpenForFilterPill = (selection: FilterSelection): FilterSheetSection =>
+  listSetFilters(selection)[0]?.section ?? "category";
 
+type FilterPillProps = {
+  count: number;
+  className: string;
+  onClick: () => void;
+};
+
+// The Filter pill of the desktop row and of the phone bar. The number is how many filters are set,
+// and the accessible name carries it so a screen reader does not hear a bare digit after "Filter".
+function FilterPill({ count, className, onClick }: FilterPillProps) {
+  const hasSetFilters = count > 0;
   return (
-    <div className="filter-dropdown" ref={rootRef}>
-      <button
-        type="button"
-        ref={triggerRef}
-        className="filter-dropdown-trigger"
-        data-active={fee.kind !== "any" ? "true" : undefined}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        aria-label={triggerLabel}
-        onClick={() => (open ? setOpen(false) : openMenu())}
-      >
-        <span className="filter-dropdown-trigger-label">{triggerLabel}</span>
-        <Icon name="chevron-down" className="filter-dropdown-chevron" />
-      </button>
-      {open ? (
-        <div
-          className="filter-dropdown-menu"
-          data-kind="range"
-          data-align="end"
-          role="dialog"
-          aria-label="Biaya"
-          onKeyDown={closeOnEscape}
-        >
-          <FeeFilterControls value={draft} onChange={setDraft} />
-          <Button variant="primary" size="md" onClick={applyDraft}>
-            Terapkan
-          </Button>
-        </div>
+    <button
+      type="button"
+      className={className}
+      data-active={hasSetFilters ? "true" : undefined}
+      aria-haspopup="dialog"
+      aria-label={hasSetFilters ? `Filter (${count})` : undefined}
+      onClick={onClick}
+    >
+      <Icon name="sliders" />
+      Filter
+      {hasSetFilters ? (
+        <span className="filter-count-badge" aria-hidden="true">
+          {count}
+        </span>
       ) : null}
-    </div>
+    </button>
   );
 }
 
@@ -413,25 +249,29 @@ type CompetitionFiltersProps = {
   isPending?: boolean;
   onCategory: (value: string) => void;
   onStatus: (value: string) => void;
-  onSort: (value: string) => void;
-  onTeamRange: (range: TeamRange) => void;
   onLocation: (value: string) => void;
-  onAudience: (levels: CompetitionAudience[]) => void;
-  onFee: (fee: FeeFilter) => void;
+  onSort: (value: string) => void;
+  onOpenPanel: () => void;
+  onClearAll: () => void;
 };
 
-/** The desktop pill row. On a phone it is hidden and the chip row below takes its place. */
+/**
+ * The desktop row: Kategori, Status and Lokasi in front, the Filter pill that opens the panel with
+ * every filter, a trash button that shows while a filter is set, and Urutkan at the right end. It
+ * never wraps. Below 928 px it is hidden and the bar at the bottom of the screen takes its place.
+ */
 export function CompetitionFilters({
   selection,
   isPending = false,
   onCategory,
   onStatus,
-  onSort,
-  onTeamRange,
   onLocation,
-  onAudience,
-  onFee,
+  onSort,
+  onOpenPanel,
+  onClearAll,
 }: CompetitionFiltersProps) {
+  const setFilterCount = listSetFilters(selection).length;
+
   return (
     <div className="filter-toolbar-filters" aria-label="Filter kompetisi" aria-busy={isPending}>
       <FilterDropdown
@@ -440,141 +280,85 @@ export function CompetitionFilters({
         value={selection.category}
         onChange={onCategory}
         searchable
-        align="end"
       />
-      <TeamSizeFilter range={selection.teamRange} onApply={onTeamRange} />
-      <FilterDropdown
-        label="Lokasi"
-        options={LOCATION_OPTIONS}
-        value={selection.location}
-        onChange={onLocation}
-        align="end"
-      />
-      <AudienceFilter levels={selection.audience} onApply={onAudience} />
-      <FeeFilterMenu fee={selection.fee} onApply={onFee} />
       <FilterDropdown
         label="Status"
         options={STATUS_OPTIONS}
         value={selection.status}
         onChange={onStatus}
-        align="end"
       />
       <FilterDropdown
-        label="Urutkan"
-        options={SORT_OPTIONS}
-        value={selection.sort}
-        onChange={onSort}
-        align="end"
+        label="Lokasi"
+        options={LOCATION_OPTIONS}
+        value={selection.location}
+        onChange={onLocation}
       />
+      <FilterPill
+        count={setFilterCount}
+        className="filter-dropdown-trigger"
+        onClick={onOpenPanel}
+      />
+      {setFilterCount > 0 ? (
+        <IconButton
+          variant="outline"
+          icon="trash"
+          label="Hapus semua filter"
+          onClick={onClearAll}
+        />
+      ) : null}
       {isPending ? <Spinner size="sm" /> : null}
+      <div className="filter-toolbar-sort">
+        <FilterDropdown
+          label="Urutkan"
+          options={SORT_OPTIONS}
+          value={selection.sort}
+          onChange={onSort}
+          align="end"
+        />
+      </div>
     </div>
   );
 }
 
-export type AppliedChip = {
-  key: "category" | "team" | "location" | "audience" | "fee" | "status";
-  label: string;
-  // What removing the chip clears from the address.
-  clears: Partial<CompetitionSearchParams>;
-};
-
-const labelOfOption = (options: FilterOption[], value: string): string =>
-  options.find((option) => option.value === value)?.label ?? value;
-
-/** One chip per active filter. Sort is a way of ordering and not a filter, so it has none. */
-export const listAppliedChips = (selection: FilterSelection): AppliedChip[] => {
-  const chips: AppliedChip[] = [];
-  if (selection.category !== "") {
-    chips.push({
-      key: "category",
-      label: labelOfOption(CATEGORY_OPTIONS, selection.category),
-      clears: { category: undefined },
-    });
-  }
-  if (isTeamRangeNarrowed(selection.teamRange)) {
-    chips.push({
-      key: "team",
-      label: `Ukuran tim: ${describeTeamRange(selection.teamRange)}`,
-      clears: CLEAR_TEAM_RANGE_PARAMS,
-    });
-  }
-  if (selection.location !== "") {
-    chips.push({
-      key: "location",
-      label: `Lokasi: ${labelOfOption(LOCATION_OPTIONS, selection.location)}`,
-      clears: { location: undefined },
-    });
-  }
-  if (selection.audience.length > 0) {
-    chips.push({
-      key: "audience",
-      label: `Untuk: ${formatAudienceLabels(selection.audience)}`,
-      clears: { audience: undefined },
-    });
-  }
-  if (selection.fee.kind !== "any") {
-    chips.push({
-      key: "fee",
-      label: describeFeeFilter(selection.fee),
-      clears: CLEAR_FEE_PARAMS,
-    });
-  }
-  if (selection.status !== "") {
-    chips.push({
-      key: "status",
-      label: labelOfOption(STATUS_OPTIONS, selection.status),
-      clears: { status: undefined },
-    });
-  }
-  return chips;
-};
-
 type CompetitionPhoneFiltersProps = {
   selection: FilterSelection;
   isPending?: boolean;
-  onOpenSheet: (section?: FilterSheetSection) => void;
+  onOpenPanel: () => void;
+  onOpenSection: (section: FilterSheetSection) => void;
   onToggleOpenStatus: () => void;
   onToggleOnlineLocation: () => void;
   onToggleFreeFee: () => void;
-  onClearChip: (clears: Partial<CompetitionSearchParams>) => void;
-  onClearAll: () => void;
 };
 
 /**
- * The phone filter row: "Filter (n)" and five quick chips on one sideways row, the last one cut
- * by the screen edge, and under it one removable chip per active filter. It is hidden above 640 px.
+ * The phone filter bar, pinned to the bottom of the screen: the Filter pill stays at its left end
+ * and five quick chips scroll sideways beside it. It is hidden from 928 px up, where the row shows.
  */
 export function CompetitionPhoneFilters({
   selection,
   isPending = false,
-  onOpenSheet,
+  onOpenPanel,
+  onOpenSection,
   onToggleOpenStatus,
   onToggleOnlineLocation,
   onToggleFreeFee,
-  onClearChip,
-  onClearAll,
 }: CompetitionPhoneFiltersProps) {
-  const appliedChips = listAppliedChips(selection);
-  const filterLabel = appliedChips.length > 0 ? `Filter (${appliedChips.length})` : "Filter";
   const isOpenStatusOn = selection.status === OPEN_STATUS;
   const isOnlineLocationOn = selection.location === ONLINE_LOCATION;
   const isFreeFeeOn = selection.fee.kind === "free";
 
   return (
-    <div className="filter-phone" aria-busy={isPending}>
+    <div className="filter-phone glass-chrome" aria-busy={isPending}>
+      <FilterPill
+        count={listSetFilters(selection).length}
+        className="action-chip filter-phone-pill"
+        onClick={onOpenPanel}
+      />
       <div className="filter-phone-row">
-        <button
-          type="button"
-          className="action-chip"
-          aria-haspopup="dialog"
-          onClick={() => onOpenSheet()}
-        >
-          {filterLabel}
-        </button>
-        <button type="button" className="action-chip" onClick={() => onOpenSheet("sort")}>
+        <button type="button" className="action-chip" onClick={() => onOpenSection("sort")}>
           Urutkan
         </button>
-        <button type="button" className="action-chip" onClick={() => onOpenSheet("category")}>
+        <button type="button" className="action-chip" onClick={() => onOpenSection("category")}>
           Kategori
         </button>
         <button
@@ -606,29 +390,6 @@ export function CompetitionPhoneFilters({
         </button>
         {isPending ? <Spinner size="sm" /> : null}
       </div>
-      {appliedChips.length > 0 ? (
-        <ul className="filter-phone-applied" aria-label="Filter yang dipakai">
-          {appliedChips.map((chip) => (
-            <li key={chip.key}>
-              <button
-                type="button"
-                className="action-chip"
-                data-selected="true"
-                aria-label={`Hapus filter ${chip.label}`}
-                onClick={() => onClearChip(chip.clears)}
-              >
-                {chip.label}
-                <Icon name="close" />
-              </button>
-            </li>
-          ))}
-          <li>
-            <Button variant="link" size="sm" onClick={onClearAll}>
-              Hapus semua
-            </Button>
-          </li>
-        </ul>
-      ) : null}
     </div>
   );
 }

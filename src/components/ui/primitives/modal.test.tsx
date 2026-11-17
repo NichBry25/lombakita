@@ -600,6 +600,37 @@ describe("Modal — full height", () => {
     expect(ordinaryWithMarkup.fullHeight).toBeUndefined();
   });
 
+  it("marks a side pop-up on the dialog and its backdrop, and leaves a plain full-height one unmarked", () => {
+    const { openModal } = renderModal();
+    act(() =>
+      openModal({ title: "Filter", fullHeight: true, side: true, actions: [], body: <p>Isi</p> }),
+    );
+
+    const sideDialog = screen.getByRole("dialog", { name: "Filter" });
+    expect(sideDialog.getAttribute("data-side")).toBe("end");
+    expect(sideDialog.getAttribute("data-height")).toBe("full");
+    expect(sideDialog.parentElement?.getAttribute("data-side")).toBe("end");
+
+    act(() => openModal({ title: "Filter", fullHeight: true, actions: [], body: <p>Isi</p> }));
+
+    const plainDialog = screen.getByRole("dialog", { name: "Filter" });
+    expect(plainDialog.hasAttribute("data-side")).toBe(false);
+    expect(plainDialog.parentElement?.hasAttribute("data-side")).toBe(false);
+  });
+
+  it("only offers the side drawer to a full-height pop-up", () => {
+    const ordinaryWithSide: ModalConfig = {
+      title: "Konfirmasi",
+      fullHeight: false,
+      // @ts-expect-error `side` belongs to the full-height pop-up, and an ordinary one has no such edge
+      side: true,
+      actions: [],
+      body: null,
+    };
+
+    expect(ordinaryWithSide.title).toBe("Konfirmasi");
+  });
+
   it("leaves an ordinary pop-up without the full height marks", () => {
     const { openModal } = renderModal();
     act(() => openModal({ title: "Konfirmasi", body: "Body", actions: [] }));

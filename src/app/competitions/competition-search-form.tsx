@@ -51,7 +51,7 @@ export function CompetitionSearchForm({
       // searched for, while typing between submits stays untouched.
       key={params.q ?? ""}
       defaultValue={params.q ?? ""}
-      aria-label={isHome ? undefined : "Cari kompetisi"}
+      aria-label="Cari kompetisi"
     />
   );
 
@@ -72,12 +72,7 @@ export function CompetitionSearchForm({
         <span className="home-search-icon" aria-hidden="true">
           <Icon name="search" size="lg" />
         </span>
-        <span className="home-search-copy">
-          <label className="home-search-label" htmlFor={fieldId}>
-            Cari kompetisi
-          </label>
-          {field}
-        </span>
+        <span className="home-search-copy">{field}</span>
         {carriedFilterInputs}
         <Button type="submit" variant="primary" size="lg" loading={isSearching}>
           Mulai mencari

@@ -3046,13 +3046,6 @@ button.header-sheet-row {
   text-wrap: balance;
 }
 
-.listing-heading > p:last-child {
-  max-width: var(--content-prose);
-  margin: var(--space-0);
-  color: var(--brand-mist);
-  font-size: var(--text-lead);
-}
-
 .lime-marker {
   display: inline;
   padding-inline: var(--marker-padding-x);
@@ -3189,12 +3182,6 @@ button.header-sheet-row {
   font-size: var(--text-body-sm);
 }
 
-.home-search-label {
-  color: var(--color-ink);
-  font-size: var(--text-body);
-  font-weight: 600;
-}
-
 .home-search-copy input {
   width: 100%;
   min-width: 0;
@@ -3304,14 +3291,6 @@ button.header-sheet-row {
   gap: var(--space-8);
 }
 
-.listing-heading {
-  max-width: var(--content-search);
-}
-
-.listing-heading h1 {
-  font-size: var(--text-detail-hero);
-}
-
 .listing-search {
   display: grid;
   width: min(100%, var(--content-search));
@@ -3372,13 +3351,13 @@ button.header-sheet-row {
   color: var(--brand-paper);
 }
 
+/* The result count on its own line, and under it the desktop row. */
 .filter-toolbar {
   position: relative;
   z-index: var(--z-dropdown);
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-5);
+  flex-direction: column;
+  gap: var(--space-3);
   padding: var(--space-4) var(--space-5);
   border-radius: var(--radius-card);
 }
@@ -3404,12 +3383,52 @@ button.header-sheet-row {
   font-weight: 600;
 }
 
-/* Filter toolbar — row of dropdowns (replaces the category chip-rail). */
+/* Filter toolbar: one row that never wraps. Each pill grows to its text and stops at the pill
+   maximum, where the text is cut. Urutkan stays at the right end. */
 .filter-toolbar-filters {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: var(--space-2);
+}
+
+.filter-toolbar-filters > * {
+  flex: none;
+}
+
+.filter-toolbar-sort {
+  margin-inline-start: auto;
+}
+
+.filter-toolbar-filters .filter-dropdown-trigger {
+  max-inline-size: var(--filter-pill-max-width);
+}
+
+.filter-toolbar-filters .filter-dropdown-trigger-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.filter-toolbar-filters .filter-dropdown-chevron {
+  flex: none;
+}
+
+/* The number of filters that are set, inside the Filter pill. */
+.filter-count-badge {
+  display: inline-grid;
+  min-width: var(--space-5);
+  height: var(--space-5);
+  padding-inline: var(--space-1);
+  place-items: center;
+  border-radius: var(--radius-pill);
+  background: var(--color-action);
+  color: var(--color-action-ink);
+  font-size: var(--text-meta);
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 
 .filter-dropdown {
@@ -3522,29 +3541,12 @@ button.header-sheet-row {
   right: 0;
 }
 
-/* The team size menu holds a slider and a button, and the audience menu holds tick boxes and a
-   button. Neither scrolls. */
-.filter-dropdown-menu[data-kind="range"],
-.filter-dropdown-menu[data-kind="checks"] {
-  display: grid;
-  gap: var(--space-3);
-  width: var(--filter-range-menu-width);
-  max-height: none;
-  overflow: visible;
-  padding: var(--space-4);
-}
-
-.filter-dropdown-menu[data-kind="range"] > .ui-button,
-.filter-dropdown-menu[data-kind="checks"] > .ui-button {
-  justify-self: end;
-}
-
 .filter-checks {
   display: grid;
   gap: var(--space-1);
 }
 
-/* The fee choices with the price range under them, in the desktop menu and in the sheet. */
+/* The fee choices with the price range under them. */
 .filter-fee {
   display: grid;
   gap: var(--space-3);
@@ -3584,17 +3586,43 @@ button.header-sheet-row {
   background: var(--color-hover-surface);
 }
 
-/* Phone filters: the chip row and the removable chips. Hidden above 640px, where the pill row
-   shows instead. */
+/* Phone filter bar: pinned to the bottom of the screen, the Filter pill fixed at its left end and
+   the quick chips scrolling sideways beside it. Hidden where the desktop row shows. */
 .filter-phone {
+  position: fixed;
+  inset-inline: var(--space-0);
+  inset-block-end: var(--space-0);
+  z-index: var(--z-dropdown);
   display: none;
-  grid-template-columns: minmax(0, 1fr);
-  gap: var(--space-3);
+  align-items: center;
+  gap: var(--space-2);
   min-inline-size: 0;
+  padding: var(--space-3) var(--page-padding-mobile);
+  padding-block-end: calc(var(--space-3) + env(safe-area-inset-bottom));
+  border-block-start: var(--border-thin) solid var(--color-line);
+}
+
+/* The Filter pill is the main control of the bar, so it is filled where the quick chips are not. */
+.filter-phone-pill {
+  flex: none;
+  border-color: transparent;
+  background: var(--color-action);
+  color: var(--color-action-ink);
+}
+
+.filter-phone-pill:hover:not(:disabled) {
+  background: var(--color-action-hover);
+}
+
+.filter-phone-pill .filter-count-badge {
+  background: var(--color-action-ink);
+  color: var(--color-action);
 }
 
 .filter-phone-row {
   display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
   align-items: center;
   gap: var(--space-2);
   overflow-x: auto;
@@ -3609,18 +3637,25 @@ button.header-sheet-row {
   flex: none;
 }
 
-.filter-phone-applied {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
-  margin: var(--space-0);
-  padding: var(--space-0);
-  list-style: none;
+/* 928px is the narrowest width at which the desktop row fits on one line. Below it the row gives
+   way to the bar, and the page keeps the bar's height free at its end so the last card and the
+   footer are never under it. */
+@media (max-width: 927.98px) {
+  .filter-toolbar-filters {
+    display: none;
+  }
+
+  .filter-phone {
+    display: flex;
+  }
+
+  body:has(.filter-phone) {
+    padding-block-end: calc(var(--filter-bar-height) + env(safe-area-inset-bottom));
+  }
 }
 
-/* The phone sheet. The pop-up is full height and the sheet fills it: a fixed header, a body that
-   scrolls, and a fixed footer holding the one button. */
+/* The filter panel. The pop-up is full height and the panel fills it: a fixed header, a body of
+   collapsible sections that scrolls, and a fixed footer holding the one button. */
 .filter-sheet {
   display: flex;
   flex-direction: column;
@@ -3653,15 +3688,18 @@ button.header-sheet-row {
   display: grid;
   flex: 1;
   align-content: start;
-  gap: var(--space-6);
   min-height: var(--space-0);
-  padding: var(--space-4);
+  padding: var(--space-0) var(--space-4);
   overflow-y: auto;
 }
 
 .filter-sheet-section {
   display: grid;
-  gap: var(--space-2);
+  border-block-end: var(--border-thin) solid var(--color-line);
+}
+
+.filter-sheet-section > [role="group"] {
+  padding-block-end: var(--space-4);
 }
 
 .filter-sheet-heading {
@@ -3669,6 +3707,41 @@ button.header-sheet-row {
   font-size: var(--text-body);
   font-weight: 600;
   letter-spacing: normal;
+}
+
+.filter-sheet-toggle {
+  display: flex;
+  inline-size: 100%;
+  min-height: var(--touch-target);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-block: var(--space-2);
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.filter-sheet-toggle:focus-visible {
+  outline: var(--focus-width) solid var(--focus-color);
+  outline-offset: var(--focus-offset);
+}
+
+.filter-sheet-value {
+  color: var(--color-ink-soft);
+  font-weight: 400;
+}
+
+.filter-sheet-chevron {
+  flex: none;
+  transition: transform var(--duration-fast) ease;
+}
+
+.filter-sheet-toggle[aria-expanded="true"] .filter-sheet-chevron {
+  transform: rotate(180deg);
 }
 
 .filter-sheet-category {
@@ -3702,7 +3775,8 @@ button.header-sheet-row {
 
 @media (prefers-reduced-motion: reduce) {
   .filter-dropdown-chevron,
-  .filter-dropdown-trigger {
+  .filter-dropdown-trigger,
+  .filter-sheet-chevron {
     transition: none;
   }
 }
@@ -5486,6 +5560,16 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   padding: var(--space-0);
   border-radius: var(--space-0);
   overflow: hidden;
+}
+
+/* Side: a full-height pop-up that is a drawer on the right edge where the screen is wider than the
+   drawer, and the whole screen where it is not. */
+.modal-backdrop[data-side="end"] {
+  justify-content: flex-end;
+}
+
+.modal-dialog[data-side="end"] {
+  width: min(100%, var(--modal-width-side));
 }
 
 @keyframes modal-enter {
@@ -7905,8 +7989,7 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
     flex-wrap: nowrap;
   }
 
-  .home-organizer-cta,
-  .filter-toolbar {
+  .home-organizer-cta {
     align-items: flex-start;
     flex-direction: column;
   }
@@ -7958,10 +8041,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
     display: none;
   }
 
-  .filter-toolbar {
-    display: flex;
-  }
-
   .filter-sort-field {
     width: 100%;
   }
@@ -7997,16 +8076,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
     right: 0;
     width: auto;
     max-width: none;
-  }
-
-  /* The pill row gives way to the chip row and the filter sheet. */
-  .filter-toolbar-filters {
-    display: none;
-  }
-
-  .filter-phone {
-    display: grid;
-    inline-size: 100%;
   }
 
   .admin-nav {

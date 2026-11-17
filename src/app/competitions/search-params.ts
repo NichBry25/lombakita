@@ -136,17 +136,22 @@ export const teamRangeToParams = (
   teamMax: range.max < TEAM_SIZE_HIGHEST ? String(range.max) : undefined,
 });
 
+const describeTeamRangeStart = (size: number): string =>
+  size === TEAM_SIZE_LOWEST ? "Individu" : String(size);
+
 const describeTeamSizeEnd = (size: number): string =>
   size === TEAM_SIZE_HIGHEST ? `${TEAM_SIZE_HIGHEST}+` : String(size);
 
-/** What a screen reader says for one handle: "10 atau lebih" at the end of the track. */
-export const describeTeamSizeForSpeech = (size: number): string =>
-  size === TEAM_SIZE_HIGHEST ? `${TEAM_SIZE_HIGHEST} atau lebih` : String(size);
+/** What a screen reader says for one handle: "Individu" on 1, "10 atau lebih" at the end of the track. */
+export const describeTeamSizeForSpeech = (size: number): string => {
+  if (size === TEAM_SIZE_LOWEST) return "Individu";
+  return size === TEAM_SIZE_HIGHEST ? `${TEAM_SIZE_HIGHEST} atau lebih` : String(size);
+};
 
-/** "Individu" when both ends sit on 1, otherwise "2 sampai 4". */
+/** "Individu" when both ends sit on 1, "Individu sampai 5" from 1, otherwise "2 sampai 4". */
 export const describeTeamRange = (range: TeamRange): string => {
   if (range.min === TEAM_SIZE_LOWEST && range.max === TEAM_SIZE_LOWEST) return "Individu";
-  return `${describeTeamSizeEnd(range.min)} sampai ${describeTeamSizeEnd(range.max)}`;
+  return `${describeTeamRangeStart(range.min)} sampai ${describeTeamSizeEnd(range.max)}`;
 };
 
 /** The address parameters that clear the fee filter, its two ends included. */
@@ -181,17 +186,17 @@ export const describeFeeRange = (range: FeeRange): string =>
   `${describeFeeAmount(range.min)} sampai ${describeFeeAmount(range.max)}`;
 
 const describePaidFee = (fee: FeeRange): string => {
-  if (!isFeeRangeNarrowed(fee)) return "Biaya: Berbayar";
-  if (fee.min === FEE_LOWEST) return `Biaya: sampai ${describeFeeAmount(fee.max)}`;
-  if (fee.max === FEE_HIGHEST) return `Biaya: mulai ${formatRupiah(fee.min, "IDR")}`;
-  return `Biaya: ${describeFeeRange(fee)}`;
+  if (!isFeeRangeNarrowed(fee)) return "Berbayar";
+  if (fee.min === FEE_LOWEST) return `sampai ${describeFeeAmount(fee.max)}`;
+  if (fee.max === FEE_HIGHEST) return `mulai ${formatRupiah(fee.min, "IDR")}`;
+  return describeFeeRange(fee);
 };
 
-/** The words of the fee pill and of its applied chip: "Biaya" when no fee filter is active. */
-export const describeFeeFilter = (fee: FeeFilter): string => {
-  if (fee.kind === "free") return "Biaya: Gratis";
+/** The fee filter in words, "Gratis" or "sampai Rp 100.000", or undefined when none is active. */
+export const describeFeeValue = (fee: FeeFilter): string | undefined => {
+  if (fee.kind === "free") return "Gratis";
   if (fee.kind === "paid") return describePaidFee(fee);
-  return "Biaya";
+  return undefined;
 };
 
 export const DEFAULT_SORT = "created_desc";

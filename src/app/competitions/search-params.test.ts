@@ -19,9 +19,10 @@ import {
   competitionsHref,
   competitionsQuery,
   describeFeeAmount,
-  describeFeeFilter,
+  describeFeeValue,
   describeFeeRange,
   describeTeamRange,
+  describeTeamSizeForSpeech,
   feeFilterToParams,
   readCompetitionSearchParams,
   readFilterSelection,
@@ -118,10 +119,18 @@ describe("the team size range in the address", () => {
     });
   });
 
-  it("says Individu when both ends sit on 1", () => {
+  it("says Individu in place of 1 at the start of a range", () => {
     expect(describeTeamRange({ min: 1, max: 1 })).toBe("Individu");
-    expect(describeTeamRange({ min: 1, max: 10 })).toBe("1 sampai 10+");
+    expect(describeTeamRange({ min: 1, max: 5 })).toBe("Individu sampai 5");
+    expect(describeTeamRange({ min: 1, max: 10 })).toBe("Individu sampai 10+");
     expect(describeTeamRange({ min: 2, max: 4 })).toBe("2 sampai 4");
+    expect(describeTeamRange({ min: 2, max: 5 })).toBe("2 sampai 5");
+  });
+
+  it("says Individu for a handle on 1 and keeps the other numbers for speech", () => {
+    expect(describeTeamSizeForSpeech(1)).toBe("Individu");
+    expect(describeTeamSizeForSpeech(2)).toBe("2");
+    expect(describeTeamSizeForSpeech(10)).toBe("10 atau lebih");
   });
 
   it("is carried through a search and into a link", () => {
@@ -159,17 +168,17 @@ describe("the words of the fee filter", () => {
   });
 
   it.each([
-    [{ kind: "any" } as const, "Biaya"],
-    [{ kind: "free" } as const, "Biaya: Gratis"],
-    [{ kind: "paid", min: 0, max: 250_000 } as const, "Biaya: Berbayar"],
+    [{ kind: "any" } as const, undefined],
+    [{ kind: "free" } as const, "Gratis"],
+    [{ kind: "paid", min: 0, max: 250_000 } as const, "Berbayar"],
     [
       { kind: "paid", min: 25_000, max: 100_000 } as const,
-      `Biaya: ${rupiah("25.000")} sampai ${rupiah("100.000")}`,
+      `${rupiah("25.000")} sampai ${rupiah("100.000")}`,
     ],
-    [{ kind: "paid", min: 50_000, max: 250_000 } as const, `Biaya: mulai ${rupiah("50.000")}`],
-    [{ kind: "paid", min: 0, max: 100_000 } as const, `Biaya: sampai ${rupiah("100.000")}`],
+    [{ kind: "paid", min: 50_000, max: 250_000 } as const, `mulai ${rupiah("50.000")}`],
+    [{ kind: "paid", min: 0, max: 100_000 } as const, `sampai ${rupiah("100.000")}`],
   ])("words %j as %s", (fee, words) => {
-    expect(describeFeeFilter(fee)).toBe(words);
+    expect(describeFeeValue(fee)).toBe(words);
   });
 });
 
