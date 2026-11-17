@@ -81,8 +81,8 @@ export default function AboutPage() {
             sedang direncanakan.
           </p>
           <p>
-            Untuk penyelenggara: rincian biaya layanan Lombakita yang berlaku saat itu ditampilkan
-            kepada penyelenggara dan harus disetujui saat ia mengaktifkan pendaftaran berbayar.
+            Untuk penyelenggara: saat mengaktifkan pendaftaran berbayar, penyelenggara melihat
+            rincian biaya layanan Lombakita yang berlaku dan harus menyetujuinya.
           </p>
         </section>
 

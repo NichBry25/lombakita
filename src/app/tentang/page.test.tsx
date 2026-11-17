@@ -17,152 +17,142 @@ vi.mock("next/link", () => {
 import AboutPage, { metadata } from "@/app/tentang/page";
 import { COMPANY } from "@/config/company";
 
-// The copy on this page is owner-ruled and byte-exact, and nothing downstream verifies it. Each
-// string is asserted as its own case so a removed or reworded sentence names itself in the failure.
-// `"` renders as `&quot;` and `&` as `&amp;` in static markup, so the expected strings carry those.
-const HEADINGS = [
-  "Layanan kami",
-  "Cara mendaftar kompetisi",
-  "Cara menerbitkan kompetisi",
-  "Biaya dan pembayaran",
-  "Pembatalan dan pengembalian dana",
-  "Bantuan",
-];
-
-const FEE_SECTION_PARAGRAPHS = [
-  "Kompetisi bisa gratis atau memungut biaya pendaftaran. Bila memungut biaya, biaya itu ditetapkan oleh penyelenggara dan tertera di halaman kompetisi sebelum kamu mendaftar.",
-  "Kamu membayar langsung kepada penyelenggara, bukan kepada Lombakita. Saat ini pembayaran lewat transfer manual atau QRIS, dengan bukti pembayaran yang diperiksa penyelenggara. Lombakita tidak menampung, menyimpan, atau meneruskan uang pendaftaran, dan tidak memungut biaya dari peserta. Pembayaran online melalui penyedia pembayaran berlisensi sedang direncanakan.",
-  "Untuk penyelenggara: rincian biaya layanan Lombakita yang berlaku saat itu ditampilkan kepada penyelenggara dan harus disetujui saat ia mengaktifkan pendaftaran berbayar.",
-];
-
-const PARAGRAPHS = [
+// The page may state only what stays true under any platform fee rule, so a first fee rule cannot
+// make it false. The guard is an exact pin of every block the page renders: a blocklist of
+// phrasings lets any rewording through, so any added, removed, reworded or reordered block fails.
+// The support email comes from COMPANY, as it does on the page.
+const EXPECTED_PAGE_BLOCKS = [
+  "Tentang Lombakita",
   "Lombakita adalah platform untuk menemukan dan mendaftar kompetisi di Indonesia. Penyelenggara menerbitkan kompetisinya di sini, dan peserta mendaftar tanpa pindah situs.",
+  "Layanan kami",
   "Untuk peserta: jelajahi kompetisi menurut kategori, penyelenggara, dan tenggat, simpan yang menarik, lalu daftar langsung dari halaman kompetisi, sebagai individu atau tim.",
   "Untuk penyelenggara: institusi membuat ruang kerja, menerbitkan kompetisi, dan mengelola pendaftar serta hasilnya. Lombakita tidak menilai peserta dan tidak ikut menentukan pemenang.",
-  ...FEE_SECTION_PARAGRAPHS,
-  "Pertanyaan tentang jumlah biaya, bukti pembayaran, jadwal, penilaian, dan hasil lomba dijawab oleh penyelenggara kompetisi yang bersangkutan.",
-];
-
-const LIST_ITEMS = [
+  "Cara mendaftar kompetisi",
   "Buka halaman kompetisi dan baca persyaratannya.",
   "Masuk, atau buat akun sebagai peserta.",
-  "Tekan &quot;Daftar kompetisi&quot;, lalu daftar sebagai individu atau buat tim.",
+  'Tekan "Daftar kompetisi", lalu daftar sebagai individu atau buat tim.',
   "Konfirmasi pendaftaran dikirim ke emailmu.",
+  "Cara menerbitkan kompetisi",
   "Buat akun sebagai penyelenggara, lalu buat ruang kerja institusi.",
   "Selesaikan verifikasi penyelenggara.",
   "Buat draf kompetisi, lengkapi detailnya, lalu terbitkan.",
-];
-
-// The page may state only what stays true under any platform fee rule, so a first fee rule cannot
-// make it false. The guard is the closed ALLOWED_FEE_SENTENCES list below: a blocklist of
-// phrasings lets any rewording through. These patterns only name the claim in the failure message
-// when an unlisted sentence matches one, and each is paired with a sentence it must match, which
-// proves the pattern is live and not a regex that can never fire.
-const FALSE_FEE_CLAIMS = [
-  {
-    claim: "that all competitions are free",
-    pattern: /\b(?:semua|seluruh) kompetisi[^.]*\bgratis/i,
-    example: "Saat ini semua kompetisi di Lombakita gratis untuk diikuti.",
-  },
-  {
-    claim: "that paid registration is unavailable",
-    pattern:
-      /\b(?:belum|tidak) ada (?:pendaftaran|kompetisi) berbayar|\b(?:pendaftaran|kompetisi) berbayar (?:belum|tidak) (?:tersedia|ada|dibuka)/i,
-    example: "Pendaftaran berbayar belum tersedia dan akan dibuka kemudian.",
-  },
-  {
-    claim: "that Lombakita charges organisers nothing",
-    pattern: /tidak memungut biaya dari[^.]*penyelenggara/i,
-    example: "Lombakita tidak memungut biaya dari peserta maupun penyelenggara.",
-  },
-  {
-    claim: "that Lombakita is free for organisers",
-    pattern: /\b(?:gratis|tanpa biaya) (?:untuk|bagi) penyelenggara/i,
-    example: "Menerbitkan kompetisi gratis bagi penyelenggara.",
-  },
-];
-
-// Every sentence on the page that mentions money, and nothing else. Adding a fee sentence to the
-// page fails the guard until it is added here on purpose.
-const ALLOWED_FEE_SENTENCES = [
   "Biaya dan pembayaran",
-  "Kompetisi bisa gratis atau memungut biaya pendaftaran.",
-  "Bila memungut biaya, biaya itu ditetapkan oleh penyelenggara dan tertera di halaman kompetisi sebelum kamu mendaftar.",
-  "Kamu membayar langsung kepada penyelenggara, bukan kepada Lombakita.",
-  "Saat ini pembayaran lewat transfer manual atau QRIS, dengan bukti pembayaran yang diperiksa penyelenggara.",
-  "Lombakita tidak menampung, menyimpan, atau meneruskan uang pendaftaran, dan tidak memungut biaya dari peserta.",
-  "Pembayaran online melalui penyedia pembayaran berlisensi sedang direncanakan.",
-  "Untuk penyelenggara: rincian biaya layanan Lombakita yang berlaku saat itu ditampilkan kepada penyelenggara dan harus disetujui saat ia mengaktifkan pendaftaran berbayar.",
-  "Biaya pendaftaran yang sudah dibayarkan tidak dikembalikan atas permintaan peserta sendiri.",
+  "Kompetisi bisa gratis atau memungut biaya pendaftaran. Bila memungut biaya, biaya itu ditetapkan oleh penyelenggara dan tertera di halaman kompetisi sebelum kamu mendaftar.",
+  "Kamu membayar langsung kepada penyelenggara, bukan kepada Lombakita. Saat ini pembayaran lewat transfer manual atau QRIS, dengan bukti pembayaran yang diperiksa penyelenggara. Lombakita tidak menampung, menyimpan, atau meneruskan uang pendaftaran, dan tidak memungut biaya dari peserta. Pembayaran online melalui penyedia pembayaran berlisensi sedang direncanakan.",
+  "Untuk penyelenggara: saat mengaktifkan pendaftaran berbayar, penyelenggara melihat rincian biaya layanan Lombakita yang berlaku dan harus menyetujuinya.",
+  "Pembatalan dan pengembalian dana",
+  "Biaya pendaftaran yang sudah dibayarkan tidak dikembalikan atas permintaan peserta sendiri. Ketentuan lengkap tentang pembatalan kompetisi oleh penyelenggara dan pengembalian dana ada di Syarat & Ketentuan, bagian 5 sampai 7.",
+  "Bantuan",
   "Pertanyaan tentang jumlah biaya, bukti pembayaran, jadwal, penilaian, dan hasil lomba dijawab oleh penyelenggara kompetisi yang bersangkutan.",
+  `Ada pertanyaan? Hubungi kami di ${COMPANY.supportEmail}.`,
 ];
 
-// Matched as a substring so inflections such as "pembayaran" and "biayanya" count as fee words.
-const FEE_WORDS = /gratis|biaya|bayar|membayar|dibayarkan|memungut|berbayar/i;
+const BLOCK_TAGS = "h1|h2|h3|p|li";
 
 function textOfMarkup(markup: string): string {
-  return markup
-    .replace(/<[^>]+>/g, "")
+  return decodeQuotesAndAmpersands(markup.replace(/<[^>]+>/g, ""))
     .replace(/\s+/g, " ")
     .trim();
 }
 
-// One line per heading, paragraph and list item. A heading has no closing period, so without the
-// line breaks it would run into the first sentence after it.
-function renderedTextOf(markup: string): string {
-  const blocks = markup.split(/<\/(?:h1|h2|p|li)>/);
-  return blocks.map(textOfMarkup).filter(Boolean).join("\n");
+function decodeQuotesAndAmpersands(text: string): string {
+  return text.replace(/&quot;/g, '"').replace(/&amp;/g, "&");
 }
 
-function paragraphsUnderHeading(markup: string, heading: string): string[] {
-  const afterHeading = markup.split(`<h2 class="section-title">${heading}</h2>`)[1] ?? "";
-  const section = afterHeading.split("<h2")[0] ?? "";
-  const paragraphs = [...section.matchAll(/<p>(.*?)<\/p>/g)];
-  return paragraphs.map(([, inner]) => textOfMarkup(inner ?? ""));
+function renderedBlocksOf(html: string): string[] {
+  const blockPattern = new RegExp(`<(${BLOCK_TAGS})\\b[^>]*>(.*?)</\\1>`, "gs");
+  return [...html.matchAll(blockPattern)].map(([, , inner]) => textOfMarkup(inner ?? ""));
 }
 
-function sentencesOf(text: string): string[] {
-  return text
-    .split(/(?<=[.?!])\s+|\n/)
-    .map((sentence) => sentence.trim())
-    .filter(Boolean);
-}
-
-function describeUnlistedFeeSentence(sentence: string): string {
-  const knownClaim = FALSE_FEE_CLAIMS.find(({ pattern }) => pattern.test(sentence));
-  const reason = knownClaim
-    ? `it claims ${knownClaim.claim}`
-    : "it is not in ALLOWED_FEE_SENTENCES";
-  return `Fee sentence "${sentence}": ${reason}`;
-}
-
-function assertEveryFeeSentenceIsAllowed(text: string): void {
-  const unlisted = sentencesOf(text).filter(
-    (sentence) => FEE_WORDS.test(sentence) && !ALLOWED_FEE_SENTENCES.includes(sentence),
+// Block and container tags become spaces so adjacent blocks do not run together. Inline tags such
+// as <a> are removed without a space, so a link stays inside its sentence.
+function visibleTextOf(html: string): string {
+  const withBlockBreaks = html.replace(
+    /<\/?(?:h1|h2|h3|p|li|ol|ul|section|div|main)\b[^>]*>/g,
+    " ",
   );
-  if (unlisted.length > 0) {
-    throw new Error(unlisted.map(describeUnlistedFeeSentence).join("\n"));
+  return textOfMarkup(withBlockBreaks);
+}
+
+function assertPageBlocksMatchExpected(html: string): void {
+  const actual = renderedBlocksOf(html);
+  const unexpected = actual.filter((block) => !EXPECTED_PAGE_BLOCKS.includes(block));
+  const missing = EXPECTED_PAGE_BLOCKS.filter((block) => !actual.includes(block));
+  const problems = [
+    ...unexpected.map((block) => `Unexpected block: "${block}"`),
+    ...missing.map((block) => `Missing block: "${block}"`),
+  ];
+  const sameBlocksInSameOrder =
+    actual.length === EXPECTED_PAGE_BLOCKS.length &&
+    actual.every((block, index) => block === EXPECTED_PAGE_BLOCKS[index]);
+  if (problems.length === 0 && !sameBlocksInSameOrder) {
+    problems.push("Blocks differ in count or order from EXPECTED_PAGE_BLOCKS");
+  }
+  if (problems.length > 0) {
+    throw new Error(problems.join("\n"));
   }
 }
 
+function assertVisibleTextMatchesExpected(html: string): void {
+  const actual = visibleTextOf(html);
+  const expected = EXPECTED_PAGE_BLOCKS.join(" ");
+  if (actual !== expected) {
+    throw new Error(`Visible text differs from EXPECTED_PAGE_BLOCKS.\nActual: ${actual}`);
+  }
+}
+
+function insertBefore(html: string, marker: string, insertion: string): string {
+  const position = html.lastIndexOf(marker);
+  expect(position).toBeGreaterThanOrEqual(0);
+  return html.slice(0, position) + insertion + html.slice(position);
+}
+
 const html = renderToStaticMarkup(AboutPage());
-const pageText = renderedTextOf(html);
 
 describe("AboutPage", () => {
-  it("renders the h1", () => {
-    expect(html).toContain("<h1>Tentang Lombakita</h1>");
+  it("renders exactly the expected blocks, in order", () => {
+    expect(() => assertPageBlocksMatchExpected(html)).not.toThrow();
   });
 
-  it.each(HEADINGS)("renders the heading %s", (heading) => {
-    expect(html).toContain(`<h2 class="section-title">${heading}</h2>`);
+  it("renders no visible text outside the expected blocks", () => {
+    expect(() => assertVisibleTextMatchesExpected(html)).not.toThrow();
   });
 
-  it.each(PARAGRAPHS)("renders the paragraph %s", (paragraph) => {
-    expect(html).toContain(`<p>${paragraph}</p>`);
+  it("names an extra paragraph appended inside the last section", () => {
+    const extraSentence = "Lombakita tidak mengenakan tarif kepada penyelenggara.";
+    const withExtraParagraph = insertBefore(html, "</section>", `<p>${extraSentence}</p>`);
+
+    expect(withExtraParagraph).not.toBe(html);
+    expect(() => assertPageBlocksMatchExpected(withExtraParagraph)).toThrow(
+      `Unexpected block: "${extraSentence}"`,
+    );
   });
 
-  it.each(LIST_ITEMS)("renders the list item %s", (item) => {
-    expect(html).toContain(`<li>${item}</li>`);
+  it("fails when a block is missing", () => {
+    const withoutBlock = html.replace("<li>Selesaikan verifikasi penyelenggara.</li>", "");
+
+    expect(withoutBlock).not.toBe(html);
+    expect(() => assertPageBlocksMatchExpected(withoutBlock)).toThrow(
+      'Missing block: "Selesaikan verifikasi penyelenggara."',
+    );
+  });
+
+  it("fails when two blocks swap places", () => {
+    const first = "<li>Masuk, atau buat akun sebagai peserta.</li>";
+    const second = "<li>Konfirmasi pendaftaran dikirim ke emailmu.</li>";
+    const swapped = html.replace(first, "@@").replace(second, first).replace("@@", second);
+
+    expect(swapped).not.toBe(html);
+    expect(() => assertPageBlocksMatchExpected(swapped)).toThrow("Blocks differ in count or order");
+  });
+
+  it("fails on visible text placed outside the blocks", () => {
+    const extraText = "Semua kompetisi bebas dari pungutan.";
+    const withStrayText = insertBefore(html, "</div>", extraText);
+
+    expect(withStrayText).not.toBe(html);
+    expect(() => assertPageBlocksMatchExpected(withStrayText)).not.toThrow();
+    expect(() => assertVisibleTextMatchesExpected(withStrayText)).toThrow(extraText);
   });
 
   it("sets every ordered list in the prose-list class so its numerals show", () => {
@@ -174,50 +164,12 @@ describe("AboutPage", () => {
     }
   });
 
-  it.each(FALSE_FEE_CLAIMS)("has a live pattern for the claim $claim", ({ pattern, example }) => {
-    expect(example).toMatch(pattern);
-  });
-
-  it("carries exactly the expected paragraphs in the fee section", () => {
-    expect(paragraphsUnderHeading(html, "Biaya dan pembayaran")).toEqual(FEE_SECTION_PARAGRAPHS);
-  });
-
-  it("states no fee sentence that is missing from the allowlist", () => {
-    expect(() => assertEveryFeeSentenceIsAllowed(pageText)).not.toThrow();
-  });
-
-  it("names a plain extra fee sentence when it is appended to the page", () => {
-    const extraSentence = "Mengikuti kompetisi di Lombakita tidak dikenakan biaya.";
-
-    expect(() => assertEveryFeeSentenceIsAllowed(`${pageText} ${extraSentence}`)).toThrow(
-      `Fee sentence "${extraSentence}": it is not in ALLOWED_FEE_SENTENCES`,
-    );
-  });
-
-  it.each(FALSE_FEE_CLAIMS)(
-    "names the claim $claim when its example is appended",
-    ({ claim, example }) => {
-      expect(() => assertEveryFeeSentenceIsAllowed(`${pageText} ${example}`)).toThrow(
-        `Fee sentence "${example}": it claims ${claim}`,
-      );
-    },
-  );
-
-  it("links the terms from the refund paragraph and cites clauses 5 to 7", () => {
-    expect(html).toContain(
-      "Ketentuan lengkap tentang pembatalan kompetisi oleh penyelenggara dan pengembalian dana ada di",
-    );
+  it("links the terms from the refund paragraph", () => {
     expect(html).toContain('<a href="/syarat-ketentuan">Syarat &amp; Ketentuan</a>');
-    expect(html).toContain(", bagian 5 sampai 7.");
-    expect(html).toContain(
-      "Biaya pendaftaran yang sudah dibayarkan tidak dikembalikan atas permintaan peserta sendiri.",
-    );
   });
 
-  it("closes the help section with one sentence that names the support email as a link", () => {
-    expect(html).toContain(
-      `<p>Ada pertanyaan? Hubungi kami di <a href="mailto:${COMPANY.supportEmail}">${COMPANY.supportEmail}</a>.</p>`,
-    );
+  it("links the support email once as a mailto link and once as its text", () => {
+    expect(html).toContain(`<a href="mailto:${COMPANY.supportEmail}">${COMPANY.supportEmail}</a>`);
     expect(html.split(COMPANY.supportEmail)).toHaveLength(3);
   });
 
