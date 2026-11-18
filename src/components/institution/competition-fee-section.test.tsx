@@ -37,6 +37,10 @@ beforeEach(() => {
   reportPart.mockClear();
 });
 
+// The section reports its part in a passive effect, and the heading can appear before that effect
+// has run. Flushing it makes the last reported part the one from the rendered section.
+const flushReportedPart = () => act(async () => {});
+
 const mountWith = async (body: unknown, viewerIsOwner = true) => {
   vi.stubGlobal(
     "fetch",
@@ -56,7 +60,9 @@ const mountWith = async (body: unknown, viewerIsOwner = true) => {
   );
 
   // The section loads its own state, so nothing is asserted until the skeleton is gone.
-  return screen.findByRole("heading", { name: "Biaya pendaftaran" });
+  const heading = await screen.findByRole("heading", { name: "Biaya pendaftaran" });
+  await flushReportedPart();
+  return heading;
 };
 
 const mountRefused = async (code: string, status: number, viewerIsOwner = true) => {
@@ -79,7 +85,9 @@ const mountRefused = async (code: string, status: number, viewerIsOwner = true) 
   );
 
   // The refused state renders the same heading as the loaded form.
-  return screen.findByRole("heading", { name: "Biaya pendaftaran" });
+  const heading = await screen.findByRole("heading", { name: "Biaya pendaftaran" });
+  await flushReportedPart();
+  return heading;
 };
 
 const OWNER_ONLY_MESSAGE = "Hanya pemilik institusi yang dapat mengatur biaya pendaftaran.";
