@@ -26,10 +26,9 @@
 export const INDEXABLE_SHELL_ROUTES = [
   {
     path: "/",
-    // The hero LEAD rather than the heading: the `<h1>` wraps two words in a `<span>` for the brand
-    // marker, so its text is not contiguous and no substring of it would match.
-    needle: "Lihat tenggat, hadiah, dan penyelenggara setiap kompetisi sebelum mendaftar.",
-    label: "the landing page hero lead",
+    // The organiser call to action heading rather than the hero: the `<h1>` wraps two words in a `<span>` for the brand marker, so its text is not contiguous, and this section renders for every visitor.
+    needle: "Buat ruang kerja institusi untuk menerbitkan kompetisi",
+    label: "the organiser call to action heading",
   },
   {
     path: "/competitions",
@@ -50,8 +49,8 @@ export const INDEXABLE_SHELL_ROUTES = [
   },
   {
     path: "/kontak",
-    needle: "Identitas penyelenggara sistem",
-    label: "the operator identity heading",
+    needle: "Hal yang diurus penyelenggara kompetisi",
+    label: "the organiser responsibilities heading",
   },
   {
     path: "/syarat-ketentuan",
