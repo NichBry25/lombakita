@@ -15,6 +15,7 @@ export const PUBLISH_LOCK_REASONS = {
   allowCancellation: "Setelah kompetisi terbit, izin pembatalan tidak dapat dicabut.",
   cancellationCutoffDays: "Setelah kompetisi terbit, batas pembatalan hanya dapat dikurangi.",
   feeAmount: "Biaya pendaftaran tidak dapat diubah setelah kompetisi terbit.",
+  prizes: "Hadiah tidak dapat diubah setelah kompetisi terbit.",
 } as const;
 
 export type PublishLockedField = keyof typeof PUBLISH_LOCK_REASONS;
@@ -27,6 +28,9 @@ export const CLOSE_WAITS_FOR_TRANSFER_REVIEW_REASON =
 
 export const DRAFT_PRICE_HELD_BY_REGISTRATIONS_REASON =
   "Biaya pendaftaran tidak dapat diubah karena kompetisi ini masih memiliki pendaftar aktif. Hubungi tim Lombakita.";
+
+export const DRAFT_PRIZES_HELD_BY_REGISTRATIONS_REASON =
+  "Hadiah tidak dapat diubah karena kompetisi ini masih memiliki pendaftar aktif. Hubungi tim Lombakita.";
 
 export const COMPETITION_CHANGED_DURING_EDIT_REASON =
   "Kompetisi ini baru saja diubah atau diterbitkan. Muat ulang halaman lalu coba lagi.";

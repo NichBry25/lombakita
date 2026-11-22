@@ -2,14 +2,23 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/competitions/competition-prizes-service");
 
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
-import { competitionPrizes } from "@/server/db/schema";
-import { assertCompetitionAccess } from "@/server/competitions/competition-access";
+import { competitionPrizes, competitions } from "@/server/db/schema";
+import {
+  assertCompetitionAccess,
+  hasActiveRegistrationsForCompetition,
+} from "@/server/competitions/competition-access";
+import { CompetitionError } from "@/server/competitions/competition-core";
+import { acquireCompetitionParticipationLock } from "@/server/competitions/competition-participation-lock";
 import {
   parseCompetitionPrizesInput,
   type CompetitionPrizeInput,
 } from "@/server/competitions/competition-prizes-core";
+import {
+  DRAFT_PRIZES_HELD_BY_REGISTRATIONS_REASON,
+  PUBLISH_LOCK_REASONS,
+} from "@/lib/competitions/publish-locks";
 
 export type CompetitionPrizeRecord = {
   id: string;
@@ -39,17 +48,57 @@ const selectPrizesByCompetition = async (
     .where(eq(competitionPrizes.competitionId, competitionId))
     .orderBy(asc(competitionPrizes.sortOrder));
 
-// Owner/staff read for the authoring surface.
+export type CompetitionPrizesForEditor = {
+  prizes: CompetitionPrizeRecord[];
+  locked: boolean;
+};
+
+// Owner/staff read for the authoring surface. The prizes are locked once the competition is not a
+// draft.
 export const getCompetitionPrizesForEditor = async (
   actorUserId: string,
   competitionId: string,
   db: Database = getDb(),
-): Promise<CompetitionPrizeRecord[]> => {
+): Promise<CompetitionPrizesForEditor> => {
   const { competition } = await assertCompetitionAccess(actorUserId, competitionId, "member", db);
-  return selectPrizesByCompetition(competition.id, db);
+  const prizes = await selectPrizesByCompetition(competition.id, db);
+  return { prizes, locked: competition.status !== "draft" };
 };
 
-// Full replacement of a competition's prize list. sort_order is assigned from array order.
+// The only status guard of a prize save. It writes the competitions row only while it is a draft,
+// so it takes the row lock that publish's status update waits for: a publish either commits before
+// this write, which then matches nothing, or after the save commits.
+const assertDraftAndHoldCompetitionRow = async (
+  competitionId: string,
+  db: Database,
+): Promise<void> => {
+  const [row] = await db
+    .update(competitions)
+    .set({ updatedAt: sql`now()` })
+    .where(and(eq(competitions.id, competitionId), eq(competitions.status, "draft")))
+    .returning({ id: competitions.id });
+
+  if (!row) {
+    throw new CompetitionError(
+      "competition_prizes_locked_after_publish",
+      409,
+      PUBLISH_LOCK_REASONS.prizes,
+    );
+  }
+};
+
+// Only legacy drafts reach this: unpublish and the operator cancel both cancel every registration.
+const assertNoActiveRegistrations = async (competitionId: string, db: Database): Promise<void> => {
+  if (await hasActiveRegistrationsForCompetition(competitionId, db)) {
+    throw new CompetitionError(
+      "competition_prizes_held_by_registrations",
+      409,
+      DRAFT_PRIZES_HELD_BY_REGISTRATIONS_REASON,
+    );
+  }
+};
+
+// Full replacement of a draft competition's prize list. sort_order is assigned from array order.
 export const setCompetitionPrizesForEditor = async (
   actorUserId: string,
   competitionId: string,
@@ -60,6 +109,9 @@ export const setCompetitionPrizesForEditor = async (
   const prizes: CompetitionPrizeInput[] = parseCompetitionPrizesInput(payload);
 
   await db.transaction(async (tx) => {
+    await acquireCompetitionParticipationLock(tx, competition.id);
+    await assertDraftAndHoldCompetitionRow(competition.id, tx);
+    await assertNoActiveRegistrations(competition.id, tx);
     await tx.delete(competitionPrizes).where(eq(competitionPrizes.competitionId, competition.id));
     if (prizes.length > 0) {
       await tx.insert(competitionPrizes).values(
