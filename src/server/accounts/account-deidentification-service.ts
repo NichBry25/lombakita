@@ -32,6 +32,7 @@ import {
   profileSocialLinks,
   recruiterVerificationDocuments,
   recruiterVerificationSubmissions,
+  type RecruiterVerificationTier,
   sessions,
   teamInvitations,
   teams,
@@ -678,6 +679,37 @@ const findReferencedPaymentInstructionKeys = async (
   return rows.map((row) => row.qrisR2Key as string);
 };
 
+/**
+ * The dial digits of the host sign-up numbers whose contacts the deletion clears.
+ *
+ * DEC-0274: an elevated account counts every one of its sign-ups, whatever the status, because the
+ * wider reach is deliberate. Any other account counts only its approved ones, a backstop that an
+ * unapproved number never clears another host's contact. The tier is an argument so that the caller
+ * has to read it first, from the row it locks.
+ *
+ * Read BEFORE the sign-up rows are deleted, since afterwards nothing names the numbers.
+ */
+const readSignupContactDigits = async (
+  tx: OperatorActorTransaction,
+  accountId: string,
+  tier: RecruiterVerificationTier,
+): Promise<string[]> => {
+  const ownSignups = eq(recruiterVerificationSubmissions.userId, accountId);
+  const countedSignups =
+    tier === "elevated"
+      ? ownSignups
+      : and(ownSignups, eq(recruiterVerificationSubmissions.status, "approved"));
+  const rows = await tx
+    .select({ mobileNumber: recruiterVerificationSubmissions.mobileNumber })
+    .from(recruiterVerificationSubmissions)
+    .where(countedSignups);
+
+  return rows.flatMap((row) => {
+    const digits = toDialDigits(row.mobileNumber);
+    return digits === null ? [] : [digits];
+  });
+};
+
 // ---------------------------------------------------------------------------------------------
 // The writes.
 
@@ -727,7 +759,15 @@ const runDeidentificationWrites = async (
   // transaction has by then deactivated. The conditional UPDATE on the flip is the backstop for a
   // run that arrives without this lock held — it flips at most one row, so the loser of that race is
   // refused there instead.
-  await tx.select({ id: users.id }).from(users).where(eq(users.id, accountId)).for("update");
+  const [lockedAccount] = await tx
+    .select({ recruiterVerificationTier: users.recruiterVerificationTier })
+    .from(users)
+    .where(eq(users.id, accountId))
+    .for("update");
+
+  if (lockedAccount === undefined) {
+    throw new DeidentificationError("deidentify_account_not_found", 404, "Akun tidak ditemukan.");
+  }
 
   const currentInstitutionIds = await findInstitutionsWhereTargetIsActiveMember(tx, accountId);
   const appearedWhileWaiting = currentInstitutionIds.some(
@@ -818,22 +858,14 @@ const runDeidentificationWrites = async (
   // still names them.
   const retainedKeys = await findReferencedPaymentInstructionKeys(tx);
 
-  // Read BEFORE the host sign-up rows are deleted below. A sign-up number is never checked, so
-  // only an approved sign-up counts: a reviewer accepted it. A draft, pending or rejected one could
-  // name another host's number and clear that host's contact from every competition.
-  const ownSignupNumbers = await tx
-    .select({ mobileNumber: recruiterVerificationSubmissions.mobileNumber })
-    .from(recruiterVerificationSubmissions)
-    .where(
-      and(
-        eq(recruiterVerificationSubmissions.userId, accountId),
-        eq(recruiterVerificationSubmissions.status, "approved"),
-      ),
-    );
-  const ownContactDigits = ownSignupNumbers.flatMap((row) => {
-    const digits = toDialDigits(row.mobileNumber);
-    return digits === null ? [] : [digits];
-  });
+  // Read BEFORE the host sign-up rows are deleted below. A sign-up number is never checked, so an
+  // elevated account clears the numbers of every sign-up it made, and any other account only those
+  // of approved ones. The elevated reach is wider on purpose (DEC-0274).
+  const ownContactDigits = await readSignupContactDigits(
+    tx,
+    accountId,
+    lockedAccount.recruiterVerificationTier,
+  );
 
   const flipped = await tx
     .update(users)
@@ -1139,9 +1171,10 @@ const runDeidentificationWrites = async (
       .returning({ id: competitionReviews.id }),
   );
 
-  // The public contact of every competition that shows this person's own address or one of their
-  // own approved sign-up numbers, whichever institution runs it. A contact that matches neither
-  // stays.
+  // The public contact of every competition that shows this person's own address or one of the
+  // sign-up numbers read above, whichever institution runs it: every sign-up of an elevated account,
+  // the approved ones of any other. The elevated reach is wider on purpose (DEC-0274). A contact that
+  // matches neither stays.
   // Nobody is told, so the audit row names every competition and institution it touched.
   const ownEmailContact = and(
     eq(competitions.organizerContactKind, "email"),

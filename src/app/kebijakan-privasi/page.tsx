@@ -258,10 +258,11 @@ export default function PrivacyPage() {
             dengan email akun Anda. Anda dapat mengubah kontak itu sebelum menerbitkan.
           </p>
           <p>
-            Jika sebuah akun dihapus, kontak yang sama dengan email akun itu atau dengan nomor
-            ponsel dari pendaftaran penyelenggara akun itu yang sudah disetujui dihapus dari setiap
-            kompetisi yang memakainya. Tombol untuk menghubungi penyelenggara tidak tampil lagi
-            sampai penyelenggara mengisi kontak baru.
+            Jika sebuah akun dihapus, kontak yang sama dengan email akun itu, dengan nomor ponsel
+            dari pendaftaran penyelenggara akun itu yang sudah disetujui, atau, untuk penyelenggara
+            terverifikasi, dengan nomor ponsel dari pendaftaran penyelenggara mana pun milik akun
+            itu, dihapus dari setiap kompetisi yang memakainya. Tombol untuk menghubungi
+            penyelenggara tidak tampil lagi sampai penyelenggara mengisi kontak baru.
           </p>
         </section>
 
