@@ -738,7 +738,13 @@ const assertVerdictIsNotOnOwnPlace = async (
     .where(eq(financePayments.id, paymentId))
     .limit(1);
 
-  if (!anchor) return;
+  if (!anchor) {
+    throw new ManualProofError(
+      "manual_proof_payment_not_found",
+      "Pembayaran ini tidak terhubung ke pendaftaran mana pun.",
+      404,
+    );
+  }
 
   const isOwnRegistration = anchor.studentId === reviewerUserId;
   const isOwnTeamPayment =

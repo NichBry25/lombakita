@@ -12,6 +12,7 @@ import {
 import { isPersonalInstitutionType } from "@/server/institution-workspace/institution-type";
 import { logger } from "@/lib/logger";
 import { COMPETITIONS_CHANGING_RETRY_MESSAGE } from "@/lib/errors/error-copy";
+import { MEMBER_ROLES } from "@/server/competitions/competition-access";
 import {
   holdsLivePlaceInInstitution,
   lockInstitutionCompetitionsForPlaceCheck,
@@ -258,7 +259,7 @@ const findInstitutionToPlaceCheck = async (
   if (!invitation) return null;
   if (invitation.targetUserId !== userId) return null;
   if (invitation.status !== "pending") return null;
-  if (!RECRUITER_VERIFIED_ROLES.includes(invitation.invitedRole)) return null;
+  if (!MEMBER_ROLES.includes(invitation.invitedRole)) return null;
 
   return invitation.institutionId;
 };
@@ -367,6 +368,19 @@ export const acceptInstitutionInvitationForUser = async (
         "invitation_already_member",
         409,
         "You are already a member of this institution",
+      );
+    }
+
+    // The locks above were chosen from an unlocked read. If the invitation changed to an owner or
+    // staff role since, they were not taken and the place check below would run unprotected.
+    if (
+      MEMBER_ROLES.includes(invitation.invitedRole) &&
+      placeCheckInstitutionId !== invitation.institutionId
+    ) {
+      throw new InstitutionInvitationError(
+        "invitation_accept_retry",
+        409,
+        COMPETITIONS_CHANGING_RETRY_MESSAGE,
       );
     }
 

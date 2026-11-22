@@ -593,7 +593,8 @@ describe.skipIf(skipWithoutDatabase)("changeMemberRole and a live place (real da
       const world = await seedWorld(tx);
       const dual = await seedPromotableMember(tx, world, "dual");
       await registerIndividually(tx, dual.userId, world.competitionId);
-      // The state this step does not repair: registered first, made staff by some other path.
+      // Staff who hold a place, set directly: the place check guards only the move out of
+      // institution_member, so every move from here passes.
       await tx
         .update(institutionMemberships)
         .set({ membershipRole: "institution_staff" })
@@ -755,8 +756,8 @@ describe.skipIf(skipWithoutDatabase)(
       });
     });
 
-    // Each refusal the accept made before this step still wins over the place refusal, which is
-    // what puts the place check after all of them.
+    // The place check runs after every other refusal of the accept, so each of those refusals is
+    // the one the person sees.
     it("keeps the invitation refusals ahead of the place refusal", async () => {
       await inRollback(async (tx) => {
         const world = await seedWorld(tx);
@@ -1293,5 +1294,178 @@ describe.skipIf(skipWithoutDatabase)("a join and a promotion of the same person"
 
     expect(await roleInDatabase(target.membershipId)).toBe("institution_staff");
     expect(await liveRegistrationCountInDatabase(target.userId)).toBe(0);
+  }, 60_000);
+
+  it("refuses the accept when the join passed its host check first and is still writing", async () => {
+    const committedTx = control.db as unknown as Tx;
+    const world = await seedWorld(committedTx);
+    const inviteeId = await seedUser(committedTx, "joinfirst", { recruiter: true });
+    const invitationId = await seedInvitation(committedTx, world, inviteeId, "institution_staff");
+
+    const barrierPid = await backendPidOf(barrier);
+    const joinPid = await backendPidOf(joinRacer);
+    const acceptPid = await backendPidOf(promotionRacer);
+
+    let join: Promise<unknown> = Promise.resolve();
+    let acceptance: Promise<unknown> = Promise.resolve();
+    let settled: PromiseSettledResult<unknown>[] = [];
+
+    try {
+      await barrier.sql.begin(async (barrierTx) => {
+        // The join's insert references this row, so the join holds its participation lock, has read
+        // that the person is not a host, and then waits here. That is the harmful moment.
+        await barrierTx.unsafe(`select id from users where id = $1 for update`, [inviteeId]);
+
+        join = createIndividualRegistration(inviteeId, world.competitionId, joinRacer.db as never);
+        join.catch(() => {});
+
+        const joinChain = await blockersOnceParked(joinPid, barrierPid);
+        expect(joinChain, "the join never reached its write").toContain(barrierPid);
+        expect(await parkedStatementOf(joinPid)).toMatch(
+          /insert into "competition_registrations"/i,
+        );
+
+        acceptance = acceptInstitutionInvitationForUser(
+          invitationId,
+          inviteeId,
+          ["recruiter"],
+          promotionRacer.db as never,
+        );
+        acceptance.catch(() => {});
+
+        const acceptChain = await blockersOnceParked(acceptPid, joinPid);
+        expect(
+          acceptChain,
+          "the accept did not queue behind the join: it is not taking the competition's " +
+            "participation lock before it reads whether the person holds a place",
+        ).toContain(joinPid);
+        expect(await parkedStatementOf(acceptPid)).toMatch(/pg_advisory_xact_lock/i);
+      });
+    } finally {
+      settled = await Promise.allSettled([join, acceptance]);
+    }
+
+    expect(settled[0]!.status).toBe("fulfilled");
+    expect(settled[1]!.status).toBe("rejected");
+
+    const refusal = (settled[1] as PromiseRejectedResult).reason;
+    expect(refusal).toBeInstanceOf(InstitutionInvitationError);
+    expect((refusal as InstitutionInvitationError).code).toBe("member_holds_competition_place");
+
+    expect(await invitationStatusOf(committedTx, invitationId)).toBe("pending");
+    expect(await activeMembershipRoleOf(committedTx, world.institutionId, inviteeId)).toBeNull();
+    expect(await liveRegistrationCountInDatabase(inviteeId)).toBe(1);
+  }, 60_000);
+
+  it("refuses the join as a host when the accept committed first, and registers nothing", async () => {
+    const committedTx = control.db as unknown as Tx;
+    const world = await seedWorld(committedTx);
+    const inviteeId = await seedUser(committedTx, "acceptfirst", { recruiter: true });
+    const invitationId = await seedInvitation(committedTx, world, inviteeId, "institution_owner");
+
+    const barrierPid = await backendPidOf(barrier);
+    const joinPid = await backendPidOf(joinRacer);
+    const acceptPid = await backendPidOf(promotionRacer);
+
+    let join: Promise<unknown> = Promise.resolve();
+    let acceptance: Promise<unknown> = Promise.resolve();
+    let settled: PromiseSettledResult<unknown>[] = [];
+
+    try {
+      await barrier.sql.begin(async (barrierTx) => {
+        // The accept has taken its locks, read that the person holds no place and written the
+        // membership, and waits at the invitation's status update. The join arrives while the
+        // accept holds the competition's participation lock.
+        await barrierTx.unsafe(`select id from institution_invitations where id = $1 for update`, [
+          invitationId,
+        ]);
+
+        acceptance = acceptInstitutionInvitationForUser(
+          invitationId,
+          inviteeId,
+          ["recruiter"],
+          promotionRacer.db as never,
+        );
+        acceptance.catch(() => {});
+
+        const acceptChain = await blockersOnceParked(acceptPid, barrierPid);
+        expect(acceptChain, "the accept never reached its write").toContain(barrierPid);
+        expect(await parkedStatementOf(acceptPid)).toMatch(/update "institution_invitations"/i);
+
+        join = createIndividualRegistration(inviteeId, world.competitionId, joinRacer.db as never);
+        join.catch(() => {});
+
+        const joinChain = await blockersOnceParked(joinPid, acceptPid);
+        expect(
+          joinChain,
+          "the join did not queue behind the accept's participation lock",
+        ).toContain(acceptPid);
+        expect(await parkedStatementOf(joinPid)).toMatch(/pg_advisory_xact_lock/i);
+      });
+    } finally {
+      settled = await Promise.allSettled([join, acceptance]);
+    }
+
+    expect(settled[1]!.status).toBe("fulfilled");
+    expect(settled[0]!.status).toBe("rejected");
+
+    const refusal = (settled[0] as PromiseRejectedResult).reason;
+    expect(refusal).toBeInstanceOf(RegistrationError);
+    expect((refusal as RegistrationError).code).toBe("registration_host_of_competition");
+
+    expect(await invitationStatusOf(committedTx, invitationId)).toBe("accepted");
+    expect(await activeMembershipRoleOf(committedTx, world.institutionId, inviteeId)).toBe(
+      "institution_owner",
+    );
+    expect(await liveRegistrationCountInDatabase(inviteeId)).toBe(0);
+  }, 60_000);
+
+  it("refuses the accept as retryable when the invitation became an owner or staff one after its locks were chosen", async () => {
+    const committedTx = control.db as unknown as Tx;
+    const world = await seedWorld(committedTx);
+    const inviteeId = await seedUser(committedTx, "retry", { recruiter: true });
+    const invitationId = await seedInvitation(committedTx, world, inviteeId, "institution_member");
+
+    const barrierPid = await backendPidOf(barrier);
+    const acceptPid = await backendPidOf(promotionRacer);
+
+    let acceptance: Promise<unknown> = Promise.resolve();
+    let settled: PromiseSettledResult<unknown>[] = [];
+
+    try {
+      await barrier.sql.begin(async (barrierTx) => {
+        // A member invitation takes no competition lock, so the accept's first wait is the row lock
+        // on the account. The role changes while it waits there.
+        await barrierTx.unsafe(`select id from users where id = $1 for update`, [inviteeId]);
+
+        acceptance = acceptInstitutionInvitationForUser(
+          invitationId,
+          inviteeId,
+          ["recruiter"],
+          promotionRacer.db as never,
+        );
+        acceptance.catch(() => {});
+
+        const acceptChain = await blockersOnceParked(acceptPid, barrierPid);
+        expect(acceptChain, "the accept never reached the account row lock").toContain(barrierPid);
+        expect(await parkedStatementOf(acceptPid)).toMatch(/for update/i);
+
+        await control.sql`
+          update institution_invitations set invited_role = 'institution_staff'
+          where id = ${invitationId}`;
+      });
+    } finally {
+      settled = await Promise.allSettled([acceptance]);
+    }
+
+    expect(settled[0]!.status).toBe("rejected");
+
+    const refusal = (settled[0] as PromiseRejectedResult).reason;
+    expect(refusal).toBeInstanceOf(InstitutionInvitationError);
+    expect((refusal as InstitutionInvitationError).code).toBe("invitation_accept_retry");
+    expect((refusal as InstitutionInvitationError).httpStatus).toBe(409);
+
+    expect(await invitationStatusOf(committedTx, invitationId)).toBe("pending");
+    expect(await activeMembershipRoleOf(committedTx, world.institutionId, inviteeId)).toBeNull();
   }, 60_000);
 });

@@ -9,6 +9,7 @@ import {
   type InstitutionMembershipRole,
 } from "@/server/db/schema";
 import { COMPETITIONS_CHANGING_RETRY_MESSAGE } from "@/lib/errors/error-copy";
+import { MEMBER_ROLES } from "@/server/competitions/competition-access";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 import { MemberError, type MemberRecord } from "@/server/institution-members/member-core";
 import {
@@ -216,7 +217,7 @@ export const listActiveMembers = async (
 type TransactionClient = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
 // DEC-0273 keeps a host from joining; this keeps a joined person from becoming a host.
-const assertTargetHoldsNoLivePlace = async (
+const lockCompetitionsAndRefuseTargetHoldingLivePlace = async (
   tx: TransactionClient,
   institutionId: string,
   targetUserId: string,
@@ -295,8 +296,8 @@ export const changeMemberRole = async (
 
     // Taken after every refusal above and after lockInstitutionOwnership, never the reverse. Moves
     // between owner and staff, and demotions, wait behind no competition lock.
-    if (target.role === "institution_member" && RECRUITER_REQUIRED_ROLES.includes(newRole)) {
-      await assertTargetHoldsNoLivePlace(tx, institutionId, target.userId);
+    if (target.role === "institution_member" && MEMBER_ROLES.includes(newRole)) {
+      await lockCompetitionsAndRefuseTargetHoldingLivePlace(tx, institutionId, target.userId);
     }
 
     // Last-owner guard: only relevant when demoting an institution_owner.

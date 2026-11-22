@@ -36,7 +36,6 @@ export const INVITEE_HOLDS_PLACE_MESSAGE =
 export const OWN_PROOF_VERDICT_MESSAGE =
   "Anda tidak dapat memeriksa bukti transfer untuk pendaftaran Anda sendiri. Minta pemilik atau staf lain untuk memeriksanya.";
 
-// The server's retry refusal and both surfaces that show it say this one sentence.
 export const COMPETITIONS_CHANGING_RETRY_MESSAGE =
   "Sedang ada perubahan lain pada kompetisi lembaga ini. Coba lagi.";
 
