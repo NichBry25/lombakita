@@ -88,6 +88,7 @@ import {
   type EditClassificationSnapshot,
 } from "@/server/competitions/edit-classification";
 import {
+  BOTH_MODE_MIN_TEAM_SIZE_REASON,
   CLOSE_WAITS_FOR_TRANSFER_REVIEW_REASON,
   COMPETITION_CHANGED_DURING_EDIT_REASON,
   isPublishLockedField,
@@ -354,18 +355,20 @@ const PublishLockLine = ({
   id,
   field,
   brokenLocks,
+  reason = PUBLISH_LOCK_REASONS[field],
 }: {
   id: string;
   field: PublishLockedField;
   brokenLocks: PublishLockedField[];
+  reason?: string;
 }) =>
   brokenLocks.includes(field) ? (
     <FormError key="error" id={id}>
-      {PUBLISH_LOCK_REASONS[field]}
+      {reason}
     </FormError>
   ) : (
     <span key="help" className="form-help" id={id}>
-      {PUBLISH_LOCK_REASONS[field]}
+      {reason}
     </span>
   );
 
@@ -1393,6 +1396,8 @@ export const InstitutionCompetitionEditShell = ({
   // Both fields of the pair carry their line or neither does, so the two inputs stay level. In both
   // mode the min is fixed and read-only yet still gets its line.
   const showsTeamSizeLocks = isPublished && mode !== "individual";
+  const minTeamSizeLockReason =
+    mode === "both" ? BOTH_MODE_MIN_TEAM_SIZE_REASON : PUBLISH_LOCK_REASONS.minTeamSize;
   const cancellationRightIsLocked = isPublished && savedSnapshot?.allowCancellation === true;
   const savedCutoffDays =
     cancellationRightIsLocked && savedSnapshot ? cutoffOrNull(savedSnapshot.cutoffDays) : null;
@@ -1925,6 +1930,7 @@ export const InstitutionCompetitionEditShell = ({
                         id="min-team-size-lock"
                         field="minTeamSize"
                         brokenLocks={brokenPublishLocks}
+                        reason={minTeamSizeLockReason}
                       />
                     ) : null}
                   </label>

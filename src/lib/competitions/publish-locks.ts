@@ -23,6 +23,9 @@ export type PublishLockedField = keyof typeof PUBLISH_LOCK_REASONS;
 export const isPublishLockedField = (field: string): field is PublishLockedField =>
   Object.prototype.hasOwnProperty.call(PUBLISH_LOCK_REASONS, field);
 
+export const BOTH_MODE_MIN_TEAM_SIZE_REASON =
+  "Minimum anggota tim tetap 1 karena kompetisi ini juga menerima pendaftaran individu.";
+
 export const CLOSE_WAITS_FOR_TRANSFER_REVIEW_REASON =
   "Pendaftaran belum dapat diperpanjang karena masih ada bukti transfer yang menunggu verifikasi. Verifikasi atau tolak bukti transfer itu terlebih dahulu, lalu simpan lagi.";
 

@@ -58,8 +58,8 @@ export default async function AdminBlockedPaymentsPage() {
           asked about refunds and it cannot produce one. */}
       <Feedback tone="warning">
         Lombakita tidak pernah menampung dana peserta. Setiap transfer masuk langsung ke rekening
-        lembaga penyelenggara. Tidak ada tindakan di halaman ini yang mengembalikan uang peserta,
-        dan tidak ada satupun yang dapat dibatalkan setelah dijalankan.
+        lembaga penyelenggara. Membatalkan bukti transfer tidak mengembalikan uang peserta dan tidak
+        dapat dibatalkan setelah dijalankan.
       </Feedback>
 
       <OpsPaymentActions

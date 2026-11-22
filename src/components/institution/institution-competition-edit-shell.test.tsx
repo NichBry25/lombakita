@@ -682,12 +682,15 @@ describe("InstitutionCompetitionEditShell after publish", () => {
       competition: { ...PUBLISHED_TEAM, mode: "both", minTeamSize: 1, maxTeamSize: 4 },
       min: ["form-label", "form-input-lock-wrap", "form-help"],
       max: ["form-label", "form-input", "form-help"],
+      minLine:
+        "Minimum anggota tim tetap 1 karena kompetisi ini juga menerima pendaftaran individu.",
     },
     {
       state: "a published competition in team mode",
       competition: PUBLISHED_TEAM,
       min: ["form-label", "form-input", "form-help"],
       max: ["form-label", "form-input", "form-help"],
+      minLine: MIN_REASON,
     },
     {
       state: "a draft in both mode",
@@ -700,10 +703,11 @@ describe("InstitutionCompetitionEditShell after publish", () => {
       },
       min: ["form-label", "form-input-lock-wrap"],
       max: ["form-label", "form-input"],
+      minLine: undefined,
     },
   ])(
     "keeps the team size fields in one row with the label and input first, on $state",
-    async ({ competition, min, max }) => {
+    async ({ competition, min, max, minLine }) => {
       stubFetchSequence([() => okJson({ competition, publishReadiness: READY })]);
       mount();
       await screen.findByRole("button", { name: "Simpan" });
@@ -717,7 +721,8 @@ describe("InstitutionCompetitionEditShell after publish", () => {
         row: minField.parentElement?.className,
         min: classesOf(minField),
         max: classesOf(maxField),
-      }).toEqual({ sameRow: true, row: "form-grid", min, max });
+        minLine: document.getElementById("min-team-size-lock")?.textContent,
+      }).toEqual({ sameRow: true, row: "form-grid", min, max, minLine });
     },
   );
 
