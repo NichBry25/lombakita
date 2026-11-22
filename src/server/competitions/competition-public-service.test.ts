@@ -4,7 +4,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { PgDialect } from "drizzle-orm/pg-core";
 import type { SQL } from "drizzle-orm";
 import type { Database } from "@/server/db/client";
-import type { PublicCompetitionItem } from "@/server/competitions/competition-public-service";
+import type {
+  PublicCompetitionItem,
+  PublicListingFilters,
+} from "@/server/competitions/competition-public-service";
 
 // Meilisearch is stubbed out for all DB-path tests.
 vi.mock("@/server/search/availability", () => ({ isMeilisearchAvailable: vi.fn(() => false) }));
@@ -403,32 +406,78 @@ describe("resolveUseSearch — the location and audience filters", () => {
 });
 
 describe("resolveUseSearch — the fee filter", () => {
-  it("leaves the search index when free or paid is chosen, with a search term", () => {
-    expect(resolveUseSearch({ q: "lomba", fee: "free" }, true)).toBe(false);
-    expect(resolveUseSearch({ q: "lomba", fee: "paid" }, true)).toBe(false);
-    expect(resolveUseSearch({ q: "lomba", fee: "paid", feeMin: "25000" }, true)).toBe(false);
+  it("leaves the search index when the fee range is narrowed, with a search term", () => {
+    expect(resolveUseSearch({ q: "lomba", feeMax: "0" }, true)).toBe(false);
+    expect(resolveUseSearch({ q: "lomba", feeMax: "100000" }, true)).toBe(false);
+    expect(resolveUseSearch({ q: "lomba", feeMin: "25000" }, true)).toBe(false);
   });
 
-  it("keeps the search index when the fee filter is ignored", () => {
-    expect(resolveUseSearch({ q: "lomba", fee: "both" }, true)).toBe(true);
-    expect(resolveUseSearch({ q: "lomba", fee: "FREE" }, true)).toBe(true);
-    expect(resolveUseSearch({ q: "lomba", fee: "" }, true)).toBe(true);
-    expect(resolveUseSearch({ q: "lomba", feeMin: "25000", feeMax: "100000" }, true)).toBe(true);
+  it("keeps the search index when the fee range is the whole track or unreadable", () => {
+    expect(resolveUseSearch({ q: "lomba" }, true)).toBe(true);
+    expect(resolveUseSearch({ q: "lomba", feeMin: "0", feeMax: "250000" }, true)).toBe(true);
+    expect(resolveUseSearch({ q: "lomba", feeMin: "abc", feeMax: "30000" }, true)).toBe(true);
+    expect(resolveUseSearch({ q: "lomba", feeMin: "", feeMax: "" }, true)).toBe(true);
+  });
+
+  it("ignores an old fee parameter", () => {
+    const oldLink = { q: "lomba", fee: "free" };
+
+    expect(resolveUseSearch(oldLink, true)).toBe(true);
   });
 });
 
 describe("buildFeeCondition", () => {
-  it("applies no condition when the fee filter is absent or ignored", () => {
+  it("applies no condition for the whole track, or an unreadable or old fee value", () => {
     expect(buildFeeCondition({})).toBeUndefined();
-    expect(buildFeeCondition({ fee: "both" })).toBeUndefined();
-    expect(buildFeeCondition({ fee: "FREE" })).toBeUndefined();
-    expect(buildFeeCondition({ feeMin: "25000", feeMax: "100000" })).toBeUndefined();
+    expect(buildFeeCondition({ feeMin: "0", feeMax: "250000" })).toBeUndefined();
+    expect(buildFeeCondition({ feeMin: "30000", feeMax: "300000" })).toBeUndefined();
   });
 
-  it("applies a condition for free and for paid", () => {
-    expect(buildFeeCondition({ fee: "free" })).toBeDefined();
-    expect(buildFeeCondition({ fee: "paid" })).toBeDefined();
-    expect(buildFeeCondition({ fee: "paid", feeMin: "25000", feeMax: "100000" })).toBeDefined();
+  it("ignores an old fee parameter", () => {
+    const oldLink = { fee: "free", feeMin: "0" };
+
+    expect(buildFeeCondition(oldLink)).toBeUndefined();
+  });
+
+  it("applies a condition for Gratis alone, a range from Gratis and a range from a price", () => {
+    expect(buildFeeCondition({ feeMax: "0" })).toBeDefined();
+    expect(buildFeeCondition({ feeMax: "100000" })).toBeDefined();
+    expect(buildFeeCondition({ feeMin: "50000" })).toBeDefined();
+    expect(buildFeeCondition({ feeMin: "25000", feeMax: "100000" })).toBeDefined();
+  });
+
+  const feeQueryFor = (filters: PublicListingFilters) =>
+    new PgDialect().sqlToQuery(buildFeeCondition(filters)!);
+
+  it("holds free competitions only for Gratis to Gratis, with no paid clause", () => {
+    const query = feeQueryFor({ feeMax: "0" });
+
+    expect(query.sql).toContain("is null");
+    expect(query.sql).not.toContain("fee_currency");
+  });
+
+  it("holds free competitions and paid ones up to the upper end for a range from Gratis", () => {
+    const query = feeQueryFor({ feeMax: "100000" });
+
+    expect(query.sql).toContain("is null");
+    expect(query.sql).toContain("fee_currency");
+    expect(query.params).toContain("IDR");
+    expect(query.params).toContain(100_000);
+  });
+
+  it("holds paid competitions only, from the lower end, for a range from a price", () => {
+    const query = feeQueryFor({ feeMin: "50000" });
+
+    expect(query.sql).not.toContain("is null");
+    expect(query.sql).toContain("fee_currency");
+    expect(query.params).toContain(50_000);
+  });
+
+  it("states no upper end when the range reaches the top of the track", () => {
+    const query = feeQueryFor({ feeMin: "50000", feeMax: "250000" });
+
+    expect(query.params).toContain(50_000);
+    expect(query.params).not.toContain(250_000);
   });
 });
 

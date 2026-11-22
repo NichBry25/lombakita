@@ -1,12 +1,10 @@
 import { parseAudienceFilterParam } from "@/lib/competitions/audiences";
 import { isCompetitionLocation } from "@/lib/competitions/locations";
 import {
-  ANY_FEE_FILTER,
   FEE_HIGHEST,
   FEE_LOWEST,
-  isFeeRangeNarrowed,
-  readFeeFilter,
-  type FeeFilter,
+  FULL_FEE_RANGE,
+  readFeeRange,
   type FeeRange,
 } from "@/lib/competitions/fee-range";
 import { formatRupiah } from "@/lib/finance/payment-display";
@@ -36,7 +34,6 @@ export type CompetitionSearchParams = {
   teamMax?: string;
   location?: string;
   audience?: string;
-  fee?: string;
   feeMin?: string;
   feeMax?: string;
   sort?: string;
@@ -76,7 +73,6 @@ export const readCompetitionSearchParams = (
   teamMax: firstValue(raw.teamMax),
   location: firstValue(raw.location),
   audience: firstValue(raw.audience),
-  fee: firstValue(raw.fee),
   feeMin: firstValue(raw.feeMin),
   feeMax: firstValue(raw.feeMax),
   sort: firstValue(raw.sort),
@@ -93,7 +89,6 @@ export const CARRIED_FILTERS = [
   "teamMax",
   "location",
   "audience",
-  "fee",
   "feeMin",
   "feeMax",
   "sort",
@@ -154,49 +149,38 @@ export const describeTeamRange = (range: TeamRange): string => {
   return `${describeTeamRangeStart(range.min)} sampai ${describeTeamSizeEnd(range.max)}`;
 };
 
-/** The address parameters that clear the fee filter, its two ends included. */
+/** The address parameters that clear the fee range. */
 export const CLEAR_FEE_PARAMS: Partial<CompetitionSearchParams> = {
-  fee: undefined,
   feeMin: undefined,
   feeMax: undefined,
 };
 
-/**
- * The address parameters for a fee filter. An end at the end of the track is left out, so the
- * whole track writes `fee=paid` alone, and Gratis or no filter writes no ends.
- */
-export const feeFilterToParams = (fee: FeeFilter): Partial<CompetitionSearchParams> => {
-  if (fee.kind === "any") return CLEAR_FEE_PARAMS;
-  if (fee.kind === "free") return { ...CLEAR_FEE_PARAMS, fee: "free" };
-  return {
-    fee: "paid",
-    feeMin: fee.min > FEE_LOWEST ? String(fee.min) : undefined,
-    feeMax: fee.max < FEE_HIGHEST ? String(fee.max) : undefined,
-  };
-};
+/** The address parameters for a fee range. An end at the end of the track is left out. */
+export const feeRangeToParams = (
+  range: FeeRange,
+): Pick<CompetitionSearchParams, "feeMin" | "feeMax"> => ({
+  feeMin: range.min > FEE_LOWEST ? String(range.min) : undefined,
+  feeMax: range.max < FEE_HIGHEST ? String(range.max) : undefined,
+});
 
-/** "Rp 25.000", or "Rp 250.000+" at the end of the track, where it means this amount or more. */
+/** "Gratis" at 0, "Rp 250.000+" at the end of the track, where it means this amount or more. */
 export const describeFeeAmount = (amount: number): string => {
+  if (amount === FEE_LOWEST) return "Gratis";
   const rupiah = formatRupiah(amount, "IDR");
   return amount === FEE_HIGHEST ? `${rupiah}+` : rupiah;
 };
 
-/** "Rp 25.000 sampai Rp 250.000+", the slider's words for its range. */
-export const describeFeeRange = (range: FeeRange): string =>
-  `${describeFeeAmount(range.min)} sampai ${describeFeeAmount(range.max)}`;
-
-const describePaidFee = (fee: FeeRange): string => {
-  if (!isFeeRangeNarrowed(fee)) return "Berbayar";
-  if (fee.min === FEE_LOWEST) return `sampai ${describeFeeAmount(fee.max)}`;
-  if (fee.max === FEE_HIGHEST) return `mulai ${formatRupiah(fee.min, "IDR")}`;
-  return describeFeeRange(fee);
+/** What a screen reader says for one handle: "Gratis" on 0, "Rp 250.000 atau lebih" at the end of the track. */
+export const describeFeeForSpeech = (amount: number): string => {
+  if (amount === FEE_LOWEST) return "Gratis";
+  const rupiah = formatRupiah(amount, "IDR");
+  return amount === FEE_HIGHEST ? `${rupiah} atau lebih` : rupiah;
 };
 
-/** The fee filter in words, "Gratis" or "sampai Rp 100.000", or undefined when none is active. */
-export const describeFeeValue = (fee: FeeFilter): string | undefined => {
-  if (fee.kind === "free") return "Gratis";
-  if (fee.kind === "paid") return describePaidFee(fee);
-  return undefined;
+/** "Gratis" when both ends sit on 0, "Gratis sampai Rp 100.000" from 0, otherwise "Rp 50.000 sampai Rp 250.000+". */
+export const describeFeeRange = (range: FeeRange): string => {
+  if (range.min === FEE_LOWEST && range.max === FEE_LOWEST) return "Gratis";
+  return `${describeFeeAmount(range.min)} sampai ${describeFeeAmount(range.max)}`;
 };
 
 export const DEFAULT_SORT = "created_desc";
@@ -211,7 +195,7 @@ export type FilterSelection = {
   location: string;
   // The ticked levels. Umum is always shown ticked and is never held here.
   audience: CompetitionAudience[];
-  fee: FeeFilter;
+  feeRange: FeeRange;
 };
 
 const readLocationParam = (raw: string | undefined): string =>
@@ -224,7 +208,7 @@ export const readFilterSelection = (params: CompetitionSearchParams): FilterSele
   teamRange: readTeamRange(params),
   location: readLocationParam(params.location),
   audience: parseAudienceFilterParam(params.audience),
-  fee: readFeeFilter(params),
+  feeRange: readFeeRange(params),
 });
 
 export const DEFAULT_FILTER_SELECTION: FilterSelection = {
@@ -234,7 +218,7 @@ export const DEFAULT_FILTER_SELECTION: FilterSelection = {
   teamRange: FULL_TEAM_RANGE,
   location: "",
   audience: [],
-  fee: ANY_FEE_FILTER,
+  feeRange: FULL_FEE_RANGE,
 };
 
 /** The address parameter for ticked levels, "mahasiswa,smp", or nothing when none are ticked. */
@@ -262,7 +246,7 @@ export const selectionToParams = (
   audience: audienceToParam(selection.audience),
   ...DROPPED_TEAM_PARAMS,
   ...teamRangeToParams(selection.teamRange),
-  ...feeFilterToParams(selection.fee),
+  ...feeRangeToParams(selection.feeRange),
 });
 
 /** The address parameters that clear the team range, old ones included. */

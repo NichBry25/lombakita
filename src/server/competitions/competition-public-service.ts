@@ -56,8 +56,8 @@ import {
   FEE_HIGHEST,
   FEE_LOWEST,
   isFeeRangeNarrowed,
-  readFeeFilter,
-  type FeeFilter,
+  readFeeRange,
+  type FeeRange,
 } from "@/lib/competitions/fee-range";
 import { MAX_MINOR_UNIT_AMOUNT, type CurrencyCode } from "@/lib/finance/money";
 import {
@@ -269,8 +269,7 @@ export type PublicListingFilters = {
   teamSize?: string;
   teamMin?: string;
   teamMax?: string;
-  // free or paid. Anything else is ignored. feeMin and feeMax count only with paid.
-  fee?: string;
+  // Whole rupiah from 0 to 250000 on a step of 25000. Anything else is read as its end of the track.
   feeMin?: string;
   feeMax?: string;
   // One of online, offline or hybrid. Anything else is ignored.
@@ -443,9 +442,7 @@ const buildFreeFeeCondition = (): SQL =>
 // currency from being compared in the wrong unit.
 const FEE_RANGE_CURRENCY: CurrencyCode = "IDR";
 
-const buildPaidFeeRangeCondition = (fee: Extract<FeeFilter, { kind: "paid" }>): SQL => {
-  if (!isFeeRangeNarrowed(fee)) return buildPaidFeeCondition();
-
+const buildPaidFeeRangeCondition = (fee: FeeRange): SQL => {
   const startsAtLowerEnd = fee.min > FEE_LOWEST ? gte(competitions.feeAmount, fee.min) : undefined;
   const endsAtUpperEnd = fee.max < FEE_HIGHEST ? lte(competitions.feeAmount, fee.max) : undefined;
   return and(
@@ -456,11 +453,14 @@ const buildPaidFeeRangeCondition = (fee: Extract<FeeFilter, { kind: "paid" }>): 
   )!;
 };
 
+// A range that starts at Gratis includes the free competitions, and one that also ends at Gratis
+// holds nothing else.
 export const buildFeeCondition = (filters: PublicListingFilters): SQL | undefined => {
-  const fee = readFeeFilter(filters);
-  if (fee.kind === "free") return buildFreeFeeCondition();
-  if (fee.kind === "paid") return buildPaidFeeRangeCondition(fee);
-  return undefined;
+  const fee = readFeeRange(filters);
+  if (!isFeeRangeNarrowed(fee)) return undefined;
+  if (fee.max === FEE_LOWEST) return buildFreeFeeCondition();
+  if (fee.min === FEE_LOWEST) return or(buildFreeFeeCondition(), buildPaidFeeRangeCondition(fee))!;
+  return buildPaidFeeRangeCondition(fee);
 };
 
 // Location filter (DB-only; the Meilisearch index carries no location). One chosen value shows only
@@ -504,7 +504,7 @@ export const resolveUseSearch = (filters: PublicListingFilters, meiliAvailable: 
   !isTeamRangeNarrowed(readTeamRange(filters)) &&
   readLocationFilter(filters) === null &&
   parseAudienceFilterParam(filters.audience).length === 0 &&
-  readFeeFilter(filters).kind === "any";
+  !isFeeRangeNarrowed(readFeeRange(filters));
 
 const buildDbWhere = (filters: PublicListingFilters) => {
   const conditions = [buildPublicVisibilityCondition(), buildStatusCondition(filters.status)];

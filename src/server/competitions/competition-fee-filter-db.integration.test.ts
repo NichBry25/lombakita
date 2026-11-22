@@ -16,6 +16,7 @@ import postgres from "postgres";
 import * as schema from "@/server/db/schema";
 import { competitions, institutions } from "@/server/db/schema";
 import { TEST_DATABASE_URL, skipWithoutDatabase } from "@/server/testing/database-url";
+import { FEE_HIGHEST, isFeeRangeNarrowed, type FeeRange } from "@/lib/competitions/fee-range";
 import { isPaidCompetition } from "@/lib/competitions/paid-competition";
 import type { Database } from "@/server/db/client";
 import type {
@@ -105,18 +106,6 @@ const LIVE_FEE_ROWS: FeeRow[] = [
 ];
 
 const FREE_LABELS = ["null", "0 IDR", "9007199254740992"];
-
-const PAID_LABELS = [
-  "1",
-  "25000",
-  "100000",
-  "150000",
-  "200000",
-  "250000",
-  "300000",
-  "9007199254740991",
-  "100000 USD",
-];
 
 const ALL_LABELS = LIVE_FEE_ROWS.map((row) => row.label);
 
@@ -258,29 +247,66 @@ const titlesFor = async (
 // The fee as the application reads it back, which is the value isPaidCompetition is given.
 const readBackFees = async (tx: Tx, institutionId: string) =>
   tx
-    .select({ title: competitions.title, feeAmount: competitions.feeAmount })
+    .select({
+      title: competitions.title,
+      feeAmount: competitions.feeAmount,
+      feeCurrency: competitions.feeCurrency,
+    })
     .from(competitions)
     .where(eq(competitions.institutionId, institutionId));
 
-describe.skipIf(skipWithoutDatabase)("the fee filter agrees with isPaidCompetition", () => {
-  it("puts every stored fee in exactly the one list that isPaidCompetition picks", async () => {
-    await inRollback(async (tx) => {
-      const seed = await seedFeeListing(tx);
-      const stored = (await readBackFees(tx, seed.institutionId)).filter((row) =>
-        row.title.startsWith("live "),
-      );
-      const paidTitles = await titlesFor(tx, seed.institutionSlug, { fee: "paid" });
-      const freeTitles = await titlesFor(tx, seed.institutionSlug, { fee: "free" });
+type StoredFee = Awaited<ReturnType<typeof readBackFees>>[number];
 
-      expect(stored).toHaveLength(LIVE_FEE_ROWS.length);
-      for (const row of stored) {
-        const isPaid = isPaidCompetition(row.feeAmount);
-        expect(paidTitles.includes(row.title), `${row.title} in the paid list`).toBe(isPaid);
-        expect(freeTitles.includes(row.title), `${row.title} in the free list`).toBe(!isPaid);
-      }
-      expect(paidTitles.length + freeTitles.length).toBe(LIVE_FEE_ROWS.length);
-    });
-  });
+// Whether a stored fee belongs under a range, written from the rule and not from the SQL: a range
+// that starts at Gratis holds the free competitions, and a paid one counts only in rupiah and
+// between the two ends, the upper end open at the top of the track.
+const isListedUnder = (row: StoredFee, range: FeeRange): boolean => {
+  if (!isFeeRangeNarrowed(range)) return true;
+  if (!isPaidCompetition(row.feeAmount)) return range.min === 0;
+  const amount = row.feeAmount!;
+  const isAboveLowerEnd = amount >= range.min;
+  const isBelowUpperEnd = range.max === FEE_HIGHEST || amount <= range.max;
+  return row.feeCurrency === "IDR" && isAboveLowerEnd && isBelowUpperEnd;
+};
+
+const rangeToFilters = (range: FeeRange): PublicListingFilters => ({
+  feeMin: String(range.min),
+  feeMax: String(range.max),
+});
+
+const RANGES_AGAINST_THE_RULE: FeeRange[] = [
+  { min: 0, max: 250_000 },
+  { min: 0, max: 0 },
+  { min: 0, max: 25_000 },
+  { min: 0, max: 100_000 },
+  { min: 0, max: 225_000 },
+  { min: 25_000, max: 250_000 },
+  { min: 100_000, max: 200_000 },
+  { min: 250_000, max: 250_000 },
+  { min: 25_000, max: 25_000 },
+];
+
+describe.skipIf(skipWithoutDatabase)("the fee range agrees with isPaidCompetition", () => {
+  it.each(RANGES_AGAINST_THE_RULE)(
+    "lists exactly the stored fees that the rule puts under $min to $max",
+    async (range) => {
+      await inRollback(async (tx) => {
+        const seed = await seedFeeListing(tx);
+        const stored = (await readBackFees(tx, seed.institutionId)).filter((row) =>
+          row.title.startsWith("live "),
+        );
+        const listed = await titlesFor(tx, seed.institutionSlug, rangeToFilters(range));
+
+        expect(stored).toHaveLength(LIVE_FEE_ROWS.length);
+        for (const row of stored) {
+          expect(
+            listed.includes(row.title),
+            `${row.title} under ${range.min} to ${range.max}`,
+          ).toBe(isListedUnder(row, range));
+        }
+      });
+    },
+  );
 
   it("reads the unsafe value back as unsafe, so the test reaches the case it exists for", async () => {
     await inRollback(async (tx) => {
@@ -297,79 +323,91 @@ describe.skipIf(skipWithoutDatabase)("the fee filter agrees with isPaidCompetiti
     });
   });
 
-  it("lists null, a zero fee and an unsafe fee as free, and every other fee as paid", async () => {
+  it("lists null, a zero fee and an unsafe fee under Gratis to Gratis, and no paid fee", async () => {
     await inRollback(async (tx) => {
       const seed = await seedFeeListing(tx);
 
-      expect(await titlesFor(tx, seed.institutionSlug, { fee: "free" })).toEqual(
+      expect(await titlesFor(tx, seed.institutionSlug, { feeMax: "0" })).toEqual(
         liveTitlesOf(FREE_LABELS),
-      );
-      expect(await titlesFor(tx, seed.institutionSlug, { fee: "paid" })).toEqual(
-        liveTitlesOf(PAID_LABELS),
       );
     });
   });
 });
 
+const FREE_AND_PAID_UP_TO_100000 = [...FREE_LABELS, "1", "25000", "100000"];
+
+const FROM_25000 = ["25000", "100000", "150000", "200000", "250000", "300000", "9007199254740991"];
+
 const RANGE_CASES: Array<[string, PublicListingFilters, string[]]> = [
   ["no fee filter shows every live competition", {}, ALL_LABELS],
   [
-    "Rp 0 to Rp 25.000 never matches a zero IDR fee",
-    { fee: "paid", feeMax: "25000" },
-    ["1", "25000"],
+    "the whole track shows every live competition, a paid fee in another currency included",
+    { feeMin: "0", feeMax: "250000" },
+    ALL_LABELS,
   ],
   [
-    "Rp 100.000 to Rp 200.000 includes both ends and leaves out a paid fee in another currency",
-    { fee: "paid", feeMin: "100000", feeMax: "200000" },
+    "Gratis to Gratis shows free competitions only, the empty, zero and corrupt huge fees",
+    { feeMin: "0", feeMax: "0" },
+    FREE_LABELS,
+  ],
+  [
+    "Gratis to Rp 25.000 shows free competitions and paid ones up to Rp 25.000",
+    { feeMax: "25000" },
+    [...FREE_LABELS, "1", "25000"],
+  ],
+  [
+    "Gratis to Rp 100.000 shows free competitions and paid ones up to Rp 100.000, and leaves out a paid fee in another currency",
+    { feeMax: "100000" },
+    FREE_AND_PAID_UP_TO_100000,
+  ],
+  [
+    "Rp 100.000 to Rp 200.000 includes both ends, leaves out every free competition and a paid fee in another currency",
+    { feeMin: "100000", feeMax: "200000" },
     ["100000", "150000", "200000"],
   ],
   [
-    "feeMax 250000 has no upper limit",
-    { fee: "paid", feeMin: "200000", feeMax: "250000" },
+    "an upper end at the top of the track has no upper limit",
+    { feeMin: "200000", feeMax: "250000" },
     ["200000", "250000", "300000", "9007199254740991"],
   ],
   [
     "an absent feeMax has no upper limit",
-    { fee: "paid", feeMin: "200000" },
+    { feeMin: "200000" },
     ["200000", "250000", "300000", "9007199254740991"],
   ],
   [
     "a lower end at the top of the track still includes 300000",
-    { fee: "paid", feeMin: "250000" },
+    { feeMin: "250000" },
     ["250000", "300000", "9007199254740991"],
   ],
   [
-    "an absent feeMin starts below every paid fee",
-    { fee: "paid", feeMax: "100000" },
-    ["1", "25000", "100000"],
-  ],
-  [
-    "the whole track is paid alone, in every currency",
-    { fee: "paid", feeMin: "0", feeMax: "250000" },
-    PAID_LABELS,
+    "a lower end above Gratis leaves out every free competition and any paid fee below it",
+    { feeMin: "25000" },
+    FROM_25000,
   ],
   [
     "a reversed range is read with the lower end pulled down",
-    { fee: "paid", feeMin: "200000", feeMax: "100000" },
+    { feeMin: "200000", feeMax: "100000" },
     ["100000"],
   ],
   [
-    "an off-step feeMin and a feeMax of 0 are ignored",
-    { fee: "paid", feeMin: "30000", feeMax: "0" },
-    PAID_LABELS,
+    "a lower end above a Gratis upper end is pulled down to Gratis to Gratis",
+    { feeMin: "50000", feeMax: "0" },
+    FREE_LABELS,
+  ],
+  [
+    "an off-step feeMin and a feeMax past the track are ignored",
+    { feeMin: "30000", feeMax: "300000" },
+    ALL_LABELS,
   ],
   [
     "an unreadable feeMin and a feeMax past the track are ignored",
-    { fee: "paid", feeMin: "abc", feeMax: "999999999999999999999" },
-    PAID_LABELS,
+    { feeMin: "abc", feeMax: "999999999999999999999" },
+    ALL_LABELS,
   ],
-  ["free ignores the two ends", { fee: "free", feeMin: "100000", feeMax: "200000" }, FREE_LABELS],
-  ["the two ends without fee=paid are ignored", { feeMin: "100000", feeMax: "200000" }, ALL_LABELS],
-  ["an unknown fee is ignored", { fee: "both" }, ALL_LABELS],
-  ["a fee in the wrong case is ignored", { fee: "FREE" }, ALL_LABELS],
 ];
 
-describe.skipIf(skipWithoutDatabase)("the paid range", () => {
+describe.skipIf(skipWithoutDatabase)("the fee range", () => {
   it.each(RANGE_CASES)("%s", async (_name, filters, expectedLabels) => {
     await inRollback(async (tx) => {
       const seed = await seedFeeListing(tx);
@@ -385,7 +423,6 @@ describe.skipIf(skipWithoutDatabase)("the paid range", () => {
       const seed = await seedFeeListing(tx);
 
       const titles = await titlesFor(tx, seed.institutionSlug, {
-        fee: "paid'; drop table competitions; --",
         feeMin: "1 or 1=1",
         feeMax: "'; --",
       });
@@ -396,11 +433,11 @@ describe.skipIf(skipWithoutDatabase)("the paid range", () => {
 });
 
 const FEE_FILTERS_THAT_MATCH_SOMETHING: PublicListingFilters[] = [
-  { fee: "free" },
-  { fee: "paid" },
-  { fee: "paid", feeMax: "25000" },
-  { fee: "paid", feeMin: "100000", feeMax: "200000" },
-  { fee: "paid", feeMin: "200000" },
+  { feeMax: "0" },
+  { feeMin: "25000" },
+  { feeMax: "25000" },
+  { feeMin: "100000", feeMax: "200000" },
+  { feeMin: "200000" },
 ];
 
 describe.skipIf(skipWithoutDatabase)("the fee filter and what is publicly visible", () => {
@@ -469,15 +506,11 @@ describe.skipIf(skipWithoutDatabase)("the list API route and the fee filter", ()
     };
   };
 
-  it("reads the fee and its two ends from the address", async () => {
+  it("reads the two fee ends from the address", async () => {
     await inRollback(async (tx) => {
       const seed = await seedFeeListing(tx);
 
-      const answer = await askRoute(
-        tx,
-        seed.institutionSlug,
-        "fee=paid&feeMin=100000&feeMax=200000",
-      );
+      const answer = await askRoute(tx, seed.institutionSlug, "feeMin=100000&feeMax=200000");
 
       expect(answer).toEqual({
         status: 200,
@@ -487,25 +520,35 @@ describe.skipIf(skipWithoutDatabase)("the list API route and the fee filter", ()
     });
   });
 
-  it("answers free with the free list", async () => {
+  it("answers Gratis to Gratis with the free list", async () => {
     await inRollback(async (tx) => {
       const seed = await seedFeeListing(tx);
 
-      const answer = await askRoute(tx, seed.institutionSlug, "fee=free");
+      const answer = await askRoute(tx, seed.institutionSlug, "feeMax=0");
 
       expect(answer.titles).toEqual(liveTitlesOf(FREE_LABELS));
     });
   });
 
-  it("answers 200 and ignores a fee, a feeMin and a feeMax that are not on the track", async () => {
+  it("answers a range from Gratis with the free list and the paid fees up to its end", async () => {
     await inRollback(async (tx) => {
       const seed = await seedFeeListing(tx);
 
-      const answer = await askRoute(tx, seed.institutionSlug, "fee=paid&feeMin=abc&feeMax=1e9");
+      const answer = await askRoute(tx, seed.institutionSlug, "feeMax=100000");
+
+      expect(answer.titles).toEqual(liveTitlesOf(FREE_AND_PAID_UP_TO_100000));
+    });
+  });
+
+  it("answers 200 and ignores a feeMin and a feeMax that are not on the track", async () => {
+    await inRollback(async (tx) => {
+      const seed = await seedFeeListing(tx);
+
+      const answer = await askRoute(tx, seed.institutionSlug, "feeMin=abc&feeMax=1e9");
 
       expect(answer).toEqual({
         status: 200,
-        titles: liveTitlesOf(PAID_LABELS),
+        titles: liveTitlesOf(ALL_LABELS),
         hasMoneyField: false,
       });
     });
@@ -515,9 +558,19 @@ describe.skipIf(skipWithoutDatabase)("the list API route and the fee filter", ()
     await inRollback(async (tx) => {
       const seed = await seedFeeListing(tx);
 
-      const answer = await askRoute(tx, seed.institutionSlug, "fee=free&fee=paid");
+      const answer = await askRoute(tx, seed.institutionSlug, "feeMax=0&feeMax=100000");
 
       expect(answer.titles).toEqual(liveTitlesOf(FREE_LABELS));
+    });
+  });
+
+  it("ignores an old fee=free, which no longer asks for anything", async () => {
+    await inRollback(async (tx) => {
+      const seed = await seedFeeListing(tx);
+
+      const answer = await askRoute(tx, seed.institutionSlug, "fee=free");
+
+      expect(answer.titles).toEqual(liveTitlesOf(ALL_LABELS));
     });
   });
 });

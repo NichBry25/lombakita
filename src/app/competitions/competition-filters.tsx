@@ -17,21 +17,17 @@ import { COMPETITION_LOCATION_OPTIONS } from "@/lib/competitions/locations";
 import type { CompetitionAudience } from "@/server/db/schema";
 import type { FilterSheetSection } from "./competition-filter-sheet";
 import {
-  ANY_FEE_FILTER,
   FEE_HIGHEST,
   FEE_LOWEST,
   FEE_STEP,
-  FEE_UPPER_END_LOWEST,
-  FULL_FEE_RANGE,
-  type FeeFilter,
+  isFeeRangeNarrowed,
   type FeeRange,
 } from "@/lib/competitions/fee-range";
 import { isTeamRangeNarrowed } from "@/lib/competitions/team-range";
 import {
   DEFAULT_SORT,
-  describeFeeAmount,
+  describeFeeForSpeech,
   describeFeeRange,
-  describeFeeValue,
   describeTeamRange,
   type FilterSelection,
 } from "./search-params";
@@ -98,68 +94,25 @@ export function AudienceChecklist({ idPrefix, ticked, onToggle }: AudienceCheckl
 }
 
 type FeeFilterControlsProps = {
-  value: FeeFilter;
-  onChange: (fee: FeeFilter) => void;
+  value: FeeRange;
+  onChange: (range: FeeRange) => void;
 };
 
-const FEE_CHOICES = [
-  { kind: "free", label: "Gratis" },
-  { kind: "paid", label: "Berbayar" },
-] as const;
-
-/**
- * The two fee choices and, under Berbayar, the price range. Pressing the chosen choice again takes
- * the filter off. Used by the filter panel.
- */
+/** The fee slider, from Gratis to Rp 250.000+. Used by the filter panel. */
 export function FeeFilterControls({ value, onChange }: FeeFilterControlsProps) {
-  const toggleChoice = (kind: "free" | "paid") => {
-    if (value.kind === kind) {
-      onChange(ANY_FEE_FILTER);
-      return;
-    }
-    onChange(kind === "free" ? { kind: "free" } : { kind: "paid", ...FULL_FEE_RANGE });
-  };
-
-  const changeRange = (range: FeeRange) => onChange({ kind: "paid", ...range });
-
   return (
-    <div className="filter-fee">
-      <div role="group" aria-label="Biaya" className="filter-sheet-options">
-        {FEE_CHOICES.map((choice) => {
-          const isSelected = value.kind === choice.kind;
-          return (
-            <button
-              key={choice.kind}
-              type="button"
-              aria-pressed={isSelected}
-              className="filter-dropdown-option filter-sheet-option"
-              data-selected={isSelected ? "true" : undefined}
-              onClick={() => toggleChoice(choice.kind)}
-            >
-              <span>{choice.label}</span>
-              <span className="filter-dropdown-option-check" aria-hidden="true">
-                {isSelected ? <Icon name="check" /> : null}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-      {value.kind === "paid" ? (
-        <RangeSlider
-          floor={FEE_LOWEST}
-          ceiling={FEE_HIGHEST}
-          step={FEE_STEP}
-          maxHandleLowest={FEE_UPPER_END_LOWEST}
-          value={{ min: value.min, max: value.max }}
-          onChange={changeRange}
-          label="Rentang biaya"
-          minHandleLabel="Biaya minimum"
-          maxHandleLabel="Biaya maksimum"
-          summary={describeFeeRange(value)}
-          describeValue={describeFeeAmount}
-        />
-      ) : null}
-    </div>
+    <RangeSlider
+      floor={FEE_LOWEST}
+      ceiling={FEE_HIGHEST}
+      step={FEE_STEP}
+      value={value}
+      onChange={onChange}
+      label="Biaya"
+      minHandleLabel="Biaya minimum"
+      maxHandleLabel="Biaya maksimum"
+      summary={describeFeeRange(value)}
+      describeValue={describeFeeForSpeech}
+    />
   );
 }
 
@@ -196,9 +149,8 @@ export const listSetFilters = (selection: FilterSelection): SetFilter[] => {
   if (selection.audience.length > 0) {
     filters.push({ section: "audience", value: formatAudienceLabels(selection.audience) });
   }
-  const feeValue = describeFeeValue(selection.fee);
-  if (feeValue !== undefined) {
-    filters.push({ section: "fee", value: feeValue });
+  if (isFeeRangeNarrowed(selection.feeRange)) {
+    filters.push({ section: "fee", value: describeFeeRange(selection.feeRange) });
   }
   if (selection.status !== "") {
     filters.push({ section: "status", value: labelOfOption(STATUS_OPTIONS, selection.status) });
@@ -340,12 +292,11 @@ type CompetitionPhoneFiltersProps = {
   onOpenSection: (section: FilterSheetSection) => void;
   onToggleOpenStatus: () => void;
   onToggleOnlineLocation: () => void;
-  onToggleFreeFee: () => void;
 };
 
 /**
  * The phone filter bar, pinned to the bottom of the screen: the Filter pill stays at its left end
- * and the Urutkan icon button and four quick chips scroll sideways beside it. It is hidden where
+ * and the Urutkan icon button and three quick chips scroll sideways beside it. It is hidden where
  * the desktop row shows.
  */
 export function CompetitionPhoneFilters({
@@ -355,11 +306,9 @@ export function CompetitionPhoneFilters({
   onOpenSection,
   onToggleOpenStatus,
   onToggleOnlineLocation,
-  onToggleFreeFee,
 }: CompetitionPhoneFiltersProps) {
   const isOpenStatusOn = selection.status === OPEN_STATUS;
   const isOnlineLocationOn = selection.location === ONLINE_LOCATION;
-  const isFreeFeeOn = selection.fee.kind === "free";
   const isSortSet = knownSort(selection.sort) !== DEFAULT_SORT;
   const barRef = useRef<HTMLDivElement>(null);
   useToastLiftAbove(barRef, true);
@@ -400,15 +349,6 @@ export function CompetitionPhoneFilters({
           onClick={onToggleOnlineLocation}
         >
           Online
-        </button>
-        <button
-          type="button"
-          className="action-chip"
-          aria-pressed={isFreeFeeOn}
-          data-selected={isFreeFeeOn ? "true" : undefined}
-          onClick={onToggleFreeFee}
-        >
-          Gratis
         </button>
       </div>
       {isPending ? <Spinner size="sm" /> : null}

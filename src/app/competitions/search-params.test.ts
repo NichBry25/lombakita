@@ -18,11 +18,11 @@ import {
   DEFAULT_FILTER_SELECTION,
   competitionsHref,
   describeFeeAmount,
-  describeFeeValue,
+  describeFeeForSpeech,
   describeFeeRange,
   describeTeamRange,
   describeTeamSizeForSpeech,
-  feeFilterToParams,
+  feeRangeToParams,
   readCompetitionSearchParams,
   readFilterSelection,
   selectionToParams,
@@ -44,7 +44,6 @@ describe("readCompetitionSearchParams", () => {
       teamMax: ["4", "5"],
       location: ["online", "offline"],
       audience: ["mahasiswa,smp", "sd"],
-      fee: ["paid", "free"],
       feeMin: ["25000", "50000"],
       feeMax: ["100000", "150000"],
       sort: ["deadline_asc", "created_desc"],
@@ -61,12 +60,15 @@ describe("readCompetitionSearchParams", () => {
       teamMax: "4",
       location: "online",
       audience: "mahasiswa,smp",
-      fee: "paid",
       feeMin: "25000",
       feeMax: "100000",
       sort: "deadline_asc",
       page: "2",
     });
+  });
+
+  it("reads no fee parameter, so an old fee=free link asks for nothing", () => {
+    expect(readCompetitionSearchParams({ fee: "free" })).not.toHaveProperty("fee");
   });
 
   it("leaves a plain scalar untouched", () => {
@@ -152,34 +154,42 @@ describe("competitionsHref query", () => {
   });
 });
 
-describe("the words of the fee filter", () => {
-  it("writes an amount with formatRupiah and the top of the track as Rp 250.000+", () => {
-    expect(describeFeeAmount(0)).toBe(rupiah("0"));
+describe("the fee range in the address", () => {
+  it("writes both ends for a range inside the track and leaves an end on the track end out", () => {
+    expect(feeRangeToParams({ min: 25_000, max: 100_000 })).toEqual({
+      feeMin: "25000",
+      feeMax: "100000",
+    });
+    expect(feeRangeToParams({ min: 50_000, max: 250_000 })).toEqual({
+      feeMin: "50000",
+      feeMax: undefined,
+    });
+    expect(feeRangeToParams({ min: 0, max: 0 })).toEqual({ feeMin: undefined, feeMax: "0" });
+    expect(feeRangeToParams({ min: 0, max: 250_000 })).toEqual(CLEAR_FEE_PARAMS);
+  });
+});
+
+describe("the words of the fee range", () => {
+  it("says Gratis at 0, Rp 250.000+ at the top of the track and formatRupiah between", () => {
+    expect(describeFeeAmount(0)).toBe("Gratis");
     expect(describeFeeAmount(25_000)).toBe(rupiah("25.000"));
     expect(describeFeeAmount(250_000)).toBe(`${rupiah("250.000")}+`);
   });
 
-  it("describes the slider's range with sampai", () => {
-    expect(describeFeeRange({ min: 25_000, max: 250_000 })).toBe(
-      `${rupiah("25.000")} sampai ${rupiah("250.000")}+`,
-    );
-    expect(describeFeeRange({ min: 0, max: 250_000 })).toBe(
-      `${rupiah("0")} sampai ${rupiah("250.000")}+`,
-    );
+  it("says Gratis for a handle on 0 and atau lebih at the top of the track for speech", () => {
+    expect(describeFeeForSpeech(0)).toBe("Gratis");
+    expect(describeFeeForSpeech(25_000)).toBe(rupiah("25.000"));
+    expect(describeFeeForSpeech(250_000)).toBe(`${rupiah("250.000")} atau lebih`);
   });
 
   it.each([
-    [{ kind: "any" } as const, undefined],
-    [{ kind: "free" } as const, "Gratis"],
-    [{ kind: "paid", min: 0, max: 250_000 } as const, "Berbayar"],
-    [
-      { kind: "paid", min: 25_000, max: 100_000 } as const,
-      `${rupiah("25.000")} sampai ${rupiah("100.000")}`,
-    ],
-    [{ kind: "paid", min: 50_000, max: 250_000 } as const, `mulai ${rupiah("50.000")}`],
-    [{ kind: "paid", min: 0, max: 100_000 } as const, `sampai ${rupiah("100.000")}`],
-  ])("words %j as %s", (fee, words) => {
-    expect(describeFeeValue(fee)).toBe(words);
+    [{ min: 0, max: 0 }, "Gratis"],
+    [{ min: 0, max: 100_000 }, `Gratis sampai ${rupiah("100.000")}`],
+    [{ min: 0, max: 250_000 }, `Gratis sampai ${rupiah("250.000")}+`],
+    [{ min: 25_000, max: 100_000 }, `${rupiah("25.000")} sampai ${rupiah("100.000")}`],
+    [{ min: 50_000, max: 250_000 }, `${rupiah("50.000")} sampai ${rupiah("250.000")}+`],
+  ])("words %j as %s", (range, words) => {
+    expect(describeFeeRange(range)).toBe(words);
   });
 });
 
@@ -201,7 +211,7 @@ describe("a filter selection", () => {
       teamRange: { min: 2, max: 4 },
       location: "online",
       audience: ["mahasiswa", "smp"],
-      fee: { kind: "any" },
+      feeRange: { min: 0, max: 250_000 },
     });
 
     expect(params).toEqual({
@@ -214,7 +224,6 @@ describe("a filter selection", () => {
       teamSize: undefined,
       teamMin: "2",
       teamMax: "4",
-      fee: undefined,
       feeMin: undefined,
       feeMax: undefined,
     });
@@ -235,51 +244,45 @@ describe("a filter selection", () => {
     expect(CARRIED_FILTERS).toEqual(expect.arrayContaining(["location", "audience"]));
   });
 
-  it("carries the fee and its two ends through a search", () => {
-    expect(CARRIED_FILTERS).toEqual(expect.arrayContaining(["fee", "feeMin", "feeMax"]));
+  it("carries the two fee ends through a search, and no fee word", () => {
+    expect(CARRIED_FILTERS).toEqual(expect.arrayContaining(["feeMin", "feeMax"]));
+    expect(CARRIED_FILTERS).not.toContain("fee");
   });
 
-  it("reads the fee filter from the address, and nothing from a stray end", () => {
-    expect(readFilterSelection({ fee: "free" }).fee).toEqual({ kind: "free" });
-    expect(readFilterSelection({ fee: "paid", feeMin: "50000", feeMax: "100000" }).fee).toEqual({
-      kind: "paid",
+  it("reads the fee range from the address, an absent end as the end of the track", () => {
+    expect(readFilterSelection({}).feeRange).toEqual({ min: 0, max: 250_000 });
+    expect(readFilterSelection({ feeMin: "50000", feeMax: "100000" }).feeRange).toEqual({
       min: 50_000,
       max: 100_000,
     });
-    expect(readFilterSelection({ feeMin: "50000" }).fee).toEqual({ kind: "any" });
-    expect(readFilterSelection({ fee: "free", feeMin: "50000" }).fee).toEqual({ kind: "free" });
+    expect(readFilterSelection({ feeMax: "0" }).feeRange).toEqual({ min: 0, max: 0 });
+    expect(readFilterSelection({ feeMin: "50000" }).feeRange).toEqual({
+      min: 50_000,
+      max: 250_000,
+    });
   });
 
-  it("writes the fee into the address, leaving an end at the end of the track out", () => {
-    const withFee = (fee: Parameters<typeof feeFilterToParams>[0]) =>
-      selectionToParams({ ...DEFAULT_FILTER_SELECTION, fee });
+  it("writes the fee range into the address, leaving an end at the end of the track out", () => {
+    const withFeeRange = (feeRange: { min: number; max: number }) =>
+      selectionToParams({ ...DEFAULT_FILTER_SELECTION, feeRange });
 
-    expect(withFee({ kind: "free" })).toMatchObject({
-      fee: "free",
+    expect(withFeeRange({ min: 0, max: 0 })).toMatchObject({ feeMin: undefined, feeMax: "0" });
+    expect(withFeeRange({ min: 0, max: 250_000 })).toMatchObject({
       feeMin: undefined,
       feeMax: undefined,
     });
-    expect(withFee({ kind: "paid", min: 0, max: 250_000 })).toMatchObject({
-      fee: "paid",
-      feeMin: undefined,
-      feeMax: undefined,
-    });
-    expect(withFee({ kind: "paid", min: 25_000, max: 100_000 })).toMatchObject({
-      fee: "paid",
+    expect(withFeeRange({ min: 25_000, max: 100_000 })).toMatchObject({
       feeMin: "25000",
       feeMax: "100000",
     });
-    expect(feeFilterToParams({ kind: "any" })).toEqual(CLEAR_FEE_PARAMS);
   });
 
-  it("drops the ends of a paid range when Gratis or no fee is chosen", () => {
-    const stale = { fee: "paid", feeMin: "25000", feeMax: "100000" };
+  it("drops both fee ends from an address when the whole track is chosen", () => {
+    const stale = { feeMin: "25000", feeMax: "100000" };
 
-    const freeHref = competitionsHref(stale, feeFilterToParams({ kind: "free" }));
-    const anyHref = competitionsHref(stale, feeFilterToParams({ kind: "any" }));
+    const href = competitionsHref(stale, feeRangeToParams({ min: 0, max: 250_000 }));
 
-    expect(freeHref).toBe("/competitions?fee=free");
-    expect(anyHref).toBe("/competitions");
+    expect(href).toBe("/competitions");
   });
 
   it("leaves every filter out of the address when nothing is chosen", () => {

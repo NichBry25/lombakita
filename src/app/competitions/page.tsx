@@ -61,7 +61,6 @@ export default async function PublicCompetitionsPage({
     teamSize: params.teamSize,
     teamMin: params.teamMin,
     teamMax: params.teamMax,
-    fee: params.fee,
     feeMin: params.feeMin,
     feeMax: params.feeMax,
     location: params.location,

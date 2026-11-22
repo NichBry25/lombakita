@@ -281,8 +281,8 @@ export function CompetitionFilterSheet({
 
         <CollapsibleSection {...sectionProps("fee", "Biaya")}>
           <FeeFilterControls
-            value={draft.fee}
-            onChange={(fee) => setDraft((current) => ({ ...current, fee }))}
+            value={draft.feeRange}
+            onChange={(feeRange) => setDraft((current) => ({ ...current, feeRange }))}
           />
         </CollapsibleSection>
 

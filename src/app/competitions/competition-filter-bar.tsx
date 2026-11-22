@@ -20,7 +20,7 @@ import {
   CLEAR_TEAM_RANGE_PARAMS,
   DROPPED_TEAM_PARAMS,
   competitionsHref,
-  feeFilterToParams,
+  feeRangeToParams,
   readFilterSelection,
   selectionToParams,
   teamRangeToParams,
@@ -79,9 +79,9 @@ export function CompetitionFilterBar({
     ...teamRangeToParams(selection.teamRange),
   };
 
-  // The fee filter the page shows, written back so an ignored fee value, such as a feeMin without
-  // fee=paid, does not ride along after another filter changes.
-  const currentFeeParams = feeFilterToParams(selection.fee);
+  // The fee range the page shows, written back so an unreadable fee value does not ride along
+  // after another filter changes.
+  const currentFeeParams = feeRangeToParams(selection.feeRange);
 
   const navigate = (overrides: Partial<CompetitionSearchParams>) => {
     // A changed filter re-selects the result set, so the old page number no longer refers to
@@ -101,10 +101,6 @@ export function CompetitionFilterBar({
 
   const toggleOnlineLocation = () => {
     navigate({ location: selection.location === "online" ? undefined : "online" });
-  };
-
-  const toggleFreeFee = () => {
-    navigate(feeFilterToParams(selection.fee.kind === "free" ? { kind: "any" } : { kind: "free" }));
   };
 
   // The panel closes first so the page behind it is what shows the transition's pending signals.
@@ -171,7 +167,6 @@ export function CompetitionFilterBar({
         onOpenSection={openPanelFromSectionChip}
         onToggleOpenStatus={toggleOpenStatus}
         onToggleOnlineLocation={toggleOnlineLocation}
-        onToggleFreeFee={toggleFreeFee}
       />
     </>
   );

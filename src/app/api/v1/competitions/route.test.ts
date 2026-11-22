@@ -280,25 +280,35 @@ describe("GET /api/v1/competitions — public listing", () => {
     );
   });
 
-  it("passes fee, feeMin and feeMax to listPublicCompetitions, for the filter sheet's count", async () => {
+  it("passes feeMin and feeMax to listPublicCompetitions, for the filter sheet's count", async () => {
     listPublicCompetitions.mockResolvedValue({
       data: [],
       meta: { total: 3, page: 1, limit: 1, totalPages: 3, searchEngine: "db" },
     });
-    await GET(makeGet("?fee=paid&feeMin=25000&feeMax=100000&limit=1"));
+    await GET(makeGet("?feeMin=25000&feeMax=100000&limit=1"));
     expect(listPublicCompetitions).toHaveBeenCalledWith(
-      expect.objectContaining({ fee: "paid", feeMin: "25000", feeMax: "100000", limit: 1 }),
+      expect.objectContaining({ feeMin: "25000", feeMax: "100000", limit: 1 }),
     );
   });
 
-  it("leaves fee, feeMin and feeMax undefined when the address has none", async () => {
+  it("leaves feeMin and feeMax undefined when the address has none", async () => {
     listPublicCompetitions.mockResolvedValue({
       data: [],
       meta: { total: 0, page: 1, limit: 20, totalPages: 0, searchEngine: "db" },
     });
     await GET(makeGet("?q=lomba"));
     expect(listPublicCompetitions).toHaveBeenCalledWith(
-      expect.objectContaining({ fee: undefined, feeMin: undefined, feeMax: undefined }),
+      expect.objectContaining({ feeMin: undefined, feeMax: undefined }),
     );
+  });
+
+  it("does not pass a fee parameter on", async () => {
+    listPublicCompetitions.mockResolvedValue({
+      data: [],
+      meta: { total: 0, page: 1, limit: 20, totalPages: 0, searchEngine: "db" },
+    });
+    await GET(makeGet("?fee=free"));
+    const filters = listPublicCompetitions.mock.calls[0]![0] as object;
+    expect(filters).not.toHaveProperty("fee");
   });
 });
