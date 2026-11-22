@@ -65,6 +65,12 @@ export default async function PublicCompetitionsPage({
 
   const { data: competitions, meta } = result;
 
+  // An empty result with no filters set means the catalogue itself is empty, not that the reader
+  // searched too narrowly, so "clear your filters" would send them nowhere.
+  const isNarrowed = Boolean(
+    params.q || params.category || params.mode || params.status || params.teamSize,
+  );
+
   return (
     <main>
       <section className="brand-band listing-hero">
@@ -92,7 +98,26 @@ export default async function PublicCompetitionsPage({
             <CompetitionFilterBar params={params} />
           </div>
 
-          {competitions.length === 0 ? (
+          {competitions.length === 0 && !isNarrowed ? (
+            <div className="empty-state">
+              <span className="empty-state-icon" aria-hidden="true">
+                <Icon name="trophy" size="xl" />
+              </span>
+              <h2>Kompetisi pertama segera tayang.</h2>
+              <p>
+                Kami sedang mengkurasi kompetisi bersama penyelenggara. Tandai minatmu di beranda,
+                dan berandamu akan tersusun sendiri begitu kompetisinya tayang.
+              </p>
+              <div className="empty-state-actions">
+                <ButtonLink href="/#minat" variant="outline">
+                  Tandai minatmu
+                </ButtonLink>
+                <ButtonLink href="/institution/create" variant="ghost" prefetch={false}>
+                  Saya penyelenggara
+                </ButtonLink>
+              </div>
+            </div>
+          ) : competitions.length === 0 ? (
             <div className="empty-state">
               <span className="empty-state-icon" aria-hidden="true">
                 <Icon name="search" size="xl" />

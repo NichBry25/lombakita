@@ -16,6 +16,7 @@ export type IconName =
   | "download"
   | "edit"
   | "eye"
+  | "home"
   | "inbox"
   | "info"
   | "link"
@@ -93,6 +94,14 @@ function IconPaths({ name }: { name: IconName }) {
       );
     case "check":
       return <path d="m5 12 4 4L19 6" />;
+    case "home":
+      return (
+        <>
+          <path d="M3.5 10.5 12 3.5l8.5 7" />
+          <path d="M5.5 9v11.25h13V9" />
+          <path d="M10 20.25v-5.5h4v5.5" />
+        </>
+      );
     case "chevron-down":
       return <path d="m6 9 6 6 6-6" />;
     case "close":

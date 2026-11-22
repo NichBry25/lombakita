@@ -33,7 +33,7 @@ const SEND_FILES = [
 // The count is part of the declaration. A new send function that nobody wired into the guard would
 // otherwise arrive silently, and this file would keep reporting that everything it knows about is
 // fine.
-const EXPECTED_SEND_FUNCTIONS = 22;
+const EXPECTED_SEND_FUNCTIONS = 23;
 
 /** Names that both refuse a reserved recipient and yield the credential a send needs. */
 const RESOLVERS = new Set(["resolveEmailDelivery", "resolveNotificationDelivery"]);

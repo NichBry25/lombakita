@@ -9,6 +9,10 @@ import { serverEnv } from "@/config/env.server";
 import { logger } from "@/lib/logger";
 import { resolveEmailDelivery, type EmailDelivery } from "@/server/email/delivery";
 import { throwEmailSendFailure } from "@/server/email/send-failure";
+import {
+  buildSavedDeadlineReminderEmail,
+  type SavedDeadlineReminderItem,
+} from "@/server/notifications/saved-deadline-reminder-message";
 
 // A deadline carried on a job payload travels as an ISO string. Rendered in Indonesian long form
 // to match the registration-confirmation email, and with the time included because a document
@@ -606,4 +610,37 @@ export const sendPaymentOutcomeEmail = async (options: {
   if (error) {
     throwEmailSendFailure("payment_outcome", error);
   }
+};
+
+export const sendSavedDeadlineReminderEmail = async (options: {
+  toEmail: string;
+  recipientId: string;
+  items: SavedDeadlineReminderItem[];
+  anchor: Date;
+}): Promise<void> => {
+  const delivery = resolveNotificationDelivery("saved_deadline_reminder", options.toEmail);
+
+  if (!delivery) {
+    return;
+  }
+
+  const { apiKey, from } = delivery;
+  const { subject, text } = buildSavedDeadlineReminderEmail(
+    options.items,
+    options.anchor,
+    resolveBaseUrl(),
+  );
+
+  const resend = new Resend(apiKey);
+  const { error } = await resend.emails.send({ from, to: options.toEmail, subject, text });
+
+  if (error) {
+    throwEmailSendFailure("saved_deadline_reminder", error);
+  }
+
+  logger.info("notification.sent", {
+    event: "saved.deadline.reminder",
+    recipientId: options.recipientId,
+    competitions: options.items.length,
+  });
 };

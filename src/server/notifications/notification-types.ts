@@ -21,6 +21,7 @@ export const NOTIFICATION_TYPES = {
   registrationDocumentReviewed: "registration_document_reviewed",
   paymentProofSubmitted: "payment_proof_submitted",
   paymentOutcome: "payment_outcome",
+  savedDeadlineReminder: "saved_deadline_reminder",
 } as const;
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[keyof typeof NOTIFICATION_TYPES];

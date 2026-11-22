@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireRolePage } from "@/server/auth/page-guard";
 import { listSavedCompetitions } from "@/server/saved-competitions/saved-competition-service";
 import { ButtonLink, EmptyState, Icon, PageHeader, Pagination } from "@/components/ui";
+import { describeDeadlineCountdown } from "@/lib/competitions/deadline-countdown";
 
 const formatDate = (d: Date | null) =>
   d
@@ -23,6 +24,7 @@ export default async function SavedCompetitionsPage({
   const page = pageParam ? Number.parseInt(pageParam, 10) : 1;
 
   const result = await listSavedCompetitions(session.user.id, { page });
+  const now = new Date();
 
   return (
     <main className="page-shell app-page saved-page">
@@ -44,36 +46,52 @@ export default async function SavedCompetitionsPage({
         />
       ) : (
         <ul className="saved-grid">
-          {result.data.map((item) => (
-            <li
-              key={item.competitionId}
-              className="saved-card"
-              data-unavailable={item.savedStatus === "unavailable" ? "true" : undefined}
-            >
-              <span className="saved-card-icon" aria-hidden="true">
-                <Icon name="bookmark" size="md" />
-              </span>
-              <div className="record-row-main">
-                <Link
-                  href={`/competitions/${item.institutionSlug}/${item.slug}`}
-                  className="record-row-title"
-                >
-                  {item.title}
-                </Link>
-                <p className="record-meta">{item.institutionName}</p>
-                {item.registrationEndAt ? (
-                  <p className="record-meta">
-                    Batas pendaftaran: {formatDate(item.registrationEndAt)}
-                  </p>
-                ) : null}
-                {item.savedStatus === "unavailable" ? (
-                  <p className="record-note record-note-error">
-                    Kompetisi ini tidak lagi tersedia untuk pendaftaran.
-                  </p>
-                ) : null}
-              </div>
-            </li>
-          ))}
+          {result.data.map((item) => {
+            // A saved competition is one the reader meant to come back to; how long is left is
+            // the reason to come back now. An unavailable one has its own note instead.
+            const countdown =
+              item.savedStatus === "unavailable"
+                ? null
+                : describeDeadlineCountdown(item.registrationEndAt, now);
+            return (
+              <li
+                key={item.competitionId}
+                className="saved-card"
+                data-unavailable={item.savedStatus === "unavailable" ? "true" : undefined}
+              >
+                <span className="saved-card-icon" aria-hidden="true">
+                  <Icon name="bookmark" size="md" />
+                </span>
+                <div className="record-row-main">
+                  <Link
+                    href={`/competitions/${item.institutionSlug}/${item.slug}`}
+                    className="record-row-title"
+                  >
+                    {item.title}
+                  </Link>
+                  <p className="record-meta">{item.institutionName}</p>
+                  {countdown ? (
+                    <span
+                      className="status-badge saved-card-countdown"
+                      data-status={countdown.tone}
+                    >
+                      {countdown.label}
+                    </span>
+                  ) : null}
+                  {item.registrationEndAt ? (
+                    <p className="record-meta">
+                      Batas pendaftaran: {formatDate(item.registrationEndAt)}
+                    </p>
+                  ) : null}
+                  {item.savedStatus === "unavailable" ? (
+                    <p className="record-note record-note-error">
+                      Kompetisi ini tidak lagi tersedia untuk pendaftaran.
+                    </p>
+                  ) : null}
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
 

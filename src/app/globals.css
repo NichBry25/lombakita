@@ -6615,3 +6615,365 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
     transform: none;
   }
 }
+
+/* ---- Homepage rows ----
+ * The homepage is a stack of sideways-scrolling rows, each a different reason to open something:
+ * what you looked at last, your arenas, closing soon, new. A row bleeds to the page edge so the
+ * card cut off at the right says there is more to swipe to.
+ */
+.shelf-stack {
+  display: grid;
+  gap: var(--space-12);
+}
+
+.shelf {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-3);
+}
+
+.shelf-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.shelf-title {
+  font-size: var(--text-section-title);
+}
+
+.shelf-header-actions {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.shelf-see-all,
+.shelf-text-action {
+  display: inline-flex;
+  min-height: var(--touch-target);
+  align-items: center;
+  gap: var(--space-1-5);
+  padding: var(--space-0);
+  border: 0;
+  background: transparent;
+  color: var(--color-link);
+  font-size: var(--text-body-sm);
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.shelf-text-action {
+  color: var(--color-ink-soft);
+  font-weight: 500;
+}
+
+.shelf-see-all:hover,
+.shelf-text-action:hover {
+  color: var(--color-link-hover);
+  text-decoration: underline;
+}
+
+.shelf-nav {
+  display: inline-flex;
+  gap: var(--space-2);
+}
+
+.shelf-nav-btn {
+  display: grid;
+  width: var(--touch-target);
+  height: var(--touch-target);
+  place-items: center;
+  border: var(--border-thin) solid var(--color-line);
+  border-radius: var(--radius-circle);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) var(--ease-primary),
+    border-color var(--duration-fast) var(--ease-primary),
+    color var(--duration-fast) var(--ease-primary),
+    opacity var(--duration-fast) var(--ease-primary);
+}
+
+.shelf-nav-btn[data-direction="prev"] .ui-icon {
+  transform: rotate(180deg);
+}
+
+.shelf-nav-btn:hover:not(:disabled) {
+  border-color: var(--brand-palm);
+  background: var(--brand-palm);
+  color: var(--brand-paper);
+}
+
+.shelf-nav-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* Touch readers swipe the row itself; the arrows are for a mouse. */
+@media (pointer: coarse) {
+  .shelf-nav {
+    display: none;
+  }
+}
+
+.shelf-track {
+  display: flex;
+  min-width: 0;
+  gap: var(--grid-gap);
+  margin: var(--space-0) calc(var(--page-padding) * -1);
+  padding: var(--space-2) var(--page-padding) var(--space-4);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-padding-inline: var(--page-padding);
+  scroll-snap-type: x mandatory;
+  list-style: none;
+  scrollbar-width: none;
+}
+
+.shelf-track::-webkit-scrollbar {
+  display: none;
+}
+
+.shelf-slot {
+  display: flex;
+  flex: 0 0 min(calc(var(--space-20) * 3.3), 72%);
+  scroll-snap-align: start;
+}
+
+.poster-card {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  overflow: hidden;
+  border: var(--border-thin) solid var(--color-line);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+  transition:
+    border-color var(--duration-card) var(--ease-primary),
+    box-shadow var(--duration-card) var(--ease-primary),
+    transform var(--duration-card) var(--ease-primary);
+}
+
+.poster-card:hover,
+.poster-card:focus-within {
+  border-color: var(--color-ink-faint);
+  box-shadow: var(--shadow-lg);
+  transform: translateY(var(--motion-lift-card));
+}
+
+.competition-cover.poster-card-cover {
+  height: calc(var(--cover-list-height) * 0.72);
+  padding: var(--space-3);
+}
+
+.poster-card-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1-5);
+  padding: var(--space-4);
+}
+
+.poster-card-title {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-size: var(--text-lead);
+  line-height: var(--leading-heading);
+  text-decoration: none;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.poster-card-title:hover {
+  color: var(--color-ink);
+  text-decoration: underline;
+}
+
+.poster-card-organizer {
+  max-width: 100%;
+  margin: var(--space-0);
+  overflow: hidden;
+  color: var(--color-ink-soft);
+  font-size: var(--text-body-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Pinned to the card's foot so the chips line up across a row of different-length titles. */
+.poster-card-countdown {
+  margin-block-start: auto;
+}
+
+.home-catalog-note {
+  max-width: var(--content-prose);
+  margin: var(--space-0);
+  color: var(--color-ink-soft);
+}
+
+/* ---- Interest picker ---- */
+.interest-picker {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-4);
+  padding: var(--space-6);
+  border: var(--border-thin) solid var(--color-line);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  scroll-margin-top: calc(var(--header-height) + var(--space-4));
+}
+
+.interest-picker-copy {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.interest-picker-copy h3 {
+  font-size: var(--text-card-title);
+}
+
+.interest-picker-copy p {
+  max-width: var(--content-prose);
+  margin: var(--space-0);
+  color: var(--color-ink-soft);
+  font-size: var(--text-body-sm);
+}
+
+.interest-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-0);
+  padding: var(--space-0);
+  list-style: none;
+}
+
+.interest-chip {
+  display: inline-flex;
+  min-height: var(--touch-target);
+  align-items: center;
+  gap: var(--space-1-5);
+  padding-inline: var(--space-4);
+  border: var(--border-thin) solid var(--color-line);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-size: var(--text-body-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) var(--ease-primary),
+    border-color var(--duration-fast) var(--ease-primary),
+    color var(--duration-fast) var(--ease-primary);
+}
+
+.interest-chip:hover {
+  border-color: var(--color-ink-faint);
+  background: var(--color-hover-surface);
+}
+
+.interest-chip[aria-pressed="true"] {
+  border-color: var(--color-highlight);
+  background: var(--color-highlight);
+  color: var(--color-highlight-ink);
+}
+
+.empty-state-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
+}
+
+.saved-card-countdown {
+  width: fit-content;
+  margin-block: var(--space-1);
+}
+
+/* ---- Mobile tab bar ----
+ * A floating bar where the thumb rests, the way installed apps navigate. Phones only; the header
+ * carries the same links above the breakpoint.
+ */
+.mobile-tab-bar {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .mobile-tab-bar {
+    position: fixed;
+    inset-inline: var(--space-3);
+    inset-block-end: max(var(--space-3), env(safe-area-inset-bottom));
+    z-index: var(--z-header);
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--space-1);
+    padding: var(--space-1-5);
+    border-radius: var(--radius-feature);
+  }
+
+  .mobile-tab {
+    display: grid;
+    min-height: calc(var(--touch-target) + var(--space-3));
+    align-content: center;
+    justify-items: center;
+    gap: var(--space-1);
+    border-radius: var(--radius-card);
+    color: var(--color-ink-soft);
+    font-size: var(--text-micro);
+    font-weight: 600;
+    text-decoration: none;
+    transition:
+      background-color var(--duration-fast) var(--ease-primary),
+      color var(--duration-fast) var(--ease-primary);
+  }
+
+  .mobile-tab:hover {
+    color: var(--color-ink);
+  }
+
+  .mobile-tab[aria-current="page"] {
+    background: var(--color-highlight);
+    color: var(--color-highlight-ink);
+  }
+
+  /* Room under the last content, the sticky form bar and toasts, so the bar never covers them. */
+  body:has(.mobile-tab-bar) {
+    padding-block-end: calc(var(--touch-target) * 2 + var(--space-3));
+  }
+
+  body:has(.mobile-tab-bar) .form-action-bar,
+  body:has(.mobile-tab-bar) .toast-region {
+    inset-block-end: calc(var(--touch-target) * 2 + var(--space-3));
+  }
+}
+
+@media (max-width: 640px) {
+  .shelf-track {
+    margin-inline: calc(var(--page-padding-mobile) * -1);
+    padding-inline: var(--page-padding-mobile);
+    scroll-padding-inline: var(--page-padding-mobile);
+  }
+
+  .shelf-header {
+    align-items: flex-start;
+  }
+
+  .interest-picker {
+    padding: var(--space-5);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .poster-card:hover,
+  .poster-card:focus-within {
+    transform: none;
+  }
+}
