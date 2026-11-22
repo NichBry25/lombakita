@@ -75,7 +75,7 @@ export default function PrivacyPage() {
         <section className="stack-md document-clause">
           <h2 className="section-title">3. Data profil</h2>
           <p>
-            Saat mendaftar sebagai peserta, Anda mengisi nama lengkap, nomor telepon, status saat
+            Saat mendaftar sebagai kandidat, Anda mengisi nama lengkap, nomor telepon, status saat
             ini, dan tanggal lahir.
           </p>
           <p>

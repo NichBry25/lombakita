@@ -23,13 +23,13 @@ import { COMPANY } from "@/config/company";
 // The support email comes from COMPANY, as it does on the page.
 const EXPECTED_PAGE_BLOCKS = [
   "Tentang Lombakita",
-  "Lombakita adalah platform untuk menemukan dan mendaftar kompetisi di Indonesia. Penyelenggara menerbitkan kompetisinya di sini, dan peserta mendaftar tanpa pindah situs.",
+  "Lombakita adalah platform untuk menemukan dan mendaftar kompetisi di Indonesia. Penyelenggara menerbitkan kompetisinya di sini, dan kandidat mendaftar tanpa pindah situs.",
   "Layanan kami",
-  "Untuk peserta: jelajahi kompetisi menurut kategori, penyelenggara, dan tenggat, simpan yang menarik, lalu daftar langsung dari halaman kompetisi, sebagai individu atau tim.",
+  "Untuk kandidat: jelajahi kompetisi menurut kategori, penyelenggara, dan tenggat, simpan yang menarik, lalu daftar langsung dari halaman kompetisi, sebagai individu atau tim.",
   "Untuk penyelenggara: institusi membuat ruang kerja, menerbitkan kompetisi, dan mengelola pendaftar serta hasilnya. Lombakita tidak menilai peserta dan tidak ikut menentukan pemenang.",
   "Cara mendaftar kompetisi",
   "Buka halaman kompetisi dan baca persyaratannya.",
-  "Masuk, atau buat akun sebagai peserta.",
+  "Masuk, atau buat akun sebagai kandidat.",
   'Tekan "Daftar kompetisi", lalu daftar sebagai individu atau buat tim.',
   "Konfirmasi pendaftaran dikirim ke emailmu.",
   "Cara menerbitkan kompetisi",
@@ -138,7 +138,7 @@ describe("AboutPage", () => {
   });
 
   it("fails when two blocks swap places", () => {
-    const first = "<li>Masuk, atau buat akun sebagai peserta.</li>";
+    const first = "<li>Masuk, atau buat akun sebagai kandidat.</li>";
     const second = "<li>Konfirmasi pendaftaran dikirim ke emailmu.</li>";
     const swapped = html.replace(first, "@@").replace(second, first).replace("@@", second);
 

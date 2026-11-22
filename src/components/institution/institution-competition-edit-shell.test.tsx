@@ -680,7 +680,7 @@ describe("InstitutionCompetitionEditShell after publish", () => {
     {
       state: "a published competition in both mode",
       competition: { ...PUBLISHED_TEAM, mode: "both", minTeamSize: 1, maxTeamSize: 4 },
-      min: ["form-label", "form-input-lock-wrap"],
+      min: ["form-label", "form-input-lock-wrap", "form-help"],
       max: ["form-label", "form-input", "form-help"],
     },
     {

@@ -1390,8 +1390,9 @@ export const InstitutionCompetitionEditShell = ({
   // value that exists and stays, so it reads as read-only.
   const minTeamSizeIsFixed = mode === "individual" || mode === "both";
   const maxTeamSizeIsFixed = mode === "individual";
-  const showsMinTeamSizeLock = isPublished && mode === "team";
-  const showsMaxTeamSizeLock = isPublished && mode !== "individual";
+  // Both fields of the pair carry their line or neither does, so the two inputs stay level. In both
+  // mode the min is fixed and read-only yet still gets its line.
+  const showsTeamSizeLocks = isPublished && mode !== "individual";
   const cancellationRightIsLocked = isPublished && savedSnapshot?.allowCancellation === true;
   const savedCutoffDays =
     cancellationRightIsLocked && savedSnapshot ? cutoffOrNull(savedSnapshot.cutoffDays) : null;
@@ -1917,9 +1918,9 @@ export const InstitutionCompetitionEditShell = ({
                       max={savedMinTeamSize ?? undefined}
                       readOnly={minTeamSizeIsFixed}
                       aria-invalid={brokenPublishLocks.includes("minTeamSize") ? true : undefined}
-                      aria-describedby={showsMinTeamSizeLock ? "min-team-size-lock" : undefined}
+                      aria-describedby={showsTeamSizeLocks ? "min-team-size-lock" : undefined}
                     />
-                    {showsMinTeamSizeLock ? (
+                    {showsTeamSizeLocks ? (
                       <PublishLockLine
                         id="min-team-size-lock"
                         field="minTeamSize"
@@ -1936,9 +1937,9 @@ export const InstitutionCompetitionEditShell = ({
                       min={savedMaxTeamSize ?? 1}
                       readOnly={maxTeamSizeIsFixed}
                       aria-invalid={brokenPublishLocks.includes("maxTeamSize") ? true : undefined}
-                      aria-describedby={showsMaxTeamSizeLock ? "max-team-size-lock" : undefined}
+                      aria-describedby={showsTeamSizeLocks ? "max-team-size-lock" : undefined}
                     />
-                    {showsMaxTeamSizeLock ? (
+                    {showsTeamSizeLocks ? (
                       <PublishLockLine
                         id="max-team-size-lock"
                         field="maxTeamSize"

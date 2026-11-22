@@ -619,7 +619,7 @@ export default async function CompetitionDetailPage({
               <p className="muted-copy">Daftar dan ikuti kompetisi ini untuk memberi ulasan.</p>
             ) : !session?.user ? (
               <p className="detail-rail-note">
-                <Link href={signInPath}>Masuk</Link> sebagai peserta untuk memberi ulasan.
+                <Link href={signInPath}>Masuk</Link> sebagai kandidat untuk memberi ulasan.
               </p>
             ) : null}
 

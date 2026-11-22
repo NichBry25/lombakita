@@ -8,7 +8,7 @@ import { requireRolePage } from "@/server/auth/page-guard";
 
 export const metadata = {
   title: "Pembayaran tertahan",
-  description: "Batalkan bukti transfer atau kompetisi yang tertahan oleh pembayaran berjalan.",
+  description: "Batalkan bukti transfer yang menahan kompetisi atau menghalangi pengiriman ulang.",
 };
 
 /**
@@ -24,8 +24,8 @@ export const metadata = {
  *
  * TWO POPULATIONS ARE STRANDED BY THIS LANE, and both are read here. A competition held open by an
  * in-flight transfer cannot be withdrawn; a payer the organiser barred from resubmitting cannot move
- * at all. The second holds no competition open, so it can never appear in the first list, and the
- * void is the only control that releases it.
+ * at all. The second holds no competition open, so it can never appear in the first list. The void
+ * is the only control on this page, and it releases both.
  */
 export default async function AdminBlockedPaymentsPage() {
   await requireRolePage("platform_ops", { callbackPath: "/admin/payments" });
@@ -54,8 +54,8 @@ export default async function AdminBlockedPaymentsPage() {
         }
       />
 
-      {/* DEC-0130 stated at the top, because both actions below are taken by people who will be
-          asked about refunds and neither action can produce one. */}
+      {/* DEC-0130 stated at the top, because the action below is taken by people who will be
+          asked about refunds and it cannot produce one. */}
       <Feedback tone="warning">
         Lombakita tidak pernah menampung dana peserta. Setiap transfer masuk langsung ke rekening
         lembaga penyelenggara. Tidak ada tindakan di halaman ini yang mengembalikan uang peserta,
@@ -69,10 +69,6 @@ export default async function AdminBlockedPaymentsPage() {
           institutionSlug: competition.institutionSlug,
           slug: competition.slug,
           status: competition.status,
-          // The hatch's CAS refuses anything but `published`, so the control is withheld there. A
-          // published competition on this list still holds a transfer in flight, so the service
-          // refuses its cancellation and the refusal is shown in a toast.
-          cancellable: competition.status === "published",
           proofs: competition.proofs.map((proof) => ({
             proofId: proof.proofId,
             status: proof.status,
