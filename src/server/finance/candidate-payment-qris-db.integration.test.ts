@@ -130,6 +130,8 @@ const seedOperatorAccount = async (tx: Tx): Promise<string> => {
 
 type Fixture = {
   payerUserId: string;
+  // Rules on the payer's proofs: nobody may rule on their own place.
+  reviewerUserId: string;
   institutionId: string;
   competitionId: string;
   payerRegistrationId: string;
@@ -147,6 +149,7 @@ const seedFixture = async (
 ): Promise<Fixture> => {
   const id = uniqueSuffix();
   const payerUserId = await seedUser(tx, "qrispayer");
+  const reviewerUserId = await seedUser(tx, "qrisreviewer");
 
   const [institution] = await tx
     .insert(institutions)
@@ -193,6 +196,7 @@ const seedFixture = async (
 
   return {
     payerUserId,
+    reviewerUserId,
     institutionId,
     competitionId: competition!.id,
     payerRegistrationId: registration!.id,
@@ -248,7 +252,7 @@ const rejectProof = async (
     await import("@/server/finance/manual-payment-proof-service");
   await rejectManualPaymentProof(
     fixture.institutionId,
-    fixture.payerUserId,
+    fixture.reviewerUserId,
     proofId,
     "bukti tidak terbaca",
     resubmissionAllowed,

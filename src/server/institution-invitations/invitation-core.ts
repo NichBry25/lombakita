@@ -47,6 +47,8 @@ type InstitutionInvitationErrorCode =
   | "invitation_already_member"
   | "invitation_forbidden"
   | "invitation_role_verification_required"
+  | "member_holds_competition_place"
+  | "invitation_accept_retry"
   // A personal institution is single-member and cannot invite staff or members.
   | "invitation_personal_institution"
   // Thrown by the shared de-identified-account guard, not by this module: accepting an invitation

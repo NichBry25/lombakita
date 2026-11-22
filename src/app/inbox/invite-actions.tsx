@@ -2,7 +2,12 @@
 
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui";
-import { COMPETITION_HOST_CANNOT_JOIN_MESSAGE, errorMessageFor } from "@/lib/errors/error-copy";
+import {
+  COMPETITION_HOST_CANNOT_JOIN_MESSAGE,
+  COMPETITIONS_CHANGING_RETRY_MESSAGE,
+  errorMessageFor,
+  INVITEE_HOLDS_PLACE_MESSAGE,
+} from "@/lib/errors/error-copy";
 import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
 import { useModal, useToast, type ModalOutcome } from "@/components/ui/primitives";
 
@@ -28,6 +33,8 @@ const INVITE_ERROR_COPY: Partial<Record<string, string>> = {
   invitation_role_verification_required:
     "Undangan ini hanya bisa diterima oleh akun penyelenggara yang sudah diverifikasi. Verifikasi akun penyelenggara Anda terlebih dahulu.",
   invitation_already_member: "Anda sudah menjadi anggota institusi ini.",
+  member_holds_competition_place: INVITEE_HOLDS_PLACE_MESSAGE,
+  invitation_accept_retry: COMPETITIONS_CHANGING_RETRY_MESSAGE,
   account_deactivated: "Data akun ini sudah dihapus. Tindakan ini tidak tersedia.",
   team_not_found: "Tim ini sudah tidak ada. Muat ulang halaman.",
   team_not_forming: "Tim ini sudah tidak menerima anggota baru.",

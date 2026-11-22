@@ -17,7 +17,9 @@ type MemberErrorCode =
   | "member_invalid_role"
   | "member_invalid_payload"
   | "role_escalation_forbidden"
-  | "last_owner_demotion_forbidden";
+  | "last_owner_demotion_forbidden"
+  | "member_holds_competition_place"
+  | "member_role_retry";
 
 export class MemberError extends Error {
   constructor(

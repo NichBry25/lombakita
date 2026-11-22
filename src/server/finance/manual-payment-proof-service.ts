@@ -13,6 +13,7 @@ import {
   financePaymentEvents,
   financePayments,
   institutionAuditLogs,
+  teamMemberships,
   type FinanceManualPaymentProofRecord,
 } from "@/server/db/schema";
 import { appendPaymentEvent } from "@/server/finance/payment-service";
@@ -73,6 +74,8 @@ export type ManualProofErrorCode =
   | "manual_proof_already_submitted"
   | "manual_proof_registration_cancelled"
   | "manual_proof_not_pending"
+  // The verdict is on a payment for the acting reviewer's own place or their own team's.
+  | "payment_proof_own_place"
   // The void found a proof it may not close: verified, or already voided. Deliberately NOT
   // `manual_proof_not_pending`, which would now be a false statement about the row. A rejected
   // proof is not pending and is voidable precisely so a barred payer can be released.
@@ -686,6 +689,70 @@ const loadCompetitionIdForPayment = async (paymentId: string, db: Database): Pro
   return row.competitionId;
 };
 
+const isActiveTeamMember = async (
+  tx: TransactionClient,
+  teamId: string,
+  userId: string,
+): Promise<boolean> => {
+  const [membership] = await tx
+    .select({ id: teamMemberships.id })
+    .from(teamMemberships)
+    .where(
+      and(
+        eq(teamMemberships.teamId, teamId),
+        eq(teamMemberships.userId, userId),
+        eq(teamMemberships.status, "active"),
+      ),
+    )
+    .limit(1);
+
+  return membership !== undefined;
+};
+
+/**
+ * Refuses a verdict on a payment that belongs to the reviewer's own place.
+ *
+ * The payment is anchored on one registration, the payer's or a team captain's, and a team's
+ * verdict is true for every member. The reviewer is therefore refused when they are that
+ * registration's candidate or an active member of its team. The team is read through team
+ * memberships and not through registration rows, because a teammate who joined while the team
+ * registered has no row of their own.
+ *
+ * A candidate resubmitting their own proof is not a verdict, so reopen does not call this.
+ */
+const assertVerdictIsNotOnOwnPlace = async (
+  tx: TransactionClient,
+  paymentId: string,
+  reviewerUserId: string,
+): Promise<void> => {
+  const [anchor] = await tx
+    .select({
+      studentId: competitionRegistrations.studentId,
+      teamId: competitionRegistrations.teamId,
+    })
+    .from(financePayments)
+    .innerJoin(
+      competitionRegistrations,
+      eq(competitionRegistrations.id, financePayments.competitionRegistrationId),
+    )
+    .where(eq(financePayments.id, paymentId))
+    .limit(1);
+
+  if (!anchor) return;
+
+  const isOwnRegistration = anchor.studentId === reviewerUserId;
+  const isOwnTeamPayment =
+    anchor.teamId !== null && (await isActiveTeamMember(tx, anchor.teamId, reviewerUserId));
+
+  if (isOwnRegistration || isOwnTeamPayment) {
+    throw new ManualProofError(
+      "payment_proof_own_place",
+      "Anda tidak dapat memeriksa bukti transfer untuk pendaftaran Anda sendiri",
+      403,
+    );
+  }
+};
+
 /**
  * Accepts a bukti transfer: the money is confirmed received.
  *
@@ -734,6 +801,8 @@ export const verifyManualPaymentProof = async (
     if (!target) {
       throw new ManualProofError("manual_proof_not_found", "Bukti transfer tidak ditemukan", 404);
     }
+
+    await assertVerdictIsNotOnOwnPlace(tx, target.paymentId, reviewerUserId);
 
     // ANSWERED BEFORE THE LANE CHECK, and the order is the whole point. A second verify closes the
     // lane by its own success (the first one appended `succeeded`) so asking the lane first would
@@ -874,6 +943,26 @@ export const rejectManualPaymentProof = async (
   // attempt failed to reach the history would lose the attempt the moment the candidate resubmits
   // over it, which is precisely the loss the history exists to prevent.
   const { proof: rejected, recipientUserIds } = await db.transaction(async (tx) => {
+    // Scoped to the institution like the CAS below, so another organiser's proof id reads as not
+    // found and is never refused as an own place.
+    const [verdictTarget] = await tx
+      .select({ paymentId: financeManualPaymentProofs.paymentId })
+      .from(financeManualPaymentProofs)
+      .where(
+        and(
+          eq(financeManualPaymentProofs.id, proofId),
+          inArray(
+            financeManualPaymentProofs.competitionId,
+            competitionIdsOwnedBy(institutionId, tx as unknown as Database),
+          ),
+        ),
+      )
+      .limit(1);
+
+    if (verdictTarget) {
+      await assertVerdictIsNotOnOwnPlace(tx, verdictTarget.paymentId, reviewerUserId);
+    }
+
     const [proof] = await tx
       .update(financeManualPaymentProofs)
       .set({

@@ -11,6 +11,11 @@ import {
 } from "@/server/db/schema";
 import { isPersonalInstitutionType } from "@/server/institution-workspace/institution-type";
 import { logger } from "@/lib/logger";
+import { COMPETITIONS_CHANGING_RETRY_MESSAGE } from "@/lib/errors/error-copy";
+import {
+  holdsLivePlaceInInstitution,
+  lockInstitutionCompetitionsForPlaceCheck,
+} from "@/server/institution-members/live-place";
 import {
   buildInvitationExpiresAt,
   generateRawToken,
@@ -228,6 +233,36 @@ export const createInstitutionInvitation = async (
   return invitation;
 };
 
+type TransactionClient = Parameters<Parameters<Database["transaction"]>[0]>[0];
+
+// The institution whose competitions must be locked before this accept, or null when the accept
+// gives the caller no owner or staff role. A plain read that locks nothing: it decides which locks to
+// take, and the invitation the accept acts on is read again once the account row is locked. Lives
+// before that row lock because a participation lock is never requested while holding a users row lock.
+const findInstitutionToPlaceCheck = async (
+  tx: TransactionClient,
+  invitationId: string,
+  userId: string,
+): Promise<string | null> => {
+  const [invitation] = await tx
+    .select({
+      institutionId: institutionInvitations.institutionId,
+      invitedRole: institutionInvitations.invitedRole,
+      targetUserId: institutionInvitations.targetUserId,
+      status: institutionInvitations.status,
+    })
+    .from(institutionInvitations)
+    .where(eq(institutionInvitations.id, invitationId))
+    .limit(1);
+
+  if (!invitation) return null;
+  if (invitation.targetUserId !== userId) return null;
+  if (invitation.status !== "pending") return null;
+  if (!RECRUITER_VERIFIED_ROLES.includes(invitation.invitedRole)) return null;
+
+  return invitation.institutionId;
+};
+
 // In-app, session-id-matched acceptance. Acceptance is no longer token-in-URL: the
 // invitation is addressed by id (from the recipient's inbox) and accepted ONLY when
 // session.user.id === target_user_id. A `pending_claim` invite has a null target and is therefore
@@ -242,10 +277,25 @@ export const acceptInstitutionInvitationForUser = async (
   db: Database = getDb(),
 ): Promise<void> => {
   await db.transaction(async (tx) => {
+    const placeCheckInstitutionId = await findInstitutionToPlaceCheck(tx, invitationId, userId);
+
+    if (placeCheckInstitutionId !== null) {
+      await lockInstitutionCompetitionsForPlaceCheck(
+        tx,
+        placeCheckInstitutionId,
+        () =>
+          new InstitutionInvitationError(
+            "invitation_accept_retry",
+            409,
+            COMPETITIONS_CHANGING_RETRY_MESSAGE,
+          ),
+      );
+    }
+
     // The membership below is a row this account would gain. A de-identified account is a tombstone
-    // the person is no longer reachable through, so it is refused before anything is read or
-    // written, and refused whole: an invitation is not a reason to hand membership to an account
-    // whose data has been deleted.
+    // the person is no longer reachable through, so it is refused before anything is written, and
+    // refused whole: an invitation is not a reason to hand membership to an account whose data has
+    // been deleted.
     await assertAccountNotDeactivated(tx, userId, InstitutionInvitationError);
 
     const [invitation] = await tx
@@ -317,6 +367,18 @@ export const acceptInstitutionInvitationForUser = async (
         "invitation_already_member",
         409,
         "You are already a member of this institution",
+      );
+    }
+
+    // After every refusal above, so the invitation stays pending and nothing is written.
+    if (
+      placeCheckInstitutionId !== null &&
+      (await holdsLivePlaceInInstitution(tx, userId, placeCheckInstitutionId))
+    ) {
+      throw new InstitutionInvitationError(
+        "member_holds_competition_place",
+        409,
+        "Invitee holds a place in a running competition of this institution and cannot accept an owner or staff invitation",
       );
     }
 
