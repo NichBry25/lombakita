@@ -104,7 +104,7 @@ export default function TermsPage() {
             menyetujui kontak itu tampil untuk umum di halaman kompetisi dan dapat muncul di mesin
             pencari. Kontak itu dihapus dari kompetisi jika akun yang memakai email tersebut
             dihapus, jika akun yang pendaftaran penyelenggaranya dengan nomor tersebut sudah
-            disetujui dihapus, atau jika penyelenggara terverifikasi yang pernah mencantumkan nomor
+            disetujui dihapus, atau jika penyelenggara terverifikasi yang mencantumkan nomor
             tersebut dalam pendaftaran penyelenggaranya dihapus.
           </p>
         </section>
