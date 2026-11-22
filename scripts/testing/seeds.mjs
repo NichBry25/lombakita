@@ -137,6 +137,7 @@ export const COMP = {
   susp: { id: "seed-comp-susp", slug: "seed-susp-open" },
   bDraft: { id: "seed-comp-b-draft", slug: "seed-b-draft" },
   paid: { id: "seed-comp-paid", slug: "seed-paid" },
+  paidDraft: { id: "seed-comp-paid-draft", slug: "seed-paid-draft" },
   dPaid: { id: "seed-comp-d-paid", slug: "seed-kolektif-paid" },
 };
 

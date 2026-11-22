@@ -1,13 +1,32 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Button, CheckboxField, IconButton } from "@/components/ui";
+import {
+  CheckboxField,
+  Feedback,
+  FormInput,
+  FormLabel,
+  FormTextarea,
+  IconButton,
+  Panel,
+} from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import {
-  SESSION_MISMATCH_CODE,
-  SESSION_MISMATCH_MESSAGE,
-  sessionFetch,
-} from "@/lib/session/session-fetch";
+  describePartLoadFailure,
+  useCompetitionEditorPart,
+  type CompetitionPartSaveResult,
+} from "@/components/institution/competition-editor-parts";
+import { errorMessageFor } from "@/lib/errors/error-copy";
+import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
+
+const SAVE_ERROR_COPY: Partial<Record<string, string>> = {
+  forbidden: "Anda tidak memiliki akses ke kompetisi institusi ini.",
+  competition_prizes_invalid_payload:
+    "Permintaan tidak dapat diproses. Muat ulang halaman lalu coba lagi.",
+  competition_prizes_invalid_value: "Periksa data hadiah lalu coba lagi.",
+};
+
+const SAVE_FALLBACK = "Gagal menyimpan hadiah. Coba lagi.";
 
 type PrizeRow = {
   rankLabel: string;
@@ -35,6 +54,24 @@ const emptyRow = (): PrizeRow => ({
   description: "",
 });
 
+const isBlankPrize = (row: PrizeRow): boolean =>
+  !row.isCertificate &&
+  [row.rankLabel, row.title, row.cashAmount, row.description].every((value) => value.trim() === "");
+
+const prizeRowsEqual = (a: PrizeRow[], b: PrizeRow[]): boolean =>
+  a.length === b.length &&
+  a.every((row, index) => {
+    const other = b[index];
+    return (
+      other !== undefined &&
+      row.rankLabel === other.rankLabel &&
+      row.title === other.title &&
+      row.cashAmount === other.cashAmount &&
+      row.isCertificate === other.isCertificate &&
+      row.description === other.description
+    );
+  });
+
 export const CompetitionPrizesEditor = ({
   competitionId,
   expectedUserId,
@@ -44,8 +81,9 @@ export const CompetitionPrizesEditor = ({
 }) => {
   const { addToast } = useToast();
   const [rows, setRows] = useState<PrizeRow[]>([]);
+  const [savedRows, setSavedRows] = useState<PrizeRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
 
   const loadPrizes = useCallback(async () => {
     setIsLoading(true);
@@ -59,15 +97,16 @@ export const CompetitionPrizesEditor = ({
         return;
       }
       const { prizes } = (await response.json()) as PrizesResponse;
-      setRows(
-        prizes.map((prize) => ({
-          rankLabel: prize.rankLabel ?? "",
-          title: prize.title,
-          cashAmount: prize.cashAmount ?? "",
-          isCertificate: prize.isCertificate,
-          description: prize.description ?? "",
-        })),
-      );
+      const loadedRows = prizes.map((prize) => ({
+        rankLabel: prize.rankLabel ?? "",
+        title: prize.title,
+        cashAmount: prize.cashAmount ?? "",
+        isCertificate: prize.isCertificate,
+        description: prize.description ?? "",
+      }));
+      setRows(loadedRows);
+      setSavedRows(loadedRows);
+      setHasLoaded(true);
     } catch {
       addToast({ type: "error", message: "Gagal memuat hadiah." });
     } finally {
@@ -83,18 +122,30 @@ export const CompetitionPrizesEditor = ({
     setRows((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)));
   };
 
-  const savePrizes = async () => {
-    if (isSaving) return;
-    setIsSaving(true);
-    const prizes = rows
-      .filter((row) => row.title.trim().length > 0)
-      .map((row) => ({
-        rankLabel: row.rankLabel.trim() || null,
-        title: row.title.trim(),
-        cashAmount: row.cashAmount.trim() ? Number(row.cashAmount) : null,
-        isCertificate: row.isCertificate,
-        description: row.description.trim() || null,
-      }));
+  const isDirty = !prizeRowsEqual(rows, savedRows);
+
+  const savePrizes = async (): Promise<CompetitionPartSaveResult> => {
+    const sentRows = rows.filter((row) => !isBlankPrize(row));
+    if (sentRows.some((row) => row.title.trim() === "")) {
+      return {
+        ok: false,
+        errorMessage: "Periksa data hadiah lalu coba lagi. Setiap hadiah wajib memiliki judul.",
+      };
+    }
+    if (sentRows.some((row) => row.cashAmount.trim() === "" && !row.isCertificate)) {
+      return {
+        ok: false,
+        errorMessage:
+          "Periksa data hadiah lalu coba lagi. Setiap hadiah wajib memiliki nominal tunai atau sertifikat.",
+      };
+    }
+    const prizes = sentRows.map((row) => ({
+      rankLabel: row.rankLabel.trim() || null,
+      title: row.title.trim(),
+      cashAmount: row.cashAmount.trim() ? Number(row.cashAmount) : null,
+      isCertificate: row.isCertificate,
+      description: row.description.trim() || null,
+    }));
 
     try {
       const response = await sessionFetch(
@@ -107,26 +158,19 @@ export const CompetitionPrizesEditor = ({
         },
       );
       if (!response.ok) {
-        const body = (await response.json().catch(() => null)) as {
-          error?: { code?: string; message?: string };
-        } | null;
-        addToast({
-          type: "error",
-          message:
-            body?.error?.code === SESSION_MISMATCH_CODE
-              ? SESSION_MISMATCH_MESSAGE
-              : (body?.error?.message ?? "Gagal menyimpan hadiah. Coba lagi."),
-        });
-        return;
+        const code = await readErrorCode(response);
+        return { ok: false, errorMessage: errorMessageFor(code, SAVE_ERROR_COPY, SAVE_FALLBACK) };
       }
-      addToast({ type: "success", message: "Hadiah berhasil disimpan." });
+      setRows(sentRows);
+      setSavedRows(sentRows);
       await loadPrizes();
+      return { ok: true };
     } catch {
-      addToast({ type: "error", message: "Gagal menyimpan hadiah karena gangguan koneksi." });
-    } finally {
-      setIsSaving(false);
+      return { ok: false, errorMessage: "Gagal menyimpan hadiah karena gangguan koneksi." };
     }
   };
+
+  useCompetitionEditorPart("prizes", isDirty, savePrizes);
 
   return (
     <section className="content-section stack-md">
@@ -140,41 +184,44 @@ export const CompetitionPrizesEditor = ({
 
       {isLoading ? (
         <p className="muted-copy">Memuat hadiah…</p>
+      ) : !hasLoaded ? (
+        <Feedback tone="error">{describePartLoadFailure("prizes")}</Feedback>
       ) : (
         <div className="stack-md">
           {rows.map((row, index) => (
-            <div key={index} className="surface-card card-padding stack-sm">
+            <Panel key={index} className="stack-sm">
               <div className="form-field">
-                <label className="form-label" htmlFor={`prize-rank-${index}`}>
+                <FormLabel htmlFor={`prize-rank-${index}`} optional>
                   Tingkat (mis. Juara 1)
-                </label>
-                <input
+                </FormLabel>
+                <FormInput
                   id={`prize-rank-${index}`}
-                  className="form-input"
                   value={row.rankLabel}
                   maxLength={80}
                   onChange={(event) => updateRow(index, { rankLabel: event.target.value })}
                 />
               </div>
               <div className="form-field">
-                <label className="form-label" htmlFor={`prize-title-${index}`}>
+                <FormLabel htmlFor={`prize-title-${index}`} required>
                   Nama hadiah
-                </label>
-                <input
+                </FormLabel>
+                <FormInput
                   id={`prize-title-${index}`}
-                  className="form-input"
                   value={row.title}
                   maxLength={160}
                   onChange={(event) => updateRow(index, { title: event.target.value })}
                 />
               </div>
               <div className="form-field">
-                <label className="form-label" htmlFor={`prize-cash-${index}`}>
+                <FormLabel
+                  htmlFor={`prize-cash-${index}`}
+                  required={!row.isCertificate}
+                  optional={row.isCertificate}
+                >
                   Nominal tunai (Rp)
-                </label>
-                <input
+                </FormLabel>
+                <FormInput
                   id={`prize-cash-${index}`}
-                  className="form-input"
                   type="number"
                   min={0}
                   value={row.cashAmount}
@@ -191,12 +238,11 @@ export const CompetitionPrizesEditor = ({
                 </CheckboxField>
               </div>
               <div className="form-field">
-                <label className="form-label" htmlFor={`prize-desc-${index}`}>
+                <FormLabel htmlFor={`prize-desc-${index}`} optional>
                   Deskripsi
-                </label>
-                <textarea
+                </FormLabel>
+                <FormTextarea
                   id={`prize-desc-${index}`}
-                  className="form-textarea"
                   rows={2}
                   value={row.description}
                   maxLength={1000}
@@ -206,25 +252,21 @@ export const CompetitionPrizesEditor = ({
               <IconButton
                 icon="trash"
                 label={`Hapus hadiah ${index + 1}`}
-                variant="danger"
-                size="sm"
+                variant="outline"
                 className="remove-row-button"
                 onClick={() => setRows((prev) => prev.filter((_, i) => i !== index))}
               />
-            </div>
+            </Panel>
           ))}
 
           <div className="cluster">
             <IconButton
               type="button"
-              size="sm"
+              variant="outline"
               icon="plus"
               label="Tambah hadiah"
               onClick={() => setRows((prev) => [...prev, emptyRow()])}
             />
-            <Button type="button" onClick={savePrizes} loading={isSaving}>
-              Simpan
-            </Button>
           </div>
         </div>
       )}

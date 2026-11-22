@@ -14,7 +14,7 @@
 //
 // Every test runs inside a transaction that is ALWAYS rolled back. Nothing here is committed.
 
-import { afterAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { TransactionRollbackError, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
@@ -34,8 +34,10 @@ vi.mock("@/server/storage/r2.client", () => ({
   deleteObject: vi.fn(),
   listObjects: vi.fn().mockResolvedValue([]),
 }));
+const { mockEnqueueApproved } = vi.hoisted(() => ({ mockEnqueueApproved: vi.fn() }));
 vi.mock("@/server/async/enqueue", () => ({
   enqueueRecruiterVerificationRejected: vi.fn().mockResolvedValue(undefined),
+  enqueueRecruiterVerificationApproved: mockEnqueueApproved,
 }));
 
 const DATABASE_URL = TEST_DATABASE_URL;
@@ -72,6 +74,22 @@ const seedOperator = async (tx: Tx): Promise<string> => {
       username: `ops_recruiter_${id}`,
       role: "platform_ops",
       candidateVerifiedAt: new Date(),
+    })
+    .returning({ id: users.id });
+  return row!.id;
+};
+
+const seedRecruiter = async (tx: Tx): Promise<string> => {
+  const id = uniqueSuffix();
+  const [row] = await tx
+    .insert(users)
+    .values({
+      email: `recruiter_${id}@example.test`,
+      username: `recruiter_${id}`,
+      emailVerified: new Date(),
+      role: "recruiter",
+      recruiterVerifiedAt: new Date(),
+      recruiterVerificationTier: "minimal",
     })
     .returning({ id: users.id });
   return row!.id;
@@ -122,6 +140,10 @@ const auditRowsAbout = (tx: Tx, userId: string) =>
 describe.skipIf(skipWithoutDatabase)(
   "operator recruiter-verification writers, real database",
   () => {
+    beforeEach(() => {
+      mockEnqueueApproved.mockClear();
+    });
+
     it("refuses an operator approving their own pending submission, and changes nothing", async () => {
       await inRollback(async (tx) => {
         const { reviewRecruiterVerification } = await import("./recruiter-verification-service");
@@ -177,6 +199,47 @@ describe.skipIf(skipWithoutDatabase)(
           actorUserId: reviewerId,
           eventType: "recruiter_verification.resubmission_blocked",
         });
+      });
+    });
+
+    it("approves a waiting host and sends one notice", async () => {
+      await inRollback(async (tx) => {
+        const { reviewRecruiterVerification } = await import("./recruiter-verification-service");
+        const host = await seedRecruiter(tx);
+        const submissionId = await seedSubmission(tx, host, { status: "pending_review" });
+        const reviewer = await seedOperator(tx);
+
+        const result = await reviewRecruiterVerification(reviewer, submissionId, "approve", null, {
+          db: tx,
+        });
+
+        expect(result.status).toBe("approved");
+        expect(await readTier(tx, host)).toBe("elevated");
+        expect(mockEnqueueApproved).toHaveBeenCalledOnce();
+        expect(mockEnqueueApproved).toHaveBeenCalledWith({
+          userId: host,
+          epoch: expect.any(Number),
+        });
+      });
+    });
+
+    it("sends one notice in total when a host raised by hand is approved later in review", async () => {
+      await inRollback(async (tx) => {
+        const { reviewRecruiterVerification } = await import("./recruiter-verification-service");
+        const host = await seedRecruiter(tx);
+        const submissionId = await seedSubmission(tx, host, { status: "pending_review" });
+        const reviewer = await seedOperator(tx);
+        const { elevateRecruiterTier } =
+          await import("@/server/recruiter-tier/recruiter-tier-service");
+        await elevateRecruiterTier(reviewer, host, tx);
+
+        const result = await reviewRecruiterVerification(reviewer, submissionId, "approve", null, {
+          db: tx,
+        });
+
+        expect(result.status).toBe("approved");
+        expect(await readTier(tx, host)).toBe("elevated");
+        expect(mockEnqueueApproved).toHaveBeenCalledTimes(1);
       });
     });
 

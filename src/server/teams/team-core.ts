@@ -7,10 +7,6 @@ import type {
   TeamStatus,
 } from "@/server/db/schema";
 
-// Team invitation expiry. Matches institution_invitations cadence (7 days from
-// creation). Acceptable at MVP; revisit if business requires shorter-lived team invites.
-export const TEAM_INVITATION_EXPIRY_DAYS = 7;
-
 // Team name validation. Length is generous for Indonesian team names; trimmed at the boundary.
 const TEAM_NAME_MIN = 2;
 const TEAM_NAME_MAX = 80;
@@ -44,6 +40,9 @@ export type TeamErrorCode =
   // The accepting (target) account must be candidate-verified; team membership is
   // candidate-scoped. Non-leaking 403 enforced at the accept mutation.
   | "team_invite_candidate_required"
+  // The owner and staff of the competition's institution run it, so they cannot take part in it.
+  | "team_host_of_competition"
+  | "team_member_host_of_competition"
   | "team_membership_not_found"
   | "team_captain_cannot_leave"
   | "team_not_captain"
@@ -58,6 +57,7 @@ export type TeamErrorCode =
   | "team_member_already_registered"
   | "team_not_submitted"
   | "team_state_conflict"
+  | "team_register_again_closed_by_payment_proof"
   // Candidate-cancellation policy applied to the captain's team cancellation.
   // Same code strings as the individual cancel path (registration-core) for client parity.
   | "cancellation_reason_required"
@@ -91,6 +91,8 @@ const STATUS_BY_CODE: Record<TeamErrorCode, number> = {
   team_invite_account_not_found: 404,
   team_invite_email_mismatch: 403,
   team_invite_candidate_required: 403,
+  team_host_of_competition: 403,
+  team_member_host_of_competition: 422,
   team_membership_not_found: 404,
   team_captain_cannot_leave: 422,
   team_not_captain: 403,
@@ -105,6 +107,7 @@ const STATUS_BY_CODE: Record<TeamErrorCode, number> = {
   team_member_already_registered: 409,
   team_not_submitted: 409,
   team_state_conflict: 409,
+  team_register_again_closed_by_payment_proof: 409,
   team_registration_invariant_violation: 422,
   cancellation_reason_required: 422,
   cancellation_reason_too_long: 422,
@@ -211,12 +214,6 @@ export const hashToken = (rawToken: string): string => {
 // First 8 chars only — never log the full raw token.
 export const maskToken = (rawToken: string): string => {
   return `${rawToken.slice(0, 8)}…`;
-};
-
-export const buildInvitationExpiresAt = (from: Date = new Date()): Date => {
-  const expiry = new Date(from);
-  expiry.setDate(expiry.getDate() + TEAM_INVITATION_EXPIRY_DAYS);
-  return expiry;
 };
 
 // Wire-format records returned by service + route layer.

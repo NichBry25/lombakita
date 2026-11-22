@@ -16,6 +16,7 @@ const base = (overrides: Partial<ClassifiableCompetition> = {}): ClassifiableCom
   description: "Deskripsi",
   category: "hackathon",
   mode: "both",
+  location: "hybrid",
   minTeamSize: 1,
   maxTeamSize: 4,
   registrationStartAt: new Date("2026-06-01T00:00:00.000Z"),
@@ -39,7 +40,7 @@ const snapshot = (
   hasActiveTeam: false,
   activeTeamSizes: [],
   hasActiveFree: false,
-  hasPaymentInFlight: false,
+  hasTransferAwaitingReview: false,
   ...overrides,
 });
 
@@ -85,26 +86,26 @@ describe("classifyCompetitionEdit — mode changes", () => {
     expect(result.blocked).toContain("mode");
   });
 
-  it("notifies (not blocks) a narrowing mode change when no affected registrations exist", () => {
+  it("blocks a narrowing mode change when no registration exists", () => {
     const result = classifyCompetitionEdit(
       base({ mode: "both" }),
       base({ mode: "team" }),
       snapshot({ nonCancelledCount: 0 }),
       NOW,
     );
-    expect(result.notify).toContain("mode");
-    expect(result.blocked).not.toContain("mode");
+    expect(result.blocked).toContain("mode");
+    expect(result.notify).not.toContain("mode");
   });
 
-  it("notifies a widening mode change (individual → both) regardless of registrations", () => {
+  it("blocks a widening mode change (individual → both) too", () => {
     const result = classifyCompetitionEdit(
       base({ mode: "individual" }),
       base({ mode: "both" }),
       snapshot({ nonCancelledCount: 1, hasActiveIndividual: true }),
       NOW,
     );
-    expect(result.notify).toContain("mode");
-    expect(result.blocked).not.toContain("mode");
+    expect(result.blocked).toContain("mode");
+    expect(result.notify).not.toContain("mode");
   });
 });
 
@@ -152,15 +153,15 @@ describe("classifyCompetitionEdit — fee", () => {
     expect(result.blocked).toContain("feeAmount");
   });
 
-  it("notifies a fee change when no free registrations are stranded", () => {
+  it("blocks a fee change when no free registration is stranded", () => {
     const result = classifyCompetitionEdit(
       base({ feeAmount: 0 }),
       base({ feeAmount: 50_000 }),
       snapshot({ nonCancelledCount: 0, hasActiveFree: false }),
       NOW,
     );
-    expect(result.notify).toContain("feeAmount");
-    expect(result.blocked).not.toContain("feeAmount");
+    expect(result.blocked).toContain("feeAmount");
+    expect(result.notify).not.toContain("feeAmount");
   });
 
   it("treats NULL and 0 as the same free price rather than as a change", () => {
@@ -193,7 +194,7 @@ describe("classifyCompetitionEdit — eventStartAt cancel window", () => {
     expect(result.blocked).toContain("eventStartAt");
   });
 
-  it("notifies moving eventStartAt earlier when the window still holds", () => {
+  it("blocks moving eventStartAt earlier even when the window still holds", () => {
     const oldRow = base({
       eventStartAt: new Date(NOW.getTime() + 60 * DAY),
       allowCancellation: true,
@@ -205,8 +206,8 @@ describe("classifyCompetitionEdit — eventStartAt cancel window", () => {
       cancellationCutoffDays: 7,
     });
     const result = classifyCompetitionEdit(oldRow, newRow, snapshot({ nonCancelledCount: 1 }), NOW);
-    expect(result.notify).toContain("eventStartAt");
-    expect(result.blocked).not.toContain("eventStartAt");
+    expect(result.blocked).toContain("eventStartAt");
+    expect(result.notify).not.toContain("eventStartAt");
   });
 
   it("notifies pushing a not-yet-started eventStartAt later", () => {
@@ -272,16 +273,14 @@ describe("classifyCompetitionEdit — eventStartAt frozen once passed", () => {
 });
 
 describe("classifyCompetitionEdit — buckets in isolation", () => {
-  it("a trivial-only edit returns an empty notify and blocked list", () => {
+  it("a description edit is announced", () => {
     const result = classifyCompetitionEdit(
       base(),
       base({ description: "Deskripsi baru" }),
       snapshot({ nonCancelledCount: 2 }),
       NOW,
     );
-    expect(result.trivial).toEqual(["description"]);
-    expect(result.notify).toEqual([]);
-    expect(result.blocked).toEqual([]);
+    expect(result).toEqual({ blocked: [], waitsForTransferReview: [], notify: ["description"] });
   });
 
   it("a notify-only edit returns an empty blocked list", () => {
@@ -303,7 +302,7 @@ describe("classifyCompetitionEdit — buckets in isolation", () => {
   });
 
   // Pushing back the date results were promised for is exactly what a waiting participant is
-  // owed a message about, so it must never be classified as trivial.
+  // owed a message about, so it is always announced.
   it("notifies when the result announcement date moves", () => {
     const result = classifyCompetitionEdit(
       base({ resultAnnouncementAt: new Date("2026-08-09T00:00:00.000Z") }),
@@ -313,7 +312,6 @@ describe("classifyCompetitionEdit — buckets in isolation", () => {
     );
     expect(result.notify).toContain("resultAnnouncementAt");
     expect(result.blocked).toEqual([]);
-    expect(result.trivial).toEqual([]);
   });
 
   it("notifies when a result announcement date is first set", () => {
@@ -326,9 +324,9 @@ describe("classifyCompetitionEdit — buckets in isolation", () => {
     expect(result.notify).toContain("resultAnnouncementAt");
   });
 
-  it("no changes returns three empty lists", () => {
+  it("no changes returns two empty lists", () => {
     const result = classifyCompetitionEdit(base(), base(), snapshot(), NOW);
-    expect(result).toEqual({ blocked: [], notify: [], trivial: [] });
+    expect(result).toEqual({ blocked: [], waitsForTransferReview: [], notify: [] });
   });
 });
 
@@ -339,27 +337,27 @@ describe("classifyCompetitionEdit: fee fields while money is in flight", () => {
     const raise = classifyCompetitionEdit(
       base({ feeAmount: 50_000 }),
       base({ feeAmount: 75_000 }),
-      snapshot({ hasPaymentInFlight: true }),
+      snapshot({ hasTransferAwaitingReview: true }),
     );
     expect(raise.blocked).toContain("feeAmount");
 
     const lower = classifyCompetitionEdit(
       base({ feeAmount: 50_000 }),
       base({ feeAmount: 25_000 }),
-      snapshot({ hasPaymentInFlight: true }),
+      snapshot({ hasTransferAwaitingReview: true }),
     );
     expect(lower.blocked).toContain("feeAmount");
   });
 
-  it("still only NOTIFIES on a fee change when nothing is in flight", () => {
+  it("BLOCKS a fee change when nothing is in flight too", () => {
     const result = classifyCompetitionEdit(
       base({ feeAmount: 50_000 }),
       base({ feeAmount: 75_000 }),
-      snapshot({ hasPaymentInFlight: false }),
+      snapshot({ hasTransferAwaitingReview: false }),
     );
 
-    expect(result.notify).toContain("feeAmount");
-    expect(result.blocked).not.toContain("feeAmount");
+    expect(result.blocked).toContain("feeAmount");
+    expect(result.notify).not.toContain("feeAmount");
   });
 
   it("keeps the pre-existing free→paid block, which is a different rule", () => {
@@ -368,28 +366,125 @@ describe("classifyCompetitionEdit: fee fields while money is in flight", () => {
     const result = classifyCompetitionEdit(
       base({ feeAmount: 0 }),
       base({ feeAmount: 50_000 }),
-      snapshot({ hasActiveFree: true, hasPaymentInFlight: false }),
+      snapshot({ hasActiveFree: true, hasTransferAwaitingReview: false }),
     );
 
     expect(result.blocked).toContain("feeAmount");
   });
 
-  it("classifies feeCurrency, which was previously not classified at all", () => {
+  it("BLOCKS a feeCurrency change whether or not a payment is in flight", () => {
     // An amount without its currency is not a price, so changing IDR to anything else restates what
     // the payer owes exactly as surely as changing the number.
     const blocked = classifyCompetitionEdit(
-      base({ feeCurrency: "IDR" }),
-      base({ feeCurrency: "USD" }),
-      snapshot({ hasPaymentInFlight: true }),
+      base({ feeAmount: 50_000, feeCurrency: "IDR" }),
+      base({ feeAmount: 50_000, feeCurrency: "USD" }),
+      snapshot({ hasTransferAwaitingReview: true }),
     );
     expect(blocked.blocked).toContain("feeCurrency");
 
-    const notified = classifyCompetitionEdit(
-      base({ feeCurrency: "IDR" }),
-      base({ feeCurrency: "USD" }),
-      snapshot({ hasPaymentInFlight: false }),
+    const notInFlight = classifyCompetitionEdit(
+      base({ feeAmount: 50_000, feeCurrency: "IDR" }),
+      base({ feeAmount: 50_000, feeCurrency: "USD" }),
+      snapshot({ hasTransferAwaitingReview: false }),
     );
-    expect(notified.notify).toContain("feeCurrency");
+    expect(notInFlight.blocked).toContain("feeCurrency");
+  });
+
+  describe("the currency of a free fee", () => {
+    const FREE_AMOUNTS = [0, null];
+
+    it.each(FREE_AMOUNTS)(
+      "does not block a stored currency beside a free amount (%s) that is cleared, in either direction",
+      (freeAmount) => {
+        const stored = base({ feeAmount: freeAmount, feeCurrency: "IDR" });
+        const cleared = base({ feeAmount: freeAmount, feeCurrency: null });
+
+        expect(classifyCompetitionEdit(stored, cleared, snapshot({})).blocked).toEqual([]);
+        expect(classifyCompetitionEdit(cleared, stored, snapshot({})).blocked).toEqual([]);
+      },
+    );
+
+    it.each(FREE_AMOUNTS)(
+      "does not block two different stored currencies beside a free amount (%s)",
+      (freeAmount) => {
+        const result = classifyCompetitionEdit(
+          base({ feeAmount: freeAmount, feeCurrency: "IDR" }),
+          base({ feeAmount: freeAmount, feeCurrency: "USD" }),
+          snapshot({}),
+        );
+
+        expect(result.blocked).toEqual([]);
+      },
+    );
+
+    // A real price never changes after publish, so every pair that differs in amount or currency
+    // with a non-zero amount on either side is blocked: [old, new, blocked or not].
+    const NON_ZERO_PAIRS: [ClassifiableCompetition, ClassifiableCompetition, boolean][] = [
+      [
+        base({ feeAmount: 50_000, feeCurrency: "IDR" }),
+        base({ feeAmount: 50_000, feeCurrency: "IDR" }),
+        false,
+      ],
+      [
+        base({ feeAmount: 50_000, feeCurrency: "IDR" }),
+        base({ feeAmount: 50_000, feeCurrency: "USD" }),
+        true,
+      ],
+      [
+        base({ feeAmount: 50_000, feeCurrency: "IDR" }),
+        base({ feeAmount: 75_000, feeCurrency: "IDR" }),
+        true,
+      ],
+      [
+        base({ feeAmount: 50_000, feeCurrency: "IDR" }),
+        base({ feeAmount: null, feeCurrency: null }),
+        true,
+      ],
+      [
+        base({ feeAmount: 50_000, feeCurrency: "IDR" }),
+        base({ feeAmount: 0, feeCurrency: null }),
+        true,
+      ],
+      [
+        base({ feeAmount: 50_000, feeCurrency: "IDR" }),
+        base({ feeAmount: 0, feeCurrency: "IDR" }),
+        true,
+      ],
+      [
+        base({ feeAmount: null, feeCurrency: null }),
+        base({ feeAmount: 50_000, feeCurrency: "IDR" }),
+        true,
+      ],
+      [
+        base({ feeAmount: 0, feeCurrency: "IDR" }),
+        base({ feeAmount: 50_000, feeCurrency: "IDR" }),
+        true,
+      ],
+      [
+        base({ feeAmount: null, feeCurrency: "IDR" }),
+        base({ feeAmount: 50_000, feeCurrency: "IDR" }),
+        true,
+      ],
+    ];
+
+    it.each(NON_ZERO_PAIRS)(
+      "keeps the answer for a pair with a non-zero amount (%#)",
+      (oldRow, newRow, isBlocked) => {
+        const result = classifyCompetitionEdit(oldRow, newRow, snapshot({}));
+
+        expect(result.blocked.length > 0).toBe(isBlocked);
+      },
+    );
+
+    it("names feeCurrency beside feeAmount when a free fee with a stored currency becomes a price", () => {
+      const result = classifyCompetitionEdit(
+        base({ feeAmount: 0, feeCurrency: "IDR" }),
+        base({ feeAmount: 50_000, feeCurrency: "IDR" }),
+        snapshot({}),
+      );
+
+      expect(result.blocked).toEqual(["feeAmount", "feeCurrency"]);
+    });
   });
 
   it("classifies paymentWindowDays as NOTIFY, never blocked", () => {
@@ -398,7 +493,7 @@ describe("classifyCompetitionEdit: fee fields while money is in flight", () => {
     const result = classifyCompetitionEdit(
       base({ paymentWindowDays: 3 }),
       base({ paymentWindowDays: 1 }),
-      snapshot({ hasPaymentInFlight: true }),
+      snapshot({ hasTransferAwaitingReview: true }),
     );
 
     expect(result.notify).toContain("paymentWindowDays");
@@ -414,7 +509,7 @@ describe("classifyCompetitionEdit: fee fields while money is in flight", () => {
   });
 });
 
-describe("classifyCompetitionEdit: registrationEndAt under an in-flight payment", () => {
+describe("classifyCompetitionEdit: registrationEndAt while a transfer awaits verification", () => {
   it("BLOCKS moving the registration deadline while a transfer is outstanding", () => {
     // Each payment's own deadline is clamped to this date at creation and never recomputed. Moving
     // the date leaves an outstanding payment carrying a deadline derived from a date that no longer
@@ -422,7 +517,7 @@ describe("classifyCompetitionEdit: registrationEndAt under an in-flight payment"
     const result = classifyCompetitionEdit(
       base({ registrationEndAt: new Date("2026-07-01T00:00:00.000Z") }),
       base({ registrationEndAt: new Date("2026-06-15T00:00:00.000Z") }),
-      snapshot({ hasPaymentInFlight: true }),
+      snapshot({ hasTransferAwaitingReview: true }),
       NOW,
     );
 
@@ -430,26 +525,231 @@ describe("classifyCompetitionEdit: registrationEndAt under an in-flight payment"
     expect(result.notify).not.toContain("registrationEndAt");
   });
 
-  it("blocks a LATER deadline too, not only an earlier one", () => {
+  it("holds a LATER deadline while a transfer awaits verification", () => {
     const result = classifyCompetitionEdit(
       base({ registrationEndAt: new Date("2026-07-01T00:00:00.000Z") }),
       base({ registrationEndAt: new Date("2026-09-01T00:00:00.000Z") }),
-      snapshot({ hasPaymentInFlight: true }),
+      snapshot({ hasTransferAwaitingReview: true }),
+      NOW,
+    );
+
+    expect(result.waitsForTransferReview).toEqual(["registrationEndAt"]);
+    expect(result.blocked).not.toContain("registrationEndAt");
+  });
+
+  it("BLOCKS an earlier deadline when nothing is in flight too", () => {
+    const result = classifyCompetitionEdit(
+      base({ registrationEndAt: new Date("2026-07-01T00:00:00.000Z") }),
+      base({ registrationEndAt: new Date("2026-06-15T00:00:00.000Z") }),
+      snapshot({ hasTransferAwaitingReview: false }),
       NOW,
     );
 
     expect(result.blocked).toContain("registrationEndAt");
+    expect(result.notify).not.toContain("registrationEndAt");
+  });
+});
+
+describe("classifyCompetitionEdit: what publishing locks", () => {
+  it("blocks raising minTeamSize when no team is registered", () => {
+    expect(
+      classifyCompetitionEdit(
+        base({ mode: "team", minTeamSize: 2 }),
+        base({ mode: "team", minTeamSize: 3 }),
+        snapshot(),
+        NOW,
+      ),
+    ).toEqual({ blocked: ["minTeamSize"], waitsForTransferReview: [], notify: [] });
   });
 
-  it("still only notifies when nothing is in flight", () => {
-    const result = classifyCompetitionEdit(
-      base({ registrationEndAt: new Date("2026-07-01T00:00:00.000Z") }),
-      base({ registrationEndAt: new Date("2026-06-15T00:00:00.000Z") }),
-      snapshot({ hasPaymentInFlight: false }),
-      NOW,
-    );
+  it("notifies lowering minTeamSize", () => {
+    expect(
+      classifyCompetitionEdit(
+        base({ mode: "team", minTeamSize: 3 }),
+        base({ mode: "team", minTeamSize: 2 }),
+        snapshot(),
+        NOW,
+      ),
+    ).toEqual({ blocked: [], waitsForTransferReview: [], notify: ["minTeamSize"] });
+  });
 
-    expect(result.notify).toContain("registrationEndAt");
-    expect(result.blocked).not.toContain("registrationEndAt");
+  it("blocks lowering maxTeamSize when no team is registered", () => {
+    expect(
+      classifyCompetitionEdit(base({ maxTeamSize: 4 }), base({ maxTeamSize: 3 }), snapshot(), NOW),
+    ).toEqual({ blocked: ["maxTeamSize"], waitsForTransferReview: [], notify: [] });
+  });
+
+  it("blocks a team size going to or from no value", () => {
+    expect(
+      classifyCompetitionEdit(
+        base({ minTeamSize: 2, maxTeamSize: null }),
+        base({ minTeamSize: null, maxTeamSize: 4 }),
+        snapshot(),
+        NOW,
+      ),
+    ).toEqual({ blocked: ["minTeamSize", "maxTeamSize"], waitsForTransferReview: [], notify: [] });
+  });
+
+  it("notifies a later registration close when nothing is in flight", () => {
+    expect(
+      classifyCompetitionEdit(
+        base({ registrationEndAt: new Date("2026-07-01T00:00:00.000Z") }),
+        base({ registrationEndAt: new Date("2026-07-15T00:00:00.000Z") }),
+        snapshot(),
+        NOW,
+      ),
+    ).toEqual({ blocked: [], waitsForTransferReview: [], notify: ["registrationEndAt"] });
+  });
+
+  it("blocks a changed slug", () => {
+    expect(
+      classifyCompetitionEdit(
+        base({ slug: "lomba" }),
+        base({ slug: "lomba-baru" }),
+        snapshot(),
+        NOW,
+      ),
+    ).toEqual({ blocked: ["slug"], waitsForTransferReview: [], notify: [] });
+  });
+
+  it("blocks turning withdrawal off", () => {
+    expect(
+      classifyCompetitionEdit(
+        base({ allowCancellation: true, cancellationCutoffDays: 3 }),
+        base({ allowCancellation: false, cancellationCutoffDays: null }),
+        snapshot(),
+        NOW,
+      ),
+    ).toEqual({
+      blocked: ["allowCancellation"],
+      waitsForTransferReview: [],
+      notify: ["cancellationCutoffDays"],
+    });
+  });
+
+  it("blocks a larger cancellation cutoff", () => {
+    expect(
+      classifyCompetitionEdit(
+        base({ allowCancellation: true, cancellationCutoffDays: 3 }),
+        base({ allowCancellation: true, cancellationCutoffDays: 5 }),
+        snapshot(),
+        NOW,
+      ),
+    ).toEqual({ blocked: ["cancellationCutoffDays"], waitsForTransferReview: [], notify: [] });
+  });
+
+  it("notifies a smaller cancellation cutoff", () => {
+    expect(
+      classifyCompetitionEdit(
+        base({ allowCancellation: true, cancellationCutoffDays: 5 }),
+        base({ allowCancellation: true, cancellationCutoffDays: 3 }),
+        snapshot(),
+        NOW,
+      ),
+    ).toEqual({ blocked: [], waitsForTransferReview: [], notify: ["cancellationCutoffDays"] });
+  });
+
+  it("notifies an earlier event end before the event starts", () => {
+    expect(
+      classifyCompetitionEdit(
+        base({ eventEndAt: new Date("2026-08-02T00:00:00.000Z") }),
+        base({ eventEndAt: new Date("2026-08-01T12:00:00.000Z") }),
+        snapshot(),
+        NOW,
+      ),
+    ).toEqual({ blocked: [], waitsForTransferReview: [], notify: ["eventEndAt"] });
+  });
+
+  it("blocks a first price on a free competition with no registration", () => {
+    expect(
+      classifyCompetitionEdit(
+        base(),
+        base({ feeAmount: 50_000, feeCurrency: "IDR" }),
+        snapshot(),
+        NOW,
+      ),
+    ).toEqual({ blocked: ["feeAmount", "feeCurrency"], waitsForTransferReview: [], notify: [] });
+  });
+
+  it("blocks an earlier event end once the event has started", () => {
+    expect(
+      classifyCompetitionEdit(
+        base({
+          eventStartAt: new Date(NOW.getTime() - DAY),
+          eventEndAt: new Date(NOW.getTime() + 2 * DAY),
+        }),
+        base({
+          eventStartAt: new Date(NOW.getTime() - DAY),
+          eventEndAt: new Date(NOW.getTime() + DAY),
+        }),
+        snapshot(),
+        NOW,
+      ),
+    ).toEqual({ blocked: ["eventEndAt"], waitsForTransferReview: [], notify: [] });
+  });
+
+  it("notifies a later event end after the event has started", () => {
+    expect(
+      classifyCompetitionEdit(
+        base({
+          eventStartAt: new Date(NOW.getTime() - DAY),
+          eventEndAt: new Date(NOW.getTime() + 2 * DAY),
+        }),
+        base({
+          eventStartAt: new Date(NOW.getTime() - DAY),
+          eventEndAt: new Date(NOW.getTime() + 3 * DAY),
+        }),
+        snapshot(),
+        NOW,
+      ),
+    ).toEqual({ blocked: [], waitsForTransferReview: [], notify: ["eventEndAt"] });
+  });
+});
+
+describe("classifyCompetitionEdit — location changes", () => {
+  const locationEdit = (
+    from: ClassifiableCompetition["location"],
+    to: ClassifiableCompetition["location"],
+  ) => classifyCompetitionEdit(base({ location: from }), base({ location: to }), snapshot(), NOW);
+
+  it.each([
+    ["online", "offline"],
+    ["offline", "online"],
+    ["hybrid", "online"],
+    ["hybrid", "offline"],
+  ] as const)("blocks %s → %s, which removes a way of taking part", (from, to) => {
+    expect(locationEdit(from, to)).toEqual({
+      blocked: ["location"],
+      waitsForTransferReview: [],
+      notify: [],
+    });
+  });
+
+  it.each(["online", "offline", "hybrid"] as const)("blocks %s → empty", (from) => {
+    expect(locationEdit(from, null)).toEqual({
+      blocked: ["location"],
+      waitsForTransferReview: [],
+      notify: [],
+    });
+  });
+
+  it.each([
+    [null, "online"],
+    [null, "offline"],
+    [null, "hybrid"],
+    ["online", "hybrid"],
+    ["offline", "hybrid"],
+  ] as const)("notifies %s → %s", (from, to) => {
+    expect(locationEdit(from, to)).toEqual({
+      blocked: [],
+      waitsForTransferReview: [],
+      notify: ["location"],
+    });
+  });
+
+  it("classifies nothing when the location did not change, empty included", () => {
+    const empty = { blocked: [], waitsForTransferReview: [], notify: [] };
+    expect(locationEdit("online", "online")).toEqual(empty);
+    expect(locationEdit(null, null)).toEqual(empty);
   });
 });

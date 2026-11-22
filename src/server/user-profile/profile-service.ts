@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, isNotNull, sql } from "drizzle-orm";
 import { enqueueCompetitionSearchSync } from "@/server/async/enqueue";
 import { getDb, type Database } from "@/server/db/client";
 import { userProfiles, users } from "@/server/db/schema";
@@ -84,7 +84,7 @@ const findUserProfileByUsername = async (
     .select(PROFILE_COLUMNS)
     .from(users)
     .leftJoin(userProfiles, eq(userProfiles.userId, users.id))
-    .where(eq(users.username, username))
+    .where(and(eq(users.username, username), isNotNull(users.emailVerified)))
     .limit(1);
 
   return row ?? null;

@@ -6,6 +6,7 @@ import { eq } from "drizzle-orm";
 import type { Job } from "bullmq";
 import { getDb } from "@/server/db/client";
 import { users } from "@/server/db/schema";
+import { formatWib } from "@/lib/dates/date-format";
 import { logger } from "@/lib/logger";
 import {
   ASYNC_JOB_NAMES,
@@ -52,11 +53,7 @@ export const processRegistrationDocumentRequestedJob = async (
     return;
   }
 
-  const dueLabel = new Date(dueAtIso).toLocaleDateString("id-ID", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
+  const dueLabel = formatWib(dueAtIso, "longDate");
 
   // Dual-channel: the in-app row is written first and its failure is swallowed, so the email keeps
   // its own rethrow-for-retry semantics.

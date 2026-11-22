@@ -58,8 +58,7 @@
 
   /*
    * Accent. Lime is a highlighter (background); olive carries accent text. Verified against the
-   * TINTED surfaces too, not just paper: eyebrows land on Palm Mist and on the accent tint, where
-   * the previous #667923 was 4.05:1 and 4.35:1. This clears 4.5:1 on every one of them.
+   * TINTED surfaces too, not just paper.
    */
   --color-accent: #5a6a1f;
   --color-accent-bg: #edf7d0;
@@ -72,6 +71,28 @@
    * it sits on, which is why it cannot reuse --color-inset (darker) or the raw mist (near-white).
    */
   --color-hover-surface: #e4ede4;
+  --header-mark-color: var(--brand-terracotta);
+
+  /* Card kit: the Panel fill, the Fakta circle and the pressed fill of a link card. */
+  --color-panel: #f1eada;
+  --color-fact-circle: var(--brand-mist);
+  --color-link-card-pressed: var(--brand-mist);
+
+  /* The 1 px line above every table row but the first. */
+  --table-row-line: #ece5d3;
+
+  /* Step line segments: done, current and not reached. */
+  --color-step-done: var(--brand-palm);
+  --color-step-current: var(--brand-terracotta);
+  --color-step-todo: #d8d0bc;
+
+  /* Empty state icon circles by kind: calm, good news and error. */
+  --color-empty-calm: var(--brand-mist);
+  --color-empty-calm-icon: var(--brand-palm);
+  --color-empty-good: #edf7d0;
+  --color-empty-good-icon: var(--brand-palm);
+  --color-empty-error: var(--brand-blush);
+  --color-empty-error-icon: var(--brand-terracotta);
 
   /*
    * The offset block behind the featured competition card and the hub action card. It is a large
@@ -91,6 +112,8 @@
   --color-disabled-surface: #f0ebdd;
   --color-disabled-text: #5c7571;
   --color-disabled-border: #d8d1bf;
+  --color-field-ring: #6b847d;
+  --color-field-readonly: #e4ede4;
   --color-success-surface: #d9ead9;
   --color-success-text: #1c5f52;
   --color-success-border: #9dc2ab;
@@ -157,10 +180,35 @@
   /* Skeleton */
   --skeleton-base: #ece5d5;
   --skeleton-highlight: #fbf6eb;
-  --skeleton-eyebrow-width: 7rem;
   --skeleton-button-width: 8.5rem;
   --skeleton-chip-width: 5.5rem;
   --skeleton-stat-min: 13rem;
+
+  /* Tones shared by pills, notices and toasts. Theme-invariant tones are declared once here. */
+  --tone-positive-fill: var(--color-status-open-bg);
+  --tone-positive-ink: var(--brand-palm);
+  --tone-positive-dot: #5f7a10;
+  --tone-attention-fill: var(--brand-blush);
+  --tone-attention-ink: #9b3617;
+  --tone-attention-dot: var(--brand-terracotta);
+  --tone-waiting-fill: #f1eada;
+  --tone-waiting-ink: var(--color-ink-soft);
+  --tone-waiting-dot: #536b66;
+  --tone-neutral-fill: #e8e6de;
+  --tone-neutral-ink: var(--color-ink-soft);
+  --tone-neutral-dot: #6b7f79;
+  --tone-calm-fill: var(--brand-mist);
+  --tone-calm-ink: var(--brand-palm);
+  --tone-calm-icon: var(--brand-palm);
+  --tone-attention-notice-fill: var(--brand-blush);
+  --tone-attention-notice-ink: var(--brand-palm);
+  --tone-attention-notice-icon: var(--brand-terracotta);
+  --tone-label-fill: #f1eada;
+  --tone-label-ink: var(--brand-palm);
+  --tone-label-band-fill: rgba(251, 246, 235, 0.14);
+  --tone-label-band-ink: var(--brand-paper);
+  --tone-label-cover-fill: var(--brand-paper);
+  --tone-label-cover-ink: var(--brand-palm);
 }
 
 /*
@@ -220,12 +268,47 @@
   --color-highlight-ink: #0e332d;
 
   --color-hover-surface: #1c4a42;
+  --header-mark-color: var(--brand-tangerine);
+  --color-panel: #0f2c27;
+  --table-row-line: #1e4a42;
+  --color-fact-circle: #1a4a41;
+  --color-link-card-pressed: #1a4a41;
+  --color-step-done: var(--brand-lime);
+  --color-step-current: var(--brand-tangerine);
+  --color-step-todo: var(--color-line);
+  --color-empty-calm: #1a4a41;
+  --color-empty-calm-icon: var(--color-ink);
+  --color-empty-good: #1c3a22;
+  --color-empty-good-icon: #c3e27a;
+  --color-empty-error: #3b2417;
+  --color-empty-error-icon: var(--brand-peach);
+
+  --tone-positive-fill: #1c3a22;
+  --tone-positive-ink: #c3e27a;
+  --tone-positive-dot: var(--brand-lime-deep);
+  --tone-attention-fill: #3b2417;
+  --tone-attention-ink: var(--brand-peach);
+  --tone-attention-dot: var(--brand-tangerine);
+  --tone-waiting-fill: #1b3f38;
+  --tone-waiting-ink: #a8c0b8;
+  --tone-waiting-dot: #a8c0b8;
+  --tone-neutral-fill: #1b3f38;
+  --tone-neutral-ink: #a8c0b8;
+  --tone-neutral-dot: #7e9f97;
+  --tone-calm-fill: var(--brand-palm);
+  --tone-calm-ink: var(--color-ink);
+  --tone-calm-icon: var(--color-ink);
+  --tone-label-fill: #1b3f38;
+  --tone-label-ink: var(--color-ink);
+
   --surface-offset-block: #6b4128;
   --wave-crest: #563322;
 
   --color-disabled-surface: #12302a;
   --color-disabled-text: #7e958e;
   --color-disabled-border: #24544a;
+  --color-field-ring: #7e9f97;
+  --color-field-readonly: #0a2621;
   --color-success-surface: #12301f;
   --color-success-text: #9bd7ae;
   --color-success-border: #2f5f42;
@@ -297,15 +380,17 @@
   --text-button-lg: 1rem;
   --text-brand: 1.375rem;
   --text-footer-title: 1.5rem;
-  --text-empty-title: 1.75rem;
   --text-brand-mobile: 1.25rem;
+  --text-bagian: 1.5rem;
+  --text-heading-sm: 1.25rem;
+  --text-link-card-title: 1.125rem;
+  --text-empty-sentence: 0.9375rem;
 
   --leading-tight: 1.05;
   --leading-heading: 1.18;
   --leading-body: 1.65;
   --leading-prose: 1.7;
   --tracking-heading: -0.015em;
-  --tracking-label: 0.09em;
 
   /* Spacing */
   --space-0: 0;
@@ -332,6 +417,14 @@
   --radius-control: 999px;
   --radius-input: 14px;
   --radius-card: 18px;
+  --radius-kartu: 1.25rem;
+  --radius-panel: 1rem;
+  --link-card-min-height: 4.5rem;
+  --link-card-ring-width: 1.5px;
+  --detail-label-width: 8.75rem;
+  --detail-stacked-min: 10rem;
+  --content-empty: 30rem;
+  --step-row-height: 1.375rem;
   --radius-feature: 24px;
   --radius-pill: 999px;
   --radius-circle: 50%;
@@ -355,25 +448,59 @@
   --content-max: 75rem;
   --content-prose: 43.75rem;
   --content-search: 48rem;
+  --content-hero: 40rem;
   --content-form: 42rem;
   --content-narrow: 32rem;
   --content-toast: 22.5rem;
+  --pill-height: 1.75rem;
+  --pill-dot: 0.5rem;
+  --pill-mark-icon: 1rem;
+  --radius-notice: 1rem;
+  --notice-min-height: 3.375rem;
+  --notice-line: 1.375rem;
+  --notice-icon: 1.25rem;
+  --notice-close-reserve: 3.5rem;
   --content-auth-min: 22rem;
   --content-footer-column: 8rem;
-  --content-table-wide: 56rem;
+  /* Table kit sizes. A name sticks at no more than 150 px, the edge fade is 36 px, a date column
+     is at least 150 px, a long text column at least 230 px, and a reason is 300 to 380 px. */
+  --table-sticky-column-max: 9.375rem;
+  --table-edge-fade: 2.25rem;
+  --table-date-min: 9.375rem;
+  --table-long-min: 14.375rem;
+  --table-reason-min: 18.75rem;
+  --table-reason-max: 23.75rem;
+  --table-data-label: 8.75rem;
   --viewport-min: 20rem;
   --content-detail-rail: 21.25rem;
-  --cover-list-height: 10.5rem;
   --cover-detail-height: 14.375rem;
   --skeleton-media-min: calc(var(--control-height-lg) * 3.25);
-  --page-padding: 1.75rem;
-  --page-padding-mobile: 1.125rem;
+  --page-padding: max(1.75rem, env(safe-area-inset-left), env(safe-area-inset-right));
+  --page-padding-mobile: max(1.125rem, env(safe-area-inset-left), env(safe-area-inset-right));
   --header-height: 4rem;
+  --header-mark-height: 0.1875rem;
+  --header-mark-drop: 0.5625rem;
+  --header-mark-inset: var(--space-4);
+  --header-mark-inset-icon: var(--space-3);
+  --header-sign-in-width: 5.4375rem;
+  --header-sheet-row-height: 3.5rem;
+  --header-sheet-row-text: 1.125rem;
+  --header-wordmark-tap-width: 4.875rem;
+  --header-wordmark-glyph-width: 4.875rem;
+  --header-wordmark-glyph-height: 2.5rem;
+  --header-skip-link-top: 0.625rem;
+  --header-skeleton-delay: 300ms;
+  --header-menu-min-width: 12.25rem;
+  --radius-menu-row: 0.625rem;
+  --footer-link-underline: 1.5px;
+  --footer-column-gap: var(--space-8);
+  --footer-tagline-width: 22.5rem;
+  --footer-fine-print-width: 47.5rem;
   --grid-gap: 1.375rem;
   --detail-gap: 2.25rem;
   --wordmark-header-width: 6.75rem;
   --wordmark-header-height: 2.75rem;
-  --wordmark-header-mobile-width: 6rem;
+  --wordmark-header-mobile-width: 4.875rem;
   --wordmark-header-mobile-height: 2.5rem;
   --wordmark-footer-width: 8rem;
   --wordmark-footer-height: 4.75rem;
@@ -386,6 +513,88 @@
   --shadow-lg: 0 24px 48px -16px rgba(20, 69, 61, 0.2), 0 8px 20px -8px rgba(20, 69, 61, 0.12);
   --shadow-glass: 0 12px 32px -12px var(--glass-shadow-color), inset 0 1px 0 var(--glass-edge);
   --shadow-action: 0 8px 20px -8px rgba(198, 73, 27, 0.45);
+
+  /* Pop-up shell: a solid box that floats above the scrim. The dark values are in the dark block. */
+  --modal-fill: var(--color-raised);
+  --modal-edge: var(--color-line);
+  --modal-shadow: 0 24px 64px rgba(20, 69, 61, 0.24);
+  --modal-width: 30rem;
+  --modal-width-wide: 35rem;
+  --modal-width-side: 26.25rem;
+  --modal-radius: var(--radius-feature);
+  --modal-radius-phone: var(--radius-kartu);
+  --modal-padding: var(--space-8);
+  --modal-padding-phone: var(--space-6);
+  --modal-margin-phone: var(--space-4);
+  --modal-margin-desktop: var(--space-6);
+  --modal-title-size: 1.75rem;
+  --modal-title-leading: 2.125rem;
+  --modal-title-size-phone: 1.5rem;
+  --modal-title-leading-phone: 1.875rem;
+  --modal-body-size: 1rem;
+  --modal-body-leading: 1.5rem;
+  --modal-title-gap: var(--space-3);
+  --modal-footer-gap: var(--space-7);
+  --modal-failure-gap: var(--space-5);
+  --modal-stack-gap: var(--space-1);
+  --duration-modal: 150ms;
+  --modal-rise: 8px;
+
+  /*
+   * Bottom bar: one floating glass panel. The panel is 644 wide (the form column) and 80 high,
+   * 16 from the bottom edge. The register bar is narrower and holds one 52 px button. The glow
+   * behind the panel is sized for an 80 px bar.
+   */
+  --bar-width: 40.25rem;
+  --bar-register-width: 33.75rem;
+  --bar-height: var(--space-20);
+  --bar-offset: var(--space-4);
+  --bar-offset-phone: var(--space-3);
+  --bar-padding-start: var(--space-3);
+  --bar-padding-register: var(--space-3-5);
+  --bar-gap: var(--space-3);
+  --bar-glow-spread-inline: 2.25rem;
+  --bar-glow-spread-above: 1rem;
+  --bar-glow-spread-below: 1.375rem;
+  --bar-glow-blur: 1.75rem;
+  --bar-toast-gap: var(--space-3);
+  --duration-bar: var(--duration-modal);
+  --bar-rise: var(--modal-rise);
+  --bar-note-halo: 1rem;
+  --bar-note-dot: 0.5rem;
+  --bar-note-gap: var(--space-2-5);
+  --bar-note-ink: var(--color-ink-soft);
+  --bar-note-strong-ink: var(--color-ink);
+  --bar-note-halo-fill: var(--brand-peach);
+  --bar-note-dot-fill: var(--brand-terracotta);
+  --reasons-list-indent: 1.125rem;
+
+  /* Character counter row under a text area with a limit. */
+  --form-message-row-height: 1.25rem;
+
+  /* Slider kit: a 6px track, a 24px thumb inside a 44px hit area. */
+  --slider-track-height: 0.375rem;
+  --slider-thumb-size: 1.5rem;
+  --slider-thumb-ring: 3px;
+  --slider-label-width: 4.5rem;
+  --slider-gap: var(--space-4);
+
+  /* The widest a pill of the competition list's desktop filter row grows before its text is cut. */
+  --filter-pill-max-width: 10rem;
+
+  /* The phone filter bar: one 44px chip row between two 12px paddings and the 1px top border,
+     without the safe area. */
+  --filter-bar-height: calc(var(--touch-target) + var(--space-3) * 2 + var(--border-thin));
+
+  /* Crop area (496 by 320 in a 560 pop-up) and the white ring of the guide inside it. */
+  --crop-area-ratio: 31 / 20;
+  --crop-area-radius: var(--radius-panel);
+  --crop-guide-ring: #ffffff;
+  --crop-guide-ring-width: 2px;
+
+  /* The organiser's QRIS: a white plate in both themes and an image of at most 280px. */
+  --qris-plate: #ffffff;
+  --qris-image-max-width: 17.5rem;
 
   /* Layers */
   --z-base: 0;
@@ -407,6 +616,7 @@
   --duration-theme: 400ms;
   --duration-rise: 500ms;
   --duration-pulse: 1600ms;
+  --skeleton-reveal-delay: 300ms;
   /*
    * Spinner rotation. A spinner is the only signal that an action is running, so unlike
    * decorative motion it keeps animating under reduced motion — it slows down instead of
@@ -449,13 +659,12 @@
    * Text and chips that sit on category/cover artwork. Two different backgrounds live here and
    * they move in opposite directions, so they need separate ink tokens:
    *
-   *   --on-cover-ink / -soft  sit directly on the WASH, which darkens in dark mode, so they
+   *   --on-cover-ink          sits directly on the WASH, which darkens in dark mode, so it
    *                           must follow the theme.
    *   --on-cover-chip-ink     sits on the CHIP, a near-white pill in BOTH themes, so it stays
    *                           dark always — theming it would put light ink on white.
    */
   --on-cover-ink: #14453d;
-  --on-cover-ink-soft: #3d5c56;
   --on-cover-chip: rgba(255, 255, 255, 0.88);
   --on-cover-chip-ink: #14453d;
 
@@ -503,10 +712,19 @@
   --category-blob-lightness: 42%;
 
   /*
-   * The ink on that wash has to invert with it. These must stay in this block, next to the wash
-   * they are measured against: worst case is the amber wash (hue 42), where paper reads 7.78:1
-   * and the soft ink 5.18:1. --on-cover-chip-ink is deliberately absent — the chip is still white.
+   * The ink on that wash has to invert with it. It must stay in this block, next to the wash
+   * it is measured against: worst case is the amber wash (hue 42), where paper reads 7.78:1.
+   * --on-cover-chip-ink is deliberately absent — the chip is still white.
    */
   --on-cover-ink: #f1ede2;
-  --on-cover-ink-soft: #a8c0b8;
+
+  /* The pop-up shell takes the menu fill in dark, one step below the card ground. */
+  --modal-fill: #12403a;
+  --modal-edge: #2e6157;
+  --modal-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+
+  /* On the dark glass the note text is the page ink, and the halo and dot take the tangerine. */
+  --bar-note-ink: var(--color-ink);
+  --bar-note-halo-fill: color-mix(in srgb, var(--brand-tangerine) 26%, transparent);
+  --bar-note-dot-fill: var(--brand-tangerine);
 }

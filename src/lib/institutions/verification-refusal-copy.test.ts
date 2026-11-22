@@ -28,13 +28,10 @@ describe("resolveVerificationRefusalMessage", () => {
     expect(message).not.toMatch(/platform-ops|cannot decide/i);
   });
 
-  it("relays the server's message for a code it has no copy for", () => {
-    expect(
-      resolveVerificationRefusalMessage(
-        { code: "verification_not_found", message: "Tidak ada." },
-        "Gagal.",
-      ),
-    ).toBe("Tidak ada.");
+  it("falls back instead of relaying the server's message for a code it has no copy for", () => {
+    expect(resolveVerificationRefusalMessage({ code: "unmapped_refusal_code" }, "Gagal.")).toBe(
+      "Gagal.",
+    );
   });
 
   it("falls back when the envelope carries neither a known code nor a message", () => {

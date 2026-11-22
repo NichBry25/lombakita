@@ -43,21 +43,26 @@ export type DriftProblem = {
 /**
  * A migration whose applied hash legitimately differs from its file's, with the other hash pinned.
  *
- * `8206ec4` edited two ALREADY-APPLIED migration files so an empty database could be built from
- * zero: 0032 gained the `draft` enum value in its original CREATE TYPE and 0047's ADD VALUE became
- * idempotent. That commit's own message records the reasoning, including that it is safe because
- * "Drizzle decides what is pending by timestamp and never compares the stored hash".
+ * Three ALREADY-APPLIED migration files were edited so an empty database could be built from
+ * zero. `8206ec4` gave 0032 the `draft` enum value in its original CREATE TYPE and made 0047's
+ * ADD VALUE idempotent. 0065 compares the invite status as text, because a build from zero adds
+ * `pending_claim` in the same transaction and PostgreSQL refuses an uncommitted enum value as a
+ * literal. Editing an applied file is safe because Drizzle decides what is pending by timestamp
+ * and never compares the stored hash.
  *
- * So two populations are both correct and always will be. A database migrated before that commit
- * holds `legacyHash`; one built from zero after it holds the current file's hash. Neither is drift.
+ * So for each entry two populations are both correct and always will be. A database migrated
+ * before the edit holds `legacyHash`, and one built from zero after it holds the current file's
+ * hash. Neither is drift.
  *
  * THIS PINS THE OTHER VALUE RATHER THAN SKIPPING THE ROW, which is the whole difference between a
  * declared exception and a hole. An allowlisted index still has to present one of exactly two
- * known hashes; a third value is drift and still fails. Skipping the index would have made these
- * two migrations permanently unwatchable, and they are the two most likely to be edited again.
+ * known hashes, and a third value is drift and still fails. Skipping the index would have made
+ * these migrations permanently unwatchable, and they are the ones most likely to be edited again.
  *
- * Verified rather than asserted: each `legacyHash` below is the SHA-256 of that file's contents at
- * `8206ec4^`, and each was confirmed equal to the hash `lombakita_production` actually holds.
+ * Verified rather than asserted: the 0032 and 0047 `legacyHash` values are the SHA-256 of each
+ * file at `8206ec4^` and equal the hashes `lombakita_production` holds. The 0065 `legacyHash` is
+ * the SHA-256 of the file before it compared the status as text, and equals the hash staging
+ * holds. Production applies the edited file.
  */
 export type AcceptedDivergence = {
   index: number;
@@ -82,6 +87,15 @@ export const ACCEPTED_DIVERGENCES: readonly AcceptedDivergence[] = Object.freeze
     reason:
       "8206ec4 made this migration's ADD VALUE idempotent so it is a no-op on a database that " +
       "already has `draft`; databases migrated before that commit hold the pre-edit hash",
+  },
+  {
+    index: 65,
+    tag: "0065_team_invitations_expire_at_close",
+    legacyHash: "5ff58067c197b0c57868ea2fcb84946884f3cc0cfd25fcaf1755470fb78eab76",
+    reason:
+      "the file compares the invite status as text so a database built from zero can apply it " +
+      "in the same transaction that adds `pending_claim`, and databases migrated before that " +
+      "edit hold the pre-edit hash",
   },
 ] as const);
 

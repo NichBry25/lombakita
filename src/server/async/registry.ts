@@ -21,6 +21,7 @@ import { processCompetitionCancelledJob } from "@/server/async/jobs/competition-
 import { processInstitutionInvitationDispatchJob } from "@/server/async/jobs/institution-invitation-dispatch";
 import { processTeamInvitationDispatchJob } from "@/server/async/jobs/team-invitation-dispatch";
 import { processRecruiterVerificationRejectedJob } from "@/server/async/jobs/recruiter-verification-rejected";
+import { processRecruiterVerificationApprovedJob } from "@/server/async/jobs/recruiter-verification-approved";
 import { processRegistrationDocumentRequestedJob } from "@/server/async/jobs/registration-document-requested";
 import { processRegistrationDocumentReviewedJob } from "@/server/async/jobs/registration-document-reviewed";
 import { processPaymentProofSubmittedJob } from "@/server/async/jobs/payment-proof-submitted";
@@ -28,6 +29,9 @@ import { processPaymentOutcomeJob } from "@/server/async/jobs/payment-outcome";
 import { processRetentionPurgeJob } from "@/server/async/jobs/retention-purge";
 import { processPaymentExpirySweepJob } from "@/server/async/jobs/payment-expiry-sweep";
 import { processEmailEgressProbeJob } from "@/server/async/jobs/email-egress-probe";
+import { processTeamCloseCheckJob } from "@/server/async/jobs/team-close-check";
+import { processTeamJoinReminderJob } from "@/server/async/jobs/team-join-reminder";
+import { processTeamCancelledBelowMinimumJob } from "@/server/async/jobs/team-cancelled-below-minimum";
 
 export type AsyncJobProcessor<Name extends AsyncJobName = AsyncJobName> = (
   job: Job<AsyncJobPayloadByName[Name], void, Name>,
@@ -69,6 +73,10 @@ export const ASYNC_JOB_REGISTRATIONS = [
     processRecruiterVerificationRejectedJob,
   ),
   defineAsyncJob(
+    ASYNC_JOB_NAMES.recruiterVerificationApproved,
+    processRecruiterVerificationApprovedJob,
+  ),
+  defineAsyncJob(
     ASYNC_JOB_NAMES.registrationDocumentRequested,
     processRegistrationDocumentRequestedJob,
   ),
@@ -81,6 +89,9 @@ export const ASYNC_JOB_REGISTRATIONS = [
   defineAsyncJob(ASYNC_JOB_NAMES.emailEgressProbe, processEmailEgressProbeJob),
   defineAsyncJob(ASYNC_JOB_NAMES.paymentProofSubmitted, processPaymentProofSubmittedJob),
   defineAsyncJob(ASYNC_JOB_NAMES.paymentOutcome, processPaymentOutcomeJob),
+  defineAsyncJob(ASYNC_JOB_NAMES.teamCloseCheck, processTeamCloseCheckJob),
+  defineAsyncJob(ASYNC_JOB_NAMES.teamJoinReminder, processTeamJoinReminderJob),
+  defineAsyncJob(ASYNC_JOB_NAMES.teamCancelledBelowMinimum, processTeamCancelledBelowMinimumJob),
 ] as const;
 
 const getUniqueQueueNames = (): AsyncQueueName[] => {

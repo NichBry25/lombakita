@@ -13,7 +13,7 @@
 // manual-lane integration suite. What is proven here is that the answer reaches the screen.
 
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { UIPrimitivesProvider } from "@/components/ui/primitives";
 import { IndividualRegistrationSection } from "./individual-section";
 import { CompetitionTeamSection } from "./team-section";
@@ -24,17 +24,26 @@ const CANCEL_LABEL = "Batalkan pendaftaran";
 const TEAM_CANCEL_LABEL = "Batalkan pendaftaran tim";
 const WITHHELD_COPY = /tidak dapat dibatalkan sendiri setelah bukti transfer dikirim/i;
 
-const renderIndividual = (cancellationClosedByPaymentProof: boolean) =>
+const TEAM_ROW_COPY =
+  "Pendaftaran ini terdaftar sebagai tim. Hanya ketua tim yang dapat membatalkan pendaftaran tim, lewat bagian Tim di halaman ini.";
+
+const renderIndividual = (
+  cancellationClosedByPaymentProof: boolean,
+  cancellationClosedForTeamRow = false,
+) =>
   render(
     <UIPrimitivesProvider>
       <IndividualRegistrationSection
         competitionId="comp-1"
+        competitionTitle="Seed Hackathon Nusantara"
         ctaState="open"
         initialRegistration={{ id: "reg-1", status: "confirmed" }}
         expectedUserId="user-1"
         modeLabel="Daftar"
         registrationWithheld={false}
+        registerAgainClosedByPaymentProof={false}
         cancellationClosedByPaymentProof={cancellationClosedByPaymentProof}
+        cancellationClosedForTeamRow={cancellationClosedForTeamRow}
       />
     </UIPrimitivesProvider>,
   );
@@ -74,6 +83,10 @@ const renderTeam = (
         initialPendingInvitations={[]}
         registrationWithheld={false}
         cancellationClosedByPaymentProof={cancellationClosedByPaymentProof}
+        isFreeCompetition={false}
+        openInvitationCount={0}
+        registrationClosesAt={null}
+        registerAgainClosedByPaymentProof={false}
       />
     </UIPrimitivesProvider>,
   );
@@ -98,7 +111,24 @@ describe("the individual cancel affordance", () => {
   it("keeps the registration itself visible: withholding cancel is not hiding the record", () => {
     renderIndividual(true);
 
-    expect(screen.getByText("✓ Terdaftar")).toBeTruthy();
+    expect(screen.getByText("Terdaftar")).toBeTruthy();
+  });
+
+  it("WITHHOLDS the control on a team row and shows the team sentence in its place", () => {
+    renderIndividual(false, true);
+
+    expect(screen.queryByRole("button", { name: CANCEL_LABEL })).toBeNull();
+    expect(screen.getByText(TEAM_ROW_COPY)).toBeTruthy();
+    expect(screen.queryByText(WITHHELD_COPY)).toBeNull();
+    expect(screen.getByText("Terdaftar")).toBeTruthy();
+  });
+
+  it("shows only the team sentence when a team row also has a proof sent", () => {
+    renderIndividual(true, true);
+
+    expect(screen.queryByRole("button", { name: CANCEL_LABEL })).toBeNull();
+    expect(screen.getAllByText(TEAM_ROW_COPY)).toHaveLength(1);
+    expect(screen.queryByText(WITHHELD_COPY)).toBeNull();
   });
 });
 
@@ -132,6 +162,19 @@ describe("the team cancel affordance", () => {
 
     expect(screen.queryByText(WITHHELD_COPY)).toBeNull();
   });
+
+  it("names the state the team returns to in Indonesian when the captain opens the cancel dialog", () => {
+    renderTeam(false);
+    fireEvent.click(screen.getByRole("button", { name: TEAM_CANCEL_LABEL }));
+
+    const dialogText = screen.getByRole("dialog").textContent ?? "";
+    expect({
+      saysPembentukan: dialogText.includes(
+        "Tim akan kembali ke tahap pembentukan dan semua pendaftaran tim dibatalkan.",
+      ),
+      showsRawStatus: dialogText.includes("forming"),
+    }).toEqual({ saysPembentukan: true, showsRawStatus: false });
+  });
 });
 
 // DEC-0170'S REFUSAL, ON BOTH ENTRY PATHS.
@@ -159,6 +202,10 @@ const renderTeamEntry = (registrationWithheld: boolean) =>
         initialPendingInvitations={[]}
         registrationWithheld={registrationWithheld}
         cancellationClosedByPaymentProof={false}
+        isFreeCompetition={false}
+        openInvitationCount={0}
+        registrationClosesAt={null}
+        registerAgainClosedByPaymentProof={false}
       />
     </UIPrimitivesProvider>,
   );
@@ -168,12 +215,15 @@ const renderIndividualEntry = (registrationWithheld: boolean) =>
     <UIPrimitivesProvider>
       <IndividualRegistrationSection
         competitionId="comp-1"
+        competitionTitle="Seed Hackathon Nusantara"
         ctaState="open"
         initialRegistration={null}
         expectedUserId="user-1"
         modeLabel="Daftar"
         registrationWithheld={registrationWithheld}
+        registerAgainClosedByPaymentProof={false}
         cancellationClosedByPaymentProof={false}
+        cancellationClosedForTeamRow={false}
       />
     </UIPrimitivesProvider>,
   );

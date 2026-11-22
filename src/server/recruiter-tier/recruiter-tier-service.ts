@@ -1,5 +1,6 @@
 import { and, eq, sql } from "drizzle-orm";
 import { logger } from "@/lib/logger";
+import { enqueueRecruiterVerificationApproved } from "@/server/async/enqueue";
 import { getDb, type Database } from "@/server/db/client";
 import { users } from "@/server/db/schema";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
@@ -205,6 +206,15 @@ export const elevateRecruiterTier = async (
     from: outcome.from,
     to: ELEVATION_TARGET_TIER,
   });
+
+  try {
+    await enqueueRecruiterVerificationApproved({ userId: accountId, epoch: Date.now() });
+  } catch (error) {
+    logger.warn("recruiter_tier.approval_notice_enqueue_failed", {
+      accountId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 
   // This manual path bypasses the review flow's terminal orphan sweep, so run it here: reclaim any
   // upload the account left behind on its still-pending submission. Best-effort — never blocks the

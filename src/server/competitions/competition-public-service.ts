@@ -4,6 +4,7 @@ assertServerOnly("server/competitions/competition-public-service");
 
 import {
   and,
+  arrayOverlaps,
   asc,
   desc,
   eq,
@@ -29,7 +30,9 @@ import {
   competitionTags,
   institutionSocialLinks,
   institutions,
+  type CompetitionAudience,
   type CompetitionCategory,
+  type CompetitionLocation,
   type CompetitionMode,
 } from "@/server/db/schema";
 import { isR2Available, generatePresignedGetUrl } from "@/server/storage/r2.client";
@@ -40,11 +43,28 @@ import {
   COMPETITION_INDEX_NAME,
   type CompetitionIndexDocument,
 } from "@/server/search/competition-index";
-import { isCompetitionCategory, isCompetitionMode } from "@/server/competitions/competition-core";
+import { isCompetitionCategory } from "@/server/competitions/competition-core";
+import { parseAudienceFilterParam } from "@/lib/competitions/audiences";
+import { isCompetitionLocation } from "@/lib/competitions/locations";
+import {
+  TEAM_SIZE_HIGHEST,
+  TEAM_SIZE_LOWEST,
+  isTeamRangeNarrowed,
+  readTeamRange,
+} from "@/lib/competitions/team-range";
+import {
+  FEE_HIGHEST,
+  FEE_LOWEST,
+  isFeeRangeNarrowed,
+  readFeeRange,
+  type FeeRange,
+} from "@/lib/competitions/fee-range";
+import { MAX_MINOR_UNIT_AMOUNT, type CurrencyCode } from "@/lib/finance/money";
 import {
   deriveCompetitionPhase,
   type CompetitionPhase,
 } from "@/lib/competitions/competition-phase";
+import { toOrganizerContact, type OrganizerContact } from "@/lib/competitions/organizer-contact";
 import {
   getInstitutionDisplayName,
   institutionOwnerUsernameSql,
@@ -54,6 +74,7 @@ import {
   institutionOwnerBannerKeySql,
   resolveInstitutionMediaKeys,
 } from "@/server/institution-workspace/institution-media";
+import { resolveInstitutionMediaUrl } from "@/server/institution-workspace/institution-media-urls";
 import type { InstitutionType } from "@/server/db/schema";
 import {
   deriveCompetitionParticipationState,
@@ -82,6 +103,7 @@ const PUBLIC_LISTING_COLUMNS = {
   description: competitions.description,
   category: competitions.category,
   mode: competitions.mode,
+  location: competitions.location,
   minTeamSize: competitions.minTeamSize,
   maxTeamSize: competitions.maxTeamSize,
   registrationStartAt: competitions.registrationStartAt,
@@ -99,6 +121,10 @@ const PUBLIC_LISTING_COLUMNS = {
   institutionDisplayName: institutions.displayName,
   institutionType: institutions.institutionType,
   institutionOwnerUsername: institutionOwnerUsernameSql,
+  // The keys of the logo a card shows, read in the listing query itself so a page of results costs
+  // no further read. A personal institution has no logo of its own and shows its owner's avatar.
+  institutionLogoR2Key: institutions.logoR2Key,
+  institutionOwnerAvatarKey: institutionOwnerAvatarKeySql,
 } as const;
 
 type PublicListingRow = {
@@ -108,6 +134,7 @@ type PublicListingRow = {
   description: string;
   category: CompetitionCategory | null;
   mode: CompetitionMode | null;
+  location: CompetitionLocation | null;
   minTeamSize: number | null;
   maxTeamSize: number | null;
   registrationStartAt: Date | null;
@@ -125,19 +152,85 @@ type PublicListingRow = {
   institutionDisplayName: string | null;
   institutionType: InstitutionType;
   institutionOwnerUsername: string | null;
+  institutionLogoR2Key: string | null;
+  institutionOwnerAvatarKey: string | null;
 };
 
-// Resolve the joined institution name through the display-name helper, then drop the type/owner
-// projection columns so the public shape stays exactly PublicCompetitionItem.
-const mapPublicListingRow = (row: PublicListingRow): PublicCompetitionItem => {
-  const { institutionDisplayName, institutionType, institutionOwnerUsername, ...rest } = row;
+// Resolve the joined institution name through the display-name helper, then drop the type, owner
+// and key projection columns so the public shape stays exactly PublicCompetitionItem.
+const mapPublicListingRow = (
+  row: PublicListingRow,
+  institutionLogoUrl: string | null,
+): PublicCompetitionItem => {
+  const {
+    institutionDisplayName,
+    institutionType,
+    institutionOwnerUsername,
+    // Destructured only to keep the storage keys off the public item.
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    institutionLogoR2Key: _institutionLogoR2Key,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    institutionOwnerAvatarKey: _institutionOwnerAvatarKey,
+    ...rest
+  } = row;
   return {
     ...rest,
     institutionName: getInstitutionDisplayName(
       { displayName: institutionDisplayName, institutionType },
       { username: institutionOwnerUsername },
     ),
+    institutionLogoUrl,
   };
+};
+
+const resolveListingLogoKey = (
+  institution: Pick<
+    PublicListingRow,
+    "institutionType" | "institutionLogoR2Key" | "institutionOwnerAvatarKey"
+  >,
+): string | null => {
+  const { logoKey } = resolveInstitutionMediaKeys(
+    {
+      institutionType: institution.institutionType,
+      logoR2Key: institution.institutionLogoR2Key,
+      bannerR2Key: null,
+    },
+    { avatarR2Key: institution.institutionOwnerAvatarKey, bannerR2Key: null },
+  );
+  return logoKey;
+};
+
+// Signs one URL per distinct logo key, so a page of cards from one organizer signs once. A logo that
+// cannot be signed comes back null and is logged by resolveInstitutionMediaUrl, so the card shows
+// its trophy and the page still renders. A signed address lasts READ_URL_EXPIRY_SECONDS in
+// institution-media-urls.ts, which must stay longer than the longest page `revalidate` that
+// serves a listing.
+const signListingLogoUrls = async (
+  logoKeys: (string | null)[],
+): Promise<Map<string, string | null>> => {
+  const distinctLogoKeys = new Set<string>();
+  for (const logoKey of logoKeys) {
+    if (logoKey) distinctLogoKeys.add(logoKey);
+  }
+  const signedUrls = new Map<string, string | null>();
+  await Promise.all(
+    [...distinctLogoKeys].map(async (logoKey) => {
+      signedUrls.set(logoKey, await resolveInstitutionMediaUrl(logoKey));
+    }),
+  );
+  return signedUrls;
+};
+
+const toPublicCompetitionItems = async (
+  rows: PublicListingRow[],
+): Promise<PublicCompetitionItem[]> => {
+  const logoKeys = rows.map(resolveListingLogoKey);
+  const signedLogoUrls = await signListingLogoUrls(logoKeys);
+  return rows.map((row, index) => {
+    const logoKey = logoKeys[index];
+    const logoUrl = logoKey ? (signedLogoUrls.get(logoKey) ?? null) : null;
+    return mapPublicListingRow(row, logoUrl);
+  });
 };
 
 export type PublicCompetitionItem = {
@@ -147,6 +240,7 @@ export type PublicCompetitionItem = {
   description: string;
   category: CompetitionCategory | null;
   mode: CompetitionMode | null;
+  location: CompetitionLocation | null;
   minTeamSize: number | null;
   maxTeamSize: number | null;
   registrationStartAt: Date | null;
@@ -162,6 +256,7 @@ export type PublicCompetitionItem = {
   isFeatured: boolean;
   institutionSlug: string;
   institutionName: string;
+  institutionLogoUrl: string | null;
 };
 
 export type PublicListingSort = "deadline_asc" | "deadline_desc" | "created_desc";
@@ -172,6 +267,15 @@ export type PublicListingFilters = {
   mode?: string;
   status?: string;
   teamSize?: string;
+  teamMin?: string;
+  teamMax?: string;
+  // Whole rupiah from 0 to 250000 on a step of 25000. Anything else is read as its end of the track.
+  feeMin?: string;
+  feeMax?: string;
+  // One of online, offline or hybrid. Anything else is ignored.
+  location?: string;
+  // Comma separated audience values. Anything unknown is dropped.
+  audience?: string;
   institutionSlug?: string;
   sort?: string;
   page?: number;
@@ -285,27 +389,101 @@ const buildStatusCondition = (status: string | undefined): SQL => {
   return or(isNull(end), gte(end, sql`now()`))!;
 };
 
-// Team-size bucket filter (DB-only; the Meilisearch index carries no team columns). Range
-// overlap, mode-aware: individual-only competitions accept a solo participant; team/both
-// competitions carry an allowed [min, max] range.
-const buildTeamSizeCondition = (bucket: string | undefined): SQL | undefined => {
-  const min = competitions.minTeamSize;
-  const max = competitions.maxTeamSize;
+// A team competition that leaves its minimum empty still needs a team.
+const DEFAULT_TEAM_MINIMUM = 2;
+
+// Team-size range filter (DB-only; the Meilisearch index carries no team columns). The range is
+// read through readTeamRange, which also turns an old `mode` or `teamSize` link into a range, so
+// this is the only team filter. A competition shows when the sizes it allows overlap the range:
+// 1 to 1 for individual, its minimum (2 when empty) to its maximum for team, and 1 to its maximum
+// for both. An empty maximum has no upper bound, and so does a range ending at the top of the
+// track. A competition with no mode allows no known size and never matches.
+export const buildTeamRangeCondition = (filters: PublicListingFilters): SQL | undefined => {
+  const range = readTeamRange(filters);
+  if (!isTeamRangeNarrowed(range)) return undefined;
+
   const mode = competitions.mode;
-  if (bucket === "solo") {
-    return or(eq(mode, "individual"), eq(mode, "both"), and(isNotNull(min), lte(min, 1)));
-  }
-  if (bucket === "small") {
-    return and(
-      inArray(mode, ["team", "both"]),
-      or(isNull(min), lte(min, 4))!,
-      or(isNull(max), gte(max, 2))!,
-    )!;
-  }
-  if (bucket === "large") {
-    return and(inArray(mode, ["team", "both"]), or(isNull(max), gte(max, 5))!)!;
-  }
-  return undefined;
+  const minTeamSize = competitions.minTeamSize;
+  const maxTeamSize = competitions.maxTeamSize;
+  const reachesRangeStart = or(isNull(maxTeamSize), gte(maxTeamSize, range.min))!;
+
+  const individualFits = range.min <= TEAM_SIZE_LOWEST ? eq(mode, "individual") : undefined;
+  const bothFits = and(eq(mode, "both"), reachesRangeStart)!;
+
+  const teamStartsInsideRange =
+    range.max === TEAM_SIZE_HIGHEST
+      ? undefined
+      : or(
+          DEFAULT_TEAM_MINIMUM <= range.max ? isNull(minTeamSize) : undefined,
+          lte(minTeamSize, range.max),
+        );
+  const teamFits = and(eq(mode, "team"), teamStartsInsideRange, reachesRangeStart)!;
+
+  return or(individualFits, bothFits, teamFits);
+};
+
+// Fee filter (DB-only; the Meilisearch index carries no fee). Paid and free are the two halves of
+// isPaidCompetition (@/lib/competitions/paid-competition), restated in SQL: paid is a fee above 0
+// that is a safe integer, and free is everything else, null included, so every row falls under
+// exactly one. The fee is read here and never selected: no list item carries it (DEC-0166 makes it
+// public on the detail page only).
+const buildPaidFeeCondition = (): SQL =>
+  and(gt(competitions.feeAmount, 0), lte(competitions.feeAmount, MAX_MINOR_UNIT_AMOUNT))!;
+
+const buildFreeFeeCondition = (): SQL =>
+  or(
+    isNull(competitions.feeAmount),
+    lte(competitions.feeAmount, 0),
+    gt(competitions.feeAmount, MAX_MINOR_UNIT_AMOUNT),
+  )!;
+
+// The range is stated in whole rupiah, which are the stored unit only because IDR has exponent 0
+// (CURRENCY_EXPONENTS in @/lib/finance/money). The currency clause keeps an amount in another
+// currency from being compared in the wrong unit.
+const FEE_RANGE_CURRENCY: CurrencyCode = "IDR";
+
+const buildPaidFeeRangeCondition = (fee: FeeRange): SQL => {
+  const startsAtLowerEnd = fee.min > FEE_LOWEST ? gte(competitions.feeAmount, fee.min) : undefined;
+  const endsAtUpperEnd = fee.max < FEE_HIGHEST ? lte(competitions.feeAmount, fee.max) : undefined;
+  return and(
+    buildPaidFeeCondition(),
+    eq(competitions.feeCurrency, FEE_RANGE_CURRENCY),
+    startsAtLowerEnd,
+    endsAtUpperEnd,
+  )!;
+};
+
+// A range that starts at Gratis includes the free competitions, and one that also ends at Gratis
+// holds nothing else.
+export const buildFeeCondition = (filters: PublicListingFilters): SQL | undefined => {
+  const fee = readFeeRange(filters);
+  if (!isFeeRangeNarrowed(fee)) return undefined;
+  if (fee.max === FEE_LOWEST) return buildFreeFeeCondition();
+  if (fee.min === FEE_LOWEST) return or(buildFreeFeeCondition(), buildPaidFeeRangeCondition(fee))!;
+  return buildPaidFeeRangeCondition(fee);
+};
+
+// Location filter (DB-only; the Meilisearch index carries no location). One chosen value shows only
+// competitions stored with that value: online is online only, offline is offline only and hybrid is
+// hybrid only. The value is parsed here with the enum guard, so a raw API value never reaches the
+// database, and anything unknown is ignored. A competition with no location never matches.
+const readLocationFilter = (filters: PublicListingFilters): CompetitionLocation | null =>
+  isCompetitionLocation(filters.location) ? filters.location : null;
+
+export const buildLocationCondition = (filters: PublicListingFilters): SQL | undefined => {
+  const chosen = readLocationFilter(filters);
+  if (!chosen) return undefined;
+  return eq(competitions.location, chosen);
+};
+
+// Audience filter (DB-only). The ticked levels narrow the list to competitions tagged with any of
+// them, and Umum is always included, so a competition tagged Umum shows whatever is ticked. Ticking
+// only Umum, or only values that are unknown, narrows nothing. A competition with no audience
+// never matches a narrowed list.
+export const buildAudienceCondition = (filters: PublicListingFilters): SQL | undefined => {
+  const levels = parseAudienceFilterParam(filters.audience);
+  if (levels.length === 0) return undefined;
+  return arrayOverlaps(competitions.audience, [...levels, "umum"]);
 };
 
 // A query with no letters or digits (e.g. only punctuation like ";") carries no searchable
@@ -315,11 +493,18 @@ const buildTeamSizeCondition = (bucket: string | undefined): SQL | undefined => 
 const hasSearchableQuery = (q: string | undefined): boolean =>
   Boolean(q && /[\p{L}\p{N}]/u.test(q));
 
-// Meili routing (spec §6): the index lacks registrationStartAt and team-size fields, so any
-// active status/teamSize filter forces the DB path to avoid partial filtering + count drift.
+// Meili routing (spec §6): the index lacks registrationStartAt, team-size, location, audience and
+// fee fields, so an active status, a narrowed team range, a location, a narrowing audience or a fee
+// filter forces the DB path to avoid partial filtering + count drift.
 // A token-less query is also kept off the search path (it would placeholder-match everything).
 export const resolveUseSearch = (filters: PublicListingFilters, meiliAvailable: boolean): boolean =>
-  hasSearchableQuery(filters.q) && meiliAvailable && !filters.status && !filters.teamSize;
+  hasSearchableQuery(filters.q) &&
+  meiliAvailable &&
+  !filters.status &&
+  !isTeamRangeNarrowed(readTeamRange(filters)) &&
+  readLocationFilter(filters) === null &&
+  parseAudienceFilterParam(filters.audience).length === 0 &&
+  !isFeeRangeNarrowed(readFeeRange(filters));
 
 const buildDbWhere = (filters: PublicListingFilters) => {
   const conditions = [buildPublicVisibilityCondition(), buildStatusCondition(filters.status)];
@@ -336,12 +521,21 @@ const buildDbWhere = (filters: PublicListingFilters) => {
   if (filters.category && isCompetitionCategory(filters.category)) {
     conditions.push(eq(competitions.category, filters.category));
   }
-  if (filters.mode && isCompetitionMode(filters.mode)) {
-    conditions.push(eq(competitions.mode, filters.mode));
+  const teamRangeCondition = buildTeamRangeCondition(filters);
+  if (teamRangeCondition) {
+    conditions.push(teamRangeCondition);
   }
-  const teamSizeCondition = buildTeamSizeCondition(filters.teamSize);
-  if (teamSizeCondition) {
-    conditions.push(teamSizeCondition);
+  const feeCondition = buildFeeCondition(filters);
+  if (feeCondition) {
+    conditions.push(feeCondition);
+  }
+  const locationCondition = buildLocationCondition(filters);
+  if (locationCondition) {
+    conditions.push(locationCondition);
+  }
+  const audienceCondition = buildAudienceCondition(filters);
+  if (audienceCondition) {
+    conditions.push(audienceCondition);
   }
   if (filters.institutionSlug) {
     conditions.push(eq(institutions.slug, filters.institutionSlug.trim().toLowerCase()));
@@ -380,7 +574,7 @@ const listFromDb = async (
   const total = countRow?.count ?? 0;
 
   return {
-    data: rows.map(mapPublicListingRow),
+    data: await toPublicCompetitionItems(rows),
     meta: {
       total,
       page,
@@ -413,9 +607,6 @@ const listFromMeilisearch = async (
   ];
   if (filters.category && isCompetitionCategory(filters.category)) {
     filterParts.push(`category = "${filters.category}"`);
-  }
-  if (filters.mode && isCompetitionMode(filters.mode)) {
-    filterParts.push(`mode = "${filters.mode}"`);
   }
   if (filters.institutionSlug) {
     filterParts.push(`institutionSlug = "${filters.institutionSlug.trim().toLowerCase()}"`);
@@ -474,13 +665,12 @@ const listFromMeilisearch = async (
 
   // Preserve Meilisearch result order.
   const rowById = new Map(rows.map((r) => [r.id, r]));
-  const ordered = ids
+  const orderedRows = ids
     .map((id) => rowById.get(id))
-    .filter((r): r is PublicListingRow => Boolean(r))
-    .map(mapPublicListingRow);
+    .filter((r): r is PublicListingRow => Boolean(r));
 
   return {
-    data: ordered,
+    data: await toPublicCompetitionItems(orderedRows),
     meta: { total, page, limit, totalPages: Math.ceil(total / limit), searchEngine: "meilisearch" },
   };
 };
@@ -541,7 +731,7 @@ export const listFeaturedCompetitions = async (
     .orderBy(sql`${competitions.featuredOrder} ASC NULLS LAST`, desc(competitions.createdAt))
     .limit(limit);
 
-  return rows.map(mapPublicListingRow);
+  return toPublicCompetitionItems(rows);
 };
 
 // ── Detail ────────────────────────────────────────────────────────────────────
@@ -568,6 +758,8 @@ const PUBLIC_DETAIL_COLUMNS = {
   description: competitions.description,
   category: competitions.category,
   mode: competitions.mode,
+  location: competitions.location,
+  audience: competitions.audience,
   minTeamSize: competitions.minTeamSize,
   maxTeamSize: competitions.maxTeamSize,
   registrationStartAt: competitions.registrationStartAt,
@@ -583,6 +775,8 @@ const PUBLIC_DETAIL_COLUMNS = {
   feeAmount: competitions.feeAmount,
   feeCurrency: competitions.feeCurrency,
   eligibilityNote: competitions.eligibilityNote,
+  organizerContactKind: competitions.organizerContactKind,
+  organizerContactValue: competitions.organizerContactValue,
   publishedAt: competitions.publishedAt,
   institutionId: institutions.id,
   institutionSlug: institutions.slug,
@@ -596,12 +790,11 @@ const PUBLIC_DETAIL_COLUMNS = {
   institutionOwnerAvatarKey: institutionOwnerAvatarKeySql,
   institutionOwnerBannerKey: institutionOwnerBannerKeySql,
   institutionAbout: institutions.about,
-  // The organizer's contact details are deliberately NOT read here. They are gated on verification
-  // status and on the viewer (institution-public-service.ts), and this endpoint is unauthenticated
-  // and has no viewer to gate on — so it could only ever return them to everyone, which is the
-  // exposure the gate exists to close. Nothing rendered them: the competition detail page reads
-  // `organizer.name`, `logoUrl`, `about`, `websiteUrl` and `socialLinks`, and no component read a
-  // contact field.
+  // The institution's contact details are deliberately NOT read here. They are gated on
+  // verification status and on the viewer (institution-public-service.ts), and this endpoint is
+  // unauthenticated and has no viewer to gate on, so it could only ever return them to everyone,
+  // which is the exposure the gate exists to close. The competition's own contact, read above, is a
+  // different field, public by the terms and the privacy policy.
   institutionWebsiteUrl: institutions.websiteUrl,
 } as const;
 
@@ -625,6 +818,9 @@ export type PublicCompetitionDetail = {
   description: string;
   category: CompetitionCategory | null;
   mode: CompetitionMode | null;
+  location: CompetitionLocation | null;
+  // A label only: it never gates registration (DEC-0106). Null when the host has not filled it.
+  audience: CompetitionAudience[] | null;
   minTeamSize: number | null;
   maxTeamSize: number | null;
   registrationStartAt: Date | null;
@@ -643,6 +839,8 @@ export type PublicCompetitionDetail = {
   feeAmount: number | null;
   feeCurrency: string | null;
   eligibilityNote: string | null;
+  // The contact the host chose at publish, or null for a competition published without one.
+  organizerContact: OrganizerContact | null;
   tags: string[];
   publishedAt: Date | null;
   registrantCount: number;
@@ -807,6 +1005,8 @@ export const getPublicCompetitionDetail = async (
     description: row.description,
     category: row.category,
     mode: row.mode,
+    location: row.location,
+    audience: row.audience,
     minTeamSize: row.minTeamSize,
     maxTeamSize: row.maxTeamSize,
     registrationStartAt: row.registrationStartAt,
@@ -822,6 +1022,7 @@ export const getPublicCompetitionDetail = async (
     feeAmount: row.feeAmount,
     feeCurrency: row.feeCurrency,
     eligibilityNote: row.eligibilityNote,
+    organizerContact: toOrganizerContact(row.organizerContactKind, row.organizerContactValue),
     tags,
     publishedAt: row.publishedAt,
     registrantCount,

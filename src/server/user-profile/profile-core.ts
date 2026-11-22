@@ -57,9 +57,10 @@ export type OwnerProfileResponse = {
   collections: ProfileCollections;
 };
 
-// Public API response — plain scalar values plus the same role-agnostic collections the owner
-// sees (the detail collections are not scope-gated). Verification booleans are exposed as a public
-// trust signal (which roles this account has verified), not as a data-scoping mechanism.
+// Public API response: plain scalar values plus the same role-agnostic collections the owner
+// sees (the detail collections are not scope-gated). The verification booleans are a public trust
+// signal, not a data-scoping mechanism: candidateVerified once the candidate role is verified, and
+// recruiterVerified only once platform ops have approved the recruiter, unlike the owner response.
 export type PublicProfileResponse = {
   username: string;
   displayName: string | null;
@@ -161,7 +162,7 @@ export const buildPublicProfileResponse = (
     // Banner is enriched by the service layer (needs an async presigned URL); null by default.
     bannerUrl: null,
     candidateVerified: row.candidateVerifiedAt !== null,
-    recruiterVerified: row.recruiterVerifiedAt !== null,
+    recruiterVerified: row.recruiterVerificationTier === "elevated",
     trustedRecruiter: row.recruiterVerificationTier === "elevated",
     // Resume is enriched by the service layer (only when resume_public); null by default.
     resume: null,

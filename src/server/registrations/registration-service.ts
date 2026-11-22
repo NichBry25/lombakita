@@ -2,7 +2,7 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/registrations/registration-service");
 
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, ne, sql } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
 import { competitionRegistrations, competitions } from "@/server/db/schema";
 import {
@@ -14,7 +14,11 @@ import { logger } from "@/lib/logger";
 import { enqueueRegistrationConfirmed, enqueueRegistrationCancelled } from "@/server/async/enqueue";
 import { isParticipantCancellationClosedByConfirmation } from "@/lib/competitions/competition-participation";
 import { acquireCompetitionParticipationLock } from "@/server/competitions/competition-participation-lock";
-import { hasSubmittedPaymentProof } from "@/server/finance/paid-registration";
+import { isCompetitionHost } from "@/server/competitions/competition-access";
+import {
+  hasSubmittedPaymentProof,
+  lockPaymentGroupAnchorRow,
+} from "@/server/finance/paid-registration";
 import {
   createRegistrationPayment,
   loadRegistrationPricing,
@@ -35,9 +39,9 @@ const REGISTRATION_COLUMNS = {
 } as const;
 
 // Pure read for downstream steps (4.5 dashboard, 4.6 submission intake).
-// Returns the candidate's most recent registration row for this competition (any status), or
-// null when no row exists. Callers must scope `studentId` to the authenticated session — this
-// helper performs no authorization of its own.
+// Returns the candidate's most recent registration row for this competition (any status) in its
+// current publication, or null when there is none. Callers must scope `studentId` to the
+// authenticated session. This helper performs no authorization of its own.
 export const getStudentRegistration = async (
   studentId: string,
   competitionId: string,
@@ -50,6 +54,7 @@ export const getStudentRegistration = async (
       and(
         eq(competitionRegistrations.studentId, studentId),
         eq(competitionRegistrations.competitionId, competitionId),
+        isNull(competitionRegistrations.publicationClosedAt),
       ),
     )
     .orderBy(desc(competitionRegistrations.registeredAt))
@@ -97,7 +102,7 @@ const loadCompetitionForRegistration = async (
   return row ?? null;
 };
 
-const findAnyExistingRegistration = async (
+const findActiveRegistration = async (
   studentId: string,
   competitionId: string,
   db: DbOrTx,
@@ -109,11 +114,76 @@ const findAnyExistingRegistration = async (
       and(
         eq(competitionRegistrations.studentId, studentId),
         eq(competitionRegistrations.competitionId, competitionId),
+        ne(competitionRegistrations.status, "cancelled"),
       ),
     )
     .limit(1);
 
   return row ?? null;
+};
+
+// A cancelled individual registration that a payment proof was sent for keeps blocking a new one
+// (DEC-0264: the proof, not the competition's price) within its publication. A row whose
+// publication an unpublish closed blocks nothing. The page asks the same question with this reader,
+// so the card does not offer what the server refuses. A stale tab can still show it, and the server
+// refuses.
+export const hasPaymentProofOnCancelledIndividualRegistrations = async (
+  studentId: string,
+  competitionId: string,
+  db: DbOrTx = getDb(),
+): Promise<boolean> => {
+  const cancelledRows = await db
+    .select({ id: competitionRegistrations.id })
+    .from(competitionRegistrations)
+    .where(
+      and(
+        eq(competitionRegistrations.studentId, studentId),
+        eq(competitionRegistrations.competitionId, competitionId),
+        eq(competitionRegistrations.status, "cancelled"),
+        eq(competitionRegistrations.registrationType, "individual"),
+        isNull(competitionRegistrations.publicationClosedAt),
+      ),
+    );
+
+  for (const { id } of cancelledRows) {
+    if (await hasSubmittedPaymentProof(id, db)) {
+      return true;
+    }
+  }
+  return false;
+};
+
+// Marks every registration of the competition, cancelled or not, as made in a publication that has
+// ended. Called inside an unpublish's transaction, under the competition's participation lock, so
+// every row written later belongs to a later publication.
+export const markCompetitionRegistrationsPublicationClosed = async (
+  competitionId: string,
+  closedAt: Date,
+  tx: DbOrTx,
+): Promise<void> => {
+  await tx
+    .update(competitionRegistrations)
+    .set({ publicationClosedAt: closedAt })
+    .where(
+      and(
+        eq(competitionRegistrations.competitionId, competitionId),
+        isNull(competitionRegistrations.publicationClosedAt),
+      ),
+    );
+};
+
+const assertNoPaymentProofOnCancelledIndividualRegistrations = async (
+  studentId: string,
+  competitionId: string,
+  tx: DbOrTx,
+): Promise<void> => {
+  if (await hasPaymentProofOnCancelledIndividualRegistrations(studentId, competitionId, tx)) {
+    throw new RegistrationError(
+      "registration_already_exists",
+      "A payment proof was sent for the cancelled registration, so it cannot register again",
+      { existingStatus: "cancelled" },
+    );
+  }
 };
 
 const assertCompetitionAcceptsIndividualRegistration = (
@@ -165,7 +235,9 @@ const assertParticipantCancellationWindowOpen = (
 //   (c) competition.mode === 'individual' or 'both'
 //   (d) registration_deadline (registrationEndAt) not yet passed
 //   (e) eligibility helper returns eligible
-//   (f) no existing registration row (confirmed OR cancelled — re-registration is blocked)
+//   (f) no registration that is not cancelled, and no cancelled individual one that a payment
+//       proof was sent for
+//   (g) the candidate is not an owner or staff member of the competition's institution
 // The route layer already enforces (auth + role=candidate). This helper does not re-check role
 // because it requires `studentId` as input — callers must pass session.user.id.
 export const createIndividualRegistration = async (
@@ -193,19 +265,15 @@ export const createIndividualRegistration = async (
   // pass.
   assertCompetitionAcceptsIndividualRegistration(competition, requestAt);
 
-  // (e) duplicate guard — block if any prior registration row exists. Re-registration after
-  // cancellation is intentionally deferred (product simplification). The DB-level
-  // partial unique index protects against concurrent race; this application-layer check
-  // additionally blocks the cancelled-then-re-register path.
-  const existing = await findAnyExistingRegistration(studentId, competitionId, db);
+  // (f) duplicate guard: a registration that is not cancelled always blocks. The
+  // partial unique index still refuses a second active row that races past this read.
+  const active = await findActiveRegistration(studentId, competitionId, db);
 
-  if (existing) {
+  if (active) {
     throw new RegistrationError(
       "registration_already_exists",
-      existing.status === "cancelled"
-        ? "Registration was cancelled and cannot be reinstated"
-        : "Student is already registered for this competition",
-      { existingStatus: existing.status },
+      "Student is already registered for this competition",
+      { existingStatus: active.status },
     );
   }
 
@@ -230,6 +298,13 @@ export const createIndividualRegistration = async (
         throw new RegistrationError("competition_not_found", "Competition not found");
       }
       assertCompetitionAcceptsIndividualRegistration(lockedCompetition, mutationAt);
+      await assertNoPaymentProofOnCancelledIndividualRegistrations(studentId, competitionId, tx);
+      if (await isCompetitionHost(studentId, competitionId, tx)) {
+        throw new RegistrationError(
+          "registration_host_of_competition",
+          "The owner and staff of the competition's institution cannot register for it",
+        );
+      }
 
       const [row] = await tx
         .insert(competitionRegistrations)
@@ -317,6 +392,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 // Enforcement order (fail-closed, ownership before any policy or reason error):
 //   (a) registration exists and matches the URL competitionId
 //   (b) registration belongs to this candidate (ownership)
+//   (b2) registration is not a team row: a team row leaves through the team flows only
 //   (c) registration.status === 'confirmed' (cancelled terminal; pending_payment is Phase 7)
 //   (d) cancellationReason required (non-empty, <= 500 chars)
 //   (e) if the competition is priced, no bukti transfer has been submitted for this payment group
@@ -341,6 +417,15 @@ export const cancelRegistration = async (
     throw new RegistrationError(
       "registration_not_owner",
       "Registration does not belong to the current user",
+    );
+  }
+
+  // The registration_type CHECK ties registration_type 'team' to a non-null team_id, and no code
+  // path changes either column on an existing row, so this read cannot go stale before the write.
+  if (registration.registrationType === "team") {
+    throw new RegistrationError(
+      "registration_team_row_use_team_flow",
+      "Pendaftaran ini terdaftar sebagai tim. Hanya ketua tim yang dapat membatalkan pendaftaran tim, lewat bagian Tim di halaman ini.",
     );
   }
 
@@ -424,6 +509,22 @@ export const cancelRegistration = async (
       throw new RegistrationError("competition_not_found", "Competition not found");
     }
     assertParticipantCancellationWindowOpen(lockedCompetition, mutationAt);
+
+    // Read again under the payment's row lock. The read above runs before this transaction, so a
+    // proof sent after it would land on a registration this cancel ends. Here, a proof whose upload
+    // holds the row is committed before this read, and an upload that waits behind this cancel
+    // reads the row as this cancel left it.
+    const lockedAnchorRegistrationId = await lockPaymentGroupAnchorRow(registrationId, tx);
+
+    if (
+      lockedAnchorRegistrationId !== null &&
+      (await hasSubmittedPaymentProof(lockedAnchorRegistrationId, tx))
+    ) {
+      throw new RegistrationError(
+        "cancellation_not_supported_for_paid",
+        "Pendaftaran tidak dapat dibatalkan setelah bukti transfer dikirim",
+      );
+    }
 
     const [row] = await tx
       .update(competitionRegistrations)

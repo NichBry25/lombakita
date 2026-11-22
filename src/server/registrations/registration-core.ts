@@ -15,9 +15,11 @@ export type RegistrationErrorCode =
   | "competition_wrong_mode"
   | "registration_deadline_passed"
   | "registration_already_exists"
+  | "registration_host_of_competition"
   | "registration_not_found"
   | "registration_not_owner"
   | "registration_wrong_status"
+  | "registration_team_row_use_team_flow"
   // Candidate cancellation policy gates.
   | "cancellation_reason_required"
   | "cancellation_reason_too_long"
@@ -32,9 +34,11 @@ const STATUS_BY_CODE: Record<RegistrationErrorCode, number> = {
   competition_wrong_mode: 409,
   registration_deadline_passed: 409,
   registration_already_exists: 409,
+  registration_host_of_competition: 403,
   registration_not_found: 404,
   registration_not_owner: 403,
   registration_wrong_status: 409,
+  registration_team_row_use_team_flow: 409,
   cancellation_reason_required: 422,
   cancellation_reason_too_long: 422,
   cancellation_not_supported_for_paid: 422,

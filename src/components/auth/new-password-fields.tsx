@@ -1,5 +1,7 @@
 "use client";
 
+import { FormLabel, PasswordField } from "@/components/ui";
+
 const NEW_PASSWORD_MIN_LENGTH = 8;
 const NEW_PASSWORD_MAX_LENGTH = 72;
 
@@ -35,34 +37,30 @@ export function NewPasswordFields({
   return (
     <>
       <div className="form-field">
-        <label className="form-label form-label-required" htmlFor={`${idPrefix}-password`}>
+        <FormLabel htmlFor={`${idPrefix}-password`} required>
           Password baru
-        </label>
-        <input
+        </FormLabel>
+        <PasswordField
           id={`${idPrefix}-password`}
           name="newPassword"
-          type="password"
           autoComplete="new-password"
           required
           value={password}
           onChange={(event) => onPasswordChange(event.target.value)}
-          className="form-input"
         />
       </div>
 
       <div className="form-field">
-        <label className="form-label form-label-required" htmlFor={`${idPrefix}-confirmation`}>
+        <FormLabel htmlFor={`${idPrefix}-confirmation`} required>
           Ulangi password baru
-        </label>
-        <input
+        </FormLabel>
+        <PasswordField
           id={`${idPrefix}-confirmation`}
           name="confirmNewPassword"
-          type="password"
           autoComplete="new-password"
           required
           value={confirmation}
           onChange={(event) => onConfirmationChange(event.target.value)}
-          className="form-input"
         />
       </div>
     </>

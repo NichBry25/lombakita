@@ -1,4 +1,4 @@
-import { Feedback, Icon } from "@/components/ui";
+import { EmptyState, Feedback, Icon } from "@/components/ui";
 import {
   CompetitionCard,
   type CompetitionCardItem,
@@ -98,7 +98,7 @@ export function InstitutionPublicView({
 
             {institution.isVerified && (
               <div className="pf-badges">
-                <span className="status-badge" data-status="open">
+                <span className="status-badge" data-status="verified">
                   <Icon name="check" size="sm" aria-hidden="true" />
                   Institusi Terverifikasi
                 </span>
@@ -112,7 +112,6 @@ export function InstitutionPublicView({
         <section className="content-section">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">Tentang</p>
               <h2>Profil {institution.name}</h2>
             </div>
           </div>
@@ -123,26 +122,20 @@ export function InstitutionPublicView({
       <section className="content-section">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Kompetisi</p>
             <h2>Sedang dibuka</h2>
           </div>
         </div>
         {competitions.length === 0 ? (
-          <div className="empty-state">
-            <span className="empty-state-icon" aria-hidden="true">
-              <Icon name="trophy" size="xl" />
-            </span>
-            <h3>Belum ada kompetisi yang terbit.</h3>
-            <p>Kompetisi dari penyelenggara ini akan tampil di sini setelah dipublikasikan.</p>
-          </div>
+          <EmptyState
+            kind="nothing-yet"
+            size="compact"
+            title="Belum ada kompetisi yang terbit"
+            description="Kompetisi dari penyelenggara ini akan tampil di sini setelah dipublikasikan."
+          />
         ) : (
           <div className="competition-grid competition-grid--roomy">
             {competitions.map((competition) => (
-              <CompetitionCard
-                key={competition.id}
-                competition={competition}
-                showOrganizer={false}
-              />
+              <CompetitionCard key={competition.id} competition={competition} />
             ))}
           </div>
         )}
@@ -152,7 +145,6 @@ export function InstitutionPublicView({
         <section className="content-section">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">Kontak</p>
               <h2>Hubungi penyelenggara</h2>
             </div>
           </div>

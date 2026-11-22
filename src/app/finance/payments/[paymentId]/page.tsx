@@ -1,11 +1,8 @@
 import { notFound } from "next/navigation";
 import { Card, Feedback, PageHeader } from "@/components/ui";
+import { LocalDate } from "@/components/ui/local-date";
 import { loadDisputeLedgerState, loadDisputePaymentDetail } from "@/server/finance/dispute-view";
-import {
-  PAYMENT_LEDGER_STATUS_LABELS,
-  formatFinanceDateTime,
-  formatRupiah,
-} from "@/lib/finance/payment-display";
+import { PAYMENT_LEDGER_STATUS_LABELS, formatRupiah } from "@/lib/finance/payment-display";
 import { PROOF_STATUS_LABELS, PROOF_STATUS_TONES } from "@/lib/finance/proof-display";
 import { formatFileSize } from "@/lib/text/format-file-size";
 import { DisputeProofFileButton } from "./dispute-proof-file-button";
@@ -42,9 +39,10 @@ export default async function FinanceDisputePaymentDetailPage({ params }: Props)
   return (
     <main className="page-shell app-page admin-page">
       <PageHeader
-        eyebrow={detail.competitionTitle}
+        description={detail.competitionTitle}
         title={detail.payerDisplayName}
         backHref="/finance/payments"
+        backName="Sengketa pembayaran"
       />
 
       <Feedback tone="info">
@@ -52,7 +50,7 @@ export default async function FinanceDisputePaymentDetailPage({ params }: Props)
         atas bukti transfer sepenuhnya milik penyelenggara.
       </Feedback>
 
-      <Card variant="surface" className="stack-md">
+      <div className="stack-md">
         <h2>Pembayaran</h2>
         <dl className="detail-grid">
           <div>
@@ -80,21 +78,19 @@ export default async function FinanceDisputePaymentDetailPage({ params }: Props)
             <div>
               <dt>Batas waktu</dt>
               <dd>
-                <time dateTime={detail.dueAt.toISOString()}>
-                  {formatFinanceDateTime(detail.dueAt.toISOString())}
-                </time>
+                <LocalDate value={detail.dueAt} format="financeDateTime" />
               </dd>
             </div>
           ) : null}
         </dl>
-      </Card>
+      </div>
 
       {detail.proofId === null ? (
         <Feedback tone="warning">
           Peserta ini belum pernah mengirim bukti transfer untuk pembayaran tersebut.
         </Feedback>
       ) : (
-        <Card variant="surface" className="stack-md">
+        <div className="stack-md">
           <div className="section-heading">
             <div>
               <h2>Bukti transfer terkini</h2>
@@ -115,10 +111,10 @@ export default async function FinanceDisputePaymentDetailPage({ params }: Props)
           ) : null}
 
           <DisputeProofFileButton proofId={detail.proofId} />
-        </Card>
+        </div>
       )}
 
-      <Card variant="surface" className="stack-md">
+      <div className="stack-md">
         <h2>Riwayat percobaan</h2>
         {detail.history.length === 0 ? (
           <p className="muted-copy">
@@ -128,7 +124,7 @@ export default async function FinanceDisputePaymentDetailPage({ params }: Props)
           <ol className="record-list">
             {detail.history.map((attempt) => (
               <li key={attempt.attemptNumber}>
-                <Card variant="inset" className="stack-sm">
+                <Card className="stack-sm">
                   <div className="section-heading">
                     <div>
                       <h3>{`Percobaan ke-${attempt.attemptNumber + 1}`}</h3>
@@ -147,17 +143,13 @@ export default async function FinanceDisputePaymentDetailPage({ params }: Props)
                     <div>
                       <dt>Dikirim</dt>
                       <dd>
-                        <time dateTime={attempt.submittedAt.toISOString()}>
-                          {formatFinanceDateTime(attempt.submittedAt.toISOString())}
-                        </time>
+                        <LocalDate value={attempt.submittedAt} format="financeDateTime" />
                       </dd>
                     </div>
                     <div>
                       <dt>Diputus</dt>
                       <dd>
-                        <time dateTime={attempt.reviewedAt.toISOString()}>
-                          {formatFinanceDateTime(attempt.reviewedAt.toISOString())}
-                        </time>
+                        <LocalDate value={attempt.reviewedAt} format="financeDateTime" />
                       </dd>
                     </div>
                   </dl>
@@ -169,7 +161,7 @@ export default async function FinanceDisputePaymentDetailPage({ params }: Props)
             ))}
           </ol>
         )}
-      </Card>
+      </div>
     </main>
   );
 }

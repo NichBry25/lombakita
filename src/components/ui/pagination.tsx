@@ -55,7 +55,6 @@ export function Pagination({ page, totalPages, label, hrefFor, onPageChange }: P
             icon="arrow-left"
             label={PREVIOUS_LABEL}
             variant="outline"
-            size="sm"
           />
         ) : (
           <InertStep direction="previous" />
@@ -65,7 +64,6 @@ export function Pagination({ page, totalPages, label, hrefFor, onPageChange }: P
           icon="arrow-left"
           label={PREVIOUS_LABEL}
           variant="outline"
-          size="sm"
           disabled={!hasPrevious}
           onClick={() => onPageChange?.(page - 1)}
         />
@@ -82,7 +80,6 @@ export function Pagination({ page, totalPages, label, hrefFor, onPageChange }: P
             icon="arrow-right"
             label={NEXT_LABEL}
             variant="outline"
-            size="sm"
           />
         ) : (
           <InertStep direction="next" />
@@ -92,7 +89,6 @@ export function Pagination({ page, totalPages, label, hrefFor, onPageChange }: P
           icon="arrow-right"
           label={NEXT_LABEL}
           variant="outline"
-          size="sm"
           disabled={!hasNext}
           onClick={() => onPageChange?.(page + 1)}
         />

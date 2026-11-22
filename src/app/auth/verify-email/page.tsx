@@ -4,7 +4,7 @@ import { ButtonLink, Icon } from "@/components/ui";
 export default function VerifyEmailPage() {
   return (
     <AuthPageFrame
-      title="Verifikasi email kini memakai kode."
+      title="Verifikasi email kini memakai kode"
       description="Kode 6 digit dikirim ke email Anda saat Anda mendaftar atau masuk."
     >
       <div className="auth-state stack-md">

@@ -24,6 +24,7 @@ vi.mock("@/lib/logger", () => ({ logger: { warn: vi.fn(), info: vi.fn(), error: 
 // `manual-lane-db.integration.test.ts`.
 vi.mock("@/server/finance/paid-registration", () => ({
   hasSubmittedPaymentProof: vi.fn().mockResolvedValue(false),
+  lockPaymentGroupAnchorRow: vi.fn().mockResolvedValue(null),
 }));
 vi.mock("@/server/async/enqueue", () => ({
   enqueueRegistrationConfirmed,
@@ -32,6 +33,12 @@ vi.mock("@/server/async/enqueue", () => ({
 vi.mock("@/server/competitions/competition-participation-lock", () => ({
   acquireCompetitionParticipationLock: vi.fn(),
 }));
+vi.mock("@/server/competitions/competition-access", async () => {
+  const actual = await vi.importActual<typeof import("@/server/competitions/competition-access")>(
+    "@/server/competitions/competition-access",
+  );
+  return { ...actual, isCompetitionHost: vi.fn().mockResolvedValue(false) };
+});
 
 import { createIndividualRegistration, cancelRegistration } from "./registration-service";
 import { RegistrationError } from "./registration-core";
@@ -62,7 +69,7 @@ const makeDb = (
     const rows = queue.shift() ?? [];
     const limit = vi.fn().mockResolvedValue(rows);
     const orderBy = vi.fn().mockReturnValue({ limit });
-    const where = vi.fn().mockReturnValue({ limit, orderBy });
+    const where = vi.fn().mockReturnValue(Object.assign(Promise.resolve(rows), { limit, orderBy }));
     return { from: vi.fn().mockReturnValue({ where }) };
   });
   const insert = vi.fn().mockReturnValue({

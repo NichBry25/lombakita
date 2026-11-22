@@ -9,17 +9,9 @@ import {
 import { MarkReadButton } from "./mark-read-button";
 import { DeleteNotificationButton } from "./delete-notification-button";
 import { InboxInviteActions } from "./invite-actions";
-import { ButtonLink, EmptyState, PageHeader } from "@/components/ui";
+import { EmptyState, PageHeader } from "@/components/ui";
 import { getInstitutionRoleLabel } from "@/lib/access/role-labels";
-
-const formatDate = (value: Date): string =>
-  value.toLocaleString("id-ID", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+import { LocalDate } from "@/components/ui/local-date";
 
 const KIND_LABEL: Record<InboxItem["kind"], string> = {
   notification: "Notifikasi",
@@ -43,20 +35,18 @@ export default async function InboxPage() {
     <main className="page-shell app-page inbox-page">
       <PageHeader
         title="Kotak masuk"
-        description="Notifikasi dan undangan Anda."
-        actions={<span className="inbox-unread-count data-text">{unreadCount} belum dibaca</span>}
+        titleMark={
+          unreadCount > 0 ? (
+            <span className="status-badge data-text">{unreadCount} belum dibaca</span>
+          ) : null
+        }
       />
 
       {items.length === 0 ? (
         <EmptyState
-          icon="inbox"
-          title="Kotak masuk masih tenang."
+          kind="nothing-yet"
+          title="Kotak masuk masih tenang"
           description="Notifikasi, undangan institusi, dan undangan tim akan muncul di sini."
-          action={
-            <ButtonLink href="/" variant="outline">
-              Kembali
-            </ButtonLink>
-          }
         />
       ) : (
         <ul className="inbox-list">
@@ -75,7 +65,9 @@ export default async function InboxPage() {
                   <div className="inbox-card-content">
                     <h2>{item.title}</h2>
                     <p>{item.body}</p>
-                    <div className="inbox-date data-text">{formatDate(item.createdAt)}</div>
+                    <div className="inbox-date data-text">
+                      <LocalDate value={item.createdAt} format="longDateTime" />
+                    </div>
                     <div className="inbox-actions">
                       {isUnreadNotification ? (
                         <MarkReadButton notificationId={item.id} expectedUserId={session.user.id} />
@@ -91,7 +83,7 @@ export default async function InboxPage() {
                     <h2>{item.institutionName}</h2>
                     <p>Peran: {getInstitutionRoleLabel(item.invitedRole)}</p>
                     <div className="inbox-date data-text">
-                      Kedaluwarsa: {formatDate(item.expiresAt)}
+                      Kedaluwarsa: <LocalDate value={item.expiresAt} format="longDateTime" />
                     </div>
                     <InboxInviteActions
                       kind="institution"
@@ -104,7 +96,8 @@ export default async function InboxPage() {
                     <h2>{item.teamName}</h2>
                     <p>Kompetisi: {item.competitionTitle}</p>
                     <div className="inbox-date data-text">
-                      Kedaluwarsa: {formatDate(item.expiresAt)}
+                      Berlaku hingga pendaftaran ditutup pada{" "}
+                      <LocalDate value={item.expiresAt} format="longDateTime" />
                     </div>
                     <InboxInviteActions
                       kind="team"

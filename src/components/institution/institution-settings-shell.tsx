@@ -3,8 +3,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  BarNote,
   Button,
   FormActionBar,
+  FormInput,
+  FormLabel,
+  FormLabelText,
+  FormTextarea,
   Icon,
   IconButton,
   PageHeader,
@@ -20,11 +25,9 @@ import { PaymentInstructionsSection } from "@/components/institution/payment-ins
 import { INSTITUTION_TYPE_LABELS } from "@/lib/institutions/type-labels";
 import { INSTITUTION_STATUS_LABELS } from "@/lib/institutions/status-labels";
 import { formatDisplayToken } from "@/lib/text/capitalize";
-import {
-  SESSION_MISMATCH_CODE,
-  SESSION_MISMATCH_MESSAGE,
-  sessionFetch,
-} from "@/lib/session/session-fetch";
+import { errorMessageFor } from "@/lib/errors/error-copy";
+import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
+import { hasUnsavedFields } from "@/lib/ui/unsaved-fields";
 import type { InstitutionType } from "@/server/db/schema";
 
 type SocialPlatform = "linkedin" | "github" | "instagram" | "x" | "website";
@@ -78,33 +81,42 @@ const emptySocials = (): Record<SocialPlatform, string> => ({
   website: "",
 });
 
-const extractErrorMessage = async (response: Response): Promise<string> => {
-  try {
-    const payload = (await response.json()) as {
-      error?: {
-        message?: string;
-      };
-    };
+type RefusalAction = "load" | "identity" | "profile";
 
-    return payload.error?.message ?? "Permintaan pengaturan institusi gagal diproses.";
-  } catch {
-    return "Permintaan pengaturan institusi gagal diproses.";
-  }
+const INVALID_PAYLOAD_MESSAGE =
+  "Permintaan tidak dapat diproses. Muat ulang halaman lalu coba lagi.";
+
+const REFUSAL_COPY: Record<RefusalAction, Partial<Record<string, string>>> = {
+  load: {
+    institution_invalid_value: "Institusi tidak ditemukan. Periksa tautan lalu coba lagi.",
+    forbidden: "Hanya pemilik institusi yang dapat membuka pengaturan ini.",
+  },
+  identity: {
+    forbidden: "Hanya pemilik institusi yang dapat mengubah pengaturan ini.",
+    institution_invalid_payload: INVALID_PAYLOAD_MESSAGE,
+    institution_protected_fields: INVALID_PAYLOAD_MESSAGE,
+    institution_invalid_fields: INVALID_PAYLOAD_MESSAGE,
+    institution_invalid_value: "Periksa nama institusi dan slug lalu coba lagi.",
+    institution_display_name_reserved: "Nama institusi ini tidak dapat digunakan. Pilih nama lain.",
+    institution_slug_reserved: "Slug ini tidak dapat digunakan. Pilih slug lain.",
+    institution_slug_conflicts_with_username:
+      "Slug ini sudah dipakai sebagai username. Pilih slug lain.",
+  },
+  profile: {
+    forbidden: "Hanya pemilik institusi yang dapat mengubah profil penyelenggara.",
+    institution_profile_invalid_payload: INVALID_PAYLOAD_MESSAGE,
+    institution_profile_invalid_fields: INVALID_PAYLOAD_MESSAGE,
+    institution_profile_invalid_value:
+      "Periksa kontak, situs web, dan tautan media sosial lalu coba lagi.",
+    institution_profile_not_editable:
+      "Institusi personal tidak memiliki profil penyelenggara publik.",
+  },
 };
 
-const extractSessionAwareErrorMessage = async (
-  response: Response,
-  fallback: string,
-): Promise<string> => {
-  const body = (await response.json().catch(() => null)) as {
-    error?: { code?: string; message?: string };
-  } | null;
-
-  if (body?.error?.code === SESSION_MISMATCH_CODE) {
-    return SESSION_MISMATCH_MESSAGE;
-  }
-
-  return body?.error?.message ?? fallback;
+const REFUSAL_FALLBACK: Record<RefusalAction, string> = {
+  load: "Pengaturan institusi gagal dimuat. Muat ulang halaman lalu coba lagi.",
+  identity: "Pengaturan institusi gagal disimpan. Coba lagi.",
+  profile: "Gagal menyimpan profil. Coba lagi.",
 };
 
 export const InstitutionSettingsShell = ({
@@ -129,6 +141,10 @@ export const InstitutionSettingsShell = ({
   const [institutionType, setInstitutionType] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  // What the server last returned for the identity form. The bar's Simpan saves only these two
+  // fields, so only they decide whether the bar says "Belum disimpan".
+  const [savedIdentity, setSavedIdentity] = useState({ displayName: "", slug: "" });
+  const hasUnsavedChanges = hasUnsavedFields({ displayName, slug }, savedIdentity);
 
   // Public organizer profile — an independent sub-form with its own Save (§13.1 group 1).
   const [about, setAbout] = useState("");
@@ -146,6 +162,10 @@ export const InstitutionSettingsShell = ({
   const applyInstitution = useCallback((data: InstitutionSettingsResponse) => {
     setDisplayName(data.institution.displayName);
     setSlug(data.institution.slug);
+    setSavedIdentity({
+      displayName: data.institution.displayName,
+      slug: data.institution.slug,
+    });
     setStatus(data.institution.status);
     setIsPersonal(data.institution.institutionType === "personal");
     setInstitutionType(data.institution.institutionType);
@@ -163,8 +183,11 @@ export const InstitutionSettingsShell = ({
     );
 
     if (!response.ok) {
-      const message = await extractErrorMessage(response);
-      addToast({ type: "error", message });
+      const code = await readErrorCode(response);
+      addToast({
+        type: "error",
+        message: errorMessageFor(code, REFUSAL_COPY.load, REFUSAL_FALLBACK.load),
+      });
       setIsLoading(false);
       return;
     }
@@ -240,21 +263,22 @@ export const InstitutionSettingsShell = ({
       body.displayName = displayName;
     }
 
-    const response = await fetch(
+    const response = await sessionFetch(
+      expectedUserId,
       `/api/v1/institutions/${encodeURIComponent(activeSlug)}/settings`,
       {
         method: "PATCH",
-        headers: {
-          "content-type": "application/json",
-        },
-        credentials: "include",
+        headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
       },
     );
 
     if (!response.ok) {
-      const message = await extractErrorMessage(response);
-      addToast({ type: "error", message });
+      const code = await readErrorCode(response);
+      addToast({
+        type: "error",
+        message: errorMessageFor(code, REFUSAL_COPY.identity, REFUSAL_FALLBACK.identity),
+      });
       setIsSaving(false);
       return;
     }
@@ -304,11 +328,11 @@ export const InstitutionSettingsShell = ({
       );
 
       if (!response.ok) {
-        const message = await extractSessionAwareErrorMessage(
-          response,
-          "Gagal menyimpan profil. Coba lagi.",
-        );
-        addToast({ type: "error", message });
+        const code = await readErrorCode(response);
+        addToast({
+          type: "error",
+          message: errorMessageFor(code, REFUSAL_COPY.profile, REFUSAL_FALLBACK.profile),
+        });
         return;
       }
 
@@ -324,21 +348,19 @@ export const InstitutionSettingsShell = ({
     <main className="page-shell app-page institution-form-page">
       <PageHeader
         title="Pengaturan institusi"
-        description="Kelola identitas institusi dan profil penyelenggara yang tampil ke publik."
-        actions={
+        titleMark={
           institutionType ? (
             <span className="status-badge">
               {INSTITUTION_TYPE_LABELS[institutionType as InstitutionType] ??
                 formatDisplayToken(institutionType)}
             </span>
-          ) : undefined
+          ) : null
         }
       />
 
       <section className="content-section">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Identitas</p>
             <h2>Identitas institusi</h2>
           </div>
         </div>
@@ -351,12 +373,11 @@ export const InstitutionSettingsShell = ({
         ) : (
           <form className="stack-md" onSubmit={saveIdentity}>
             <div className="form-field">
-              <label className="form-label" htmlFor="institution-settings-display-name">
+              <FormLabel htmlFor="institution-settings-display-name" required={!isPersonal}>
                 Nama institusi
-              </label>
-              <input
+              </FormLabel>
+              <FormInput
                 id="institution-settings-display-name"
-                className={isPersonal ? "form-input form-input-readonly" : "form-input"}
                 value={displayName}
                 onChange={(event) => setDisplayName(event.target.value)}
                 readOnly={isPersonal}
@@ -370,12 +391,11 @@ export const InstitutionSettingsShell = ({
             </div>
 
             <div className="form-field">
-              <label className="form-label" htmlFor="institution-settings-slug">
+              <FormLabel htmlFor="institution-settings-slug" required={!isPersonal}>
                 Slug
-              </label>
-              <input
+              </FormLabel>
+              <FormInput
                 id="institution-settings-slug"
-                className={isPersonal ? "form-input form-input-readonly" : "form-input"}
                 value={slug}
                 onChange={(event) => setSlug(event.target.value)}
                 readOnly={isPersonal}
@@ -390,12 +410,9 @@ export const InstitutionSettingsShell = ({
             </div>
 
             <div className="form-field">
-              <label className="form-label" htmlFor="institution-settings-status">
-                Status awal platform
-              </label>
-              <input
+              <FormLabel htmlFor="institution-settings-status">Status awal platform</FormLabel>
+              <FormInput
                 id="institution-settings-status"
-                className="form-input form-input-readonly"
                 value={INSTITUTION_STATUS_LABELS[status]}
                 readOnly
               />
@@ -425,7 +442,7 @@ export const InstitutionSettingsShell = ({
 
           <form className="stack-md" onSubmit={saveProfile}>
             <div className="form-field">
-              <span className="form-label">Logo</span>
+              <FormLabelText optional>Logo</FormLabelText>
               <InstitutionLogoUpload
                 expectedUserId={expectedUserId}
                 institutionSlug={activeSlug}
@@ -434,7 +451,7 @@ export const InstitutionSettingsShell = ({
             </div>
 
             <div className="form-field">
-              <span className="form-label">Sampul</span>
+              <FormLabelText optional>Sampul</FormLabelText>
               <InstitutionBannerUpload
                 expectedUserId={expectedUserId}
                 institutionSlug={activeSlug}
@@ -443,12 +460,11 @@ export const InstitutionSettingsShell = ({
             </div>
 
             <div className="form-field">
-              <label className="form-label" htmlFor="institution-profile-about">
+              <FormLabel htmlFor="institution-profile-about" optional>
                 Tentang
-              </label>
-              <textarea
+              </FormLabel>
+              <FormTextarea
                 id="institution-profile-about"
-                className="form-textarea"
                 rows={5}
                 value={about}
                 maxLength={2000}
@@ -460,12 +476,11 @@ export const InstitutionSettingsShell = ({
             </div>
 
             <div className="form-field">
-              <label className="form-label" htmlFor="institution-profile-contact-name">
+              <FormLabel htmlFor="institution-profile-contact-name" optional>
                 Nama Narahubung
-              </label>
-              <input
+              </FormLabel>
+              <FormInput
                 id="institution-profile-contact-name"
-                className="form-input"
                 value={contactName}
                 maxLength={160}
                 onChange={(event) => setContactName(event.target.value)}
@@ -473,12 +488,11 @@ export const InstitutionSettingsShell = ({
             </div>
 
             <div className="form-field">
-              <label className="form-label" htmlFor="institution-profile-contact-email">
+              <FormLabel htmlFor="institution-profile-contact-email" optional>
                 Email Narahubung
-              </label>
-              <input
+              </FormLabel>
+              <FormInput
                 id="institution-profile-contact-email"
-                className="form-input"
                 type="email"
                 value={contactEmail}
                 maxLength={254}
@@ -487,12 +501,11 @@ export const InstitutionSettingsShell = ({
             </div>
 
             <div className="form-field">
-              <label className="form-label" htmlFor="institution-profile-contact-phone">
+              <FormLabel htmlFor="institution-profile-contact-phone" optional>
                 Telepon Narahubung
-              </label>
-              <input
+              </FormLabel>
+              <FormInput
                 id="institution-profile-contact-phone"
-                className="form-input"
                 value={contactPhone}
                 maxLength={40}
                 onChange={(event) => setContactPhone(event.target.value)}
@@ -502,12 +515,11 @@ export const InstitutionSettingsShell = ({
             <fieldset className="form-field">
               {SOCIAL_PLATFORMS.map(({ platform, label, placeholder }) => (
                 <div className="form-field" key={platform}>
-                  <label className="form-label" htmlFor={`institution-profile-social-${platform}`}>
+                  <FormLabel htmlFor={`institution-profile-social-${platform}`} optional>
                     {label}
-                  </label>
-                  <input
+                  </FormLabel>
+                  <FormInput
                     id={`institution-profile-social-${platform}`}
-                    className="form-input"
                     type="url"
                     value={socials[platform]}
                     placeholder={placeholder}
@@ -538,12 +550,15 @@ export const InstitutionSettingsShell = ({
 
       <FormActionBar>
         <IconButton
+          variant="plain"
+          size="back"
           icon="arrow-left"
-          label="Panel institusi"
+          label="Kembali"
           onClick={() => router.push(`/institution/${activeSlug}`)}
         />
         {!isLoading ? (
           <div className="form-action-bar-end">
+            {hasUnsavedChanges ? <BarNote>Belum disimpan</BarNote> : null}
             <Button
               type="button"
               onClick={() => saveIdentity()}

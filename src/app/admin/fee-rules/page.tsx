@@ -1,20 +1,63 @@
-import { EmptyState, PageHeader } from "@/components/ui";
+import {
+  EmptyState,
+  PageHeader,
+  Table,
+  type TableColumn,
+  type TableRowData,
+} from "@/components/ui";
+import { LocalDate } from "@/components/ui/local-date";
 import { listFeeRules } from "@/server/finance/fee-rule-service";
 import { FeeRuleForm } from "./fee-rule-form";
-import { formatBasisPoints, formatEffectiveDate, formatMinorUnits } from "./fee-rule-display";
+import { formatBasisPoints, formatMinorUnits } from "./fee-rule-display";
 import { requireRolePage } from "@/server/auth/page-guard";
+
+const RULE_COLUMNS: readonly TableColumn[] = [
+  { key: "scope", header: "Cakupan", kind: "name" },
+  { key: "rate", header: "Tarif", kind: "number" },
+  { key: "flatAmount", header: "Biaya tetap", kind: "number" },
+  { key: "minimum", header: "Minimum", kind: "number" },
+  { key: "maximum", header: "Maksimum", kind: "number" },
+  { key: "from", header: "Mulai", kind: "date" },
+  { key: "to", header: "Sampai", kind: "date" },
+];
 
 export default async function AdminFeeRulesPage() {
   await requireRolePage("platform_ops", { callbackPath: "/admin/fee-rules" });
 
   const rules = await listFeeRules();
 
+  const ruleRows: TableRowData[] = rules.map((rule) => ({
+    key: rule.id,
+    cells: {
+      scope: rule.institutionId === null ? "Global" : (rule.institutionSlug ?? rule.institutionId),
+      rate: formatBasisPoints(rule.basisPoints),
+      flatAmount: formatMinorUnits(rule.flatAmount, rule.currency),
+      minimum:
+        rule.minimumFeeAmount === null
+          ? null
+          : formatMinorUnits(rule.minimumFeeAmount, rule.currency),
+      maximum:
+        rule.maximumFeeAmount === null
+          ? null
+          : formatMinorUnits(rule.maximumFeeAmount, rule.currency),
+      from: <LocalDate value={rule.effectiveFrom} format="shortDate" />,
+      to:
+        rule.effectiveTo === null ? null : (
+          <LocalDate value={rule.effectiveTo} format="shortDate" />
+        ),
+    },
+  }));
+
   return (
     <main className="page-shell app-page admin-page">
       <PageHeader
         title="Aturan biaya platform"
         description="Tarif komisi platform, berlaku per tanggal. Aturan tidak pernah diubah. Tarif baru dicatat sebagai aturan baru yang menggantikan aturan lama sejak tanggal berlakunya."
-        actions={<span className="status-badge data-text">{rules.length} aturan</span>}
+        titleMark={
+          rules.length > 0 ? (
+            <span className="status-badge data-text">{rules.length} aturan</span>
+          ) : null
+        }
       />
 
       <section className="admin-section" aria-labelledby="fee-rule-create-heading">
@@ -31,61 +74,15 @@ export default async function AdminFeeRulesPage() {
 
         {rules.length === 0 && (
           <EmptyState
-            icon="settings"
-            title="Belum ada aturan biaya."
+            kind="nothing-yet"
+            size="compact"
+            title="Belum ada aturan biaya"
             description="Pendaftaran berbayar tidak bisa diaktifkan sampai satu aturan berlaku."
           />
         )}
 
         {rules.length > 0 && (
-          <div className="table-scroll">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Cakupan</th>
-                  <th>Tarif</th>
-                  <th>Biaya tetap</th>
-                  <th>Minimum</th>
-                  <th>Maksimum</th>
-                  <th>Mulai</th>
-                  <th>Sampai</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rules.map((rule) => (
-                  <tr key={rule.id}>
-                    <td>
-                      {rule.institutionId === null ? (
-                        <span className="status-badge">Global</span>
-                      ) : (
-                        <span className="data-text">
-                          {rule.institutionSlug ?? rule.institutionId}
-                        </span>
-                      )}
-                    </td>
-                    <td className="data-text">{formatBasisPoints(rule.basisPoints)}</td>
-                    <td className="data-text">
-                      {formatMinorUnits(rule.flatAmount, rule.currency)}
-                    </td>
-                    <td className="data-text">
-                      {rule.minimumFeeAmount === null
-                        ? "—"
-                        : formatMinorUnits(rule.minimumFeeAmount, rule.currency)}
-                    </td>
-                    <td className="data-text">
-                      {rule.maximumFeeAmount === null
-                        ? "—"
-                        : formatMinorUnits(rule.maximumFeeAmount, rule.currency)}
-                    </td>
-                    <td className="data-text">{formatEffectiveDate(rule.effectiveFrom)}</td>
-                    <td className="data-text">
-                      {rule.effectiveTo === null ? "—" : formatEffectiveDate(rule.effectiveTo)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <Table label="Aturan tersimpan" columns={RULE_COLUMNS} rows={ruleRows} />
         )}
       </section>
     </main>

@@ -42,24 +42,25 @@ export default function PrivacyPage() {
       </section>
 
       <div className="page-shell document-page">
-        <section className="surface-card card-padding-lg stack-md document-clause">
+        <section className="stack-md document-clause">
           <h2 className="section-title">1. Siapa yang mengelola data Anda</h2>
           <p>
-            Data pada layanan ini dikelola oleh {COMPANY.legalName}, alamat {COMPANY.address}. Untuk
-            pertanyaan tentang data pribadi Anda, hubungi{" "}
-            <a href={`mailto:${COMPANY.supportEmail}`}>{COMPANY.supportEmail}</a>.
+            Data pada layanan ini dikelola oleh tim Lombakita. Untuk pertanyaan tentang data pribadi
+            Anda, hubungi <a href={`mailto:${COMPANY.supportEmail}`}>{COMPANY.supportEmail}</a>.
           </p>
         </section>
 
-        <section className="surface-card card-padding-lg stack-md document-clause">
+        <section className="stack-md document-clause">
           <h2 className="section-title">2. Data akun</h2>
           <p>Untuk setiap akun kami menyimpan:</p>
           <ul className="document-list">
             <li>alamat email dan status verifikasi email;</li>
             <li>nama dan nama pengguna;</li>
             <li>foto dari akun Google, jika Anda mendaftar dengan Google;</li>
-            <li>peran akun, status akun, serta waktu verifikasi peran kandidat dan rekruter;</li>
-            <li>tingkat verifikasi rekruter, untuk akun penyelenggara;</li>
+            <li>
+              peran akun, status akun, serta waktu verifikasi peran kandidat dan penyelenggara;
+            </li>
+            <li>tingkat verifikasi akun penyelenggara;</li>
             <li>
               status penangguhan dan alasannya, jika akun Anda pernah ditangguhkan oleh tim kami;
             </li>
@@ -71,7 +72,7 @@ export default function PrivacyPage() {
           </p>
         </section>
 
-        <section className="surface-card card-padding-lg stack-md document-clause">
+        <section className="stack-md document-clause">
           <h2 className="section-title">3. Data profil</h2>
           <p>
             Saat mendaftar sebagai peserta, Anda mengisi nama lengkap, nomor telepon, status saat
@@ -89,7 +90,7 @@ export default function PrivacyPage() {
           </p>
         </section>
 
-        <section className="surface-card card-padding-lg stack-md document-clause">
+        <section className="stack-md document-clause">
           <h2 className="section-title">4. Berkas yang Anda unggah</h2>
           <p>
             Berkas disimpan pada layanan penyimpanan objek Cloudflare R2 dan tidak dapat diakses
@@ -102,12 +103,12 @@ export default function PrivacyPage() {
             <li>logo dan sampul institusi, untuk akun penyelenggara;</li>
             <li>gambar QRIS pembayaran yang diunggah penyelenggara;</li>
             <li>dokumen yang diminta penyelenggara pada sebuah kompetisi;</li>
-            <li>dokumen verifikasi institusi dan dokumen verifikasi rekruter;</li>
+            <li>dokumen verifikasi institusi dan dokumen verifikasi penyelenggara;</li>
             <li>bukti transfer, termasuk bukti transfer yang pernah Anda kirim sebelumnya.</li>
           </ul>
         </section>
 
-        <section className="surface-card card-padding-lg stack-md document-clause">
+        <section className="stack-md document-clause">
           <h2 className="section-title">5. Berapa lama data disimpan</h2>
           <p>
             Bagian ini menyebutkan apa adanya. Ada dua jenis berkas yang dihapus otomatis, dan ada
@@ -134,7 +135,7 @@ export default function PrivacyPage() {
           </p>
           <ul className="document-list">
             <li>foto profil, sampul profil, CV, dan berkas sertifikasi;</li>
-            <li>dokumen verifikasi rekruter.</li>
+            <li>dokumen verifikasi penyelenggara.</li>
           </ul>
           <p>
             <strong>Berkas institusi.</strong> Logo, sampul, gambar QRIS, dan dokumen verifikasi
@@ -160,7 +161,7 @@ export default function PrivacyPage() {
           </p>
         </section>
 
-        <section className="surface-card card-padding-lg stack-md document-clause">
+        <section className="stack-md document-clause">
           <h2 className="section-title">6. Pihak lain yang menerima data</h2>
           <p>
             Kami tidak menjual data Anda. Data Anda diproses oleh penyedia layanan berikut sebatas
@@ -184,7 +185,7 @@ export default function PrivacyPage() {
           </ul>
         </section>
 
-        <section className="surface-card card-padding-lg stack-md document-clause">
+        <section className="stack-md document-clause">
           <h2 className="section-title">7. Sesi masuk</h2>
           <p>
             Setelah masuk, sesi Anda disimpan pada cookie di peramban dalam bentuk token
@@ -199,7 +200,7 @@ export default function PrivacyPage() {
           </p>
         </section>
 
-        <section className="surface-card card-padding-lg stack-md document-clause">
+        <section className="stack-md document-clause">
           <h2 className="section-title">8. Analitik dan pelacakan</h2>
           <p>
             Tidak ada. Lombakita tidak memuat skrip analitik atau pelacak pihak ketiga di halaman
@@ -208,7 +209,7 @@ export default function PrivacyPage() {
           </p>
         </section>
 
-        <section className="surface-card card-padding-lg stack-md document-clause">
+        <section className="stack-md document-clause">
           <h2 className="section-title">9. Hak Anda</h2>
           <p>
             Anda dapat melihat dan mengubah sebagian besar data Anda sendiri melalui halaman profil.
@@ -243,12 +244,33 @@ export default function PrivacyPage() {
           </p>
         </section>
 
-        <section className="surface-card card-padding-lg stack-md document-clause">
-          <h2 className="section-title">10. Perubahan kebijakan</h2>
+        <section className="stack-md document-clause">
+          <h2 className="section-title">10. Kontak penyelenggara pada halaman kompetisi</h2>
+          <p>
+            Saat menerbitkan kompetisi, penyelenggara memilih satu kontak untuk peserta: nomor
+            WhatsApp, nomor telepon, atau alamat email. Kontak itu tampil untuk semua orang di
+            halaman kompetisi tersebut, termasuk pengunjung yang belum masuk, dan dapat muncul di
+            mesin pencari.
+          </p>
+          <p>
+            Formulir terbit mengisi kontak itu lebih dulu dengan nomor ponsel dari pendaftaran
+            penyelenggara Anda yang sudah disetujui. Jika Anda memilih Email, formulir mengisinya
+            dengan email akun Anda. Anda dapat mengubah kontak itu sebelum menerbitkan.
+          </p>
+          <p>
+            Jika sebuah akun dihapus, kontak yang sama dengan email akun itu atau dengan nomor
+            ponsel dari pendaftaran penyelenggara akun itu yang sudah disetujui dihapus dari setiap
+            kompetisi yang memakainya. Tombol untuk menghubungi penyelenggara tidak tampil lagi
+            sampai penyelenggara mengisi kontak baru.
+          </p>
+        </section>
+
+        <section className="stack-md document-clause">
+          <h2 className="section-title">11. Perubahan kebijakan</h2>
           <p>
             Kebijakan ini dapat berubah seiring perubahan produk. Versi dan tanggal berlaku
             tercantum di bagian atas halaman ini. Ketentuan penggunaan layanan ada pada halaman{" "}
-            <Link href="/syarat-ketentuan">Syarat & Ketentuan</Link>, dan keterangan badan usaha ada
+            <Link href="/syarat-ketentuan">Syarat & Ketentuan</Link>, dan email tim Lombakita ada
             pada halaman <Link href="/kontak">Kontak</Link>.
           </p>
         </section>

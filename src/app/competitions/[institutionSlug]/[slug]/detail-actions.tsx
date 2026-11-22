@@ -52,6 +52,37 @@ const buildIcs = ({
   return lines.join("\r\n");
 };
 
+function downloadCalendarFile(props: Props) {
+  const ics = buildIcs(props);
+  const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = "kompetisi.ics";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
+export type CalendarEventProps = Props;
+
+// The full-width calendar action that stands in for the disabled "Belum dibuka" button.
+export function AddToCalendarButton(props: Props) {
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="lg"
+      fullWidth
+      leadingIcon={<Icon name="calendar" size="md" />}
+      onClick={() => downloadCalendarFile(props)}
+    >
+      Tambahkan ke kalender
+    </Button>
+  );
+}
+
 export function DetailActions(props: Props) {
   const { addToast } = useToast();
   const { title, eventStartAt } = props;
@@ -74,24 +105,13 @@ export function DetailActions(props: Props) {
     }
   };
 
-  const handleAddToCalendar = () => {
-    const ics = buildIcs(props);
-    const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = "kompetisi.ics";
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
-  };
+  const handleAddToCalendar = () => downloadCalendarFile(props);
 
   return (
     <div className="detail-secondary-actions cluster">
       <Button
         type="button"
-        variant="ghost"
+        variant="outline"
         size="sm"
         leadingIcon={<Icon name="link" size="sm" />}
         onClick={handleShare}
@@ -101,7 +121,7 @@ export function DetailActions(props: Props) {
       {eventStartAt ? (
         <Button
           type="button"
-          variant="ghost"
+          variant="link"
           size="sm"
           leadingIcon={<Icon name="calendar" size="sm" />}
           onClick={handleAddToCalendar}

@@ -1,14 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Feedback } from "@/components/ui";
-import { useModal, useToast } from "@/components/ui/primitives";
+import { Button, Feedback, FormField, FormLabel, FormTextareaWithLimit } from "@/components/ui";
+import { useModal, useModalTask, useToast, type ModalOutcome } from "@/components/ui/primitives";
 import {
   SESSION_MISMATCH_CODE,
   SESSION_MISMATCH_MESSAGE,
   sessionFetch,
 } from "@/lib/session/session-fetch";
+import { COMPETITION_HOST_CANNOT_JOIN_MESSAGE } from "@/lib/errors/error-copy";
 
 type RegistrationStatus = "confirmed" | "cancelled" | "pending_payment";
 
@@ -21,6 +22,7 @@ type CTAState = "open" | "closed" | "not_yet_open";
 
 type Props = {
   competitionId: string;
+  competitionTitle: string;
   ctaState: CTAState;
   initialRegistration: Registration | null;
   expectedUserId: string;
@@ -29,12 +31,19 @@ type Props = {
   // registration's payment group in ANY status. When true the cancel control is WITHHELD, not
   // rendered disabled, and not rendered and then refused.
   cancellationClosedByPaymentProof: boolean;
+  // The row is a team row, so the individual cancel is withheld and the team section is the way
+  // out. Separate from the proof flag: its sentence speaks of a sent transfer proof.
+  cancellationClosedForTeamRow: boolean;
   // The organiser cannot take payment, so a new entrant has nothing to do here. The register
   // control is WITHHELD rather than disabled, and the sentence explaining its absence takes its
   // place. A disabled "Daftar" invites a candidate to look for the permission that would enable it,
   // and no permission of theirs would.
   registrationWithheld: boolean;
+  registerAgainClosedByPaymentProof: boolean;
 };
+
+const TEAM_ROW_CANCEL_MESSAGE =
+  "Pendaftaran ini terdaftar sebagai tim. Hanya ketua tim yang dapat membatalkan pendaftaran tim, lewat bagian Tim di halaman ini.";
 
 const ERROR_MESSAGES: Record<string, string> = {
   competition_not_published: "Kompetisi tidak tersedia untuk pendaftaran.",
@@ -42,16 +51,17 @@ const ERROR_MESSAGES: Record<string, string> = {
   registration_deadline_passed: "Batas waktu pendaftaran telah terlewat.",
   registration_already_exists:
     "Anda sudah pernah mendaftar untuk kompetisi ini. Pendaftaran ulang tidak tersedia.",
+  registration_host_of_competition: COMPETITION_HOST_CANNOT_JOIN_MESSAGE,
   competition_not_found: "Kompetisi tidak ditemukan.",
   registration_not_found: "Pendaftaran tidak ditemukan.",
   registration_not_owner: "Anda tidak dapat membatalkan pendaftaran orang lain.",
   registration_wrong_status: "Pendaftaran ini sudah dibatalkan.",
+  registration_team_row_use_team_flow: TEAM_ROW_CANCEL_MESSAGE,
   cancellation_reason_required: "Alasan pembatalan wajib diisi.",
   cancellation_reason_too_long: "Alasan pembatalan terlalu panjang (maksimal 500 karakter).",
   // The organiser cannot take payment right now: unverified, no published account, or no fee rule
   // in force. All three collapse to one code server-side so none of them leaks, and none of them is
-  // the candidate's to fix. The generic "coba lagi" fallback was worse than nothing here: it
-  // describes a transient fault and invites a candidate to retry something that will never succeed.
+  // the candidate's to fix. A generic "coba lagi" message would invite a retry that cannot succeed.
   registration_payment_unavailable:
     "Penyelenggara kompetisi ini belum dapat menerima pembayaran, jadi pendaftaran berbayar belum bisa diproses. Hubungi penyelenggara.",
   cancellation_not_supported_for_paid:
@@ -65,58 +75,83 @@ const ERROR_MESSAGES: Record<string, string> = {
 const messageFor = (code: string | undefined): string =>
   (code && ERROR_MESSAGES[code]) ?? "Terjadi kesalahan. Coba lagi.";
 
-// Self-contained modal body: collects the required cancellation reason and renders its own
-// confirm/cancel buttons (the modal is opened with no footer actions).
+const describeRegisterAgain = (
+  registerAgainClosedByPaymentProof: boolean,
+  ctaState: CTAState,
+  registrationWithheld: boolean,
+): string => {
+  if (registerAgainClosedByPaymentProof) {
+    return "Pendaftaran ulang tidak tersedia karena bukti transfer sudah dikirim untuk pendaftaran ini.";
+  }
+  if (ctaState !== "open") {
+    return "Pendaftaran ulang hanya bisa dilakukan selama pendaftaran dibuka.";
+  }
+  if (registrationWithheld) {
+    return "Pendaftaran ulang belum dapat dibuka selama penyelenggara belum bisa menerima pembayaran.";
+  }
+  return "Anda dapat mendaftar lagi selama pendaftaran masih dibuka.";
+};
+
+const CANCEL_FORM_ID = "cancel-registration-form";
+
+const REASON_MISSING_MESSAGE = "Alasan belum diisi. Tulis alasan pembatalan Anda.";
+
+// The pop-up footer submits this form. An empty reason shows the field error and sends nothing.
 function CancelReasonForm({
+  competitionTitle,
   onConfirm,
-  onCancel,
 }: {
-  onConfirm: (reason: string) => void;
-  onCancel: () => void;
+  competitionTitle: string;
+  onConfirm: (reason: string) => Promise<ModalOutcome>;
 }) {
+  const runModalTask = useModalTask();
   const [reason, setReason] = useState("");
+  const [hasTriedToSubmit, setHasTriedToSubmit] = useState(false);
   const trimmed = reason.trim();
+  const reasonError = hasTriedToSubmit && trimmed.length === 0 ? REASON_MISSING_MESSAGE : undefined;
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setHasTriedToSubmit(true);
+    if (trimmed.length === 0) return;
+    void runModalTask(() => onConfirm(trimmed));
+  };
+
   return (
-    <div className="stack-md">
-      <p className="muted-copy">Tuliskan alasan pembatalan pendaftaran Anda. Alasan wajib diisi.</p>
-      <textarea
-        value={reason}
-        onChange={(e) => setReason(e.target.value)}
-        rows={4}
-        maxLength={500}
-        placeholder="Alasan pembatalan"
-        aria-label="Alasan pembatalan"
-        className="form-textarea"
-      />
-      <div className="modal-actions">
-        <Button type="button" onClick={onCancel} variant="outline" size="sm">
-          Kembali
-        </Button>
-        <Button
-          type="button"
-          disabled={trimmed.length === 0}
-          onClick={() => onConfirm(trimmed)}
-          variant="danger"
-          size="sm"
-        >
-          Batalkan pendaftaran
-        </Button>
-      </div>
-    </div>
+    <form id={CANCEL_FORM_ID} noValidate onSubmit={submit} className="stack-md">
+      <p>{`Pendaftaran Anda di ${competitionTitle} akan dibatalkan.`}</p>
+      <FormField>
+        <FormLabel htmlFor="cancel-registration-reason" required>
+          Alasan pembatalan
+        </FormLabel>
+        <FormTextareaWithLimit
+          id="cancel-registration-reason"
+          value={reason}
+          onChange={(event) => setReason(event.target.value)}
+          rows={4}
+          maxLength={500}
+          placeholder="Contoh: jadwal saya bertabrakan"
+          error={reasonError}
+        />
+      </FormField>
+    </form>
   );
 }
 
 export function IndividualRegistrationSection({
   competitionId,
+  competitionTitle,
   ctaState,
   initialRegistration,
   expectedUserId,
   modeLabel,
   cancellationClosedByPaymentProof,
+  cancellationClosedForTeamRow,
   registrationWithheld,
+  registerAgainClosedByPaymentProof,
 }: Props) {
   const router = useRouter();
-  const { openModal, closeModal } = useModal();
+  const { openModal } = useModal();
   const { addToast } = useToast();
   const [registration, setRegistration] = useState<Registration | null>(initialRegistration);
   const [loading, setLoading] = useState(false);
@@ -143,10 +178,8 @@ export function IndividualRegistrationSection({
     }
   };
 
-  const submitCancel = async (reason: string) => {
-    if (!registration) return;
-    closeModal();
-    setLoading(true);
+  const submitCancel = async (reason: string): Promise<ModalOutcome> => {
+    if (!registration) return { ok: false, message: messageFor("registration_not_found") };
     try {
       const res = await sessionFetch(
         expectedUserId,
@@ -162,28 +195,48 @@ export function IndividualRegistrationSection({
         error?: { code?: string };
       };
       if (!res.ok || !body.registration) {
-        addToast({ type: "error", message: messageFor(body.error?.code) });
-      } else {
-        setRegistration(body.registration);
-        addToast({ type: "success", message: "Pendaftaran dibatalkan." });
-        router.refresh();
+        return { ok: false, message: messageFor(body.error?.code) };
       }
+      setRegistration(body.registration);
+      addToast({ type: "success", message: "Pendaftaran dibatalkan." });
+      router.refresh();
+      return { ok: true };
     } catch {
-      addToast({ type: "error", message: "Terjadi kesalahan jaringan. Coba lagi." });
-    } finally {
-      setLoading(false);
+      return { ok: false, message: "Terjadi kesalahan jaringan. Coba lagi." };
     }
   };
 
   const handleCancel = () => {
     if (!registration) return;
     openModal({
-      title: "Batalkan pendaftaran",
-      closeable: true,
-      actions: [],
-      body: <CancelReasonForm onConfirm={submitCancel} onCancel={closeModal} />,
+      title: "Batalkan pendaftaran Anda?",
+      wide: true,
+      formId: CANCEL_FORM_ID,
+      body: <CancelReasonForm competitionTitle={competitionTitle} onConfirm={submitCancel} />,
+      actions: [{ label: "Kembali" }, { label: "Batalkan pendaftaran", variant: "primary" }],
     });
   };
+
+  const registerButton = (
+    <Button
+      onClick={handleRegister}
+      loading={loading}
+      disabled={ctaState !== "open"}
+      className="registration-primary-action"
+      variant="primary"
+      size="lg"
+    >
+      {modeLabel}
+    </Button>
+  );
+
+  const offersRegisterAgain =
+    !registerAgainClosedByPaymentProof && ctaState === "open" && !registrationWithheld;
+
+  const cancelWithheld = cancellationClosedForTeamRow || cancellationClosedByPaymentProof;
+  const cancelWithheldSentence = cancellationClosedForTeamRow
+    ? TEAM_ROW_CANCEL_MESSAGE
+    : "Pendaftaran tidak dapat dibatalkan sendiri setelah bukti transfer dikirim. Hubungi penyelenggara jika ada kekeliruan.";
 
   return (
     <section className="content-section registration-path-card">
@@ -197,11 +250,11 @@ export function IndividualRegistrationSection({
         <>
           <div className="registration-state stack-sm">
             <span className="status-badge" data-status="open">
-              ✓ Terdaftar
+              Terdaftar
             </span>
-            {cancellationClosedByPaymentProof ? null : (
+            {cancelWithheld ? null : (
               <div className="stack-xs">
-                <Button onClick={handleCancel} loading={loading} variant="danger" size="sm">
+                <Button onClick={handleCancel} loading={loading} variant="outline" size="sm">
                   Batalkan pendaftaran
                 </Button>
                 <p className="form-help">Pembatalan tunduk pada kebijakan penyelenggara.</p>
@@ -217,19 +270,21 @@ export function IndividualRegistrationSection({
               inside that panel renders background on background and the explanation disappears.
               The team section's equivalent note sits in `.team-roster`, which sets no background,
               so it needs no such placement. */}
-          {cancellationClosedByPaymentProof ? (
-            <Feedback tone="neutral">
-              Pendaftaran tidak dapat dibatalkan sendiri setelah bukti transfer dikirim. Hubungi
-              penyelenggara jika ada kekeliruan.
-            </Feedback>
-          ) : null}
+          {cancelWithheld ? <Feedback tone="neutral">{cancelWithheldSentence}</Feedback> : null}
         </>
       ) : registration && registration.status === "cancelled" ? (
         <div className="registration-state stack-xs">
           <span className="status-badge" data-status="closed">
             Pendaftaran dibatalkan
           </span>
-          <p className="form-help">Pendaftaran ulang belum tersedia.</p>
+          <p className="form-help">
+            {describeRegisterAgain(
+              registerAgainClosedByPaymentProof,
+              ctaState,
+              registrationWithheld,
+            )}
+          </p>
+          {offersRegisterAgain ? registerButton : null}
         </div>
       ) : registrationWithheld ? (
         /* Stands where the register control would have been. An empty card is the same failure the
@@ -240,16 +295,7 @@ export function IndividualRegistrationSection({
           pembayaran.
         </Feedback>
       ) : (
-        <Button
-          onClick={handleRegister}
-          loading={loading}
-          disabled={ctaState !== "open"}
-          className="registration-primary-action"
-          variant="primary"
-          size="lg"
-        >
-          {modeLabel}
-        </Button>
+        registerButton
       )}
     </section>
   );

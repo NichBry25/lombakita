@@ -49,6 +49,7 @@ const competition = (overrides: Partial<CompetitionRow> = {}): CompetitionRow =>
   status: "published",
   category: "hackathon",
   mode: "both",
+  location: null,
   minTeamSize: 1,
   maxTeamSize: 5,
   registrationStartAt: new Date("2026-07-01T00:00:00.000Z"),

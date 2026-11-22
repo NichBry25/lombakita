@@ -41,11 +41,12 @@ export default function TermsPage() {
       </section>
 
       <div className="page-shell document-page">
-        <section className="surface-card card-padding-lg stack-md document-clause">
+        <section className="stack-md document-clause">
           <h2 className="section-title">1. Tentang layanan ini</h2>
           <p>
             Lombakita adalah platform yang mempertemukan peserta dengan kompetisi yang
-            diselenggarakan oleh institusi. Layanan ini dioperasikan oleh {COMPANY.legalName}.
+            diselenggarakan oleh institusi. Layanan ini dioperasikan oleh tim Lombakita, yang dapat
+            dihubungi melalui <a href={`mailto:${COMPANY.supportEmail}`}>{COMPANY.supportEmail}</a>.
           </p>
           <p>
             Lombakita menyediakan tempat kompetisi diumumkan, didaftari, dan dikelola. Kompetisi itu
@@ -54,7 +55,7 @@ export default function TermsPage() {
           </p>
         </section>
 
-        <section className="surface-card card-padding-lg stack-md document-clause">
+        <section className="stack-md document-clause">
           <h2 className="section-title">2. Siapa yang dapat mendaftar</h2>
           <p>
             Pendaftaran akun terbuka untuk siapa saja. Tidak ada batasan usia, tidak ada syarat
@@ -72,7 +73,7 @@ export default function TermsPage() {
           </p>
         </section>
 
-        <section className="surface-card card-padding-lg stack-md document-clause">
+        <section className="stack-md document-clause">
           <h2 className="section-title">3. Akun dan nama pengguna</h2>
           <p>
             Anda dapat membuat akun dengan email dan password, atau dengan akun Google. Satu alamat
@@ -86,7 +87,7 @@ export default function TermsPage() {
           </p>
         </section>
 
-        <section className="surface-card card-padding-lg stack-md document-clause">
+        <section className="stack-md document-clause">
           <h2 className="section-title">4. Peran penyelenggara kompetisi</h2>
           <p>
             Institusi penyelenggara yang menentukan isi kompetisi: jadwal, tahapan, hadiah,
@@ -97,10 +98,20 @@ export default function TermsPage() {
             Pertanyaan dan keberatan tentang jalannya sebuah kompetisi ditujukan kepada
             penyelenggara kompetisi tersebut.
           </p>
+          <p>
+            Saat menerbitkan kompetisi, penyelenggara memilih satu kontak untuk peserta, berupa
+            nomor WhatsApp, nomor telepon, atau alamat email. Dengan menerbitkan, penyelenggara
+            menyetujui kontak itu tampil untuk umum di halaman kompetisi dan dapat muncul di mesin
+            pencari. Kontak itu dihapus dari kompetisi jika akun yang memakai email tersebut
+            dihapus, atau jika akun yang pendaftaran penyelenggaranya dengan nomor tersebut sudah
+            disetujui dihapus.
+          </p>
         </section>
 
-        <section className="surface-card card-padding-lg stack-md document-clause">
-          <h2 className="section-title">5. Biaya pendaftaran dan cara pembayaran</h2>
+        <section className="stack-md document-clause">
+          <h2 className="section-title" id="biaya-pendaftaran">
+            5. Biaya pendaftaran dan cara pembayaran
+          </h2>
           <p>
             Sebagian kompetisi memungut biaya pendaftaran. Besaran biaya ditetapkan oleh institusi
             penyelenggara dan dibayarkan langsung kepada institusi tersebut. Lombakita tidak
@@ -130,7 +141,7 @@ export default function TermsPage() {
           </p>
         </section>
 
-        <section className="surface-card card-padding-lg stack-md document-clause">
+        <section className="stack-md document-clause">
           <h2 className="section-title">
             6. Pembayaran tidak dapat ditarik kembali atas permintaan Anda
           </h2>
@@ -147,8 +158,10 @@ export default function TermsPage() {
           </p>
         </section>
 
-        <section className="surface-card card-padding-lg stack-md document-clause">
-          <h2 className="section-title">7. Pembatalan kompetisi oleh penyelenggara</h2>
+        <section className="stack-md document-clause">
+          <h2 className="section-title" id="pembatalan-kompetisi">
+            7. Pembatalan kompetisi oleh penyelenggara
+          </h2>
           <p>
             Penyelenggara tidak dapat menarik atau membatalkan sendiri sebuah kompetisi yang sudah
             memiliki pendaftaran berbayar. Sistem menolak tindakan itu.
@@ -171,7 +184,7 @@ export default function TermsPage() {
           </p>
         </section>
 
-        <section className="surface-card card-padding-lg stack-md document-clause">
+        <section className="stack-md document-clause">
           <h2 className="section-title">8. Dokumen peserta</h2>
           <p>
             Penyelenggara dapat meminta dokumen kepada peserta pada sebuah kompetisi, misalnya untuk
@@ -185,7 +198,7 @@ export default function TermsPage() {
           </p>
         </section>
 
-        <section className="surface-card card-padding-lg stack-md document-clause">
+        <section className="stack-md document-clause">
           <h2 className="section-title">9. Penangguhan akun</h2>
           <p>
             Tim Lombakita dapat menangguhkan akun setelah peninjauan internal, misalnya karena
@@ -199,7 +212,7 @@ export default function TermsPage() {
           </p>
         </section>
 
-        <section className="surface-card card-padding-lg stack-md document-clause">
+        <section className="stack-md document-clause">
           <h2 className="section-title">10. Berkas yang Anda unggah</h2>
           <p>
             Anda dapat mengunggah berkas ke Lombakita, misalnya foto profil, sampul profil, CV,
@@ -213,7 +226,7 @@ export default function TermsPage() {
           </p>
         </section>
 
-        <section className="surface-card card-padding-lg stack-md document-clause">
+        <section className="stack-md document-clause">
           <h2 className="section-title">11. Batas tanggung jawab</h2>
           <p>
             Lombakita menyediakan tempat kompetisi diumumkan dan dikelola. Kami tidak menampung uang
@@ -226,7 +239,7 @@ export default function TermsPage() {
           </p>
         </section>
 
-        <section className="surface-card card-padding-lg stack-md document-clause">
+        <section className="stack-md document-clause">
           <h2 className="section-title">12. Perubahan ketentuan dan cara menghubungi kami</h2>
           <p>
             Ketentuan ini dapat berubah seiring perubahan produk. Versi dan tanggal berlaku

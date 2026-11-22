@@ -3,13 +3,11 @@ import { describe, expect, it } from "vitest";
 import { ToastContainer } from "./toast";
 import { ToastProvider, useToast, type ToastType } from "./toast-context";
 
-// The word each toast type carries above its message. Every screen that raises a toast reads this
-// table through `ToastContainer`, so a label changed here changes it everywhere at once.
-const LABELS: [ToastType, string][] = [
-  ["success", "Berhasil"],
-  ["info", "Info"],
-  ["warning", "Peringatan"],
-  ["error", "Gagal"],
+// The live-region role each toast type carries. Errors interrupt, the rest wait for a pause.
+const ROLES: [ToastType, string][] = [
+  ["success", "status"],
+  ["info", "status"],
+  ["error", "alert"],
 ];
 
 function RaiseToast({ type }: { type: ToastType }) {
@@ -22,8 +20,8 @@ function RaiseToast({ type }: { type: ToastType }) {
   );
 }
 
-describe("the label a toast carries above its message", () => {
-  it.each(LABELS)("reads %s as %s", (type, label) => {
+describe("the live region and shape of a toast", () => {
+  it.each(ROLES)("reads %s as role %s with no title", (type, role) => {
     render(
       <ToastProvider>
         <RaiseToast type={type} />
@@ -36,6 +34,7 @@ describe("the label a toast carries above its message", () => {
     const toast = screen.getByText(`pesan ${type}`).closest("[data-toast-type]");
 
     expect(toast?.getAttribute("data-toast-type")).toBe(type);
-    expect(toast?.querySelector(".toast-label")?.textContent).toBe(label);
+    expect(toast?.getAttribute("role")).toBe(role);
+    expect(toast?.querySelector(".toast-label")).toBeNull();
   });
 });

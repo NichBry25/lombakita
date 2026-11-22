@@ -12,12 +12,8 @@ import {
   usePageTransition,
 } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
-import {
-  readErrorCode,
-  SESSION_MISMATCH_CODE,
-  SESSION_MISMATCH_MESSAGE,
-  sessionFetch,
-} from "@/lib/session/session-fetch";
+import { errorMessageFor } from "@/lib/errors/error-copy";
+import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
 
 type PersonalInstitutionResponse = {
   institution: {
@@ -36,17 +32,20 @@ type CreatedInstitution = {
   slug: string;
 };
 
-const extractErrorMessage = async (response: Response): Promise<string> => {
-  if ((await readErrorCode(response.clone())) === SESSION_MISMATCH_CODE) {
-    return SESSION_MISMATCH_MESSAGE;
-  }
-  try {
-    const payload = (await response.json()) as { error?: { message?: string } };
-    return payload.error?.message ?? "Permintaan institusi personal gagal diproses.";
-  } catch {
-    return "Permintaan institusi personal gagal diproses.";
-  }
+const VERIFY_RECRUITER_FIRST_MESSAGE =
+  "Verifikasi akun penyelenggara Anda terlebih dahulu untuk membuat institusi.";
+
+const CREATE_ERROR_COPY: Partial<Record<string, string>> = {
+  forbidden: VERIFY_RECRUITER_FIRST_MESSAGE,
+  recruiter_role_not_verified: VERIFY_RECRUITER_FIRST_MESSAGE,
+  personal_institution_already_exists:
+    "Anda sudah memiliki institusi personal. Satu akun hanya dapat memiliki satu institusi personal.",
+  account_deactivated: "Data akun ini sudah dihapus. Tindakan ini tidak tersedia.",
+  institution_invalid_value:
+    "Alamat institusi personal belum dapat dibuat. Coba lagi atau hubungi dukungan Lombakita.",
 };
+
+const CREATE_FALLBACK = "Ruang kerja personal gagal disiapkan. Coba lagi.";
 
 export const PersonalInstitutionCreateShell = ({ expectedUserId }: { expectedUserId: string }) => {
   const router = useRouter();
@@ -57,8 +56,7 @@ export const PersonalInstitutionCreateShell = ({ expectedUserId }: { expectedUse
 
   // No name or slug input: a personal institution's name derives from your username and its slug is
   // derived through the shared slug path. Creation is a single action from the sticky action bar.
-  const onSubmit = () =>
-    runAndNavigate(createInstitution, { message: "Membuat institusi personal…" });
+  const onSubmit = () => runAndNavigate(createInstitution, { message: "Menyiapkan ruang kerja…" });
 
   // Returns whether a navigation was started, so a rejected create drops the blocking screen
   // instead of leaving the user staring at it.
@@ -72,7 +70,11 @@ export const PersonalInstitutionCreateShell = ({ expectedUserId }: { expectedUse
     });
 
     if (!response.ok) {
-      addToast({ type: "error", message: await extractErrorMessage(response) });
+      const code = await readErrorCode(response);
+      addToast({
+        type: "error",
+        message: errorMessageFor(code, CREATE_ERROR_COPY, CREATE_FALLBACK),
+      });
       setIsCreating(false);
       return false;
     }
@@ -82,16 +84,16 @@ export const PersonalInstitutionCreateShell = ({ expectedUserId }: { expectedUse
       displayName: data.institution.displayName,
       slug: data.institution.slug,
     });
-    addToast({ type: "success", message: "Institusi personal berhasil dibuat." });
+    addToast({ type: "success", message: "Ruang kerja personal siap. Buat draf kompetisi Anda." });
     setIsCreating(false);
-    router.replace(`/institution/${data.institution.slug}`);
+    router.replace(`/institution/${data.institution.slug}/competitions/new`);
     return true;
   };
 
   return (
     <main className="page-shell app-page personal-institution-page">
       <PageHeader
-        title="Buat institusi personal"
+        title="Mulai menyelenggarakan"
         description="Untuk menyelenggarakan kompetisi sendiri. Nama institusi mengikuti username Anda."
       />
 
@@ -133,11 +135,17 @@ export const PersonalInstitutionCreateShell = ({ expectedUserId }: { expectedUse
       </section>
 
       <FormActionBar>
-        <IconButton icon="arrow-left" label="Kembali ke beranda" onClick={() => router.push("/")} />
+        <IconButton
+          icon="arrow-left"
+          variant="plain"
+          size="back"
+          label="Kembali ke beranda"
+          onClick={() => router.push("/")}
+        />
         {!created ? (
           <div className="form-action-bar-end">
             <Button type="button" onClick={onSubmit} loading={isCreating}>
-              Buat institusi personal
+              Mulai menyelenggarakan
             </Button>
           </div>
         ) : null}

@@ -8,7 +8,12 @@ import { CroppedImageUpload } from "@/components/media/cropped-image-upload";
 import { AVATAR_FRAME, BANNER_FRAME } from "@/lib/media/image-frames";
 import { PROFILE_FILE_RULES } from "@/server/user-profile/profile-files-core";
 import type { OwnerResume } from "@/server/user-profile/profile-collections-core";
-import { ownerFetch, uploadProfileFile } from "./profile-file-upload";
+import {
+  ownerFetch,
+  PROFILE_FILE_REMOVE_FALLBACK,
+  RESUME_VISIBILITY_FALLBACK,
+  uploadProfileFile,
+} from "./profile-file-upload";
 
 const PROFILE_UPLOAD_BASE = "/api/v1/users/me/profile";
 const RESUME_ACCEPT = "application/pdf";
@@ -138,7 +143,12 @@ export function ResumeSection({
 
   const onRemove = async () => {
     setBusy(true);
-    const result = await ownerFetch(expectedUserId, "/uploads/resume", { method: "DELETE" });
+    const result = await ownerFetch(
+      expectedUserId,
+      "/uploads/resume",
+      { method: "DELETE" },
+      PROFILE_FILE_REMOVE_FALLBACK,
+    );
     setBusy(false);
     if (!result.ok) {
       addToast({ type: "error", message: result.message });
@@ -150,11 +160,16 @@ export function ResumeSection({
 
   const onToggleVisibility = async (isPublic: boolean) => {
     setBusy(true);
-    const result = await ownerFetch(expectedUserId, "/uploads/resume", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ isPublic }),
-    });
+    const result = await ownerFetch(
+      expectedUserId,
+      "/uploads/resume",
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isPublic }),
+      },
+      RESUME_VISIBILITY_FALLBACK,
+    );
     setBusy(false);
     if (!result.ok) {
       addToast({ type: "error", message: result.message });
@@ -167,7 +182,6 @@ export function ResumeSection({
     <section className="content-section">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">Dokumen</p>
           <h2>Resume</h2>
         </div>
       </div>
@@ -213,8 +227,7 @@ export function ResumeSection({
             <IconButton
               icon="trash"
               label="Hapus resume"
-              variant="danger"
-              size="sm"
+              variant="outline"
               disabled={busy}
               onClick={onRemove}
             />

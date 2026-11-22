@@ -1,16 +1,8 @@
 import Link from "next/link";
 import { requireRolePage } from "@/server/auth/page-guard";
 import { listSavedCompetitions } from "@/server/saved-competitions/saved-competition-service";
-import { ButtonLink, EmptyState, Icon, PageHeader, Pagination } from "@/components/ui";
-
-const formatDate = (d: Date | null) =>
-  d
-    ? new Date(d).toLocaleDateString("id-ID", {
-        day: "numeric",
-        month: "long",
-        year: "numeric",
-      })
-    : "—";
+import { EmptyState, Icon, PageHeader, Pagination } from "@/components/ui";
+import { LocalDate } from "@/components/ui/local-date";
 
 export default async function SavedCompetitionsPage({
   searchParams,
@@ -26,21 +18,14 @@ export default async function SavedCompetitionsPage({
 
   return (
     <main className="page-shell app-page saved-page">
-      <PageHeader
-        title="Kompetisi tersimpan"
-        description="Peluang yang kamu simpan untuk dibaca lagi."
-      />
+      <PageHeader title="Kompetisi tersimpan" />
 
       {result.data.length === 0 ? (
         <EmptyState
-          icon="bookmark"
-          title="Belum ada kompetisi tersimpan."
+          kind="nothing-yet"
+          title="Belum ada kompetisi tersimpan"
           description="Gunakan tombol simpan di halaman detail kompetisi untuk mengisi daftar ini."
-          action={
-            <ButtonLink href="/competitions" variant="outline">
-              Jelajahi kompetisi
-            </ButtonLink>
-          }
+          action={{ label: "Jelajahi kompetisi", href: "/competitions" }}
         />
       ) : (
         <ul className="saved-grid">
@@ -63,7 +48,8 @@ export default async function SavedCompetitionsPage({
                 <p className="record-meta">{item.institutionName}</p>
                 {item.registrationEndAt ? (
                   <p className="record-meta">
-                    Batas pendaftaran: {formatDate(item.registrationEndAt)}
+                    Batas pendaftaran:{" "}
+                    <LocalDate value={item.registrationEndAt} format="longDate" />
                   </p>
                 ) : null}
                 {item.savedStatus === "unavailable" ? (

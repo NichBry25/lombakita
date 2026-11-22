@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { toAccessDeniedResponse } from "@/server/auth/access-core";
+import {
+  assertSessionMatchesExpectedUser,
+  toAccessDeniedResponse,
+} from "@/server/auth/access-core";
 import { requireAuthenticatedSession } from "@/server/auth/session";
 import {
   InstitutionWorkspaceInputError,
@@ -40,6 +43,7 @@ export async function PATCH(
 ): Promise<Response> {
   try {
     const session = await requireAuthenticatedSession();
+    assertSessionMatchesExpectedUser(request, session);
     const { institutionSlug } = await context.params;
     const payload = await request.json();
     const institution = await updateInstitutionWorkspaceForOwnerBySlug(

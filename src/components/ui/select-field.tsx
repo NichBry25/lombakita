@@ -15,6 +15,7 @@ type SelectFieldProps = {
   placeholder?: string;
   disabled?: boolean;
   required?: boolean;
+  optional?: boolean;
   id?: string;
   className?: string;
 };
@@ -30,6 +31,7 @@ export function SelectField({
   placeholder = "Pilih...",
   disabled = false,
   required = false,
+  optional = false,
   id,
   className,
 }: SelectFieldProps) {
@@ -42,7 +44,8 @@ export function SelectField({
   const selectedIndex = options.findIndex((option) => option.value === value);
   const selected = selectedIndex >= 0 ? options[selectedIndex] : undefined;
   const accessibleLabel = selected ? `${label}: ${selected.label}` : label;
-  const requiredAccessibleLabel = required ? `${accessibleLabel} (wajib)` : accessibleLabel;
+  const markerSuffix = required ? " (wajib)" : optional ? " (opsional)" : "";
+  const markedAccessibleLabel = `${accessibleLabel}${markerSuffix}`;
 
   useEffect(() => {
     if (!open) return;
@@ -130,7 +133,7 @@ export function SelectField({
         data-placeholder={selected ? undefined : "true"}
         aria-haspopup="listbox"
         aria-expanded={open}
-        aria-label={requiredAccessibleLabel}
+        aria-label={markedAccessibleLabel}
         disabled={disabled}
         onClick={() => (open ? setOpen(false) : openMenu())}
         onKeyDown={onTriggerKeyDown}
@@ -138,7 +141,7 @@ export function SelectField({
         <span className="select-field-trigger-label">
           {selected ? selected.label : placeholder}
         </span>
-        <Icon name="chevron-down" size="sm" className="select-field-chevron" />
+        <Icon name="chevron-down" className="select-field-chevron" />
       </button>
       {open ? (
         <ul
@@ -158,10 +161,10 @@ export function SelectField({
               data-selected={index === selectedIndex ? "true" : undefined}
               onClick={() => commit(index)}
             >
+              <span>{option.label}</span>
               <span className="select-field-option-check" aria-hidden="true">
-                {index === selectedIndex ? <Icon name="check" size="sm" /> : null}
+                {index === selectedIndex ? <Icon name="check" /> : null}
               </span>
-              {option.label}
             </li>
           ))}
         </ul>

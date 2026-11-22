@@ -2,7 +2,8 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/finance/payment-expiry-service");
 
-import { and, eq, gt, inArray, lt, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, lt, lte, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { getDb, type Database } from "@/server/db/client";
 import {
   competitionRegistrations,
@@ -11,6 +12,7 @@ import {
   financePayments,
 } from "@/server/db/schema";
 import { foldPaymentEvents } from "@/lib/finance/payment-state";
+import { PAYMENT_EXPIRY_CANCELLATION_REASON } from "@/lib/finance/registration-cancellation";
 import { appendPaymentEvent } from "@/server/finance/payment-service";
 import { mintManualExpiryEventKey } from "@/server/finance/idempotency-key";
 import { notifyPaymentOutcome } from "@/server/finance/payment-notifications";
@@ -32,15 +34,8 @@ import { logger } from "@/lib/logger";
 // deadline passes SUSPENDS expiry indefinitely. A candidate who transferred real money and uploaded
 // their evidence in time must never be cancelled because the organiser was slow to look at it.
 
-/**
- * The cancellation reason written on an expired registration.
- *
- * A distinct sentinel rather than prose, because `cancellation_reason` is free text with no enum
- * and every later report has to separate "the candidate withdrew" from "the platform cancelled
- * this because nobody paid". Those are opposite facts about the same column, and a human-written
- * sentence cannot be filtered on reliably.
- */
-export const PAYMENT_EXPIRY_CANCELLATION_REASON = "payment_deadline_expired";
+// Kept because two integration tests import the constant from this service.
+export { PAYMENT_EXPIRY_CANCELLATION_REASON };
 
 /**
  * Whether a proof awaiting a verdict is holding this payment's deadline open.
@@ -109,8 +104,12 @@ const selectOverduePayments = async (now: Date, db: Database): Promise<string[]>
   return rows.map((row) => row.id);
 };
 
-/** Every registration sharing this payment's group: the team's rows, or the single payer's. */
-const resolveGroupRegistrationIds = async (
+/**
+ * The registrations this payment was made with: the single payer's row, or the team's rows
+ * registered no later than the payment's own row. A team that withdrew and registered again keeps
+ * its later rows out of reach of the earlier payment, which the withdrawal left open.
+ */
+const resolveRegistrationIdsMadeWithPayment = async (
   anchorRegistrationId: string,
   db: Database,
 ): Promise<string[]> => {
@@ -123,12 +122,67 @@ const resolveGroupRegistrationIds = async (
   if (!anchor) return [];
   if (anchor.teamId === null) return [anchor.id];
 
+  // Compared in SQL against the anchor row itself, so a registered_at with microseconds is never
+  // rounded to a JavaScript millisecond on the way.
+  const anchorRow = alias(competitionRegistrations, "anchor_registration");
   const rows = await db
     .select({ id: competitionRegistrations.id })
     .from(competitionRegistrations)
-    .where(eq(competitionRegistrations.teamId, anchor.teamId));
+    .innerJoin(
+      anchorRow,
+      and(
+        eq(anchorRow.teamId, competitionRegistrations.teamId),
+        lte(competitionRegistrations.registeredAt, anchorRow.registeredAt),
+      ),
+    )
+    .where(eq(anchorRow.id, anchor.id));
 
   return rows.map((row) => row.id);
+};
+
+/**
+ * The holders of the registrations that this payment's expiry cancelled: the registrations made
+ * with the payment, cancelled at the time of the payment's `expired` event with the expiry's
+ * reason. A teammate who joined after the payment, a former member whose row a withdrawal
+ * cancelled, a row that an earlier expiry of the team cancelled and a withdrawal typed with the
+ * expiry's reason are left out. A payment with no `expired` event has no recipients.
+ *
+ * The expiry writes one time into the event and onto the rows, so the event is the only source
+ * this reads.
+ */
+export const resolveMemberUserIdsCancelledByExpiry = async (
+  anchorRegistrationId: string,
+  paymentId: string,
+  db: Database = getDb(),
+): Promise<string[]> => {
+  const [expiredEvent] = await db
+    .select({ occurredAt: financePaymentEvents.occurredAt })
+    .from(financePaymentEvents)
+    .where(
+      and(
+        eq(financePaymentEvents.paymentId, paymentId),
+        eq(financePaymentEvents.eventType, "expired"),
+      ),
+    )
+    .limit(1);
+
+  if (!expiredEvent) return [];
+
+  const registrationIds = await resolveRegistrationIdsMadeWithPayment(anchorRegistrationId, db);
+  if (registrationIds.length === 0) return [];
+
+  const rows = await db
+    .select({ studentId: competitionRegistrations.studentId })
+    .from(competitionRegistrations)
+    .where(
+      and(
+        inArray(competitionRegistrations.id, registrationIds),
+        eq(competitionRegistrations.cancellationReason, PAYMENT_EXPIRY_CANCELLATION_REASON),
+        eq(competitionRegistrations.cancelledAt, expiredEvent.occurredAt),
+      ),
+    );
+
+  return [...new Set(rows.map((row) => row.studentId))];
 };
 
 /**
@@ -216,10 +270,14 @@ const expireOnePayment = async (
       scoped,
     );
 
-    // The whole payment group goes, not just the anchor. A team pays once, so a lapsed team payment
-    // ends every member's registration. Leaving three members "registered" for a competition their
-    // team never paid for would be worse than cancelling them.
-    const groupIds = await resolveGroupRegistrationIds(payment.registrationId, scoped);
+    // Every registration made with this payment goes, not just the anchor. A team pays once, so a
+    // lapsed team payment ends the registration of every member it was made with. Leaving three
+    // members "registered" for a competition their team never paid for would be worse than
+    // cancelling them.
+    const registrationIds = await resolveRegistrationIdsMadeWithPayment(
+      payment.registrationId,
+      scoped,
+    );
 
     const cancelled = await scoped
       .update(competitionRegistrations)
@@ -233,7 +291,7 @@ const expireOnePayment = async (
       // exactly as it is, with its own reason intact.
       .where(
         and(
-          inArray(competitionRegistrations.id, groupIds),
+          inArray(competitionRegistrations.id, registrationIds),
           eq(competitionRegistrations.status, "confirmed"),
         ),
       )
@@ -273,7 +331,11 @@ export const sweepExpiredPayments = async (
         // notification is only ever sent for a cancellation that survived. The helper swallows its
         // own failures: a lapsed registration that went unannounced is recoverable, a sweep that
         // aborts halfway because the queue is down is not.
-        await notifyPaymentOutcome(outcome.paymentId, "expired", {}, db);
+        // An expiry whose registration was already cancelled cancels nothing, and announcing it
+        // would tell a person who registered again that their live registration was cancelled.
+        if (outcome.registrationsCancelled > 0) {
+          await notifyPaymentOutcome(outcome.paymentId, "expired", {}, db);
+        }
       } else {
         skipped += 1;
       }

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { signOut } from "next-auth/react";
-import { Button, usePageTransition } from "@/components/ui";
+import { Button, FormLabel, PasswordField, usePageTransition } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import { NewPasswordFields, validateNewPassword } from "@/components/auth/new-password-fields";
 import {
@@ -115,18 +115,16 @@ export function ChangePasswordForm({ expectedUserId }: ChangePasswordFormProps) 
       ) : null}
 
       <div className="form-field">
-        <label className="form-label form-label-required" htmlFor="change-current-password">
+        <FormLabel htmlFor="change-current-password" required>
           Password saat ini
-        </label>
-        <input
+        </FormLabel>
+        <PasswordField
           id="change-current-password"
           name="currentPassword"
-          type="password"
           autoComplete="current-password"
           required
           value={currentPassword}
           onChange={(event) => setCurrentPassword(event.target.value)}
-          className="form-input"
         />
       </div>
 

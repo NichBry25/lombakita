@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { CredentialsAuthError } from "@/server/auth/credentials-auth";
+import { reportUnexpectedError } from "@/server/observability/report-unexpected-error";
 
 export const toCredentialsAuthErrorResponse = (error: unknown): NextResponse => {
   if (error instanceof CredentialsAuthError) {
@@ -15,6 +16,7 @@ export const toCredentialsAuthErrorResponse = (error: unknown): NextResponse => 
     );
   }
 
+  reportUnexpectedError("an authentication route", error);
   return NextResponse.json(
     {
       error: {

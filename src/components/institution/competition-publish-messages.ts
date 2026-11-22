@@ -39,12 +39,12 @@ const REASONS: Record<CompetitionPublishBlockerCode, PublishBlockerReason> = {
   },
   competition_recruiter_not_trusted: {
     code: "competition_recruiter_not_trusted",
-    text: "Akun Anda belum menjadi Trusted Recruiter. Selesaikan verifikasi rekruter untuk dapat menerbitkan kompetisi.",
+    text: "Akun Anda belum menjadi penyelenggara terverifikasi. Selesaikan verifikasi penyelenggara untuk dapat menerbitkan kompetisi.",
     // There is no dedicated recruiter-verification ROUTE in this app: the verification panel is
     // rendered on `/recruiter-dashboard` (app/recruiter-dashboard/recruiter-verification-panel.tsx,
     // mounted by that page). The dashboard is therefore the page the link names — the link's text
     // says what to do there rather than claiming a page that does not exist.
-    link: { kind: "recruiter", label: "Verifikasi rekruter" },
+    link: { kind: "recruiter", label: "Verifikasi penyelenggara" },
   },
   institution_suspended: {
     code: "institution_suspended",
@@ -54,7 +54,17 @@ const REASONS: Record<CompetitionPublishBlockerCode, PublishBlockerReason> = {
   competition_publish_validation_failed: {
     code: "competition_publish_validation_failed",
     text: "Data kompetisi belum lengkap atau belum valid.",
-    link: { kind: "edit", label: "Buka halaman edit" },
+    link: null,
+  },
+  competition_organizer_contact_missing: {
+    code: "competition_organizer_contact_missing",
+    text: "Kontak untuk peserta belum diisi. Isi nomor WhatsApp, nomor telepon, atau email yang dapat dihubungi peserta.",
+    link: { kind: "edit", label: "Isi kontak" },
+  },
+  competition_audience_missing: {
+    code: "competition_audience_missing",
+    text: "Untuk siapa kompetisi ini belum diisi. Pilih minimal satu pilihan Untuk di bagian Kelayakan.",
+    link: { kind: "edit", label: "Isi Untuk" },
   },
   competition_institution_not_verified: {
     code: "competition_institution_not_verified",

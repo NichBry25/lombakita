@@ -6,6 +6,9 @@ import { isEmailAuthConfigured, isGoogleAuthConfigured } from "@/server/auth/aut
 import { verifyGoogleIdentityCarrier } from "@/server/auth/oauth-identity-carrier";
 import { resolveClaimInviteEmailByToken } from "@/server/invitations/invite-resolution";
 import { getDb } from "@/server/db/client";
+import { sameSiteReturnPathOr } from "@/lib/session/return-path";
+import { serverEnv } from "@/config/env.server";
+import { GOOGLE_EMAIL_UNVERIFIED_MESSAGE } from "@/lib/errors/error-copy";
 
 // Single method-first auth entry. `/auth/login` is the one canonical entry point;
 // `/auth/register`, `/auth/signup`, and `/auth/sign-in` all redirect here. Auth.js `pages.signIn`
@@ -24,9 +27,12 @@ const mapSignInPageError = (error: string): string => {
   if (error === "oauth_session_mismatch") {
     return "Anda sudah masuk dengan akun lain. Keluar dulu lalu coba lagi masuk dengan Google.";
   }
-  // Single-use OAuth carrier (surfaced here only if a finalize error arrives via a
-  // full redirect; the in-page role picker maps it directly).
-  if (error === "oauth_carrier_replayed" || error === "oauth_carrier_unavailable") {
+  if (error === "oauth_email_unverified") {
+    return GOOGLE_EMAIL_UNVERIFIED_MESSAGE;
+  }
+  // Single-use OAuth carrier. The role picker maps this code itself and next-auth sends a
+  // failed authorize to its own error page, so only a typed URL reaches this branch.
+  if (error === "carrier_replayed") {
     return "Sesi pendaftaran Google ini tidak dapat digunakan lagi. Silakan mulai lagi masuk dengan Google.";
   }
   // Failed-login lockout.
@@ -45,7 +51,7 @@ const mapSignInPageError = (error: string): string => {
   if (error === "Configuration") {
     return "Login gagal karena konfigurasi autentikasi belum lengkap. Hubungi admin sistem.";
   }
-  return `Login gagal karena ${error}. Coba ulang atau hubungi admin jika masalah berlanjut.`;
+  return "Login gagal. Coba ulang atau hubungi admin jika masalah berlanjut.";
 };
 
 export default async function LoginPage(props: {
@@ -71,7 +77,7 @@ export default async function LoginPage(props: {
     if (!claims) {
       return (
         <AuthPageFrame
-          title="Mulai kembali dengan sesi yang aman."
+          title="Daftar ulang dengan Google"
           description="Tautan pendaftaran Google bersifat terbatas dan tidak dapat digunakan setelah kedaluwarsa."
         >
           <div className="auth-state stack-md">
@@ -80,10 +86,6 @@ export default async function LoginPage(props: {
             </span>
             <div className="stack-xs">
               <h1>Sesi pendaftaran tidak valid</h1>
-              <p>
-                Sesi pendaftaran Google sudah kedaluwarsa atau tidak valid. Silakan mulai lagi dari
-                halaman masuk.
-              </p>
             </div>
             <ButtonLink variant="primary" size="md" href="/auth/login">
               Kembali ke halaman masuk
@@ -99,7 +101,7 @@ export default async function LoginPage(props: {
   const error = searchParams?.error;
   const verified = searchParams?.verified === "1";
   const passwordChanged = searchParams?.passwordChanged === "1";
-  const callbackUrl = searchParams?.callbackUrl;
+  const checkedReturn = sameSiteReturnPathOr(searchParams?.callbackUrl, serverEnv.authUrl, "");
 
   // Claim-signup link (?invite=<rawToken> from a pending_claim invite email). Resolve
   // the token to the invited email server-side and prefill it, so the new account is created with
@@ -113,10 +115,12 @@ export default async function LoginPage(props: {
     }
   }
 
+  const callbackUrl = checkedReturn || (searchParams?.invite ? "/inbox" : undefined);
+
   return (
     <AuthPageFrame
-      title="Satu akun untuk menemukan dan mengelola peluang."
-      description="Masuk atau daftar dari satu halaman. Kami akan menuntun langkah berikutnya."
+      title="Satu akun untuk ikut dan menyelenggarakan kompetisi"
+      description="Kami akan menuntun langkah berikutnya."
     >
       <div className="stack-md">
         <AuthEntry

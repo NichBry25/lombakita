@@ -15,14 +15,17 @@
  *     move the refuse BELOW `db.transaction`, where it throws the byte-identical error after the
  *     cancellation has committed. Moving it INSIDE the callback is benign — the rollback restores
  *     the post-state — so a probe that moved it there would measure nothing and report success.
+ *     Each arm also reads the proof again inside its transaction, under the payment's row lock,
+ *     so each probe removes that second read as well: left in place, it refuses before the commit
+ *     on its own.
  *
  *   DEC-0132 — unpublish is blocked while money is in flight, AND IS NOT DEC-0131. The refuse is
  *     inside `unpublishCompetition`'s transaction, keyed off `hasCompetitionPaymentInFlight` rather
  *     than the narrower confirmed-paid predicate, because the dangerous window is the one where the
  *     transfer has happened and the organiser has not verified it yet. Class A1-in: the detector is
  *     the refusal's IDENTITY, which is also where the two decisions come apart — 0131 refuses the
- *     candidate's own act, 0132 refuses the organiser's, and the escape hatch named in the 0132
- *     message is platform_ops cancellation rather than the candidate withdrawing.
+ *     candidate's own act, 0132 refuses the organiser's, and the 0132 message names resolving each
+ *     transfer as the way out rather than the candidate withdrawing.
  *
  *   DEC-0133 — the ledger is append-only. There is no database trigger; what holds it is that no
  *     source file under `src/` or `scripts/` can contain a mutation against a finance table, and
@@ -115,6 +118,25 @@ const INDIVIDUAL_REFUSE_MOVED = [
 ].join("\n");
 
 /**
+ * The individual arm's second read of the same refuse, inside the transaction after the payment's
+ * row is locked. The individual probe removes it together with the move above: left in place, it
+ * refuses before the commit and the moved refuse is never reached.
+ */
+const INDIVIDUAL_LOCKED_REFUSE = [
+  "    if (",
+  "      lockedAnchorRegistrationId !== null &&",
+  "      (await hasSubmittedPaymentProof(lockedAnchorRegistrationId, tx))",
+  "    ) {",
+  "      throw new RegistrationError(",
+  '        "cancellation_not_supported_for_paid",',
+  '        "Pendaftaran tidak dapat dibatalkan setelah bukti transfer dikirim",',
+  "      );",
+  "    }",
+  "",
+  "",
+].join("\n");
+
+/**
  * DEC-0131's refuse in `cancelTeamRegistration`, the second enforcement site for the same decision.
  *
  * Probed separately rather than assumed from the individual arm: the two arms are separate
@@ -125,7 +147,7 @@ const INDIVIDUAL_REFUSE_MOVED = [
  * Anchored on the guard as fada388 left it: one condition, no `isPaidCompetition` wrapper.
  */
 const TEAM_PAID_REFUSE = [
-  "  const anchorRegistrationId = await findTeamPaymentGroupAnchor(teamId, db);",
+  "  const anchorRegistrationId = await findAnyTeamRegistrationRow(teamId, db);",
   "",
   "  if (anchorRegistrationId !== null && (await hasSubmittedPaymentProof(anchorRegistrationId, db))) {",
   "    throw new TeamError(",
@@ -139,7 +161,7 @@ const TEAM_PAID_REFUSE = [
 
 const TEAM_REFUSE_MOVED = [
   "  // probe: the team paid-registration refuse now runs after the cancellation has committed",
-  "  const anchorRegistrationId = await findTeamPaymentGroupAnchor(teamId, db);",
+  "  const anchorRegistrationId = await findAnyTeamRegistrationRow(teamId, db);",
   "",
   "  if (anchorRegistrationId !== null && (await hasSubmittedPaymentProof(anchorRegistrationId, db))) {",
   "    throw new TeamError(",
@@ -151,13 +173,32 @@ const TEAM_REFUSE_MOVED = [
   "",
 ].join("\n");
 
+/**
+ * The team arm's second read of the same refuse, inside the transaction after the payment's row is
+ * locked. The team probe removes it together with the move above: left in place, it refuses before
+ * the commit and the moved refuse is never reached.
+ */
+const TEAM_LOCKED_REFUSE = [
+  "    if (",
+  "      lockedAnchorRegistrationId !== null &&",
+  "      (await hasSubmittedPaymentProof(lockedAnchorRegistrationId, tx))",
+  "    ) {",
+  "      throw new TeamError(",
+  '        "cancellation_not_supported_for_paid",',
+  '        "Pendaftaran tidak dapat dibatalkan setelah bukti transfer dikirim",',
+  "      );",
+  "    }",
+  "",
+  "",
+].join("\n");
+
 /** DEC-0132's refuse, inside `unpublishCompetition`'s transaction. */
 const IN_FLIGHT_REFUSE = [
   "    if (await hasCompetitionPaymentInFlight(competitionId, tx)) {",
   "      throw new CompetitionError(",
   '        "competition_unpublish_blocked_payment_in_flight",',
   "        409,",
-  '        "Kompetisi tidak dapat ditarik selama masih ada bukti transfer yang menunggu verifikasi. Hubungi tim Lombakita untuk pembatalan.",',
+  '        "Kompetisi tidak dapat ditarik selama masih ada bukti transfer yang menunggu verifikasi atau sudah diverifikasi. Verifikasi atau tolak dulu setiap bukti yang menunggu. Kompetisi dengan transfer yang sudah diverifikasi tidak dapat ditarik.",',
   "      );",
   "    }",
   "",
@@ -285,13 +326,16 @@ export const probes = [
     harmfulMove:
       "moving the paid-registration refuse below `db.transaction`, where it throws the identical " +
       "error after the cancellation has committed — the refusal still reads correctly to the " +
-      "caller, and the candidate's money is already with an organiser who has been told nothing",
+      "caller, and the candidate's money is already with an organiser who has been told nothing. " +
+      "Its second read inside the transaction is removed with the move, because left in place it " +
+      "refuses before the commit on its own",
     files: [REGISTRATION_SERVICE],
     appliedMarkers: [
       "// probe: the paid-registration refuse now runs after the cancellation has committed",
     ],
     mutate: () => {
       substituteOnce(REGISTRATION_SERVICE, INDIVIDUAL_PAID_REFUSE, "");
+      substituteOnce(REGISTRATION_SERVICE, INDIVIDUAL_LOCKED_REFUSE, "");
       substituteOnce(
         REGISTRATION_SERVICE,
         "  if (!updated) {\n",
@@ -307,13 +351,15 @@ export const probes = [
     harmfulMove:
       "the same move against the team arm, which is a separate function with its own transaction and " +
       "its own anchor lookup — so the individual arm holding says nothing about whether this one " +
-      "still runs before its commit",
+      "still runs before its commit. Its second read inside the transaction is removed with the " +
+      "move, because left in place it refuses before the commit on its own",
     files: [TEAM_REGISTRATION_SERVICE],
     appliedMarkers: [
       "// probe: the team paid-registration refuse now runs after the cancellation has committed",
     ],
     mutate: () => {
       substituteOnce(TEAM_REGISTRATION_SERVICE, TEAM_PAID_REFUSE, "");
+      substituteOnce(TEAM_REGISTRATION_SERVICE, TEAM_LOCKED_REFUSE, "");
       substituteOnce(
         TEAM_REGISTRATION_SERVICE,
         "  for (const reg of cancelResult.registrations) {\n",

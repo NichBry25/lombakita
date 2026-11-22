@@ -1,10 +1,12 @@
 "use client";
 
-import { ChangeEvent, useRef, useState } from "react";
+import { ChangeEvent, useCallback, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Card, Feedback, Icon } from "@/components/ui";
+import { Button, Feedback, FormLabel, Icon, Panel } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
+import { LocalDate } from "@/components/ui/local-date";
 import { AssentNotice } from "@/components/legal/assent-notice";
+import { errorMessageFor } from "@/lib/errors/error-copy";
 import { sessionFetch } from "@/lib/session/session-fetch";
 import {
   PAYMENT_PROOF_ACCEPT_ATTRIBUTE,
@@ -17,16 +19,51 @@ import {
   PAYMENT_STATUS_TONES,
   asSentence,
   derivePaymentDisplayStatus,
-  formatFinanceDateTime,
   formatRupiah,
 } from "@/lib/finance/payment-display";
 import type { ManualPaymentProofStatus } from "@/lib/finance/payment-model";
 import type { PaymentDerivedStatus } from "@/lib/finance/payment-state";
+import { wasWithdrawnByCandidate } from "@/lib/finance/registration-cancellation";
+import type { CompetitionRegistrationStatus } from "@/server/db/schema";
 import {
   describePaymentDeadline,
   formatTimeRemaining,
   type PaymentDeadlineState,
 } from "@/lib/finance/payment-deadline";
+
+type SurfaceCopy = Partial<Record<string, string>>;
+
+const PAYMENT_PROOF_ERROR_COPY: SurfaceCopy = {
+  forbidden: "Akun Anda bukan akun kandidat. Masuk dengan akun kandidat untuk melanjutkan.",
+  manual_proof_payment_not_found: "Pembayaran tidak ditemukan. Muat ulang halaman.",
+  manual_proof_resubmission_barred: "Bukti transfer ini tidak dapat dikirim ulang.",
+  manual_proof_not_manual_lane: "Hanya pembayaran transfer manual yang menerima bukti transfer.",
+  manual_proof_object_missing:
+    "Berkas bukti transfer belum selesai diunggah. Silakan unggah ulang.",
+  manual_proof_registration_cancelled:
+    "Pendaftaran ini sudah dibatalkan, sehingga bukti transfer tidak dapat diproses.",
+  manual_proof_lane_closed:
+    "Pembayaran ini sudah selesai, sehingga bukti transfer tidak dapat diproses.",
+  manual_proof_already_submitted:
+    "Pembayaran ini sudah memiliki bukti transfer. Muat ulang halaman untuk mengirim ulang.",
+  manual_proof_not_found: "Belum ada bukti transfer untuk dikirim ulang.",
+  manual_proof_upload_unavailable: "Unggahan berkas sedang tidak tersedia. Coba lagi nanti.",
+};
+
+const PAYMENT_PROOF_UPLOAD_URL_ERROR_COPY: SurfaceCopy = {
+  ...PAYMENT_PROOF_ERROR_COPY,
+  rate_limited: "Terlalu banyak permintaan unggah. Coba lagi dalam beberapa menit.",
+  manual_proof_object_key_invalid: `Format tidak didukung. Unggah bukti transfer dalam format ${PAYMENT_PROOF_FORMAT_HINT}.`,
+};
+
+const PAYMENT_PROOF_RECORD_ERROR_COPY: SurfaceCopy = {
+  ...PAYMENT_PROOF_ERROR_COPY,
+  manual_proof_object_key_invalid:
+    "Berkas bukti transfer tidak valid. Pilih berkas lain lalu unggah ulang.",
+};
+
+const PAYMENT_PROOF_UPLOAD_URL_FALLBACK = "Gagal menyiapkan unggahan. Coba lagi.";
+const PAYMENT_PROOF_RECORD_FALLBACK = "Gagal mengirim bukti transfer. Coba lagi.";
 
 export type CandidatePaymentPanelProps = {
   expectedUserId: string;
@@ -38,11 +75,17 @@ export type CandidatePaymentPanelProps = {
     dueAt: string | null;
     deadlineSuspended: boolean;
     status: PaymentDerivedStatus;
+    registrationStatus: CompetitionRegistrationStatus;
+    registrationCancellationReason: string | null;
     instructions: {
       bankName: string | null;
       accountNumber: string | null;
       accountHolderName: string | null;
-      qrisR2Key: string | null;
+      qris:
+        | { kind: "none" }
+        | { kind: "hidden" }
+        | { kind: "unavailable" }
+        | { kind: "shown"; url: string };
       instructionsNote: string | null;
     } | null;
     proof: {
@@ -88,6 +131,16 @@ export function CandidatePaymentPanel({
   const instructionsId = "payment-panel-instructions";
   const inputId = "payment-panel-proof-file";
 
+  // A team member's row is not the payer's, so it keeps the full panel and its own notice.
+  const payerWithdrew =
+    payment.isPayer &&
+    wasWithdrawnByCandidate({
+      status: payment.registrationStatus,
+      cancellationReason: payment.registrationCancellationReason,
+    });
+
+  if (payerWithdrew) return <WithdrawnRegistrationNotice headingId={headingId} />;
+
   const handleFileSelect = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] ?? null;
 
@@ -131,7 +184,11 @@ export function CandidatePaymentPanel({
       if (!presign.ok) {
         addToast({
           type: "error",
-          message: await refusalMessage(presign, "Gagal menyiapkan unggahan. Coba lagi."),
+          message: await refusalMessage(
+            presign,
+            PAYMENT_PROOF_UPLOAD_URL_ERROR_COPY,
+            PAYMENT_PROOF_UPLOAD_URL_FALLBACK,
+          ),
         });
         return;
       }
@@ -166,7 +223,11 @@ export function CandidatePaymentPanel({
       if (!record.ok) {
         addToast({
           type: "error",
-          message: await refusalMessage(record, "Bukti transfer ditolak. Coba lagi."),
+          message: await refusalMessage(
+            record,
+            PAYMENT_PROOF_RECORD_ERROR_COPY,
+            PAYMENT_PROOF_RECORD_FALLBACK,
+          ),
         });
         return;
       }
@@ -232,15 +293,19 @@ export function CandidatePaymentPanel({
         <PaymentDeadline deadline={deadline} />
       </dl>
 
-      <PaymentInstructions instructions={payment.instructions} id={instructionsId} />
+      <PaymentInstructions
+        instructions={payment.instructions}
+        canResubmitProof={payment.canResubmitProof}
+        id={instructionsId}
+      />
 
       <PaymentStateNotice payment={payment} />
 
       {uploadable ? (
         <div className="form-field">
-          <label className="form-label" htmlFor={inputId}>
+          <FormLabel htmlFor={inputId} required>
             {payment.canResubmitProof ? "Unggah bukti transfer baru" : "Unggah bukti transfer"}
-          </label>
+          </FormLabel>
           <div className="pf-media-actions">
             <Button
               type="button"
@@ -284,12 +349,36 @@ export function CandidatePaymentPanel({
   );
 }
 
-/** The refusal the server gave, or a fallback when it gave none we can read. */
-const refusalMessage = async (response: Response, fallback: string): Promise<string> => {
+/**
+ * The whole panel for a payment whose payer withdrew the registration it belongs to.
+ *
+ * No deadline, amount, account or QRIS: the person withdrew, so each of them would describe money
+ * they no longer owe, and the deadline passing would otherwise be reported as an automatic
+ * cancellation nobody withdrew.
+ */
+function WithdrawnRegistrationNotice({ headingId }: { headingId: string }) {
+  return (
+    <section className="content-section" aria-labelledby={headingId}>
+      <div className="section-heading">
+        <h2 id={headingId}>Pembayaran</h2>
+      </div>
+      <Feedback tone="info">
+        Anda telah membatalkan pendaftaran ini. Pembayarannya tidak perlu dilanjutkan.
+      </Feedback>
+    </section>
+  );
+}
+
+/** This panel's sentence for the refusal's code, or the action's fallback. */
+const refusalMessage = async (
+  response: Response,
+  surfaceCopy: SurfaceCopy,
+  fallback: string,
+): Promise<string> => {
   const payload = (await response.json().catch(() => null)) as {
-    error?: { message?: string };
+    error?: { code?: string };
   } | null;
-  return payload?.error?.message ?? fallback;
+  return errorMessageFor(payload?.error?.code, surfaceCopy, fallback);
 };
 
 /**
@@ -301,9 +390,11 @@ const refusalMessage = async (response: Response, fallback: string): Promise<str
  */
 function PaymentInstructions({
   instructions,
+  canResubmitProof,
   id,
 }: {
   instructions: CandidatePaymentPanelProps["payment"]["instructions"];
+  canResubmitProof: boolean;
   id: string;
 }) {
   if (!instructions) {
@@ -322,8 +413,13 @@ function PaymentInstructions({
     instructions.accountNumber !== null ||
     instructions.accountHolderName !== null;
 
+  const showsQris = instructions.qris.kind === "shown" || instructions.qris.kind === "unavailable";
+
+  // No heading over nothing: a QRIS-only snapshot that the viewer may not scan has no content here.
+  if (!hasBankDetails && !showsQris && !instructions.instructionsNote) return null;
+
   return (
-    <Card variant="inset" id={id} className="stack-sm">
+    <Panel id={id} className="stack-sm">
       <h3 className="section-title">Tujuan transfer</h3>
 
       {hasBankDetails ? (
@@ -349,17 +445,85 @@ function PaymentInstructions({
         </dl>
       ) : null}
 
-      {instructions.qrisR2Key ? (
-        <p className="muted-copy">
-          Penyelenggara juga menerima pembayaran melalui QRIS. Pindai kode QRIS yang mereka
-          sediakan, lalu unggah bukti transaksinya di sini.
-        </p>
+      {instructions.qris.kind === "shown" ? (
+        <QrisCode
+          key={instructions.qris.url}
+          url={instructions.qris.url}
+          canResubmitProof={canResubmitProof}
+          hasBankDetails={hasBankDetails}
+        />
+      ) : null}
+
+      {instructions.qris.kind === "unavailable" ? (
+        <QrisUnavailableLine hasBankDetails={hasBankDetails} />
       ) : null}
 
       {instructions.instructionsNote ? (
         <p className="muted-copy">{instructions.instructionsNote}</p>
       ) : null}
-    </Card>
+    </Panel>
+  );
+}
+
+/**
+ * The organiser's QRIS on a fixed white plate, and the sentence that points at it.
+ *
+ * The plate stays white in both themes because a transparent QRIS is black modules on nothing, and
+ * a phone camera cannot read that against a dark surface. The image loads eagerly: the link lives
+ * an hour, and a deferred request made after that would break.
+ *
+ * An image that fails, whether after the page is interactive or before it, becomes the unavailable
+ * line. Signing never checks that the object exists, so a missing object still gets a valid link.
+ */
+function QrisCode({
+  url,
+  canResubmitProof,
+  hasBankDetails,
+}: {
+  url: string;
+  canResubmitProof: boolean;
+  hasBankDetails: boolean;
+}) {
+  const [imageFailed, setImageFailed] = useState(false);
+
+  // The error event of an image that failed before hydration has already fired and is not replayed,
+  // so the element is checked when it is attached.
+  const failIfAlreadyBroken = useCallback((image: HTMLImageElement | null) => {
+    if (image && image.complete && image.naturalWidth === 0) {
+      setImageFailed(true);
+    }
+  }, []);
+
+  if (imageFailed) return <QrisUnavailableLine hasBankDetails={hasBankDetails} />;
+
+  return (
+    <>
+      <div className="qris-plate">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          ref={failIfAlreadyBroken}
+          src={url}
+          alt="Kode QRIS penyelenggara"
+          loading="eager"
+          onError={() => setImageFailed(true)}
+        />
+      </div>
+      <p className="muted-copy">
+        {canResubmitProof
+          ? "Jika Anda sudah membayar, jangan membayar lagi. Cukup unggah bukti yang baru."
+          : "Pindai kode QRIS di atas, lalu unggah bukti transaksinya di sini."}
+      </p>
+    </>
+  );
+}
+
+function QrisUnavailableLine({ hasBankDetails }: { hasBankDetails: boolean }) {
+  return (
+    <p className="muted-copy">
+      {hasBankDetails
+        ? "Kode QRIS tidak dapat ditampilkan. Silakan transfer ke rekening di atas atau hubungi penyelenggara."
+        : "Kode QRIS tidak dapat ditampilkan. Silakan hubungi penyelenggara."}
+    </p>
   );
 }
 
@@ -396,9 +560,9 @@ function PaymentDeadline({ deadline }: { deadline: PaymentDeadlineState }) {
       <div>
         <dt>Batas waktu</dt>
         <dd>
-          <time dateTime={deadline.dueAt} className="data-text">
-            {formatFinanceDateTime(deadline.dueAt)}
-          </time>
+          <span className="data-text">
+            <LocalDate value={deadline.dueAt} format="financeDateTime" />
+          </span>
         </dd>
       </div>
       {note ? (
@@ -428,15 +592,14 @@ function PaymentStateNotice({ payment }: { payment: CandidatePaymentPanelProps["
 
   // "secara otomatis" is load-bearing: nobody decided this. The organiser did not reject the
   // candidate and the candidate did not withdraw, and a cancellation with no visible author reads
-  // as one of those two. The re-registration line states what `createIndividualRegistration`
-  // actually does (it refuses on ANY existing row, cancelled included), because the previous copy
-  // promised a way back that the service does not provide.
+  // as one of those two. A payer who did withdraw never reaches this branch, because the panel
+  // shows only the withdrawal notice. Whether the person may register again is the registration card's answer,
+  // not this message's: the panel cannot tell an individual payment from a team captain's.
   if (payment.status === "expired") {
     return (
       <Feedback tone="error">
         Batas waktu pembayaran telah lewat, sehingga pendaftaran ini dibatalkan secara otomatis.
-        Pendaftaran ulang untuk kompetisi ini belum tersedia. Hubungi penyelenggara jika Anda sudah
-        melakukan transfer.
+        Jika Anda sudah melakukan transfer, hubungi penyelenggara.
       </Feedback>
     );
   }

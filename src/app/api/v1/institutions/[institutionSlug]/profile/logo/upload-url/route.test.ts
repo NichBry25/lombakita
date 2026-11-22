@@ -2,13 +2,15 @@
 
 // MANUAL-D57, the institution-media wrapper.
 //
-// The logo and banner routes share `runOwned`, so the budget is drawn there once rather than in
-// either route file. The two cases are split for the same reason the other two files split them: a
-// guard that was REMOVED and a guard that was MOVED below the presign are indistinguishable by
-// status code — the moved one still answers 429, for a URL it has already signed.
+// The logo and banner routes share `runOwnedUploadUrl`, so the budget is drawn there once rather
+// than in either route file. The two cases are split for the same reason the other two files
+// split them: a guard that was REMOVED and a guard that was MOVED below the presign are
+// indistinguishable by status code, because the moved one still answers 429, for a URL it has
+// already signed.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccessError } from "@/server/auth/access-core";
+import { SESSION_USER_HEADER } from "@/lib/session/session-fetch";
 
 const { requireAuthenticatedSession, generateInstitutionMediaUploadUrl, checkFixedWindowLimit } =
   vi.hoisted(() => ({
@@ -36,11 +38,11 @@ const session = {
 
 const context = { params: Promise.resolve({ institutionSlug: "academy" }) };
 
-const makeRequest = () =>
-  new Request("http://localhost/api/v1/institutions/academy/profile/logo", {
+const makeRequest = (headers: Record<string, string> = {}, mimeType = "image/png") =>
+  new Request("http://localhost/api/v1/institutions/academy/profile/logo/upload-url", {
     method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ mimeType: "image/png" }),
+    headers: { "content-type": "application/json", ...headers },
+    body: JSON.stringify({ mimeType }),
   });
 
 beforeEach(() => {
@@ -55,12 +57,15 @@ beforeEach(() => {
 
 afterEach(() => vi.clearAllMocks());
 
-describe("POST institutions/[institutionSlug]/profile/logo", () => {
+describe("POST institutions/[institutionSlug]/profile/logo/upload-url", () => {
   it("mints the presigned grant for an authenticated owner", async () => {
     const res = await POST(makeRequest(), context);
 
     expect(res.status).toBe(201);
     expect((await res.json()).uploadUrl).toBe("https://signed.example/put");
+    expect(generateInstitutionMediaUploadUrl).toHaveBeenCalledWith("usr_1", "academy", "logo", {
+      contentType: "image/png",
+    });
   });
 
   it("returns 401 when unauthenticated, without counting a budget draw", async () => {
@@ -71,9 +76,26 @@ describe("POST institutions/[institutionSlug]/profile/logo", () => {
     expect(res.status).toBe(401);
     expect(checkFixedWindowLimit).not.toHaveBeenCalled();
   });
+
+  it("refuses a request for another account before charging the budget or signing", async () => {
+    const res = await POST(makeRequest({ [SESSION_USER_HEADER]: "usr_other" }), context);
+
+    expect(res.status).toBe(409);
+    expect((await res.json()).error.code).toBe("session_user_mismatch");
+    expect(generateInstitutionMediaUploadUrl).not.toHaveBeenCalled();
+    expect(checkFixedWindowLimit).not.toHaveBeenCalled();
+  });
+
+  it("refuses a file type the route does not accept, without signing", async () => {
+    const res = await POST(makeRequest({}, "image/gif"), context);
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.code).toBe("institution_profile_invalid_value");
+    expect(generateInstitutionMediaUploadUrl).not.toHaveBeenCalled();
+  });
 });
 
-describe("POST institutions/[institutionSlug]/profile/logo — the shared upload-URL budget", () => {
+describe("POST institutions/[institutionSlug]/profile/logo/upload-url — the shared upload-URL budget", () => {
   it("counts the calling user against the shared upload-URL bucket", async () => {
     await POST(makeRequest(), context);
 

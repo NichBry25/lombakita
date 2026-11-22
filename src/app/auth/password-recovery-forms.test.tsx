@@ -45,7 +45,7 @@ afterEach(() => {
 
 describe("the forgot-password form", () => {
   const submitEmail = () => {
-    fireEvent.change(screen.getByLabelText("Email"), {
+    fireEvent.change(screen.getByLabelText(/^Email(?: \* \(wajib\)| \(opsional\))?$/), {
       target: { value: "ada@example.test" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Kirim tautan atur ulang" }));
@@ -120,12 +120,15 @@ describe("the forgot-password form", () => {
 
 describe("the reset-password form", () => {
   const submitPassword = () => {
-    fireEvent.change(screen.getByLabelText("Password baru"), {
+    fireEvent.change(screen.getByLabelText(/^Password baru(?: \* \(wajib\)| \(opsional\))?$/), {
       target: { value: "new-password-2" },
     });
-    fireEvent.change(screen.getByLabelText("Ulangi password baru"), {
-      target: { value: "new-password-2" },
-    });
+    fireEvent.change(
+      screen.getByLabelText(/^Ulangi password baru(?: \* \(wajib\)| \(opsional\))?$/),
+      {
+        target: { value: "new-password-2" },
+      },
+    );
     fireEvent.click(screen.getByRole("button", { name: "Simpan password baru" }));
   };
 

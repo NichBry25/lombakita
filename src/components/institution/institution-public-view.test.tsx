@@ -18,10 +18,24 @@
 // where the disclosure is `preview_hidden`. Both cases below assert the link's absence, so restoring
 // it fails here.
 
-import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { InstitutionPublicView } from "./institution-public-view";
+import type { CompetitionCardItem } from "@/components/competitions/competition-card";
 import type { PublicInstitution } from "@/server/institution-workspace/institution-public-service";
+
+const linkStatus = vi.hoisted(() => ({ pending: false }));
+
+// Render a real <a> so the competition cards render without a router context.
+vi.mock("next/link", () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const React = require("react");
+  return {
+    default: ({ children, href, ...rest }: { children: unknown; href: string }) =>
+      React.createElement("a", { href, ...rest }, children),
+    useLinkStatus: () => linkStatus,
+  };
+});
 
 const institutionWith = (
   contactDisclosure: PublicInstitution["contactDisclosure"],
@@ -84,5 +98,111 @@ describe("the unverified-contact notice", () => {
       screen.queryByText("Ajukan verifikasi"),
       "the members-only notice offered a route into the verification flow, which no viewer can be in a position to take",
     ).toBeNull();
+  });
+});
+
+describe("the competition list", () => {
+  const FUTURE = new Date("2099-12-01T00:00:00.000Z");
+  const competition: CompetitionCardItem = {
+    id: "comp_1",
+    slug: "lomba-x",
+    title: "Lomba X",
+    category: "hackathon",
+    mode: "individual",
+    location: null,
+    registrationStartAt: null,
+    registrationEndAt: FUTURE,
+    eventStartAt: FUTURE,
+    eventEndAt: FUTURE,
+    resultAnnouncementAt: null,
+    cancelledAt: null,
+    hasPublishedResult: false,
+    institutionSlug: "lk-univ",
+    institutionName: "LK University",
+    institutionLogoUrl: "https://files.test/lk.png",
+  };
+
+  it("renders the shared card: logo in the badge, the organiser named, and no arrow", () => {
+    const { container } = render(
+      <InstitutionPublicView
+        institution={institutionWith({ kind: "hidden" })}
+        competitions={[competition]}
+      />,
+    );
+
+    const badgeLogo = container.querySelector(".competition-card .competition-cover-logo");
+    expect(badgeLogo?.getAttribute("src")).toBe("https://files.test/lk.png");
+    expect(container.querySelector(".competition-card .competition-organizer")?.textContent).toBe(
+      "LK University",
+    );
+    expect(container.querySelector(".competition-card-arrow")).toBeNull();
+  });
+
+  const renderCard = (item: CompetitionCardItem) =>
+    render(
+      <InstitutionPublicView
+        institution={institutionWith({ kind: "hidden" })}
+        competitions={[item]}
+      />,
+    );
+
+  it("shows the short card word for the phase in the deadline pill, not the long label", () => {
+    const { container } = renderCard(competition);
+
+    const pillText = container.querySelector(".competition-card-footer .status-badge")?.textContent;
+    expect(pillText).toMatch(/^Dibuka · /);
+    expect(pillText).not.toContain("Pendaftaran");
+  });
+
+  it("shows the location pill after the mode pill", () => {
+    const { container } = renderCard({ ...competition, location: "hybrid" });
+
+    const pills = [...container.querySelectorAll(".competition-card-badges .status-badge")].map(
+      (pill) => pill.textContent,
+    );
+    expect(pills).toEqual(["Individu", "Hybrid"]);
+  });
+
+  it("shows no location pill when the competition has no location", () => {
+    const { container } = renderCard({ ...competition, location: null });
+
+    const pills = [...container.querySelectorAll(".competition-card-badges .status-badge")].map(
+      (pill) => pill.textContent,
+    );
+    expect(pills).toEqual(["Individu"]);
+  });
+
+  it("keeps the pending spinner beside the clamped title text, never inside it", () => {
+    linkStatus.pending = true;
+    try {
+      const { container } = renderCard(competition);
+
+      const titleText = container.querySelector(".competition-title-link .competition-title-text");
+      expect(titleText?.textContent).toBe("Lomba X");
+      expect(titleText?.querySelector(".spinner")).toBeNull();
+      expect(container.querySelector(".competition-title-link > .spinner")).not.toBeNull();
+    } finally {
+      linkStatus.pending = false;
+    }
+  });
+
+  it("gives the badge logo its size and lazy loading", () => {
+    const { container } = renderCard(competition);
+
+    const badgeLogo = container.querySelector(".competition-cover-logo");
+    expect(badgeLogo?.getAttribute("loading")).toBe("lazy");
+    expect(badgeLogo?.getAttribute("decoding")).toBe("async");
+    expect(badgeLogo?.getAttribute("width")).toBe("44");
+    expect(badgeLogo?.getAttribute("height")).toBe("44");
+  });
+
+  it("swaps a logo that fails to load for the trophy, so the badge is never empty", () => {
+    const { container } = renderCard(competition);
+    const badgeLogo = container.querySelector(".competition-cover-logo");
+
+    fireEvent.error(badgeLogo!);
+
+    expect(container.querySelector(".competition-cover-logo")).toBeNull();
+    expect(container.querySelector(".competition-cover-icon svg")).not.toBeNull();
   });
 });

@@ -41,11 +41,16 @@ function listItemsAfter(html: string, lead: string): string[] {
 }
 
 describe("PrivacyPage", () => {
-  it("renders the company facts and document version this page reads", () => {
+  it("names the team and the support email as who manages the data, with no company name", () => {
     const html = renderPage();
 
-    expect(html).toContain(COMPANY.legalName);
-    expect(html).toContain(COMPANY.address);
+    expect(html).toContain("Data pada layanan ini dikelola oleh tim Lombakita. Untuk pertanyaan");
+    expect(html).not.toContain("alamat Jl.");
+  });
+
+  it("renders the support email and document version this page reads", () => {
+    const html = renderPage();
+
     expect(html).toContain(COMPANY.supportEmail);
     expect(html).toContain(`mailto:${COMPANY.supportEmail}`);
     expect(html).toContain(LEGAL_DOCUMENT.version);
@@ -53,16 +58,16 @@ describe("PrivacyPage", () => {
     expect(html).toContain(`Diperbarui ${LEGAL_DOCUMENT.updatedDateLabel}`);
   });
 
-  // Pinned to the literals rather than to `LEGAL_DOCUMENT`, because this is the pair of facts the
-  // reader is being asked to rely on: the text they are reading is version 1.1, effective since
-  // 4 September 2026, last changed 30 September 2026. Reading the constant back would let a bump
-  // ship with no test noticing the page changed underneath a standing version number.
+  // Pinned to the literals rather than to `LEGAL_DOCUMENT`, because these are the facts the
+  // reader is asked to rely on: the version and the two dates printed above the text. Reading the
+  // constant back would let a bump ship with no test noticing the page changed underneath a
+  // standing version number.
   it("states the version and both dates as published", () => {
     const html = renderPage();
 
-    expect(html).toContain("<span>Versi 1.1</span>");
-    expect(html).toContain("<span>Berlaku sejak 4 September 2026</span>");
-    expect(html).toContain("<span>Diperbarui 30 September 2026</span>");
+    expect(html).toContain("<span>Versi 1.2</span>");
+    expect(html).toContain("<span>Berlaku sejak 22 November 2026</span>");
+    expect(html).toContain("<span>Diperbarui 22 November 2026</span>");
   });
 
   it("never renders an NPWP, by name or by shape", () => {
@@ -82,7 +87,7 @@ describe("PrivacyPage", () => {
 
       expect(listItemsAfter(html, "<strong>Tidak dihapus otomatis.</strong>")).toEqual([
         "foto profil, sampul profil, CV, dan berkas sertifikasi;",
-        "dokumen verifikasi rekruter.",
+        "dokumen verifikasi penyelenggara.",
       ]);
     });
 
@@ -97,7 +102,9 @@ describe("PrivacyPage", () => {
 
       // Anchored on the closing tag: §4 legitimately keeps the same words as its own bullet, and
       // only the retired §5 item ended in a period.
-      expect(html).not.toContain("dokumen verifikasi institusi dan dokumen verifikasi rekruter.<");
+      expect(html).not.toContain(
+        "dokumen verifikasi institusi dan dokumen verifikasi penyelenggara.<",
+      );
     });
 
     it("says institution files belong to the institution and are erased with a personal one", () => {
@@ -169,6 +176,48 @@ describe("PrivacyPage", () => {
       // The retired sentence. It promised nothing the platform enforces, so it must not come back
       // in this or any other clause.
       expect(html).not.toContain("tidak menjanjikan batas waktu");
+    });
+  });
+
+  it("calls hosts penyelenggara and never rekruter", () => {
+    expect(renderPage()).not.toMatch(/rekruter/i);
+  });
+
+  describe("§10, the contact a host chooses for a competition", () => {
+    it("says the contact is public on the competition page and can appear in search engines", () => {
+      expect(renderPage()).toContain(
+        "Saat menerbitkan kompetisi, penyelenggara memilih satu kontak untuk peserta: nomor " +
+          "WhatsApp, nomor telepon, atau alamat email. Kontak itu tampil untuk semua orang di " +
+          "halaman kompetisi tersebut, termasuk pengunjung yang belum masuk, dan dapat muncul di " +
+          "mesin pencari.",
+      );
+    });
+
+    it("says the publish form fills it from the host's own sign-up number or account email", () => {
+      expect(renderPage()).toContain(
+        "Formulir terbit mengisi kontak itu lebih dulu dengan nomor ponsel dari pendaftaran " +
+          "penyelenggara Anda yang sudah disetujui. Jika Anda memilih Email, formulir mengisinya " +
+          "dengan email akun Anda. Anda dapat mengubah kontak itu sebelum menerbitkan.",
+      );
+    });
+
+    it("says the contact goes when the account it belongs to is deleted", () => {
+      const html = renderPage();
+
+      expect(html).toContain(
+        "Jika sebuah akun dihapus, kontak yang sama dengan email akun itu atau dengan nomor ponsel " +
+          "dari pendaftaran penyelenggara akun itu yang sudah disetujui dihapus dari setiap " +
+          "kompetisi yang memakainya. Tombol untuk menghubungi penyelenggara tidak tampil lagi " +
+          "sampai penyelenggara mengisi kontak baru.",
+      );
+      expect(html).not.toContain("pemilik atau staf");
+    });
+
+    it("numbers the policy change clause 11", () => {
+      const html = renderPage();
+
+      expect(html).toContain(">11. Perubahan kebijakan<");
+      expect(html).not.toContain(">10. Perubahan kebijakan<");
     });
   });
 });

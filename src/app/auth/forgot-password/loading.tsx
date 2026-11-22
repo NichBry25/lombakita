@@ -1,5 +1,5 @@
-import { FormPageSkeleton } from "@/components/ui";
+import { AuthPageSkeleton } from "@/components/ui";
 
 export default function ForgotPasswordLoading() {
-  return <FormPageSkeleton label="Memuat halaman atur ulang password" fields={1} />;
+  return <AuthPageSkeleton label="Memuat halaman atur ulang password" fields={1} />;
 }

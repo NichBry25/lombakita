@@ -59,7 +59,7 @@ export default async function OwnerProfilePage() {
                 profile.recruiterVerified,
               ) && (
                 <VerifyOtherRoleButton
-                  unverifiedRoleLabel={profile.candidateVerified ? "Rekruter" : "Kandidat"}
+                  unverifiedRoleLabel={profile.candidateVerified ? "Penyelenggara" : "Kandidat"}
                 />
               )}
               <ButtonLink
@@ -74,8 +74,7 @@ export default async function OwnerProfilePage() {
                 href="/profile/edit"
                 icon="edit"
                 label="Edit profil"
-                variant="primary"
-                size="sm"
+                variant="outline"
               />
             </div>
           </div>
@@ -110,26 +109,22 @@ export default async function OwnerProfilePage() {
               </a>
             )}
 
-            <div className="pf-badges">
-              {profile.candidateVerified && (
-                <span className="status-badge" data-status="open">
-                  <Icon name="check" size="sm" aria-hidden="true" />
-                  Kandidat Terverifikasi
-                </span>
-              )}
-              {profile.recruiterVerified && !profile.trustedRecruiter && (
-                <span className="status-badge" data-status="open">
-                  <Icon name="check" size="sm" aria-hidden="true" />
-                  Rekruter Terverifikasi
-                </span>
-              )}
-              {profile.trustedRecruiter && (
-                <span className="status-badge" data-status="open">
-                  <Icon name="check" size="sm" aria-hidden="true" />
-                  Rekruter Terpercaya
-                </span>
-              )}
-            </div>
+            {(profile.candidateVerified || profile.trustedRecruiter) && (
+              <div className="pf-badges">
+                {profile.candidateVerified && (
+                  <span className="status-badge" data-status="verified">
+                    <Icon name="check" size="sm" aria-hidden="true" />
+                    Kandidat Terverifikasi
+                  </span>
+                )}
+                {profile.trustedRecruiter && (
+                  <span className="status-badge" data-status="verified">
+                    <Icon name="check" size="sm" aria-hidden="true" />
+                    Penyelenggara terverifikasi
+                  </span>
+                )}
+              </div>
+            )}
 
             <p className="pf-email">Email: {profile.email}</p>
           </div>
@@ -140,7 +135,6 @@ export default async function OwnerProfilePage() {
         <section className="content-section">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">Dokumen</p>
               <h2>Resume</h2>
             </div>
           </div>

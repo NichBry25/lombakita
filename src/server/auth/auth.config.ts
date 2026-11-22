@@ -18,6 +18,7 @@ import {
   authorizeOAuthFinalize,
   GOOGLE_PROVIDER_ID,
   OAUTH_FINALIZE_PROVIDER_ID,
+  OAuthFinalizeError,
   resolveGoogleOAuthSignIn,
 } from "@/server/auth/oauth-account";
 import { consumeMfaElevationGrant } from "@/server/auth/mfa/mfa-elevation";
@@ -31,6 +32,7 @@ import {
 } from "@/server/redis/rate-limit";
 import { getDb } from "@/server/db/client";
 import { accounts, sessions, users, verificationTokens } from "@/server/db/schema";
+import { reportUnexpectedError } from "@/server/observability/report-unexpected-error";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/auth/auth.config");
@@ -376,9 +378,15 @@ export const authOptions: NextAuthOptions = {
         const finalized = await authorizeOAuthFinalize(credentials).catch((error: unknown) => {
           // Surface a distinct, non-leaking signal for the client; the message propagates via
           // next-auth's credentials error path (same mechanism as the email-password provider).
-          const code =
-            error instanceof Error && error.message ? error.message : "OAUTH_FINALIZE_FAILED";
-          throw new Error(code);
+          // account_conflict has four different causes, so it answers the generic signal: an
+          // "account exists" sentence would be wrong for three of them.
+          if (error instanceof OAuthFinalizeError && error.code !== "account_conflict") {
+            throw new Error(error.code);
+          }
+          if (!(error instanceof OAuthFinalizeError)) {
+            reportUnexpectedError("oauth finalize", error);
+          }
+          throw new Error("OAUTH_FINALIZE_FAILED");
         });
 
         return {

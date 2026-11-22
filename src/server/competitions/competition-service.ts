@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { AccessError } from "@/server/auth/access-core";
 import { getDb, type Database } from "@/server/db/client";
 import {
@@ -42,9 +42,14 @@ import { INSTITUTION_CANCELLATION_REASON } from "@/server/competitions/competiti
 import { hasCompetitionStarted } from "@/lib/competitions/competition-withdrawal";
 import { isParticipantCancellationClosedByConfirmation } from "@/lib/competitions/competition-participation";
 import { acquireCompetitionParticipationLock } from "@/server/competitions/competition-participation-lock";
+import { moveOpenTeamInvitationsToClose } from "@/server/teams/team-invitation-expiry";
+import { disbandEveryTeamOfCompetition } from "@/server/teams/team-service";
+import { markCompetitionRegistrationsPublicationClosed } from "@/server/registrations/registration-service";
 import {
   assertActorIsTrustedRecruiter,
   assertCompetitionAccess,
+  assertCompetitionHasAudience,
+  assertCompetitionHasOrganizerContact,
   assertCompetitionRead,
   assertInstitutionNotSuspended,
   assertInstitutionVerified,
@@ -57,11 +62,18 @@ import {
 } from "@/server/competitions/competition-access";
 import { isPaidCompetition } from "@/lib/competitions/paid-competition";
 import {
+  CLOSE_WAITS_FOR_TRANSFER_REVIEW_REASON,
+  COMPETITION_CHANGED_DURING_EDIT_REASON,
+} from "@/lib/competitions/publish-locks";
+import {
   hasActiveFreeRegistrations,
   hasCompetitionPaymentInFlight,
+  hasCompetitionTransferAwaitingReview,
 } from "@/server/finance/paid-registration";
 
 assertServerOnly("server/competitions/competition-service");
+
+type DbOrTx = Database | Parameters<Parameters<Database["transaction"]>[0]>[0];
 
 const PAGE_SIZE = 20;
 const MAX_SLUG_ATTEMPTS = 20;
@@ -376,6 +388,7 @@ const applySimplePatchColumns = (
   if (patch.slug !== undefined) updates.slug = patch.slug;
   if (patch.category !== undefined) updates.category = patch.category;
   if (patch.mode !== undefined) updates.mode = patch.mode;
+  if (patch.location !== undefined) updates.location = patch.location;
   if (patch.minTeamSize !== undefined) updates.minTeamSize = patch.minTeamSize;
   if (patch.maxTeamSize !== undefined) updates.maxTeamSize = patch.maxTeamSize;
   if (patch.registrationStartAt !== undefined)
@@ -437,6 +450,7 @@ export const toClassifiable = (
   description: row.description,
   category: row.category,
   mode: row.mode,
+  location: row.location,
   minTeamSize: row.minTeamSize,
   maxTeamSize: row.maxTeamSize,
   registrationStartAt: row.registrationStartAt,
@@ -462,6 +476,7 @@ const mergeForClassification = (
   if (patch.description !== undefined) merged.description = patch.description;
   if (patch.category !== undefined) merged.category = patch.category;
   if (patch.mode !== undefined) merged.mode = patch.mode;
+  if (patch.location !== undefined) merged.location = patch.location;
   if (patch.minTeamSize !== undefined) merged.minTeamSize = patch.minTeamSize;
   if (patch.maxTeamSize !== undefined) merged.maxTeamSize = patch.maxTeamSize;
   if (patch.registrationStartAt !== undefined)
@@ -477,8 +492,9 @@ const mergeForClassification = (
   return merged;
 };
 
-// Loads the non-cancelled registration snapshot used by the post-publish edit classifier. Team
-// sizes are the per-team count of non-cancelled team-typed rows (each member holds one row).
+// Loads the snapshot handed to the edit classifier. The classifier reads only
+// hasTransferAwaitingReview from it. Team sizes are the per-team count of non-cancelled team-typed
+// rows (each member holds one row).
 export const loadEditClassificationSnapshot = async (
   competitionId: string,
   db: Database,
@@ -513,13 +529,28 @@ export const loadEditClassificationSnapshot = async (
     hasActiveIndividual,
     hasActiveTeam,
     activeTeamSizes: [...teamCounts.values()],
-    // Derived by asking which payment groups carry a priced payment, not by assuming the answer.
-    // This used to read `rows.length > 0` on the premise that every competition was free; a
-    // competition can now be priced, and under that premise a paid registrant counted as a free one
-    // and the free→paid block fired on competitions that had never taken a free registration.
     hasActiveFree: await hasActiveFreeRegistrations(competitionId, db),
-    hasPaymentInFlight: await hasCompetitionPaymentInFlight(competitionId, db),
+    hasTransferAwaitingReview: await hasCompetitionTransferAwaitingReview(competitionId, db),
   };
+};
+
+const closeWaitsForTransferReviewError = (fields: string[]): CompetitionError =>
+  new CompetitionError(
+    "competition_close_waits_for_transfer_review",
+    409,
+    CLOSE_WAITS_FOR_TRANSFER_REVIEW_REASON,
+    { fields },
+  );
+
+// A proof sent after the outer classification read its snapshot is committed under this same lock,
+// so reading again once the lock is held sees it.
+const assertNoTransferAwaitingReviewUnderLock = async (
+  tx: Database,
+  competitionId: string,
+): Promise<void> => {
+  const transferAwaitingReview = await hasCompetitionTransferAwaitingReview(competitionId, tx);
+  if (!transferAwaitingReview) return;
+  throw closeWaitsForTransferReviewError(["registrationEndAt"]);
 };
 
 const immutableCompetitionValuesEqual = (left: unknown, right: unknown): boolean => {
@@ -537,10 +568,83 @@ const validateChangedRegistrationEnd = (
   validateRegistrationEndInFuture(registrationEndAt);
 };
 
+const closeMovedByPatch = (
+  patch: CompetitionPatchInput,
+  competition: CompetitionRow,
+): Date | null => {
+  if (!(patch.registrationEndAt instanceof Date)) return null;
+  if (immutableCompetitionValuesEqual(patch.registrationEndAt, competition.registrationEndAt)) {
+    return null;
+  }
+  return patch.registrationEndAt;
+};
+
+// Writes a published edit only onto the row it was judged against. Every writer of a competition
+// sets updatedAt, so a row another request changed since this one read it matches nothing. The
+// judged value came through a JavaScript Date, which keeps milliseconds, so the stored value is cut
+// to milliseconds before the comparison.
+const writePublishedCompetitionUpdates = (
+  writer: DbOrTx,
+  competitionId: string,
+  judgedUpdatedAt: Date,
+  updates: Record<string, unknown>,
+) =>
+  writer
+    .update(competitions)
+    .set(updates)
+    .where(
+      and(
+        eq(competitions.id, competitionId),
+        sql`date_trunc('milliseconds', ${competitions.updatedAt}) = ${judgedUpdatedAt.toISOString()}`,
+      ),
+    )
+    .returning(PUBLIC_COMPETITION_COLUMNS);
+
+// Writes a draft edit only while the competition is still a draft, so a publish that commits first
+// leaves the edit matching nothing.
+const writeDraftCompetitionUpdates = (
+  writer: DbOrTx,
+  competitionId: string,
+  updates: Record<string, unknown>,
+) =>
+  writer
+    .update(competitions)
+    .set(updates)
+    .where(and(eq(competitions.id, competitionId), eq(competitions.status, "draft")))
+    .returning(PUBLIC_COMPETITION_COLUMNS);
+
+// The team sizes a patch leaves the competition with, normalized to its mode, or null when the
+// patch touches neither the mode nor a size. Catches what the patch parse cannot see, such as a
+// team minimum patched alone on a team-mode row, and refuses a team minimum below the floor rather
+// than raising it.
+const resolvePatchedTeamSizes = (
+  patch: CompetitionPatchInput,
+  competition: CompetitionRow,
+): { minTeamSize: number; maxTeamSize: number } | null => {
+  const effectiveMode = patch.mode !== undefined ? patch.mode : competition.mode;
+  const patchTouchesSizeOrMode =
+    patch.mode !== undefined || patch.minTeamSize !== undefined || patch.maxTeamSize !== undefined;
+  if (!effectiveMode || !patchTouchesSizeOrMode) return null;
+  const effectiveMin =
+    patch.minTeamSize !== undefined ? patch.minTeamSize : competition.minTeamSize;
+  const effectiveMax =
+    patch.maxTeamSize !== undefined ? patch.maxTeamSize : competition.maxTeamSize;
+  if (effectiveMode === "team" && effectiveMin !== null && effectiveMin < TEAM_MODE_MIN_SIZE) {
+    throw new CompetitionError(
+      "competition_invalid_value",
+      400,
+      `team mode requires minTeamSize >= ${TEAM_MODE_MIN_SIZE}`,
+      { fields: ["minTeamSize"] },
+    );
+  }
+  return resolveTeamSizesForMode(effectiveMode, effectiveMin, effectiveMax);
+};
+
 // Post-publish edit path. Two layers:
 //   outer (locked): IMMUTABLE_AFTER_PUBLISH fields can never change → 422.
-//   inner (data-aware): classify the remaining changes against existing registrations.
-// blocked → refuse; notify → persist + fan out competition.edited; trivial → persist silently.
+//   inner (classifier): each remaining change is refused or announced, by its field and direction.
+// blocked → refuse; waitsForTransferReview → refuse until the transfer is decided;
+// notify → persist + fan out competition.edited.
 const updatePublishedCompetition = async (
   competition: CompetitionRow,
   patch: CompetitionPatchInput,
@@ -563,7 +667,13 @@ const updatePublishedCompetition = async (
 
   validateChangedRegistrationEnd(patch.registrationEndAt, competition.registrationEndAt);
   const pricing = await loadCompetitionPricing(competition.id, db);
+  const movedClose = closeMovedByPatch(patch, competition);
   const merged = mergeForClassification(competition, patch, pricing);
+  const teamSizes = resolvePatchedTeamSizes(patch, competition);
+  if (teamSizes !== null) {
+    merged.minTeamSize = teamSizes.minTeamSize;
+    merged.maxTeamSize = teamSizes.maxTeamSize;
+  }
   validateCancellationPolicy(merged.allowCancellation, merged.cancellationCutoffDays);
   validateMinimumParticipation({
     minimumParticipantEntries: competition.minimumParticipantEntries,
@@ -634,27 +744,55 @@ const updatePublishedCompetition = async (
     throw new CompetitionError(
       "competition_post_publish_blocked",
       422,
-      `Cannot apply edit: ${classification.blocked.join(", ")} would invalidate existing registrations`,
+      `Cannot apply edit: ${classification.blocked.join(", ")} cannot move this way after publish`,
       { fields: classification.blocked, blockedFields: classification.blocked },
     );
   }
 
+  if (classification.waitsForTransferReview.length > 0) {
+    throw closeWaitsForTransferReviewError(classification.waitsForTransferReview);
+  }
+
   const updates: Record<string, unknown> = { updatedAt: sql`now()` };
   applySimplePatchColumns(updates, patch);
+  if (teamSizes !== null) {
+    updates.minTeamSize = teamSizes.minTeamSize;
+    updates.maxTeamSize = teamSizes.maxTeamSize;
+  }
 
   if (Object.keys(updates).length === 1) {
     return competition;
   }
 
+  // The app clock, which every reader of an invite's expiry compares with.
+  const now = new Date();
   let updated: CompetitionRow;
   try {
-    const [persisted] = await db
-      .update(competitions)
-      .set(updates)
-      .where(eq(competitions.id, competition.id))
-      .returning(PUBLIC_COMPETITION_COLUMNS);
+    // The lock orders the move with an invite, an accept and a team registering, which read the
+    // close under the same lock, so no open invite keeps the old close. A write that matched no row
+    // moved no close, so it moves no invite.
+    const [persisted] =
+      movedClose === null
+        ? await writePublishedCompetitionUpdates(db, competition.id, competition.updatedAt, updates)
+        : await db.transaction(async (tx) => {
+            await acquireCompetitionParticipationLock(tx, competition.id);
+            await assertNoTransferAwaitingReviewUnderLock(tx, competition.id);
+            const rows = await writePublishedCompetitionUpdates(
+              tx,
+              competition.id,
+              competition.updatedAt,
+              updates,
+            );
+            if (rows.length === 0) return rows;
+            await moveOpenTeamInvitationsToClose(tx, competition.id, movedClose, now);
+            return rows;
+          });
     if (!persisted) {
-      throw new CompetitionError("competition_not_found", 404, "Competition not found");
+      throw new CompetitionError(
+        "competition_changed_during_edit",
+        409,
+        COMPETITION_CHANGED_DURING_EDIT_REASON,
+      );
     }
     updated = persisted;
   } catch (error) {
@@ -695,7 +833,8 @@ export const updateCompetitionDraft = async (
 ): Promise<CompetitionRow> => {
   const { competition } = await assertCompetitionAccess(actorUserId, competitionId, "member", db);
 
-  // Published competitions are editable in place via the data-aware classifier path.
+  // Published competitions are edited in place through the classifier, which judges each change by
+  // its field and direction.
   if (competition.status === "published") {
     return updatePublishedCompetition(competition, patch, db);
   }
@@ -782,30 +921,10 @@ export const updateCompetitionDraft = async (
         : competition.resultAnnouncementAt,
   });
 
-  // Normalize team sizes to the effective mode whenever the patch touches mode or a size
-  // field. Resolve effective mode/sizes from the patch where present, falling back to the
-  // existing row. This catches cross-field cases parse-time validation cannot see (e.g. patching
-  // only minTeamSize while the row already has mode=team) and keeps individual/both fixed values
-  // consistent. An explicit sub-floor team min is rejected here rather than silently raised.
-  const effectiveMode = patch.mode !== undefined ? patch.mode : competition.mode;
-  const patchTouchesSizeOrMode =
-    patch.mode !== undefined || patch.minTeamSize !== undefined || patch.maxTeamSize !== undefined;
-  if (effectiveMode && patchTouchesSizeOrMode) {
-    const effectiveMin =
-      patch.minTeamSize !== undefined ? patch.minTeamSize : competition.minTeamSize;
-    const effectiveMax =
-      patch.maxTeamSize !== undefined ? patch.maxTeamSize : competition.maxTeamSize;
-    if (effectiveMode === "team" && effectiveMin !== null && effectiveMin < TEAM_MODE_MIN_SIZE) {
-      throw new CompetitionError(
-        "competition_invalid_value",
-        400,
-        `team mode requires minTeamSize >= ${TEAM_MODE_MIN_SIZE}`,
-        { fields: ["minTeamSize"] },
-      );
-    }
-    const resolved = resolveTeamSizesForMode(effectiveMode, effectiveMin, effectiveMax);
-    updates.minTeamSize = resolved.minTeamSize;
-    updates.maxTeamSize = resolved.maxTeamSize;
+  const teamSizes = resolvePatchedTeamSizes(patch, competition);
+  if (teamSizes !== null) {
+    updates.minTeamSize = teamSizes.minTeamSize;
+    updates.maxTeamSize = teamSizes.maxTeamSize;
   }
 
   // Nothing besides the timestamp — no-op fast path.
@@ -813,14 +932,28 @@ export const updateCompetitionDraft = async (
     return competition;
   }
 
+  const movedClose = closeMovedByPatch(patch, competition);
+  // The app clock, which every reader of an invite's expiry compares with.
+  const now = new Date();
   try {
-    const [row] = await db
-      .update(competitions)
-      .set(updates)
-      .where(eq(competitions.id, competitionId))
-      .returning(PUBLIC_COMPETITION_COLUMNS);
+    // Open team invites expire at the close, so a moved close moves them in the same transaction,
+    // under the lock an invite and an accept take. A write that matched no row moves no invite.
+    const [row] =
+      movedClose === null
+        ? await writeDraftCompetitionUpdates(db, competitionId, updates)
+        : await db.transaction(async (tx) => {
+            await acquireCompetitionParticipationLock(tx, competitionId);
+            const rows = await writeDraftCompetitionUpdates(tx, competitionId, updates);
+            if (rows.length === 0) return rows;
+            await moveOpenTeamInvitationsToClose(tx, competitionId, movedClose, now);
+            return rows;
+          });
     if (!row) {
-      throw new CompetitionError("competition_not_found", 404, "Competition not found");
+      throw new CompetitionError(
+        "competition_changed_during_edit",
+        409,
+        COMPETITION_CHANGED_DURING_EDIT_REASON,
+      );
     }
     return row;
   } catch (error) {
@@ -881,6 +1014,19 @@ export const transitionCompetitionStatus = async (
     );
   }
 
+  // DEC-0132, DEC-0271: published → draft stays a defined move, but this primitive writes only the
+  // status. DEC-0271 states that no path takes a competition with a proof pending or verified back
+  // to draft.
+  // Unpublishing also cancels the registrations and refuses while money is in flight, and only
+  // unpublishCompetition does both.
+  if (competition.status === "published" && targetStatus === "draft") {
+    throw new CompetitionError(
+      "competition_invalid_transition",
+      422,
+      "Unpublishing goes through unpublishCompetition, which refuses while a transfer proof is pending review or verified",
+    );
+  }
+
   // Publish guards: the acting recruiter must be Trusted (account-level gate), the institution
   // must not be suspended, and the publish-validation checklist must pass. Validation runs
   // against the merged DB row (not caller payload) so partial PATCHes that left the row
@@ -893,6 +1039,7 @@ export const transitionCompetitionStatus = async (
       description: competition.description,
       category: competition.category,
       mode: competition.mode,
+      location: competition.location,
       minTeamSize: competition.minTeamSize,
       maxTeamSize: competition.maxTeamSize,
       registrationStartAt: competition.registrationStartAt,
@@ -914,6 +1061,9 @@ export const transitionCompetitionStatus = async (
         },
       );
     }
+
+    await assertCompetitionHasOrganizerContact(competitionId, db);
+    await assertCompetitionHasAudience(competitionId, db);
 
     // THE CHARGING GATE AT PUBLISH (DEC-0158). A PAID competition cannot go live for an
     // institution that is not verified; a FREE one publishes normally, which is the whole point of
@@ -937,24 +1087,40 @@ export const transitionCompetitionStatus = async (
     );
   }
 
-  // Unpublish (published → draft) is not reached through this generic primitive — it is owned by
-  // unpublishCompetition, which cancels every active registration inside one transaction. The
-  // route layer calls that function directly, so this path serves the publish transition only.
+  // This function writes only draft → published. Unpublish (published → draft) is
+  // unpublishCompetition, which cancels every active registration inside one transaction.
 
   const updates: Record<string, unknown> = {
     status: targetStatus,
     updatedAt: sql`now()`,
   };
   if (targetStatus === "published") updates.publishedAt = new Date();
-  // publishedAt is intentionally NOT cleared on unpublish (published → draft). It records the
-  // first-publication timestamp as historical metadata — useful for audit and discovery signals.
+  // publishedAt records the first-publication timestamp as historical metadata, useful for audit
+  // and discovery signals. unpublishCompetition preserves it (DEC-0030).
+
+  // An account deletion can clear the contact after the gate above read it, so the publish write
+  // itself refuses a row without one (Rule 25).
+  const contactStillSet =
+    targetStatus === "published" ? isNotNull(competitions.organizerContactValue) : undefined;
+  // A staff member can clear the location or the audience between the checks above and this write.
+  const listingFieldsStillSet =
+    targetStatus === "published"
+      ? and(isNotNull(competitions.location), sql`cardinality(${competitions.audience}) > 0`)
+      : undefined;
 
   // CAS guard: WHERE also checks current status equals the snapshot status to prevent
   // concurrent transitions from landing on top of each other.
   const [row] = await db
     .update(competitions)
     .set(updates)
-    .where(and(eq(competitions.id, competitionId), eq(competitions.status, competition.status)))
+    .where(
+      and(
+        eq(competitions.id, competitionId),
+        eq(competitions.status, competition.status),
+        contactStillSet,
+        listingFieldsStillSet,
+      ),
+    )
     .returning(PUBLIC_COMPETITION_COLUMNS);
 
   if (!row) {
@@ -992,8 +1158,9 @@ export type UnpublishCompetitionResult = {
   cancelledCount: number;
 };
 
-// Unpublish-as-cancellation. Transitions a published competition back to draft AND cancels
-// every non-cancelled registration in one transaction (DEC-0070: rows are never hard-deleted,
+// Unpublish-as-cancellation. Transitions a published competition back to draft, cancels every
+// non-cancelled registration, marks every registration as made in a publication that has ended and
+// disbands every team, in one transaction (rows are never hard-deleted,
 // status='cancelled' is terminal). publishedAt is preserved (DEC-0030). After commit, fans out the
 // competition.cancelled dual-channel notice (recipients re-derived at job-run from the institution
 // cancellation reason) and removes the competition from the search index. The competition row
@@ -1057,13 +1224,13 @@ export const unpublishCompetition = async (
     // the one where the transfer has happened but the organiser has not verified it yet, and the
     // narrower predicate would let exactly that case through.
     //
-    // The message names the escape hatch because there is one: platform_ops cancellation, which
-    // exists so an organiser with a genuine reason is not simply stuck.
+    // The message names the way out, resolving each transfer, because an operator's cancellation
+    // holds to the same block.
     if (await hasCompetitionPaymentInFlight(competitionId, tx)) {
       throw new CompetitionError(
         "competition_unpublish_blocked_payment_in_flight",
         409,
-        "Kompetisi tidak dapat ditarik selama masih ada bukti transfer yang menunggu verifikasi. Hubungi tim Lombakita untuk pembatalan.",
+        "Kompetisi tidak dapat ditarik selama masih ada bukti transfer yang menunggu verifikasi atau sudah diverifikasi. Verifikasi atau tolak dulu setiap bukti yang menunggu. Kompetisi dengan transfer yang sudah diverifikasi tidak dapat ditarik.",
       );
     }
 
@@ -1114,6 +1281,9 @@ export const unpublishCompetition = async (
         ),
       )
       .returning({ id: competitionRegistrations.id });
+
+    await markCompetitionRegistrationsPublicationClosed(competitionId, mutationAt, tx);
+    await disbandEveryTeamOfCompetition(competitionId, mutationAt, tx);
 
     return {
       competition: statusRow,

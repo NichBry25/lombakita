@@ -2,9 +2,11 @@
 
 import { ChangeEvent, FormEvent, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Feedback, Icon, IconButton } from "@/components/ui";
-import { useModal, useToast } from "@/components/ui/primitives";
-import { sessionFetch } from "@/lib/session/session-fetch";
+import { Button, Card, Feedback, FormInput, FormLabel, Icon, IconButton } from "@/components/ui";
+import { useModal, useToast, type ModalOutcome } from "@/components/ui/primitives";
+import { LocalDate } from "@/components/ui/local-date";
+import { errorMessageFor } from "@/lib/errors/error-copy";
+import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
 import {
   getFileExtension,
   mimeTypeForExtension,
@@ -39,17 +41,73 @@ type PanelProps = {
   documents: DocumentEntry[];
 };
 
+type RefusalAction = "start" | "finish" | "delete" | "submit" | "withdraw";
+
+const RECRUITER_ONLY_MESSAGE = "Fitur ini hanya untuk akun penyelenggara.";
+const INVALID_PAYLOAD_MESSAGE =
+  "Permintaan tidak dapat diproses. Muat ulang halaman lalu coba lagi.";
+const UPLOAD_UNAVAILABLE_MESSAGE = "Unggahan berkas sedang tidak tersedia. Coba lagi nanti.";
+const DOCUMENT_TOO_LARGE_MESSAGE = "Ukuran berkas melebihi batas 10 MB.";
+const DOCUMENT_INVALID_MESSAGE = "Berkas ditolak saat verifikasi. Coba berkas lain.";
+const DOCUMENTS_LOCKED_MESSAGE =
+  "Dokumen hanya dapat diubah sebelum permohonan dikirim. Tarik permohonan terlebih dahulu jika sedang ditinjau.";
+const DOCUMENT_NOT_FOUND_MESSAGE = "Dokumen tidak ditemukan. Muat ulang halaman lalu coba lagi.";
+
+const REFUSAL_COPY: Record<RefusalAction, Partial<Record<string, string>>> = {
+  start: {
+    forbidden: RECRUITER_ONLY_MESSAGE,
+    rate_limited: "Terlalu banyak permintaan unggah. Coba lagi dalam beberapa menit.",
+    invalid_payload: INVALID_PAYLOAD_MESSAGE,
+    recruiter_verification_storage_unavailable: UPLOAD_UNAVAILABLE_MESSAGE,
+    recruiter_verification_document_type_not_allowed:
+      "Format tidak didukung. Unggah PDF, JPG, PNG, atau WebP.",
+    recruiter_verification_document_too_large: DOCUMENT_TOO_LARGE_MESSAGE,
+    recruiter_verification_document_invalid: DOCUMENT_INVALID_MESSAGE,
+    recruiter_verification_not_found: DOCUMENTS_LOCKED_MESSAGE,
+  },
+  finish: {
+    forbidden: RECRUITER_ONLY_MESSAGE,
+    invalid_payload: INVALID_PAYLOAD_MESSAGE,
+    recruiter_verification_storage_unavailable: UPLOAD_UNAVAILABLE_MESSAGE,
+    recruiter_verification_document_too_large: DOCUMENT_TOO_LARGE_MESSAGE,
+    recruiter_verification_document_invalid: DOCUMENT_INVALID_MESSAGE,
+    recruiter_verification_not_found: DOCUMENTS_LOCKED_MESSAGE,
+    recruiter_verification_document_not_found: DOCUMENT_NOT_FOUND_MESSAGE,
+  },
+  delete: {
+    forbidden: RECRUITER_ONLY_MESSAGE,
+    recruiter_verification_not_found: DOCUMENTS_LOCKED_MESSAGE,
+    recruiter_verification_document_not_found: DOCUMENT_NOT_FOUND_MESSAGE,
+  },
+  submit: {
+    forbidden: RECRUITER_ONLY_MESSAGE,
+    invalid_payload: INVALID_PAYLOAD_MESSAGE,
+    recruiter_verification_invalid_payload: INVALID_PAYLOAD_MESSAGE,
+    recruiter_verification_invalid_value:
+      "Periksa nama lengkap, nomor ponsel, dan email kantor lalu coba lagi.",
+    recruiter_verification_not_found: "Akun tidak ditemukan. Muat ulang halaman lalu coba lagi.",
+    recruiter_already_trusted: "Akun Anda sudah menjadi penyelenggara terverifikasi.",
+    recruiter_verification_resubmission_blocked:
+      "Akun ini tidak dapat mengajukan permohonan verifikasi lagi. Hubungi dukungan Lombakita.",
+    recruiter_verification_already_pending: "Permohonan verifikasi Anda masih menunggu tinjauan.",
+  },
+  withdraw: {
+    forbidden: RECRUITER_ONLY_MESSAGE,
+    recruiter_verification_not_found: "Permohonan tidak dapat ditarik. Muat ulang halaman ini.",
+  },
+};
+
+const REFUSAL_FALLBACK: Record<RefusalAction, string> = {
+  start: "Gagal menyiapkan unggahan. Coba lagi.",
+  finish: "Dokumen gagal dilampirkan. Coba lagi.",
+  delete: "Dokumen gagal dihapus. Coba lagi.",
+  submit: "Pengiriman gagal. Coba lagi beberapa saat.",
+  withdraw: "Permohonan tidak dapat ditarik. Muat ulang halaman ini.",
+};
+
 function formatFileSize(bytes: number): string {
   const mb = bytes / (1024 * 1024);
   return mb >= 1 ? `${mb.toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
-}
-
-function formatUploadedAt(isoDate: string): string {
-  return new Date(isoDate).toLocaleDateString("id-ID", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
 }
 
 // Recruiter trust status panel. Renders one of six states: Trusted (publishing unlocked), awaiting
@@ -69,7 +127,7 @@ export function RecruiterVerificationPanel({
 }: PanelProps) {
   const router = useRouter();
   const { addToast } = useToast();
-  const { openModal, closeModal } = useModal();
+  const { openModal } = useModal();
   const [busy, setBusy] = useState(false);
 
   // Prefilled from the last attempt so a recruiter revising after a rejection only changes what
@@ -80,9 +138,6 @@ export function RecruiterVerificationPanel({
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadBusy, setUploadBusy] = useState(false);
-  // Each attached document owns its own delete control, so the id keeps the spinner on the
-  // pressed one rather than every row at once.
-  const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileSelect = (event: ChangeEvent<HTMLInputElement>) => {
@@ -134,12 +189,10 @@ export function RecruiterVerificationPanel({
       );
 
       if (!presignResponse.ok) {
-        const payload = (await presignResponse.json().catch(() => null)) as {
-          error?: { message?: string };
-        } | null;
+        const code = await readErrorCode(presignResponse);
         addToast({
           type: "error",
-          message: payload?.error?.message ?? "Gagal menyiapkan unggahan. Coba lagi.",
+          message: errorMessageFor(code, REFUSAL_COPY.start, REFUSAL_FALLBACK.start),
         });
         return;
       }
@@ -171,12 +224,10 @@ export function RecruiterVerificationPanel({
       );
 
       if (!finalizeResponse.ok) {
-        const payload = (await finalizeResponse.json().catch(() => null)) as {
-          error?: { message?: string };
-        } | null;
+        const code = await readErrorCode(finalizeResponse);
         addToast({
           type: "error",
-          message: payload?.error?.message ?? "Berkas ditolak saat verifikasi. Coba berkas lain.",
+          message: errorMessageFor(code, REFUSAL_COPY.finish, REFUSAL_FALLBACK.finish),
         });
         return;
       }
@@ -190,8 +241,8 @@ export function RecruiterVerificationPanel({
     }
   };
 
-  const deleteDocument = async (document: DocumentEntry) => {
-    setDeletingDocumentId(document.id);
+  // The confirm pop-up shows the waiting and the failure, so this reports an outcome.
+  const deleteDocument = async (document: DocumentEntry): Promise<ModalOutcome> => {
     try {
       const response = await sessionFetch(
         userId,
@@ -200,22 +251,18 @@ export function RecruiterVerificationPanel({
       );
 
       if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as {
-          error?: { message?: string };
-        } | null;
-        addToast({
-          type: "error",
-          message: payload?.error?.message ?? "Dokumen gagal dihapus. Coba lagi.",
-        });
-        return;
+        const code = await readErrorCode(response);
+        return {
+          ok: false,
+          message: errorMessageFor(code, REFUSAL_COPY.delete, REFUSAL_FALLBACK.delete),
+        };
       }
 
       addToast({ type: "success", message: "Dokumen dihapus." });
       router.refresh();
+      return { ok: true };
     } catch {
-      addToast({ type: "error", message: "Dokumen gagal dihapus karena gangguan koneksi." });
-    } finally {
-      setDeletingDocumentId(null);
+      return { ok: false, message: "Dokumen gagal dihapus karena gangguan koneksi." };
     }
   };
 
@@ -228,13 +275,10 @@ export function RecruiterVerificationPanel({
           dapat dikembalikan dan peninjau tidak akan melihatnya lagi.
         </p>
       ),
+      alert: true,
       actions: [
-        { label: "Batal", variant: "secondary", onClick: closeModal },
-        {
-          label: "Hapus",
-          variant: "danger",
-          onClick: () => void deleteDocument(document),
-        },
+        { label: "Batal" },
+        { label: "Hapus", variant: "primary", onClick: () => deleteDocument(document) },
       ],
     });
   };
@@ -265,12 +309,10 @@ export function RecruiterVerificationPanel({
       });
 
       if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as {
-          error?: { message?: string };
-        } | null;
+        const code = await readErrorCode(response);
         addToast({
           type: "error",
-          message: payload?.error?.message ?? "Pengiriman gagal. Coba lagi beberapa saat.",
+          message: errorMessageFor(code, REFUSAL_COPY.submit, REFUSAL_FALLBACK.submit),
         });
         return;
       }
@@ -284,31 +326,26 @@ export function RecruiterVerificationPanel({
     }
   };
 
-  const withdrawSubmission = async () => {
-    setBusy(true);
+  // The confirm pop-up shows the waiting and the failure, so this reports an outcome.
+  const withdrawSubmission = async (): Promise<ModalOutcome> => {
     try {
       const response = await sessionFetch(userId, "/api/v1/recruiter/me/verification/withdraw", {
         method: "POST",
       });
 
       if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as {
-          error?: { message?: string };
-        } | null;
-        addToast({
-          type: "error",
-          message:
-            payload?.error?.message ?? "Permohonan tidak dapat ditarik. Muat ulang halaman ini.",
-        });
-        return;
+        const code = await readErrorCode(response);
+        return {
+          ok: false,
+          message: errorMessageFor(code, REFUSAL_COPY.withdraw, REFUSAL_FALLBACK.withdraw),
+        };
       }
 
       addToast({ type: "success", message: "Permohonan ditarik. Anda dapat memperbaikinya." });
       window.location.reload();
+      return { ok: true };
     } catch {
-      addToast({ type: "error", message: "Penarikan gagal karena gangguan koneksi." });
-    } finally {
-      setBusy(false);
+      return { ok: false, message: "Penarikan gagal karena gangguan koneksi." };
     }
   };
 
@@ -322,16 +359,10 @@ export function RecruiterVerificationPanel({
           ulang dari waktu pengiriman baru.
         </p>
       ),
+      alert: true,
       actions: [
-        { label: "Batal", variant: "secondary", onClick: closeModal },
-        {
-          label: "Tarik permohonan",
-          variant: "danger",
-          onClick: () => {
-            closeModal();
-            void withdrawSubmission();
-          },
-        },
+        { label: "Batal" },
+        { label: "Tarik permohonan", variant: "primary", onClick: withdrawSubmission },
       ],
     });
   };
@@ -341,11 +372,8 @@ export function RecruiterVerificationPanel({
       <section className="content-section recruiter-tier-card">
         <div className="section-heading">
           <div>
-            <h2>Rekruter Terpercaya</h2>
+            <h2>Penyelenggara terverifikasi</h2>
           </div>
-          <span className="status-badge" data-status="open">
-            Terverifikasi
-          </span>
         </div>
         <p className="muted-copy">
           Akun Anda telah diverifikasi. Anda kini dapat mempublikasikan kompetisi.
@@ -368,15 +396,15 @@ export function RecruiterVerificationPanel({
                 <p className="record-row-title">{document.originalFileName}</p>
                 <span className="record-meta">
                   {formatFileSize(document.fileSizeBytes)} · Diunggah{" "}
-                  {formatUploadedAt(document.createdAt)}
+                  <LocalDate value={document.createdAt} format="longDate" />
                 </span>
               </div>
               {editable ? (
                 <div className="record-actions">
                   <IconButton
+                    variant="outline"
                     label={`Hapus ${document.originalFileName}`}
                     icon="trash"
-                    loading={deletingDocumentId === document.id}
                     onClick={() => confirmDeleteDocument(document)}
                   />
                 </div>
@@ -394,9 +422,9 @@ export function RecruiterVerificationPanel({
     <>
       {renderDocumentList(true)}
       <div className="form-field">
-        <label className="form-label" htmlFor="rv-document">
-          Lampirkan Bukti Afiliasi (Opsional)
-        </label>
+        <FormLabel htmlFor="rv-document" optional>
+          Lampirkan Bukti Afiliasi
+        </FormLabel>
         <div className="pf-media-actions">
           <Button
             type="button"
@@ -435,44 +463,41 @@ export function RecruiterVerificationPanel({
   const renderAffiliationForm = (submitLabel: string) => (
     <form onSubmit={submitForm} className="auth-form">
       <div className="form-field">
-        <label className="form-label form-label-required" htmlFor="rv-full-name">
+        <FormLabel htmlFor="rv-full-name" required>
           Nama lengkap
-        </label>
-        <input
+        </FormLabel>
+        <FormInput
           id="rv-full-name"
           type="text"
           autoComplete="name"
           value={fullName}
           onChange={(event) => setFullName(event.target.value)}
-          className="form-input"
           placeholder="Nama lengkap sesuai identitas"
         />
       </div>
 
       <div className="form-field">
-        <label className="form-label form-label-required" htmlFor="rv-mobile">
+        <FormLabel htmlFor="rv-mobile" required>
           Nomor ponsel
-        </label>
-        <input
+        </FormLabel>
+        <FormInput
           id="rv-mobile"
           type="tel"
           value={mobileNumber}
           onChange={(event) => setMobileNumber(event.target.value)}
-          className="form-input"
           placeholder="Contoh: 0812xxxxxxx"
         />
       </div>
 
       <div className="form-field">
-        <label className="form-label" htmlFor="rv-corporate-email">
-          Email korporat / institusi (Opsional)
-        </label>
-        <input
+        <FormLabel htmlFor="rv-corporate-email" optional>
+          Email korporat / institusi
+        </FormLabel>
+        <FormInput
           id="rv-corporate-email"
           type="email"
           value={corporateEmail}
           onChange={(event) => setCorporateEmail(event.target.value)}
-          className="form-input"
           placeholder="nama@perusahaan.co.id"
         />
         <p className="form-help">Email domain korporat mempercepat antrean peninjauan Anda.</p>
@@ -491,11 +516,11 @@ export function RecruiterVerificationPanel({
           <div>
             <h2>Menunggu peninjauan</h2>
           </div>
-          <span className="status-badge">Diproses</span>
         </div>
         <p className="muted-copy">
-          Permohonan Anda sedang ditinjau tim kami. Anda dapat membuat draf kompetisi sekarang,
-          tetapi belum bisa mempublikasikannya sampai disetujui sebagai Rekruter Terpercaya.
+          Permohonan Anda sedang ditinjau tim kami, biasanya 1 hari. Anda dapat membuat draf
+          kompetisi sekarang, tetapi belum bisa mempublikasikannya sampai Anda menjadi penyelenggara
+          terverifikasi.
         </p>
         {submission.vouchedAt ? (
           <p className="muted-copy">
@@ -507,7 +532,7 @@ export function RecruiterVerificationPanel({
           Data dan dokumen terkunci selama peninjauan berlangsung, agar peninjau menilai berkas yang
           sama dengan yang Anda kirim. Untuk mengubahnya, tarik permohonan Anda lebih dulu.
         </p>
-        <Button type="button" variant="outline" loading={busy} onClick={confirmWithdraw}>
+        <Button type="button" variant="outline" onClick={confirmWithdraw}>
           Tarik permohonan
         </Button>
       </section>
@@ -516,7 +541,7 @@ export function RecruiterVerificationPanel({
 
   if (submission?.status === "draft") {
     return (
-      <section className="content-section recruiter-tier-card">
+      <Card as="section" className="content-section">
         <div className="section-heading">
           <div>
             <h2>Lengkapi permohonan</h2>
@@ -540,7 +565,7 @@ export function RecruiterVerificationPanel({
         </p>
         {renderDocumentSection()}
         {renderAffiliationForm("Kirim untuk ditinjau")}
-      </section>
+      </Card>
     );
   }
 
@@ -551,9 +576,6 @@ export function RecruiterVerificationPanel({
           <div>
             <h2>Permohonan ditolak</h2>
           </div>
-          <span className="status-badge" data-status="closed">
-            Ditolak
-          </span>
         </div>
         <Feedback tone="error">
           <p>
@@ -570,14 +592,11 @@ export function RecruiterVerificationPanel({
 
   if (submission?.status === "rejected") {
     return (
-      <section className="content-section recruiter-tier-card">
+      <Card as="section" className="content-section">
         <div className="section-heading">
           <div>
             <h2>Perbaiki dan ajukan ulang</h2>
           </div>
-          <span className="status-badge" data-status="closed">
-            Ditolak
-          </span>
         </div>
         <Feedback tone="error">
           <p>
@@ -590,15 +609,15 @@ export function RecruiterVerificationPanel({
         </p>
         {renderDocumentSection()}
         {renderAffiliationForm("Ajukan ulang untuk ditinjau")}
-      </section>
+      </Card>
     );
   }
 
   return (
-    <section className="content-section recruiter-tier-card">
+    <Card as="section" className="content-section">
       <div className="section-heading">
         <div>
-          <h2>Jadi Rekruter Terpercaya</h2>
+          <h2>Jadi penyelenggara terverifikasi</h2>
         </div>
       </div>
 
@@ -608,6 +627,6 @@ export function RecruiterVerificationPanel({
       </p>
 
       {renderAffiliationForm("Kirim untuk ditinjau")}
-    </section>
+    </Card>
   );
 }

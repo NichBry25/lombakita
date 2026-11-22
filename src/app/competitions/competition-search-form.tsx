@@ -17,7 +17,13 @@ import { CARRIED_FILTERS, competitionsHref, type CompetitionSearchParams } from 
  *
  * A search always returns to page one — the old page number belongs to the previous result set.
  */
-export function CompetitionSearchForm({ params }: { params: CompetitionSearchParams }) {
+export function CompetitionSearchForm({
+  params,
+  variant = "listing",
+}: {
+  params: CompetitionSearchParams;
+  variant?: "listing" | "home";
+}) {
   const router = useRouter();
   const [isSearching, startSearching] = useTransition();
 
@@ -32,6 +38,50 @@ export function CompetitionSearchForm({ params }: { params: CompetitionSearchPar
     });
   };
 
+  const isHome = variant === "home";
+  const fieldId = isHome ? "home-search" : "competition-search";
+
+  const field = (
+    <input
+      id={fieldId}
+      name="q"
+      type="search"
+      placeholder="Cari judul atau kata kunci…"
+      // Keyed on the applied term so a navigation resets the box to what the server actually
+      // searched for, while typing between submits stays untouched.
+      key={params.q ?? ""}
+      defaultValue={params.q ?? ""}
+      aria-label="Cari kompetisi"
+    />
+  );
+
+  const carriedFilterInputs = CARRIED_FILTERS.map((filter) =>
+    params[filter] ? (
+      <input key={filter} type="hidden" name={filter} value={params[filter]} />
+    ) : null,
+  );
+
+  if (isHome) {
+    return (
+      <form
+        className="glass-focus home-search-entry"
+        role="search"
+        action="/competitions"
+        onSubmit={handleSubmit}
+      >
+        <span className="home-search-icon" aria-hidden="true">
+          <Icon name="search" size="lg" />
+        </span>
+        <span className="home-search-copy">{field}</span>
+        {carriedFilterInputs}
+        <Button type="submit" variant="primary" size="lg" loading={isSearching}>
+          Mulai mencari
+          <Icon name="arrow-right" size="md" />
+        </Button>
+      </form>
+    );
+  }
+
   return (
     <form
       className="glass-focus listing-search"
@@ -40,26 +90,12 @@ export function CompetitionSearchForm({ params }: { params: CompetitionSearchPar
       onSubmit={handleSubmit}
     >
       <Icon name="search" size="lg" />
-      <label className="sr-only" htmlFor="competition-search">
+      <label className="sr-only" htmlFor={fieldId}>
         Cari kompetisi
       </label>
-      <input
-        id="competition-search"
-        name="q"
-        type="search"
-        placeholder="Cari judul atau kata kunci…"
-        // Keyed on the applied term so a navigation resets the box to what the server actually
-        // searched for, while typing between submits stays untouched.
-        key={params.q ?? ""}
-        defaultValue={params.q ?? ""}
-        aria-label="Cari kompetisi"
-      />
-      {CARRIED_FILTERS.map((filter) =>
-        params[filter] ? (
-          <input key={filter} type="hidden" name={filter} value={params[filter]} />
-        ) : null,
-      )}
-      <Button type="submit" variant="secondary" size="lg" loading={isSearching}>
+      {field}
+      {carriedFilterInputs}
+      <Button type="submit" variant="primary" size="lg" loading={isSearching}>
         Cari
       </Button>
     </form>

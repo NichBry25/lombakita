@@ -1,22 +1,13 @@
 /**
- * The company behind Lombakita, stated once.
+ * How a reader reaches Lombakita, stated once.
  *
- * Every surface that names the operator reads from here: the site footer, the contact page, the
- * terms and the privacy policy. A second literal copy of the address or the entity name is the
- * defect this module exists to prevent, because the copy that nobody remembers to update is the
- * one a reader eventually finds.
- *
- * supportEmail is the written channel. The telephone number printed is the owner's own mobile,
- * published by owner ruling 2026-10-03 and recorded as ENTITY-D9; replace it with a business
- * number when one exists.
+ * Every surface that names the way to reach the team reads from here: the site footer, the contact
+ * page, the about page, the terms and the privacy policy. A second literal copy of the support
+ * email is the defect this module exists to prevent, because the copy that nobody remembers to
+ * update is the one a reader eventually finds.
  */
 export const COMPANY = {
-  legalName: "KARYA TALENTA NUSANTARA",
-  address:
-    "Jl. Raya Satelit Utara KN-8, RT 088 / RW 03, Tanjungsari, Sukomanunggal, Kota Surabaya, Jawa Timur 60187",
   supportEmail: "dukungan@lombakita.com",
-  phone: { display: "0813-5773-4540", href: "tel:+6281357734540" },
-  nib: "2008260000397",
 } as const;
 
 /**
@@ -43,13 +34,13 @@ export const CANONICAL_SITE_ORIGIN = "https://lombakita.com";
  * `updatedDate` with it.
  */
 export const LEGAL_DOCUMENT = {
-  version: "1.1",
+  version: "1.2",
   // The date these documents became publicly readable. A live, operative document that claims a
   // future effective date misstates its own standing, so this never runs ahead of the deploy.
-  effectiveDate: "2026-09-04",
-  effectiveDateLabel: "4 September 2026",
+  effectiveDate: "2026-11-22",
+  effectiveDateLabel: "22 November 2026",
   // When the text last changed, which is not the same event as taking effect: a correction to a
   // live document leaves `effectiveDate` where it was and moves this one.
-  updatedDate: "2026-09-30",
-  updatedDateLabel: "30 September 2026",
+  updatedDate: "2026-11-22",
+  updatedDateLabel: "22 November 2026",
 } as const;

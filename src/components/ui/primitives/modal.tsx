@@ -1,9 +1,16 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import { useModalState } from "./modal-context";
+import { useEffect, useId, useLayoutEffect, useRef, type MouseEvent, type RefObject } from "react";
+import { createPortal } from "react-dom";
+import {
+  useModalState,
+  type ModalAction,
+  type ModalConfig,
+  type ModalTaskResult,
+} from "./modal-context";
 import { Button } from "../button";
-import { Icon } from "../icon";
+import { Feedback } from "../feedback";
+import { MAIN_CONTENT_ID } from "../main-content-id";
 
 // Elements that can hold keyboard focus inside the dialog. Used both to move focus in on open and to
 // cycle focus at the dialog's edges (the focus trap).
@@ -21,42 +28,174 @@ const getFocusable = (container: HTMLElement | null): HTMLElement[] => {
   return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
 };
 
-export function Modal() {
-  const { config, closeModal } = useModalState();
+type MainAction = Extract<ModalAction, { variant: "primary" }>;
+type SafeAction = Exclude<ModalAction, { variant: "primary" }>;
 
-  const dialogRef = useRef<HTMLDivElement>(null);
-  // The element that had focus before the dialog opened, so focus can return to it on close.
-  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
-  const isOpen = config !== null;
-  const closeable = config?.closeable !== false;
+const isMainAction = (action: ModalAction): action is MainAction => action.variant === "primary";
+const isSafeAction = (action: ModalAction): action is SafeAction => action.variant !== "primary";
 
-  // Move focus into the dialog on open and return it to the trigger on close. Keyed on open/closed
-  // only: replacing one open modal with another keeps the same saved trigger and does not re-run.
+type FooterLayout = "end" | "row" | "stack";
+
+// Two safe choices next to a main action do not fit one row at 390 px, so they stack.
+const footerLayoutFor = (safeCount: number): FooterLayout => {
+  if (safeCount === 0) return "end";
+  if (safeCount === 1) return "row";
+  return "stack";
+};
+
+const initialFocusFor = (config: ModalConfig): NonNullable<ModalConfig["initialFocus"]> => {
+  if (config.initialFocus) return config.initialFocus;
+  if (config.formId) return "field";
+  if (config.alert) return "safe";
+  return "main";
+};
+
+// The element focus lands on when the pop-up opens, falling back to the dialog itself.
+const focusTargetFor = (dialog: HTMLElement | null, config: ModalConfig): HTMLElement | null => {
+  if (!dialog) return null;
+  const wanted = initialFocusFor(config);
+  if (wanted === "field") {
+    const [firstFieldOrControl] = getFocusable(dialog.querySelector<HTMLElement>(".modal-body"));
+    return firstFieldOrControl ?? dialog;
+  }
+  const wantedControl = dialog.querySelector<HTMLElement>(`[data-modal-focus="${wanted}"]`);
+  if (wantedControl) return wantedControl;
+  if (wanted === "safe")
+    return dialog.querySelector<HTMLElement>('[data-modal-focus="main"]') ?? dialog;
+  return dialog;
+};
+
+// The page behind a pop-up stops being reachable by keyboard and screen reader, and stops
+// scrolling. Toasts stay live because a failure can surface while a pop-up is open.
+function useInertPageBehind(isOpen: boolean, backdropRef: RefObject<HTMLElement | null>) {
   useEffect(() => {
-    if (!isOpen) return;
+    const backdrop = backdropRef.current;
+    if (!isOpen || !backdrop) return;
 
-    previouslyFocusedRef.current = document.activeElement as HTMLElement | null;
+    const previousOverflow = document.body.style.overflow;
+    const inertedSiblings: HTMLElement[] = [];
 
-    const dialog = dialogRef.current;
-    const [firstFocusable] = getFocusable(dialog);
-    (firstFocusable ?? dialog)?.focus();
+    for (const child of Array.from(document.body.children)) {
+      const isLive = child === backdrop || child.matches(".toast-region");
+      if (isLive || !(child instanceof HTMLElement) || child.hasAttribute("inert")) continue;
+      child.setAttribute("inert", "");
+      inertedSiblings.push(child);
+    }
+
+    document.body.style.overflow = "hidden";
 
     return () => {
-      previouslyFocusedRef.current?.focus?.();
+      document.body.style.overflow = previousOverflow;
+      for (const sibling of inertedSiblings) sibling.removeAttribute("inert");
     };
+  }, [isOpen, backdropRef]);
+}
+
+// A trigger that left the page (a success removed it) or cannot take focus hands focus to the
+// element the skip link lands on, so the next Tab starts from the content instead of the top of
+// the document.
+const moveFocusToMainContent = () => {
+  document.getElementById(MAIN_CONTENT_ID)?.focus();
+};
+
+const returnFocusTo = (trigger: HTMLElement | null) => {
+  if (trigger?.isConnected) {
+    trigger.focus();
+    if (document.activeElement === trigger) return;
+  }
+  moveFocusToMainContent();
+};
+
+// Focus goes back to the control that opened the pop-up once the pop-up has closed.
+function useReturnFocusAfterClose(isOpen: boolean) {
+  const triggerRef = useRef<HTMLElement | null>(null);
+
+  // A layout effect runs before every passive effect of the same commit, so the trigger is read
+  // before the pop-up moves focus and before the page behind goes inert.
+  useLayoutEffect(() => {
+    if (isOpen) triggerRef.current = document.activeElement as HTMLElement | null;
   }, [isOpen]);
 
-  // Trap Tab within the dialog and close on Escape while open. Re-binds when `closeable` changes so
-  // Escape respects a non-closeable modal. `closeModal` is stable (useCallback in the provider).
+  // Call this hook after useInertPageBehind: cleanups run in call order, and the trigger cannot
+  // take focus while the page behind it is still inert.
+  useEffect(() => {
+    if (!isOpen) return;
+    return () => returnFocusTo(triggerRef.current);
+  }, [isOpen]);
+}
+
+export function Modal() {
+  const { config, closeModal, runTask, isPending, failureMessage } = useModalState();
+  const titleId = useId();
+  const bodyId = useId();
+
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const backdropRef = useRef<HTMLDivElement>(null);
+  const isOpen = config !== null;
+
+  const actions: ModalAction[] = config?.actions ?? [];
+  const mainAction = actions.find(isMainAction);
+  const safeActions = actions.filter(isSafeAction);
+
+  const runMainAction = () => {
+    if (!mainAction) return;
+    const onClick = mainAction.onClick;
+    void runTask(async (): Promise<ModalTaskResult> => onClick?.());
+  };
+
+  // The main button stays enabled while its action runs so it keeps focus, so a second press of a
+  // submit button has to be stopped here. A button with an onClick is stopped by runTask.
+  const stopSubmitWhilePending = (event: MouseEvent<HTMLButtonElement>) => {
+    if (isPending) event.preventDefault();
+  };
+
+  const runSafeAction = (action: SafeAction) => {
+    if (isPending) return;
+    action.onClick?.();
+    closeModal();
+  };
+
+  // Esc, and a tap outside a pop-up with no field, do the safe choice. A pop-up with only a main
+  // action (Informasi) treats that one button as the way out. A pop-up with no actions carries its
+  // own decisions in its body, so Esc just closes it.
+  const doSafeChoice = () => {
+    if (isPending) return;
+    const [firstSafe] = safeActions;
+    if (firstSafe) {
+      runSafeAction(firstSafe);
+      return;
+    }
+    if (mainAction) {
+      runMainAction();
+      return;
+    }
+    closeModal();
+  };
+
+  // Mirrored by an effect because refs must not be written while rendering, and the keydown
+  // listener below is bound once per open.
+  const doSafeChoiceRef = useRef(doSafeChoice);
+  useEffect(() => {
+    doSafeChoiceRef.current = doSafeChoice;
+  });
+
+  // Keyed on the config, so replacing one open pop-up with another moves focus again.
+  useEffect(() => {
+    if (!config) return;
+    focusTargetFor(dialogRef.current, config)?.focus();
+  }, [config]);
+
+  useInertPageBehind(isOpen, backdropRef);
+  useReturnFocusAfterClose(isOpen);
+
+  // Trap Tab within the dialog and do the safe choice on Escape while open.
   useEffect(() => {
     if (!isOpen) return;
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        if (closeable) {
-          event.preventDefault();
-          closeModal();
-        }
+        event.preventDefault();
+        doSafeChoiceRef.current();
         return;
       }
 
@@ -88,66 +227,96 @@ export function Modal() {
 
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [isOpen, closeable, closeModal]);
+  }, [isOpen]);
 
-  if (!config) return null;
+  if (!config || typeof document === "undefined") return null;
 
-  function handleAction(action: { onClick: () => void; autoClose?: boolean }) {
-    action.onClick();
-    if (action.autoClose !== false) {
-      // closeModal fires onClose internally
-      closeModal();
-    }
-  }
+  const opensOutsideTapAsSafeChoice = !config.wide;
+  const layout = footerLayoutFor(safeActions.length);
+  const isFullHeight = config.fullHeight === true;
+  const fullHeightName = config.fullHeight === true ? config.title : undefined;
+  const sideEdge = config.fullHeight === true && config.drawer === true ? "end" : undefined;
 
-  return (
+  const safeButtons = safeActions.map((action, index) => (
+    <Button
+      key={action.label}
+      variant="link"
+      size="lg"
+      className="modal-safe-action"
+      aria-disabled={isPending || undefined}
+      data-modal-focus={index === 0 ? "safe" : undefined}
+      onClick={() => runSafeAction(action)}
+    >
+      {action.label}
+    </Button>
+  ));
+
+  const mainButton = mainAction ? (
+    <Button
+      variant="primary"
+      size="md"
+      className="modal-main-action"
+      loading={isPending}
+      keepFocusWhileLoading
+      data-modal-focus="main"
+      fullWidth={layout === "stack"}
+      {...(config.formId
+        ? { type: "submit" as const, form: config.formId, onClick: stopSubmitWhilePending }
+        : { onClick: runMainAction })}
+    >
+      {mainAction.label}
+    </Button>
+  ) : null;
+
+  return createPortal(
     <div
+      ref={backdropRef}
       role="presentation"
       className="modal-backdrop"
-      onClick={closeable ? closeModal : undefined}
+      data-height={isFullHeight ? "full" : undefined}
+      data-side={sideEdge}
+      onClick={opensOutsideTapAsSafeChoice ? doSafeChoice : undefined}
     >
       <div
         ref={dialogRef}
-        role="dialog"
+        role={config.alert ? "alertdialog" : "dialog"}
         aria-modal="true"
-        aria-labelledby="modal-title"
+        aria-labelledby={isFullHeight ? undefined : titleId}
+        aria-label={isFullHeight ? fullHeightName : undefined}
+        aria-describedby={isFullHeight ? undefined : bodyId}
         tabIndex={-1}
         className="modal-dialog"
+        data-width={config.wide ? "wide" : "narrow"}
+        data-height={isFullHeight ? "full" : undefined}
+        data-side={sideEdge}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="modal-header">
-          <h2 id="modal-title" className="modal-title">
-            {config.title}
-          </h2>
-          {closeable && (
-            <button type="button" className="modal-close" aria-label="Tutup" onClick={closeModal}>
-              <Icon name="close" size="sm" />
-            </button>
-          )}
-        </div>
-        <div className="modal-body">{config.body}</div>
-        {config.actions.length > 0 && (
-          <div className="modal-actions">
-            {config.actions.map((action, i) => (
-              <Button
-                key={i}
-                variant={
-                  action.variant === "primary"
-                    ? "primary"
-                    : action.variant === "danger"
-                      ? "danger"
-                      : "outline"
-                }
-                size="sm"
-                onClick={() => handleAction(action)}
-                data-variant={action.variant ?? "secondary"}
-              >
-                {action.label}
-              </Button>
-            ))}
-          </div>
+        {isFullHeight ? (
+          config.body
+        ) : (
+          <>
+            <h2 id={titleId} className="modal-title">
+              {config.title}
+            </h2>
+            <div id={bodyId} className="modal-body">
+              {config.body}
+            </div>
+            {failureMessage ? (
+              <Feedback tone="error" className="modal-failure">
+                {failureMessage}
+              </Feedback>
+            ) : null}
+            {actions.length > 0 ? (
+              <div className="modal-footer" data-layout={layout}>
+                {layout === "stack" ? mainButton : null}
+                {safeButtons}
+                {layout === "stack" ? null : mainButton}
+              </div>
+            ) : null}
+          </>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

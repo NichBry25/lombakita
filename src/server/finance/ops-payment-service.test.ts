@@ -48,6 +48,25 @@ vi.mock("@/server/finance/manual-payment-proof-service", () => ({
   ManualProofError,
   voidManualPaymentProof,
 }));
+const { disbandEveryTeamOfCompetition, markCompetitionRegistrationsPublicationClosed } = vi.hoisted(
+  () => ({
+    disbandEveryTeamOfCompetition: vi.fn().mockResolvedValue(["team_1", "team_2"]),
+    markCompetitionRegistrationsPublicationClosed: vi.fn().mockResolvedValue(undefined),
+  }),
+);
+vi.mock("@/server/teams/team-service", () => ({ disbandEveryTeamOfCompetition }));
+vi.mock("@/server/registrations/registration-service", () => ({
+  markCompetitionRegistrationsPublicationClosed,
+}));
+const { hasCompetitionPaymentInFlight, resolveActivePaymentGroupMemberUserIdsByPaymentId } =
+  vi.hoisted(() => ({
+    hasCompetitionPaymentInFlight: vi.fn().mockResolvedValue(false),
+    resolveActivePaymentGroupMemberUserIdsByPaymentId: vi.fn().mockResolvedValue(["u_payer"]),
+  }));
+vi.mock("@/server/finance/paid-registration", () => ({
+  hasCompetitionPaymentInFlight,
+  resolveActivePaymentGroupMemberUserIdsByPaymentId,
+}));
 
 import { cancelCompetitionAsOps, voidPaymentProofAsOps } from "./ops-payment-service";
 import type { Database } from "@/server/db/client";
@@ -71,6 +90,8 @@ beforeEach(() => {
   enqueueCompetitionCancelled.mockResolvedValue(undefined);
   enqueueCompetitionSearchSync.mockResolvedValue(undefined);
   notifyPaymentOutcome.mockResolvedValue(undefined);
+  hasCompetitionPaymentInFlight.mockResolvedValue(false);
+  resolveActivePaymentGroupMemberUserIdsByPaymentId.mockResolvedValue(["u_payer"]);
 });
 
 const makeTx = (reads: SelectRows[], updateReturns: SelectRows[] = []) => {
@@ -164,6 +185,40 @@ describe("cancelCompetitionAsOps operator integrity", () => {
     ).rejects.toMatchObject({ code: "ops_competition_not_found", status: 404 });
     expect(tx.update).not.toHaveBeenCalled();
     expect(inserted).toHaveLength(0);
+    expect(markCompetitionRegistrationsPublicationClosed).not.toHaveBeenCalled();
+    expect(disbandEveryTeamOfCompetition).not.toHaveBeenCalled();
+  });
+
+  it("refuses while a transfer is in flight, and writes nothing", async () => {
+    hasCompetitionPaymentInFlight.mockResolvedValue(true);
+    const { db, tx, inserted } = makeCancelDb();
+
+    const refusal = (await cancelCompetitionAsOps(OPS_ACTOR_ID, "comp_1", "reason", db, NOW).catch(
+      (error: unknown) => error,
+    )) as { code?: unknown; status?: unknown; message?: unknown };
+
+    expect({
+      refusal: { code: refusal.code, status: refusal.status, message: refusal.message },
+      inFlightReads: hasCompetitionPaymentInFlight.mock.calls,
+      updates: tx.update.mock.calls.length,
+      inserted: inserted.length,
+      marked: markCompetitionRegistrationsPublicationClosed.mock.calls.length,
+      disbanded: disbandEveryTeamOfCompetition.mock.calls.length,
+      enqueued: enqueueCompetitionCancelled.mock.calls.length,
+    }).toEqual({
+      refusal: {
+        code: "ops_competition_payment_in_flight",
+        status: 409,
+        message:
+          "Kompetisi tidak dapat dibatalkan selama masih ada bukti transfer yang menunggu verifikasi atau sudah diverifikasi. Selesaikan dulu setiap bukti yang menunggu: penyelenggara memverifikasi atau menolaknya, atau Anda membatalkan bukti itu. Kompetisi dengan transfer yang sudah diverifikasi tidak dapat dibatalkan.",
+      },
+      inFlightReads: [["comp_1", tx]],
+      updates: 0,
+      inserted: 0,
+      marked: 0,
+      disbanded: 0,
+      enqueued: 0,
+    });
   });
 
   it("validates an empty reason before any database work", async () => {
@@ -185,7 +240,18 @@ describe("cancelCompetitionAsOps operator integrity", () => {
       targetInstitutionId: "inst_1",
       eventType: "platform_ops_competition_cancelled",
       reason: "reason",
+      metadata: {
+        competitionId: "comp_1",
+        cancelledRegistrationCount: 2,
+        disbandedTeamCount: 2,
+      },
     });
+    expect(markCompetitionRegistrationsPublicationClosed).toHaveBeenCalledWith(
+      "comp_1",
+      NOW,
+      expect.anything(),
+    );
+    expect(disbandEveryTeamOfCompetition).toHaveBeenCalledWith("comp_1", NOW, expect.anything());
   });
 });
 

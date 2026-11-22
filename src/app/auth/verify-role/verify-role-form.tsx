@@ -2,12 +2,32 @@
 
 import { FormEvent, useState } from "react";
 import { useSession } from "next-auth/react";
-import { Button, SelectField } from "@/components/ui";
+import { Button, FormInput, FormLabel, SelectField, usePageTransition } from "@/components/ui";
 import type { VerifiableRole } from "@/server/auth/role-verification";
 import { useToast } from "@/components/ui/primitives";
+import {
+  errorMessageFor,
+  ONBOARDING_FIELD_REFUSAL_COPY,
+  refusalCopyKey,
+} from "@/lib/errors/error-copy";
+import { sessionFetch } from "@/lib/session/session-fetch";
+
+const VERIFY_ROLE_ERROR_COPY: Partial<Record<string, string>> = {
+  role_already_verified: "Akun Anda sudah terverifikasi untuk peran ini.",
+  ...ONBOARDING_FIELD_REFUSAL_COPY,
+  candidate_profile_invalid_value: "Periksa data kandidat Anda lalu coba lagi.",
+  recruiter_verification_invalid_value: "Periksa data penyelenggara Anda lalu coba lagi.",
+  user_not_found: "Akun tidak ditemukan. Masuk lagi lalu coba lagi.",
+  forbidden: "Akun ini tidak dapat menambah peran kandidat atau penyelenggara.",
+};
+
+const VERIFY_ROLE_FALLBACK = "Verifikasi gagal. Coba lagi beberapa saat.";
 
 type VerifyRoleFormProps = {
   role: VerifiableRole;
+  expectedUserId: string;
+  // A path on this site that the page has already checked, or null for the dashboard the API names.
+  returnPath: string | null;
 };
 
 // Candidate onboarding option list. Values must match the `candidate_occupation` DB enum exactly.
@@ -26,9 +46,10 @@ const OCCUPATION_OPTIONS = [
 // registration onboarding form — and sends them in the same request, so a recruiter-first account
 // gaining candidate access lands with an onboarding profile written (parity with the credentials-
 // and OAuth-signup candidacy paths). The recruiter path submits with no extra fields.
-export function VerifyRoleForm({ role }: VerifyRoleFormProps) {
+export function VerifyRoleForm({ role, expectedUserId, returnPath }: VerifyRoleFormProps) {
   const { update } = useSession();
   const { addToast } = useToast();
+  const { begin: beginPageTransition } = usePageTransition();
   const [busy, setBusy] = useState(false);
 
   const [fullName, setFullName] = useState("");
@@ -43,7 +64,7 @@ export function VerifyRoleForm({ role }: VerifyRoleFormProps) {
   const submit = async (body: Record<string, unknown>) => {
     setBusy(true);
     try {
-      const response = await fetch("/api/v1/auth/verify-role", {
+      const response = await sessionFetch(expectedUserId, "/api/v1/auth/verify-role", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
@@ -51,11 +72,16 @@ export function VerifyRoleForm({ role }: VerifyRoleFormProps) {
 
       if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as {
-          error?: { message?: string };
+          error?: { code?: string; details?: { fields?: string[] } };
         } | null;
+        const copyKey = refusalCopyKey(
+          payload?.error?.code,
+          payload?.error?.details?.fields?.[0],
+          VERIFY_ROLE_ERROR_COPY,
+        );
         addToast({
           type: "error",
-          message: payload?.error?.message ?? "Verifikasi gagal. Coba lagi beberapa saat.",
+          message: errorMessageFor(copyKey, VERIFY_ROLE_ERROR_COPY, VERIFY_ROLE_FALLBACK),
         });
         setBusy(false);
         return;
@@ -68,7 +94,8 @@ export function VerifyRoleForm({ role }: VerifyRoleFormProps) {
       // read a stale session.
       await update();
 
-      window.location.assign(payload.redirectTo);
+      beginPageTransition("Menyiapkan akun Anda…");
+      window.location.assign(returnPath ?? payload.redirectTo);
     } catch {
       addToast({
         type: "error",
@@ -104,49 +131,46 @@ export function VerifyRoleForm({ role }: VerifyRoleFormProps) {
       <form onSubmit={onSubmitRecruiter} className="auth-form">
         <p>
           Lengkapi data penyelenggara Anda. Setelah dikirim, akun akan menunggu peninjauan tim kami
-          untuk menjadi <strong>Rekruter Terpercaya</strong>. Anda bisa membuat draf kompetisi
-          sekarang, tetapi belum bisa mempublikasikannya sampai disetujui.
+          untuk menjadi <strong>penyelenggara terverifikasi</strong>. Anda bisa membuat draf
+          kompetisi sekarang, tetapi belum bisa mempublikasikannya sampai disetujui.
         </p>
 
         <div className="form-field">
-          <label className="form-label form-label-required" htmlFor="recruiter-full-name">
+          <FormLabel htmlFor="recruiter-full-name" required>
             Nama lengkap
-          </label>
-          <input
+          </FormLabel>
+          <FormInput
             id="recruiter-full-name"
             type="text"
             autoComplete="name"
             value={fullName}
             onChange={(event) => setFullName(event.target.value)}
-            className="form-input"
             placeholder="Nama lengkap sesuai identitas"
           />
         </div>
 
         <div className="form-field">
-          <label className="form-label form-label-required" htmlFor="recruiter-mobile">
+          <FormLabel htmlFor="recruiter-mobile" required>
             Nomor ponsel
-          </label>
-          <input
+          </FormLabel>
+          <FormInput
             id="recruiter-mobile"
             type="tel"
             value={mobileNumber}
             onChange={(event) => setMobileNumber(event.target.value)}
-            className="form-input"
             placeholder="Contoh: 0812xxxxxxx"
           />
         </div>
 
         <div className="form-field">
-          <label className="form-label" htmlFor="recruiter-corporate-email">
-            Email korporat / institusi (opsional)
-          </label>
-          <input
+          <FormLabel htmlFor="recruiter-corporate-email" optional>
+            Email korporat / institusi
+          </FormLabel>
+          <FormInput
             id="recruiter-corporate-email"
             type="email"
             value={corporateEmail}
             onChange={(event) => setCorporateEmail(event.target.value)}
-            className="form-input"
             placeholder="nama@perusahaan.co.id"
           />
           <p className="form-help">
@@ -196,41 +220,40 @@ export function VerifyRoleForm({ role }: VerifyRoleFormProps) {
       <p>Lengkapi data kandidat Anda. Data ini bisa diubah nanti di dasbor Anda.</p>
 
       <div className="form-field">
-        <label className="form-label form-label-required" htmlFor="candidate-full-name">
+        <FormLabel htmlFor="candidate-full-name" required>
           Nama lengkap
-        </label>
-        <input
+        </FormLabel>
+        <FormInput
           id="candidate-full-name"
           type="text"
           autoComplete="name"
           value={fullName}
           onChange={(event) => setFullName(event.target.value)}
-          className="form-input"
           placeholder="Nama lengkap sesuai identitas"
         />
       </div>
 
       <div className="form-field">
-        <label className="form-label form-label-required" htmlFor="candidate-phone">
+        <FormLabel htmlFor="candidate-phone" required>
           Nomor telepon
-        </label>
-        <input
+        </FormLabel>
+        <FormInput
           id="candidate-phone"
           type="tel"
           value={phoneNumber}
           onChange={(event) => setPhoneNumber(event.target.value)}
-          className="form-input"
           placeholder="Contoh: 0812xxxxxxx"
         />
       </div>
 
       <div className="form-field">
-        <label className="form-label form-label-required" htmlFor="candidate-occupation">
+        <FormLabel htmlFor="candidate-occupation" required>
           Status saat ini
-        </label>
+        </FormLabel>
         <SelectField
           id="candidate-occupation"
           label="Status saat ini"
+          required
           value={occupation}
           placeholder="Pilih status Anda"
           options={[...OCCUPATION_OPTIONS]}
@@ -239,15 +262,14 @@ export function VerifyRoleForm({ role }: VerifyRoleFormProps) {
       </div>
 
       <div className="form-field">
-        <label className="form-label form-label-required" htmlFor="candidate-dob">
+        <FormLabel htmlFor="candidate-dob" required>
           Tanggal lahir
-        </label>
-        <input
+        </FormLabel>
+        <FormInput
           id="candidate-dob"
           type="date"
           value={dateOfBirth}
           onChange={(event) => setDateOfBirth(event.target.value)}
-          className="form-input"
         />
       </div>
 

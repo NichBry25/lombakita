@@ -2,14 +2,18 @@ import { notFound } from "next/navigation";
 import { sessionHasRole } from "@/lib/access/roles";
 import { requireActiveSessionPage } from "@/server/auth/page-guard";
 import { getPublicCompetitionDetail } from "@/server/competitions/competition-public-service";
-import { getStudentRegistration } from "@/server/registrations/registration-service";
+import {
+  getStudentRegistration,
+  hasPaymentProofOnCancelledIndividualRegistrations,
+} from "@/server/registrations/registration-service";
 import { getTeamForCompetitionAndCandidate } from "@/server/teams/team-service";
+import { hasFormingTeamSentPaymentProof } from "@/server/teams/team-registration-service";
 import { resolveCancelAffordanceState } from "@/server/finance/cancel-affordance";
 import { resolveChargingReadinessBySlug } from "@/server/finance/charging-readiness";
 import { isPaidCompetition } from "@/lib/competitions/paid-competition";
 import { IndividualRegistrationSection } from "./individual-section";
 import { CompetitionTeamSection } from "./team-section";
-import { PageHeader } from "@/components/ui";
+import { Feedback, PageHeader } from "@/components/ui";
 
 // Dedicated registration surface. The detail page at `..` is read-only; candidates click
 // "Daftar" there which navigates here. This separation keeps reading vs. registering distinct
@@ -34,7 +38,6 @@ export default async function CompetitionRegistrationPage({
           title="Hanya kandidat yang dapat mendaftar"
           description="Akun kandidat yang terverifikasi diperlukan untuk memulai pendaftaran kompetisi."
           backHref={detailPath}
-          backLabel="Detail"
         />
         <p className="feedback" data-tone="warning">
           Akun Anda bukan akun kandidat. Masuk dengan akun kandidat untuk mendaftar ke kompetisi
@@ -54,6 +57,9 @@ export default async function CompetitionRegistrationPage({
   const initialRegistration = supportsIndividual
     ? await getStudentRegistration(session.user.id, competition.id)
     : null;
+  const registerAgainClosedByPaymentProof =
+    supportsIndividual &&
+    (await hasPaymentProofOnCancelledIndividualRegistrations(session.user.id, competition.id));
 
   // Team side: load team snapshot so the section renders fully server-side. After every client
   // mutation the section calls router.refresh() which re-runs this page and re-fetches all of this.
@@ -78,9 +84,15 @@ export default async function CompetitionRegistrationPage({
       }))
     : [];
 
+  // Asked only of a forming team, the one state in which the register control is offered.
+  const teamRegisterAgainClosedByPaymentProof =
+    teamSnapshot !== null &&
+    teamSnapshot.team.status === "forming" &&
+    (await hasFormingTeamSentPaymentProof(teamSnapshot.team.id, competition.id));
+
   // Whether either cancel control may be offered at all (DEC-0131). Resolved through the same
   // predicate the two cancel services call, so the page cannot offer what the server refuses.
-  const { individualCancellationClosed, teamCancellationClosed } =
+  const { individualCancellationClosed, teamRowCancellationClosed, teamCancellationClosed } =
     await resolveCancelAffordanceState({
       individualRegistration: initialRegistration,
       team: teamSnapshot?.team ?? null,
@@ -98,27 +110,27 @@ export default async function CompetitionRegistrationPage({
 
   const registrationOpen = competition.ctaState === "open";
 
+  // The invites a free team's registration counts: pending and not expired.
+  const now = new Date();
+  const openInvitationCount = teamSnapshot
+    ? teamSnapshot.pendingInvitations.filter((invitation) => invitation.expiresAt > now).length
+    : 0;
+
   return (
     <main className="page-shell app-page registration-page">
       <PageHeader
         title="Daftarkan diri"
-        description={
-          competition.mode === "both"
-            ? "Kompetisi ini menerima pendaftaran individu maupun tim."
-            : competition.mode === "team"
-              ? "Kompetisi ini wajib didaftarkan sebagai tim."
-              : "Kompetisi ini menerima pendaftaran individu."
-        }
+        description={competition.title}
         backHref={detailPath}
-        backLabel={competition.title}
+        backName={competition.title}
       />
 
       {!registrationOpen && (
-        <div role="alert" className="feedback" data-tone="warning">
+        <Feedback tone="info">
           {competition.ctaState === "not_yet_open"
             ? "Pendaftaran belum dibuka."
             : "Pendaftaran sudah ditutup."}
-        </div>
+        </Feedback>
       )}
 
       {paidRegistrationUnavailable && (
@@ -131,6 +143,7 @@ export default async function CompetitionRegistrationPage({
       {supportsIndividual && (
         <IndividualRegistrationSection
           competitionId={competition.id}
+          competitionTitle={competition.title}
           ctaState={competition.ctaState}
           initialRegistration={
             initialRegistration
@@ -140,7 +153,9 @@ export default async function CompetitionRegistrationPage({
           expectedUserId={session.user.id}
           modeLabel={competition.mode === "both" ? "Daftar sebagai individu" : "Daftar"}
           cancellationClosedByPaymentProof={individualCancellationClosed}
+          cancellationClosedForTeamRow={teamRowCancellationClosed}
           registrationWithheld={paidRegistrationUnavailable}
+          registerAgainClosedByPaymentProof={registerAgainClosedByPaymentProof}
         />
       )}
 
@@ -154,6 +169,12 @@ export default async function CompetitionRegistrationPage({
           expectedUserId={session.user.id}
           cancellationClosedByPaymentProof={teamCancellationClosed}
           registrationWithheld={paidRegistrationUnavailable}
+          registerAgainClosedByPaymentProof={teamRegisterAgainClosedByPaymentProof}
+          isFreeCompetition={!isPaidCompetition(competition.feeAmount)}
+          openInvitationCount={openInvitationCount}
+          registrationClosesAt={
+            competition.registrationEndAt ? competition.registrationEndAt.toISOString() : null
+          }
           initialTeam={
             teamSnapshot
               ? {

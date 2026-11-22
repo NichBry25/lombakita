@@ -1,17 +1,27 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import {
-  readErrorCode,
-  SESSION_MISMATCH_CODE,
-  SESSION_MISMATCH_MESSAGE,
-  sessionFetch,
-} from "@/lib/session/session-fetch";
+  COMPETITION_HOST_CANNOT_JOIN_MESSAGE,
+  errorMessageFor,
+  NETWORK_ERROR_MESSAGE,
+} from "@/lib/errors/error-copy";
+import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
 import { getTeamRoleLabel } from "@/lib/access/role-labels";
 import { formatDisplayToken } from "@/lib/text/capitalize";
-import { useModal, useToast } from "@/components/ui/primitives";
-import { Button, Feedback, Icon, IconButton } from "@/components/ui";
+import { useModal, useModalTask, useToast, type ModalOutcome } from "@/components/ui/primitives";
+import {
+  Button,
+  Feedback,
+  FormField,
+  FormInput,
+  FormLabel,
+  FormTextareaWithLimit,
+  Icon,
+  IconButton,
+} from "@/components/ui";
+import { LocalDate } from "@/components/ui/local-date";
 
 type Member = {
   membershipId: string;
@@ -58,9 +68,93 @@ type Props = {
   // path withheld its one control while the team path withheld its last one. Individual and team
   // are siblings on every condition in this lane, entry paths included.
   registrationWithheld: boolean;
+  // A free competition counts open invites when a team registers, and a registered free team keeps
+  // taking invites until registration closes. A paid competition still needs every member joined.
+  isFreeCompetition: boolean;
+  // Invites still pending and not expired, counted by the page on the server.
+  openInvitationCount: number;
+  registrationClosesAt: string | null;
+  // A payment proof was sent for a cancelled registration of this team, so the server will not
+  // register it again. The register control is withheld and a sentence stands in its place.
+  registerAgainClosedByPaymentProof: boolean;
 };
 
-type ApiError = { code: string; message: string; details?: Record<string, unknown> };
+type SurfaceCopy = Partial<Record<string, string>>;
+
+// The server's refusal and the note that replaces the register control say the same thing.
+const TEAM_REGISTER_AGAIN_CLOSED_MESSAGE =
+  "Pendaftaran ulang tim tidak tersedia karena bukti transfer sudah dikirim untuk pendaftaran tim ini.";
+
+const TEAM_ERROR_COPY: SurfaceCopy = {
+  forbidden: "Akun Anda bukan akun kandidat. Masuk dengan akun kandidat untuk melanjutkan.",
+  team_invalid_name: "Nama tim harus 2 sampai 80 karakter.",
+  team_invalid_identifier: "Masukkan username atau alamat email yang valid.",
+  team_invite_recipient_not_found: "Tidak ada akun dengan username tersebut.",
+  team_competition_not_found: "Kompetisi tidak ditemukan.",
+  team_competition_not_published: "Kompetisi tidak tersedia untuk pendaftaran.",
+  team_competition_mode_not_allowed: "Kompetisi ini hanya menerima pendaftaran individu.",
+  team_registration_not_allowed: "Kompetisi ini hanya menerima pendaftaran individu.",
+  team_competition_registration_closed: "Batas waktu pendaftaran telah terlewat.",
+  registration_window_closed: "Batas waktu pendaftaran telah terlewat.",
+  registration_not_yet_open: "Pendaftaran kompetisi ini belum dibuka.",
+  team_not_found: "Tim ini sudah tidak ada. Muat ulang halaman.",
+  team_not_captain: "Hanya kapten tim yang dapat melakukan tindakan ini.",
+  team_not_forming: "Tim ini sudah tidak dalam tahap pembentukan. Muat ulang halaman.",
+  team_name_taken: "Nama tim ini sudah dipakai di kompetisi ini. Pilih nama lain.",
+  team_candidate_already_member: "Anda sudah tergabung dalam tim untuk kompetisi ini.",
+  team_host_of_competition: COMPETITION_HOST_CANNOT_JOIN_MESSAGE,
+  team_member_host_of_competition:
+    "Tim ini memiliki anggota yang merupakan pemilik atau staf penyelenggara kompetisi ini, jadi tim belum dapat didaftarkan. Keluarkan anggota tersebut, lalu daftarkan tim lagi.",
+  team_at_capacity: "Tim telah mencapai kapasitas maksimum.",
+  team_invite_already_pending: "Undangan untuk orang ini masih menunggu jawaban.",
+  team_invite_not_found: "Undangan tidak ditemukan. Muat ulang halaman.",
+  team_invite_not_actionable: "Undangan ini sudah tidak berlaku.",
+  team_membership_not_found: "Anggota ini sudah tidak ada di tim. Muat ulang halaman.",
+  team_member_not_in_team: "Anggota ini sudah tidak ada di tim. Muat ulang halaman.",
+  team_captain_cannot_leave:
+    "Kapten tidak dapat meninggalkan tim. Bubarkan tim jika ingin berhenti.",
+  team_forbidden: "Hanya kapten atau anggota itu sendiri yang dapat mengeluarkan anggota.",
+  team_member_already_registered: "Satu atau lebih anggota tim sudah terdaftar di kompetisi ini.",
+  team_state_conflict: "Status tim baru saja berubah. Muat ulang halaman lalu coba lagi.",
+  team_not_submitted: "Tim ini belum didaftarkan, jadi tidak ada pendaftaran yang bisa dibatalkan.",
+  team_register_again_closed_by_payment_proof: TEAM_REGISTER_AGAIN_CLOSED_MESSAGE,
+  // The organiser cannot take payment right now: unverified, no published account, or no fee rule
+  // in force. All three collapse to one code server-side so none of them leaks, and none of them is
+  // the candidate's to fix. A generic "coba lagi" message would invite a retry that cannot succeed.
+  registration_payment_unavailable:
+    "Penyelenggara kompetisi ini belum dapat menerima pembayaran, jadi pendaftaran berbayar belum bisa diproses. Hubungi penyelenggara.",
+};
+
+// On an invitation the already-member refusal is about the invitee, not the caller.
+const TEAM_INVITE_ERROR_COPY: SurfaceCopy = {
+  ...TEAM_ERROR_COPY,
+  team_candidate_already_member: "Orang ini sudah ada di tim.",
+};
+
+const CREATE_TEAM_FALLBACK = "Gagal membuat tim. Coba lagi.";
+const SAVE_COMPETITION_FAILED_MESSAGE = "Gagal menyimpan kompetisi. Silakan coba lagi.";
+const CANCEL_TEAM_REGISTRATION_FALLBACK = "Gagal membatalkan pendaftaran tim. Coba lagi.";
+
+// A size limit the competition does not set has no number to name, so that refusal shows the
+// action's fallback.
+const teamSizeErrorCopy = (
+  minTeamSize: number | null,
+  maxTeamSize: number | null,
+  isFreeCompetition: boolean,
+): SurfaceCopy => {
+  const copy: SurfaceCopy = {};
+  if (minTeamSize !== null) {
+    copy.team_size_insufficient = isFreeCompetition
+      ? `Tim membutuhkan minimal ${minTeamSize} orang, dihitung dari anggota dan undangan yang masih berlaku.`
+      : `Tim membutuhkan minimal ${minTeamSize} anggota aktif.`;
+  }
+  if (maxTeamSize !== null) {
+    copy.team_size_exceeded = isFreeCompetition
+      ? `Tim melebihi maksimum ${maxTeamSize} orang, dihitung dari anggota dan undangan yang masih berlaku.`
+      : `Tim melebihi maksimum ${maxTeamSize} anggota aktif.`;
+  }
+  return copy;
+};
 
 const TEAM_STATUS_LABELS: Record<string, string> = {
   forming: "Pembentukan",
@@ -71,21 +165,13 @@ const TEAM_STATUS_LABELS: Record<string, string> = {
 const getTeamStatusLabel = (status: string): string =>
   TEAM_STATUS_LABELS[status] ?? formatDisplayToken(status);
 
-const handleError = async (res: Response): Promise<ApiError> => {
-  const code = (await readErrorCode(res)) ?? `http_${res.status}`;
-  if (code === SESSION_MISMATCH_CODE) {
-    return { code, message: SESSION_MISMATCH_MESSAGE };
-  }
-  try {
-    const body = await res.clone().json();
-    return {
-      code,
-      message: body?.error?.message ?? `Request failed with status ${res.status}`,
-      details: body?.error?.details,
-    };
-  } catch {
-    return { code, message: `Request failed with status ${res.status}` };
-  }
+const readRefusalMessage = async (
+  res: Response,
+  surfaceCopy: SurfaceCopy,
+  fallback: string,
+): Promise<string> => {
+  const code = await readErrorCode(res);
+  return errorMessageFor(code, surfaceCopy, fallback);
 };
 
 export function CompetitionTeamSection(props: Props) {
@@ -146,12 +232,14 @@ function CreateTeamForm(props: Props) {
         },
       );
       if (!res.ok) {
-        const err = await handleError(res);
-        addToast({ type: "error", message: err.message });
+        const message = await readRefusalMessage(res, TEAM_ERROR_COPY, CREATE_TEAM_FALLBACK);
+        addToast({ type: "error", message });
         return;
       }
       router.refresh();
       setName("");
+    } catch {
+      addToast({ type: "error", message: NETWORK_ERROR_MESSAGE });
     } finally {
       setBusy(false);
     }
@@ -164,13 +252,12 @@ function CreateTeamForm(props: Props) {
         <p className="muted-copy">Anda akan menjadi kapten setelah membuat tim.</p>
       </div>
       <form onSubmit={onSubmit} className="team-inline-form">
-        <input
+        <FormInput
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Nama tim"
           required
-          className="form-input"
         />
         <Button type="submit" loading={busy} variant="primary" size="md">
           Buat tim
@@ -180,58 +267,54 @@ function CreateTeamForm(props: Props) {
   );
 }
 
-// Self-contained modal body: required cancellation reason + its own confirm/cancel buttons.
+const TEAM_CANCEL_FORM_ID = "cancel-team-registration-form";
+
+const TEAM_REASON_MISSING_MESSAGE = "Alasan belum diisi. Tulis alasan pembatalan Anda.";
+
+// The pop-up footer submits this form. An empty reason shows the field error and sends nothing.
 function TeamCancelReasonForm({
   onConfirm,
-  onCancel,
 }: {
-  onConfirm: (reason: string) => void;
-  onCancel: () => void;
+  onConfirm: (reason: string) => Promise<ModalOutcome>;
 }) {
+  const runModalTask = useModalTask();
   const [reason, setReason] = useState("");
+  const [hasTriedToSubmit, setHasTriedToSubmit] = useState(false);
   const trimmed = reason.trim();
+  const reasonError =
+    hasTriedToSubmit && trimmed.length === 0 ? TEAM_REASON_MISSING_MESSAGE : undefined;
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setHasTriedToSubmit(true);
+    if (trimmed.length === 0) return;
+    void runModalTask(() => onConfirm(trimmed));
+  };
+
   return (
-    <div className="stack-md">
-      <p className="muted-copy">
-        Tim akan kembali ke status &apos;forming&apos; dan semua pendaftaran tim dibatalkan.
-        Tuliskan alasan pembatalan (wajib diisi).
-      </p>
-      <textarea
-        value={reason}
-        onChange={(e) => setReason(e.target.value)}
-        rows={4}
-        maxLength={500}
-        placeholder="Alasan pembatalan"
-        aria-label="Alasan pembatalan"
-        className="form-textarea"
-      />
-      <div className="modal-actions">
-        <Button type="button" onClick={onCancel} variant="outline" size="sm">
-          Kembali
-        </Button>
-        <Button
-          type="button"
-          disabled={trimmed.length === 0}
-          onClick={() => onConfirm(trimmed)}
-          variant="danger"
-          size="sm"
-        >
-          Batalkan pendaftaran tim
-        </Button>
-      </div>
-    </div>
+    <form id={TEAM_CANCEL_FORM_ID} noValidate onSubmit={submit} className="stack-md">
+      <p>Tim akan kembali ke tahap pembentukan dan semua pendaftaran tim dibatalkan.</p>
+      <FormField>
+        <FormLabel htmlFor="cancel-team-registration-reason" required>
+          Alasan pembatalan
+        </FormLabel>
+        <FormTextareaWithLimit
+          id="cancel-team-registration-reason"
+          value={reason}
+          onChange={(event) => setReason(event.target.value)}
+          rows={4}
+          maxLength={500}
+          placeholder="Contoh: jadwal saya bertabrakan"
+          error={reasonError}
+        />
+      </FormField>
+    </form>
   );
 }
 
 const TEAM_CANCEL_MESSAGE: Record<string, string> = {
   cancellation_reason_required: "Alasan pembatalan wajib diisi.",
   cancellation_reason_too_long: "Alasan pembatalan terlalu panjang (maksimal 500 karakter).",
-  // The organiser cannot take payment right now: unverified, no published account, or no fee rule
-  // in force. All three collapse to one code server-side so none of them leaks, and none of them is
-  // the candidate's to fix. The generic "coba lagi" fallback was worse than nothing here: it
-  // describes a transient fault and invites a candidate to retry something that will never succeed.
-  registration_payment_unavailable:
-    "Penyelenggara kompetisi ini belum dapat menerima pembayaran, jadi pendaftaran berbayar belum bisa diproses. Hubungi penyelenggara.",
   cancellation_not_supported_for_paid:
     "Pendaftaran tidak dapat dibatalkan setelah bukti transfer dikirim.",
   cancellation_disabled_by_institution:
@@ -241,7 +324,7 @@ const TEAM_CANCEL_MESSAGE: Record<string, string> = {
 
 function TeamRoster(props: Props & { team: TeamSnapshot }) {
   const router = useRouter();
-  const { openModal, closeModal } = useModal();
+  const { openModal } = useModal();
   const { addToast } = useToast();
   const { team } = props;
   const isCaptain = team.captainId === props.expectedUserId;
@@ -254,6 +337,10 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
   const busy = pendingAction !== null;
   // a username OR an email; resolved server-side.
   const [inviteIdentifier, setInviteIdentifier] = useState("");
+  // Set by the refusal that reloads the page, so the note that replaces the focused register
+  // control takes the focus once it renders; a page that opens with the note keeps its focus.
+  const focusesRegisterAgainNoteRef = useRef(false);
+  const registerAgainNoteRef = useRef<HTMLDivElement>(null);
 
   const ownMembership = props.initialMembers.find((m) => m.userId === props.expectedUserId);
 
@@ -262,69 +349,109 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
 
   // Submission gate hints (UI-side mirror of server checks; server is authoritative).
   const memberCount = props.initialMembers.length;
-  const sizeBelowMin = props.minTeamSize !== null && memberCount < props.minTeamSize;
-  const sizeAboveMax = props.maxTeamSize !== null && memberCount > props.maxTeamSize;
+  // A free team registers on joined members plus open invites, a paid team on joined members only.
+  const registrationSeatCount = props.isFreeCompetition
+    ? memberCount + props.openInvitationCount
+    : memberCount;
+  const sizeBelowMin = props.minTeamSize !== null && registrationSeatCount < props.minTeamSize;
+  const sizeAboveMax = props.maxTeamSize !== null && registrationSeatCount > props.maxTeamSize;
   const submitDisabledReason = (() => {
     if (status !== "forming") return `Tim sudah berstatus '${getTeamStatusLabel(status)}'`;
     if (!props.registrationOpen) return "Pendaftaran kompetisi belum dibuka atau sudah ditutup";
-    if (sizeBelowMin) return `Tim membutuhkan minimal ${props.minTeamSize} anggota aktif`;
-    if (sizeAboveMax) return `Tim melebihi maksimum ${props.maxTeamSize} anggota aktif`;
+    if (sizeBelowMin) {
+      return props.isFreeCompetition
+        ? `Tim membutuhkan minimal ${props.minTeamSize} orang, dihitung dari anggota dan undangan yang masih berlaku`
+        : `Tim membutuhkan minimal ${props.minTeamSize} anggota aktif`;
+    }
+    if (sizeAboveMax) {
+      return props.isFreeCompetition
+        ? `Tim melebihi maksimum ${props.maxTeamSize} orang, dihitung dari anggota dan undangan yang masih berlaku`
+        : `Tim melebihi maksimum ${props.maxTeamSize} anggota aktif`;
+    }
     return null;
   })();
 
-  useEffect(() => {
-    if (atCapacity) {
-      addToast({ type: "warning", message: "Tim telah mencapai kapasitas maksimum." });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [atCapacity]);
+  const isRegisteredFreeTeamOpen =
+    status === "submitted" && props.isFreeCompetition && props.registrationOpen;
+  const takesInviteChanges = status === "forming" || isRegisteredFreeTeamOpen;
+  // A team that cannot register again gains nothing from a new member, so the form is withheld.
+  // The server still takes an invite to such a team and the invitee's acceptance.
+  const offersInviteForm = takesInviteChanges && !props.registerAgainClosedByPaymentProof;
 
-  useEffect(() => {
-    if (isCaptain && submitDisabledReason && status === "forming") {
-      addToast({ type: "warning", message: submitDisabledReason });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isCaptain, submitDisabledReason, status]);
+  const submitBlockedNotice =
+    isCaptain &&
+    submitDisabledReason &&
+    status === "forming" &&
+    !props.registerAgainClosedByPaymentProof
+      ? submitDisabledReason
+      : null;
 
   useEffect(() => {
     if (!isCaptain && ownMembership) {
       addToast({
         type: "info",
-        message: `Hanya kapten (${team.captainId.slice(0, 8)}…) yang dapat mendaftarkan atau membubarkan tim.`,
+        message: "Hanya kapten yang dapat mendaftarkan atau membubarkan tim.",
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isCaptain, ownMembership]);
+
+  useEffect(() => {
+    if (focusesRegisterAgainNoteRef.current) registerAgainNoteRef.current?.focus();
+  }, [props.registerAgainClosedByPaymentProof]);
+
+  const sendTeamRequest = async (
+    label: string,
+    url: string,
+    init: RequestInit,
+    surfaceCopy: SurfaceCopy,
+  ): Promise<{ ok: true } | { ok: false; message: string; code?: string | null }> => {
+    try {
+      const res = await sessionFetch(props.expectedUserId, url, init);
+      if (res.ok) return { ok: true };
+      const code = await readErrorCode(res);
+      return { ok: false, message: errorMessageFor(code, surfaceCopy, `Gagal ${label}.`), code };
+    } catch {
+      return { ok: false, message: `Gagal ${label}.` };
+    }
+  };
 
   const executeAction = async (
     actionKey: string,
     label: string,
     url: string,
     init: RequestInit,
+    surfaceCopy: SurfaceCopy,
   ) => {
     setPendingAction(actionKey);
-    try {
-      const res = await sessionFetch(props.expectedUserId, url, init);
-      if (!res.ok) {
-        const err = await handleError(res);
-        addToast({ type: "error", message: err.message });
-        return;
-      }
+    const outcome = await sendTeamRequest(label, url, init, surfaceCopy);
+    setPendingAction(null);
+    if (outcome.ok) {
       router.refresh();
-    } catch {
-      addToast({ type: "error", message: `Gagal ${label}.` });
-    } finally {
-      setPendingAction(null);
+      return;
+    }
+    addToast({ type: "error", message: outcome.message });
+    // This refusal holds for as long as the team exists, so the page is read again and the
+    // register control gives way to the note.
+    if (outcome.code === "team_register_again_closed_by_payment_proof") {
+      focusesRegisterAgainNoteRef.current = true;
+      router.refresh();
     }
   };
 
   const onInvite = async (e: React.FormEvent) => {
     e.preventDefault();
-    await executeAction("invite", "mengirim undangan", `/api/v1/teams/${team.id}/invitations`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ invitedIdentifier: inviteIdentifier }),
-    });
+    await executeAction(
+      "invite",
+      "mengirim undangan",
+      `/api/v1/teams/${team.id}/invitations`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ invitedIdentifier: inviteIdentifier }),
+      },
+      TEAM_INVITE_ERROR_COPY,
+    );
     setInviteIdentifier("");
   };
 
@@ -334,6 +461,7 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
       "membatalkan undangan",
       `/api/v1/teams/${team.id}/invitations/${tokenHash}`,
       { method: "DELETE" },
+      TEAM_ERROR_COPY,
     );
 
   const onRemoveMember = (membershipId: string) =>
@@ -342,23 +470,35 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
       "menghapus anggota",
       `/api/v1/teams/${team.id}/memberships/${membershipId}`,
       { method: "DELETE" },
+      TEAM_ERROR_COPY,
     );
+
+  // The pop-up shows the waiting and the failure, so these two confirm through the request itself
+  // and not through the page's toast.
+  const runConfirmedTeamRequest = async (
+    label: string,
+    url: string,
+    surfaceCopy: SurfaceCopy,
+  ): Promise<ModalOutcome> => {
+    const outcome = await sendTeamRequest(label, url, { method: "DELETE" }, surfaceCopy);
+    if (!outcome.ok) return outcome;
+    router.refresh();
+    return { ok: true };
+  };
 
   const onDisband = () =>
     openModal({
       title: "Bubarkan tim",
       body: "Bubarkan tim? Tindakan ini tidak dapat dibatalkan.",
+      alert: true,
       actions: [
+        { label: "Batal" },
         {
           label: "Bubarkan tim",
-          autoClose: true,
-          onClick: () => {
-            void executeAction("disband", "membubarkan tim", `/api/v1/teams/${team.id}`, {
-              method: "DELETE",
-            });
-          },
+          variant: "primary",
+          onClick: () =>
+            runConfirmedTeamRequest("membubarkan tim", `/api/v1/teams/${team.id}`, TEAM_ERROR_COPY),
         },
-        { label: "Batal", onClick: () => {} },
       ],
     });
 
@@ -366,20 +506,19 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
     openModal({
       title: "Tinggalkan tim",
       body: "Tinggalkan tim?",
+      alert: true,
       actions: [
+        { label: "Batal" },
         {
           label: "Tinggalkan",
-          autoClose: true,
-          onClick: () => {
-            void executeAction(
-              `leave:${membershipId}`,
+          variant: "primary",
+          onClick: () =>
+            runConfirmedTeamRequest(
               "meninggalkan tim",
               `/api/v1/teams/${team.id}/memberships/${membershipId}`,
-              { method: "DELETE" },
-            );
-          },
+              TEAM_ERROR_COPY,
+            ),
         },
-        { label: "Batal", onClick: () => {} },
       ],
     });
 
@@ -389,11 +528,13 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
       "mendaftarkan tim",
       `/api/v1/competitions/${props.competitionId}/teams/${team.id}/registrations`,
       { method: "POST" },
+      {
+        ...TEAM_ERROR_COPY,
+        ...teamSizeErrorCopy(props.minTeamSize, props.maxTeamSize, props.isFreeCompetition),
+      },
     );
 
-  const submitTeamCancel = async (reason: string) => {
-    closeModal();
-    setPendingAction("cancel-submission");
+  const submitTeamCancel = async (reason: string): Promise<ModalOutcome> => {
     try {
       const res = await sessionFetch(
         props.expectedUserId,
@@ -405,77 +546,74 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
         },
       );
       if (!res.ok) {
-        const e = await handleError(res);
-        addToast({ type: "error", message: TEAM_CANCEL_MESSAGE[e.code] ?? e.message });
-        return;
+        const message = await readRefusalMessage(
+          res,
+          { ...TEAM_ERROR_COPY, ...TEAM_CANCEL_MESSAGE },
+          CANCEL_TEAM_REGISTRATION_FALLBACK,
+        );
+        return { ok: false, message };
       }
       addToast({ type: "success", message: "Pendaftaran tim dibatalkan." });
       router.refresh();
+      return { ok: true };
     } catch {
-      addToast({ type: "error", message: "Terjadi kesalahan jaringan. Coba lagi." });
-    } finally {
-      setPendingAction(null);
+      return { ok: false, message: "Terjadi kesalahan jaringan. Coba lagi." };
     }
   };
 
   const onCancelSubmission = () =>
     openModal({
       title: "Batalkan pendaftaran tim",
-      closeable: true,
-      actions: [],
-      body: <TeamCancelReasonForm onConfirm={submitTeamCancel} onCancel={closeModal} />,
+      wide: true,
+      formId: TEAM_CANCEL_FORM_ID,
+      body: <TeamCancelReasonForm onConfirm={submitTeamCancel} />,
+      actions: [{ label: "Kembali" }, { label: "Batalkan pendaftaran tim", variant: "primary" }],
     });
+
+  // A team that cannot register again cannot be completed, so leaving it is not warned against.
+  const warnsOnLeavingIncompleteTeam =
+    sizeBelowMin && status === "forming" && !props.registerAgainClosedByPaymentProof;
 
   // Warn on hard navigation (URL change, tab close, refresh) when team is incomplete.
   useEffect(() => {
-    if (!sizeBelowMin || status !== "forming") return;
+    if (!warnsOnLeavingIncompleteTeam) return;
     const handler = (e: BeforeUnloadEvent) => {
       e.preventDefault();
       e.returnValue = "";
     };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
-  }, [sizeBelowMin, status]);
+  }, [warnsOnLeavingIncompleteTeam]);
 
   // Offer to save the competition as a bookmark when backing out with an incomplete team.
   const handleBackOut = () => {
-    if (!sizeBelowMin || status !== "forming") {
+    if (!warnsOnLeavingIncompleteTeam) {
       router.back();
       return;
     }
-    const saveAndBack = async () => {
+    // Leaving only follows a saved competition, so a failed save keeps the pop-up open to retry.
+    const saveAndBack = async (): Promise<ModalOutcome> => {
       try {
-        await sessionFetch(
+        const res = await sessionFetch(
           props.expectedUserId,
           `/api/v1/competitions/${props.competitionId}/save`,
           { method: "POST" },
         );
+        if (!res.ok) return { ok: false, message: SAVE_COMPETITION_FAILED_MESSAGE };
       } catch {
-        addToast({ type: "error", message: "Gagal menyimpan kompetisi. Silakan coba lagi." });
+        return { ok: false, message: SAVE_COMPETITION_FAILED_MESSAGE };
       }
       router.back();
+      return { ok: true };
     };
     openModal({
       title: "Tim belum lengkap",
       body: "Tim Anda belum memiliki cukup anggota. Simpan kompetisi ini ke daftar simpanan sebelum keluar?",
-      closeable: true,
+      initialFocus: "safe",
       actions: [
-        {
-          label: "Simpan & keluar",
-          variant: "primary",
-          autoClose: true,
-          onClick: () => {
-            void saveAndBack();
-          },
-        },
-        {
-          label: "Keluar tanpa menyimpan",
-          variant: "secondary",
-          autoClose: true,
-          onClick: () => {
-            router.back();
-          },
-        },
+        { label: "Simpan dan keluar", variant: "primary", onClick: saveAndBack },
+        { label: "Tetap di sini" },
+        { label: "Keluar tanpa menyimpan", onClick: () => router.back() },
       ],
     });
   };
@@ -500,6 +638,22 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
         </div>
       </div>
 
+      {isRegisteredFreeTeamOpen && props.registrationClosesAt !== null ? (
+        <Feedback tone="info">
+          Tim sudah terdaftar. Undangan yang belum dijawab berlaku sampai pendaftaran ditutup pada{" "}
+          <LocalDate value={props.registrationClosesAt} format="longDateTime" />. Siapa pun yang
+          menerima sebelum itu langsung terdaftar bersama tim.
+          {isCaptain
+            ? " Sampai saat itu, Anda masih dapat membatalkan undangan dan mengundang orang lain."
+            : null}
+        </Feedback>
+      ) : null}
+
+      {atCapacity ? (
+        <Feedback tone="warning">Tim telah mencapai kapasitas maksimum.</Feedback>
+      ) : null}
+      {submitBlockedNotice ? <Feedback tone="warning">{submitBlockedNotice}</Feedback> : null}
+
       <h3 className="team-subheading">Anggota</h3>
       <ul className="team-member-list">
         {props.initialMembers.map((m) => (
@@ -517,8 +671,7 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
                 onClick={() => onRemoveMember(m.membershipId)}
                 loading={pendingAction === `remove-member:${m.membershipId}`}
                 disabled={busy}
-                variant="danger"
-                size="sm"
+                variant="outline"
               />
             )}
             {!isCaptain && m.userId === props.expectedUserId && status === "forming" && (
@@ -526,7 +679,7 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
                 onClick={() => onLeave(m.membershipId)}
                 loading={pendingAction === `leave:${m.membershipId}`}
                 disabled={busy}
-                variant="danger"
+                variant="outline"
                 size="sm"
               >
                 Tinggalkan
@@ -543,12 +696,12 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
             {props.initialPendingInvitations.map((p) => (
               <li key={p.id} className="team-member-row">
                 <span className="team-member-name">{p.invitedEmail}</span>
-                {isCaptain && status === "forming" && (
+                {isCaptain && takesInviteChanges && (
                   <Button
                     onClick={() => onCancelInvite(p.tokenHash)}
                     loading={pendingAction === `cancel-invite:${p.tokenHash}`}
                     disabled={busy}
-                    variant="danger"
+                    variant="outline"
                     size="sm"
                   >
                     Batalkan
@@ -560,18 +713,17 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
         </>
       )}
 
-      {isCaptain && status === "forming" && (
+      {isCaptain && offersInviteForm && (
         <>
           <h3 className="team-subheading">Undang anggota</h3>
           <form onSubmit={onInvite} className="team-inline-form">
-            <input
+            <FormInput
               type="text"
               value={inviteIdentifier}
               onChange={(e) => setInviteIdentifier(e.target.value)}
               placeholder="Username atau Email"
               required
               disabled={busy || atCapacity}
-              className="form-input"
             />
             <Button
               type="submit"
@@ -588,24 +740,26 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
 
       {isCaptain && (
         <div className="team-primary-actions">
-          {status === "forming" && !props.registrationWithheld && (
-            <Button
-              onClick={onSubmitTeam}
-              loading={pendingAction === "submit-team"}
-              disabled={busy || submitDisabledReason !== null}
-              title={submitDisabledReason ?? ""}
-              variant="primary"
-              size="md"
-            >
-              Daftarkan tim
-            </Button>
-          )}
+          {status === "forming" &&
+            !props.registrationWithheld &&
+            !props.registerAgainClosedByPaymentProof && (
+              <Button
+                onClick={onSubmitTeam}
+                loading={pendingAction === "submit-team"}
+                disabled={busy || submitDisabledReason !== null}
+                title={submitDisabledReason ?? ""}
+                variant="primary"
+                size="md"
+              >
+                Daftarkan tim
+              </Button>
+            )}
           {status === "submitted" && !props.cancellationClosedByPaymentProof && (
             <Button
               onClick={onCancelSubmission}
               loading={pendingAction === "cancel-submission"}
               disabled={busy}
-              variant="danger"
+              variant="outline"
               size="md"
             >
               Batalkan pendaftaran tim
@@ -616,12 +770,20 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
               onClick={onDisband}
               loading={pendingAction === "disband"}
               disabled={busy}
-              variant="danger"
+              variant="outline"
               size="md"
             >
               Bubarkan tim
             </Button>
           )}
+        </div>
+      )}
+
+      {/* Stands where the register control would have been, and only for the captain, like the cancel
+          note below. */}
+      {isCaptain && status === "forming" && props.registerAgainClosedByPaymentProof && (
+        <div ref={registerAgainNoteRef} tabIndex={-1}>
+          <Feedback tone="neutral">{TEAM_REGISTER_AGAIN_CLOSED_MESSAGE}</Feedback>
         </div>
       )}
 
@@ -639,7 +801,7 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
           <Button
             type="button"
             onClick={handleBackOut}
-            variant="ghost"
+            variant="outline"
             size="sm"
             leadingIcon={<Icon name="arrow-left" size="sm" />}
           >

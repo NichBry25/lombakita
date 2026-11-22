@@ -13,7 +13,7 @@
 //
 // Every test runs inside a transaction that is ALWAYS rolled back. Nothing here is committed.
 
-import { afterAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { TransactionRollbackError, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
@@ -31,12 +31,16 @@ import {
 // The elevation path's last act is an object-storage sweep, which is a different module's side
 // effect on a different system and is not what this file measures. Stubbed for the same reason the
 // unit suite stubs it: so a refusal is the guard and not an unreachable bucket.
-const { mockSweepForAccount } = vi.hoisted(() => ({
+const { mockSweepForAccount, mockEnqueueApproved } = vi.hoisted(() => ({
   mockSweepForAccount: vi.fn().mockResolvedValue(undefined),
+  mockEnqueueApproved: vi.fn(),
 }));
 
 vi.mock("@/server/recruiter-verification/recruiter-verification-service", () => ({
   sweepOrphanedObjectsForAccount: mockSweepForAccount,
+}));
+vi.mock("@/server/async/enqueue", () => ({
+  enqueueRecruiterVerificationApproved: mockEnqueueApproved,
 }));
 
 const DATABASE_URL = TEST_DATABASE_URL;
@@ -130,6 +134,10 @@ const elevate = async (tx: Tx, actorUserId: string, accountId: string) => {
 };
 
 describe.skipIf(skipWithoutDatabase)("elevateRecruiterTier against a real database", () => {
+  beforeEach(() => {
+    mockEnqueueApproved.mockClear();
+  });
+
   it("refuses an actor who does not exist, and leaves the target alone", async () => {
     await inRollback(async (tx) => {
       const target = await seedAccount(tx, { role: "recruiter", recruiterTier: "minimal" });
@@ -141,6 +149,7 @@ describe.skipIf(skipWithoutDatabase)("elevateRecruiterTier against a real databa
 
       expect(await readTier(tx, target)).toBe("minimal");
       expect(await auditRowsFor(tx, target)).toHaveLength(0);
+      expect(mockEnqueueApproved).not.toHaveBeenCalled();
     });
   });
 
@@ -164,6 +173,7 @@ describe.skipIf(skipWithoutDatabase)("elevateRecruiterTier against a real databa
         "operator_actor_not_platform_ops",
       );
       expect(refusal?.code).not.toBe("tier_account_not_found");
+      expect(mockEnqueueApproved).not.toHaveBeenCalled();
     });
   });
 
@@ -182,6 +192,7 @@ describe.skipIf(skipWithoutDatabase)("elevateRecruiterTier against a real databa
 
       expect(await readTier(tx, target)).toBe("minimal");
       expect(await auditRowsFor(tx, target)).toHaveLength(0);
+      expect(mockEnqueueApproved).not.toHaveBeenCalled();
     });
   });
 
@@ -197,6 +208,7 @@ describe.skipIf(skipWithoutDatabase)("elevateRecruiterTier against a real databa
 
       expect(await readTier(tx, target)).toBe("minimal");
       expect(await auditRowsFor(tx, target)).toHaveLength(0);
+      expect(mockEnqueueApproved).not.toHaveBeenCalled();
     });
   });
 
@@ -220,6 +232,7 @@ describe.skipIf(skipWithoutDatabase)("elevateRecruiterTier against a real databa
 
       expect(await readTier(tx, actor)).toBe("minimal");
       expect(await auditRowsFor(tx, actor)).toHaveLength(0);
+      expect(mockEnqueueApproved).not.toHaveBeenCalled();
     });
   });
 
@@ -241,6 +254,11 @@ describe.skipIf(skipWithoutDatabase)("elevateRecruiterTier against a real databa
           eventType: "recruiter_tier.elevated",
         },
       ]);
+      expect(mockEnqueueApproved).toHaveBeenCalledTimes(1);
+      expect(mockEnqueueApproved).toHaveBeenCalledWith({
+        userId: target,
+        epoch: expect.any(Number),
+      });
     });
   });
 
@@ -262,6 +280,11 @@ describe.skipIf(skipWithoutDatabase)("elevateRecruiterTier against a real databa
         code: "operator_actor_suspended",
       });
       expect(await readTier(tx, second)).toBe("minimal");
+      expect(mockEnqueueApproved).toHaveBeenCalledTimes(1);
+      expect(mockEnqueueApproved).toHaveBeenCalledWith({
+        userId: target,
+        epoch: expect.any(Number),
+      });
     });
   });
 });

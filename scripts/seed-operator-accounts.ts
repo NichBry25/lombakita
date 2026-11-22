@@ -118,7 +118,7 @@ const main = async (): Promise<void> => {
   } finally {
     await sql.end();
     // The production services run against the application's own pooled connection rather than
-    // this script's, and a rejection enqueues its notice on the BullMQ producer connection, so the
+    // this script's, and a review enqueues its notice on the BullMQ producer connection, so the
     // process would otherwise sit on two open sockets after finishing.
     await services.closeDbConnection();
     await services.closeAsyncQueueConnections();

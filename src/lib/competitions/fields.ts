@@ -2,9 +2,11 @@ import { formatDisplayToken } from "@/lib/text/capitalize";
 
 const COMPETITION_FIELD_LABELS: Record<string, string> = {
   title: "Judul",
+  slug: "Slug",
   description: "Deskripsi",
   category: "Kategori",
   mode: "Format peserta (mode)",
+  location: "Lokasi",
   minTeamSize: "Minimum anggota tim",
   maxTeamSize: "Maksimum anggota tim",
   registrationStartAt: "Pendaftaran mulai",
@@ -15,6 +17,9 @@ const COMPETITION_FIELD_LABELS: Record<string, string> = {
   minimumParticipantEntries: "Minimum peserta",
   participantConfirmationAt: "Konfirmasi peserta",
   feeAmount: "Biaya",
+  feeCurrency: "Mata uang biaya",
+  allowCancellation: "Pembatalan oleh peserta",
+  cancellationCutoffDays: "Batas pembatalan",
 };
 
 export const getCompetitionFieldLabel = (field: string): string =>

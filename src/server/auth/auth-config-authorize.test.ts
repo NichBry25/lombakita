@@ -79,6 +79,18 @@ vi.mock("@/server/db/schema", () => ({
 }));
 vi.mock("@/server/runtime/assert-server-only", () => ({ assertServerOnly: vi.fn() }));
 
+const { authorizeOAuthFinalizeMock, reportUnexpectedErrorMock } = vi.hoisted(() => ({
+  authorizeOAuthFinalizeMock: vi.fn(),
+  reportUnexpectedErrorMock: vi.fn(),
+}));
+vi.mock("@/server/auth/oauth-account", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/server/auth/oauth-account")>();
+  return { ...actual, authorizeOAuthFinalize: authorizeOAuthFinalizeMock };
+});
+vi.mock("@/server/observability/report-unexpected-error", () => ({
+  reportUnexpectedError: reportUnexpectedErrorMock,
+}));
+
 type AuthorizeReq = { headers?: Record<string, string> };
 type AuthorizeFn = (
   credentials: { email: string; password: string },
@@ -201,5 +213,54 @@ describe("credentials authorize — failed-attempt rate limit (Step 6.5-HARDENIN
     expect(isFailedAttemptLimitedMock).not.toHaveBeenCalled();
     expect(recordFailedAttemptMock).not.toHaveBeenCalled();
     expect(clearFailedAttemptsMock).not.toHaveBeenCalled();
+  });
+});
+
+type OAuthFinalizeAuthorizeFn = (credentials: Record<string, string>) => Promise<unknown>;
+
+const loadOAuthFinalizeAuthorize = async (): Promise<OAuthFinalizeAuthorizeFn> => {
+  const { authOptions } = await import("@/server/auth/auth.config");
+  const providers = authOptions.providers as unknown as Array<{
+    id?: string;
+    authorize: OAuthFinalizeAuthorizeFn;
+  }>;
+  const provider = providers.find((candidate) => candidate.id === "oauth-finalize");
+  return provider!.authorize;
+};
+
+describe("oauth-finalize authorize — sign-in error signal", () => {
+  it("passes an OAuthFinalizeError's code, never its message", async () => {
+    const authorize = await loadOAuthFinalizeAuthorize();
+    const { OAuthFinalizeError } = await import("@/server/auth/oauth-account");
+    authorizeOAuthFinalizeMock.mockRejectedValue(
+      new OAuthFinalizeError("invalid_role", "Role is not selectable for this carrier"),
+    );
+
+    await expect(authorize({ carrier: "c", role: "x" })).rejects.toThrow(/^invalid_role$/);
+    expect(reportUnexpectedErrorMock).not.toHaveBeenCalled();
+  });
+
+  it("answers an account_conflict with the generic signal", async () => {
+    const authorize = await loadOAuthFinalizeAuthorize();
+    const { OAuthFinalizeError } = await import("@/server/auth/oauth-account");
+    authorizeOAuthFinalizeMock.mockRejectedValue(
+      new OAuthFinalizeError("account_conflict", "Linked owner was not found"),
+    );
+
+    await expect(authorize({ carrier: "c", role: "candidate" })).rejects.toThrow(
+      /^OAUTH_FINALIZE_FAILED$/,
+    );
+    expect(reportUnexpectedErrorMock).not.toHaveBeenCalled();
+  });
+
+  it("reports any other error and answers the generic signal", async () => {
+    const authorize = await loadOAuthFinalizeAuthorize();
+    const error = new Error("Failed query: x\nparams: secret-value");
+    authorizeOAuthFinalizeMock.mockRejectedValue(error);
+
+    await expect(authorize({ carrier: "c", role: "candidate" })).rejects.toThrow(
+      /^OAUTH_FINALIZE_FAILED$/,
+    );
+    expect(reportUnexpectedErrorMock).toHaveBeenCalledWith("oauth finalize", error);
   });
 });

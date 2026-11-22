@@ -24,38 +24,16 @@ export function DevPrimitivesClient() {
 
   function openTwoActionModal() {
     openModal({
-      title: "Konfirmasi tindakan",
-      body: "Apakah Anda yakin ingin melanjutkan? Tindakan ini tidak dapat dibatalkan.",
+      title: "Hapus draf kompetisi ini?",
+      body: "“Seed Draft Competition” akan dihapus dan tidak dapat dikembalikan.",
+      alert: true,
       onClose: () => console.log("[dev] modal onClose fired"),
       actions: [
+        { label: "Batal", onClick: () => console.log("[dev] Cancel clicked") },
         {
-          label: "Konfirmasi",
+          label: "Hapus kompetisi",
           variant: "primary",
-          autoClose: true,
           onClick: () => console.log("[dev] Confirm clicked"),
-        },
-        {
-          label: "Batal",
-          variant: "secondary",
-          autoClose: true,
-          onClick: () => console.log("[dev] Cancel clicked"),
-        },
-      ],
-    });
-  }
-
-  function openNoCloseModal() {
-    openModal({
-      title: "Modal tanpa tombol tutup",
-      body: "Modal ini tidak memiliki tombol ×. Gunakan salah satu tombol aksi di bawah.",
-      closeable: false,
-      onClose: () => console.log("[dev] no-close modal onClose fired"),
-      actions: [
-        {
-          label: "Mengerti",
-          variant: "primary",
-          autoClose: true,
-          onClick: () => console.log("[dev] Understood clicked"),
         },
       ],
     });
@@ -65,7 +43,6 @@ export function DevPrimitivesClient() {
     <div className="primitive-showcase">
       <section className="stack-md">
         <div className="stack-xs">
-          <p className="eyebrow">Warna semantik</p>
           <h2 className="section-title">Palet Brandbook v2</h2>
         </div>
         <div className="token-swatch-grid">
@@ -87,15 +64,12 @@ export function DevPrimitivesClient() {
 
       <section className="stack-md">
         <div className="stack-xs">
-          <p className="eyebrow">Kontrol</p>
           <h2 className="section-title">Tombol dan status</h2>
         </div>
         <div className="cluster">
-          <Button variant="primary">Aksi utama</Button>
-          <Button variant="secondary">Aksi sekunder</Button>
-          <Button variant="outline">Aksi sekunder</Button>
-          <Button variant="ghost">Aksi tenang</Button>
-          <Button variant="danger">Aksi destruktif</Button>
+          <Button variant="primary">Utama</Button>
+          <Button variant="outline">Kedua</Button>
+          <Button variant="link">Tautan aksi</Button>
           <Button disabled>Nonaktif</Button>
         </div>
       </section>
@@ -112,13 +86,13 @@ export function DevPrimitivesClient() {
           <Button variant="primary" loading>
             Simpan
           </Button>
-          <Button variant="secondary" loading>
+          <Button variant="outline" loading>
             Publikasikan
           </Button>
           <Button variant="outline" loading>
             Kirim ulasan
           </Button>
-          <Button variant="danger" loading size="sm">
+          <Button variant="outline" loading size="sm">
             Hapus
           </Button>
           <Button variant="primary" loading size="lg">
@@ -137,7 +111,6 @@ export function DevPrimitivesClient() {
 
       <section className="stack-md">
         <div className="stack-xs">
-          <p className="eyebrow">Surface hierarchy</p>
           <h2 className="section-title">Opaque untuk membaca, glass untuk chrome</h2>
         </div>
         <div className="primitive-surface-grid">
@@ -165,7 +138,6 @@ export function DevPrimitivesClient() {
       <section className="primitive-columns">
         <div className="stack-md">
           <div className="stack-xs">
-            <p className="eyebrow">Form</p>
             <h2 className="section-title">Keadaan kontrol</h2>
           </div>
           <Card>
@@ -178,14 +150,18 @@ export function DevPrimitivesClient() {
                 <FormHelp>Gunakan nama publik yang mudah dikenali.</FormHelp>
               </FormField>
               <FormField>
-                <FormLabel htmlFor="dev-category">Kategori</FormLabel>
+                <FormLabel htmlFor="dev-category" optional>
+                  Kategori
+                </FormLabel>
                 <FormSelect id="dev-category" defaultValue="essay">
                   <option value="essay">Esai</option>
                   <option value="business">Bisnis</option>
                 </FormSelect>
               </FormField>
               <FormField>
-                <FormLabel htmlFor="dev-notes">Catatan</FormLabel>
+                <FormLabel htmlFor="dev-notes" optional>
+                  Catatan
+                </FormLabel>
                 <FormTextarea id="dev-notes" placeholder="Tambahkan konteks singkat…" />
               </FormField>
               <FormField>
@@ -202,53 +178,40 @@ export function DevPrimitivesClient() {
 
         <div className="stack-md">
           <div className="stack-xs">
-            <p className="eyebrow">Feedback</p>
             <h2 className="section-title">Pesan sistem</h2>
           </div>
           <div className="stack-sm">
             <Feedback tone="success">Perubahan berhasil disimpan.</Feedback>
             <Feedback tone="warning">Periksa tenggat sebelum melanjutkan.</Feedback>
-            <Feedback tone="error">Dokumen belum lengkap.</Feedback>
+            <Feedback tone="error" lead="Dokumen belum lengkap." />
             <Feedback tone="info">Data akan ditinjau oleh tim operasi.</Feedback>
           </div>
           <div className="cluster">
             <Button variant="outline" size="sm" onClick={openTwoActionModal}>
               Modal dua aksi
             </Button>
-            <Button variant="outline" size="sm" onClick={openNoCloseModal}>
-              Modal terkunci
-            </Button>
           </div>
           <div className="cluster">
             <Button
               size="sm"
-              variant="ghost"
+              variant="outline"
               onClick={() => addToast({ message: "Terjadi kesalahan. Coba lagi.", type: "error" })}
             >
               Toast error
             </Button>
             <Button
               size="sm"
-              variant="ghost"
+              variant="outline"
               onClick={() => addToast({ message: "Operasi berhasil.", type: "success" })}
             >
               Toast sukses
             </Button>
             <Button
               size="sm"
-              variant="ghost"
+              variant="outline"
               onClick={() => addToast({ message: "Informasi tambahan tersedia.", type: "info" })}
             >
               Toast info
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() =>
-                addToast({ message: "Perhatikan langkah berikutnya.", type: "warning" })
-              }
-            >
-              Toast peringatan
             </Button>
           </div>
         </div>
@@ -256,12 +219,11 @@ export function DevPrimitivesClient() {
 
       <section className="stack-md">
         <div className="stack-xs">
-          <p className="eyebrow">Loading</p>
           <h2 className="section-title">Skeleton yang tenang</h2>
         </div>
         <div className="primitive-skeleton-grid">
           <SkeletonCard />
-          <div className="surface-card card-padding stack-md">
+          <Card className="stack-md">
             <div className="cluster">
               <Skeleton variant="avatar" />
               <div className="primitive-skeleton-copy stack-xs">
@@ -270,7 +232,7 @@ export function DevPrimitivesClient() {
               </div>
             </div>
             <Skeleton variant="media" />
-          </div>
+          </Card>
         </div>
       </section>
     </div>

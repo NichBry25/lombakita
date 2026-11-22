@@ -2,13 +2,26 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, CheckboxField, Feedback, Icon, IconButton } from "@/components/ui";
-import { useModal, useToast } from "@/components/ui/primitives";
+import {
+  Button,
+  CheckboxField,
+  Feedback,
+  FormError,
+  FormInput,
+  FormLabel,
+  FormTextarea,
+  FormTextareaWithLimit,
+  Icon,
+  IconButton,
+} from "@/components/ui";
+import { useModal, useModalTask, useToast, type ModalOutcome } from "@/components/ui/primitives";
+import { LocalDate } from "@/components/ui/local-date";
 import {
   DOCUMENT_REQUEST_STATUS_LABELS,
   DOCUMENT_REQUEST_STATUS_TONES,
   type RegistrationDocumentDisplayStatus,
 } from "@/lib/registration-documents/request-status";
+import { resolveDocumentRequestErrorMessage } from "@/lib/registration-documents/document-request-error-copy";
 import { formatFileSize } from "@/lib/text/format-file-size";
 
 export type OrganiserDocumentRequest = {
@@ -36,15 +49,6 @@ type PanelProps = {
   registrationId: string;
   requests: OrganiserDocumentRequest[];
 };
-
-const formatDeadline = (isoDate: string): string =>
-  new Date(isoDate).toLocaleString("id-ID", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 
 // Default deadline offered on the create form and on a reopening rejection: seven days out, as a
 // datetime-local value.
@@ -74,7 +78,7 @@ export function OrganiserDocumentRequestPanel({
 }: PanelProps) {
   const router = useRouter();
   const { addToast } = useToast();
-  const { openModal, closeModal } = useModal();
+  const { openModal } = useModal();
 
   const [title, setTitle] = useState("");
   const [instructions, setInstructions] = useState("");
@@ -114,11 +118,14 @@ export function OrganiserDocumentRequestPanel({
 
       if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as {
-          error?: { message?: string };
+          error?: { code?: string };
         } | null;
         addToast({
           type: "error",
-          message: payload?.error?.message ?? "Gagal mengirim permintaan. Coba lagi.",
+          message: resolveDocumentRequestErrorMessage(
+            payload?.error?.code,
+            "Gagal mengirim permintaan. Coba lagi.",
+          ),
         });
         return;
       }
@@ -135,12 +142,13 @@ export function OrganiserDocumentRequestPanel({
     }
   };
 
-  const patchRequest = async (
+  // Reports an outcome and toasts only the success, so a pop-up can show the failure itself and a
+  // page control can toast it.
+  const sendRequestPatch = async (
     requestId: string,
     body: Record<string, unknown>,
     successMessage: string,
-  ) => {
-    setPendingRequestId(requestId);
+  ): Promise<ModalOutcome> => {
     try {
       const response = await fetch(`${requestBase}/document-requests/${requestId}`, {
         method: "PATCH",
@@ -151,22 +159,34 @@ export function OrganiserDocumentRequestPanel({
 
       if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as {
-          error?: { message?: string };
+          error?: { code?: string };
         } | null;
-        addToast({
-          type: "error",
-          message: payload?.error?.message ?? "Tindakan gagal. Muat ulang halaman lalu coba lagi.",
-        });
-        return;
+        return {
+          ok: false,
+          message: resolveDocumentRequestErrorMessage(
+            payload?.error?.code,
+            "Tindakan gagal. Muat ulang halaman lalu coba lagi.",
+          ),
+        };
       }
 
       addToast({ type: "success", message: successMessage });
       router.refresh();
+      return { ok: true };
     } catch {
-      addToast({ type: "error", message: "Tindakan gagal karena gangguan koneksi." });
-    } finally {
-      setPendingRequestId(null);
+      return { ok: false, message: "Tindakan gagal karena gangguan koneksi." };
     }
+  };
+
+  const patchRequest = async (
+    requestId: string,
+    body: Record<string, unknown>,
+    successMessage: string,
+  ) => {
+    setPendingRequestId(requestId);
+    const outcome = await sendRequestPatch(requestId, body, successMessage);
+    setPendingRequestId(null);
+    if (!outcome.ok) addToast({ type: "error", message: outcome.message });
   };
 
   const openFile = async (
@@ -193,41 +213,39 @@ export function OrganiserDocumentRequestPanel({
   };
 
   // Rejecting is reachable whether or not a file was uploaded: a document that is present, on time
-  // and legible may still be refused. The form owns its own submit, so the modal carries no actions.
+  // and legible may still be refused. The form owns its fields and the pop-up footer submits it.
   const confirmReject = (request: OrganiserDocumentRequest) => {
     openModal({
       title: "Tolak dokumen",
+      wide: true,
+      formId: rejectFormId(request.id),
       body: (
         <RejectForm
           request={request}
-          onSubmit={(body) => {
-            closeModal();
-            void patchRequest(request.id, body, "Dokumen ditolak.");
-          }}
-          onCancel={closeModal}
+          onSubmit={(body) => sendRequestPatch(request.id, body, "Dokumen ditolak.")}
         />
       ),
-      actions: [],
+      actions: [{ label: "Batal" }, { label: "Tolak dokumen", variant: "primary" }],
     });
   };
 
   const confirmExtend = (request: OrganiserDocumentRequest) => {
     openModal({
       title: "Perpanjang tenggat",
+      wide: true,
+      formId: EXTEND_FORM_ID,
       body: (
         <DeadlineForm
-          onSubmit={(dueAtIso) => {
-            closeModal();
-            void patchRequest(
+          onSubmit={(dueAtIso) =>
+            sendRequestPatch(
               request.id,
               { action: "extend", dueAt: dueAtIso },
               "Tenggat diperpanjang.",
-            );
-          }}
-          onCancel={closeModal}
+            )
+          }
         />
       ),
-      actions: [],
+      actions: [{ label: "Batal" }, { label: "Perpanjang", variant: "primary" }],
     });
   };
 
@@ -235,15 +253,13 @@ export function OrganiserDocumentRequestPanel({
     openModal({
       title: "Tarik permintaan",
       body: `Permintaan "${request.title}" akan ditarik. Peserta tidak perlu lagi mengunggah dokumen.`,
+      alert: true,
       actions: [
-        { label: "Batal", variant: "secondary", onClick: closeModal },
+        { label: "Batal" },
         {
           label: "Tarik permintaan",
-          variant: "danger",
-          onClick: () => {
-            closeModal();
-            void patchRequest(request.id, { action: "cancel" }, "Permintaan ditarik.");
-          },
+          variant: "primary",
+          onClick: () => sendRequestPatch(request.id, { action: "cancel" }, "Permintaan ditarik."),
         },
       ],
     });
@@ -276,9 +292,9 @@ export function OrganiserDocumentRequestPanel({
 
                 <span className="record-meta">
                   Tenggat{" "}
-                  <time dateTime={request.dueAt} className="data-text">
-                    {formatDeadline(request.dueAt)}
-                  </time>
+                  <span className="data-text">
+                    <LocalDate value={request.dueAt} format="longDateTime" />
+                  </span>
                   {request.isLate ? " · Diunggah terlambat" : ""}
                   {request.revisionCount > 0 ? ` · Penolakan ke-${request.revisionCount}` : ""}
                 </span>
@@ -343,7 +359,7 @@ export function OrganiserDocumentRequestPanel({
                     >
                       Terima
                     </Button>
-                    <Button type="button" variant="danger" onClick={() => confirmReject(request)}>
+                    <Button type="button" variant="outline" onClick={() => confirmReject(request)}>
                       Tolak
                     </Button>
                     <Button type="button" variant="outline" onClick={() => confirmExtend(request)}>
@@ -352,7 +368,7 @@ export function OrganiserDocumentRequestPanel({
                     <IconButton
                       label={`Tarik permintaan ${request.title}`}
                       icon="close"
-                      variant="ghost"
+                      variant="outline"
                       onClick={() => confirmCancel(request)}
                     />
                   </div>
@@ -371,12 +387,11 @@ export function OrganiserDocumentRequestPanel({
       ) : (
         <form className="auth-form" onSubmit={createRequest}>
           <div className="form-field">
-            <label className="form-label form-label-required" htmlFor="document-request-title">
+            <FormLabel htmlFor="document-request-title" required>
               Dokumen yang diminta
-            </label>
-            <input
+            </FormLabel>
+            <FormInput
               id="document-request-title"
-              className="form-input"
               value={title}
               onChange={(event) => setTitle(event.target.value)}
               maxLength={160}
@@ -386,12 +401,11 @@ export function OrganiserDocumentRequestPanel({
           </div>
 
           <div className="form-field">
-            <label className="form-label" htmlFor="document-request-instructions">
+            <FormLabel htmlFor="document-request-instructions" optional>
               Petunjuk
-            </label>
-            <textarea
+            </FormLabel>
+            <FormTextarea
               id="document-request-instructions"
-              className="form-textarea"
               rows={3}
               value={instructions}
               onChange={(event) => setInstructions(event.target.value)}
@@ -404,12 +418,11 @@ export function OrganiserDocumentRequestPanel({
           </div>
 
           <div className="form-field">
-            <label className="form-label form-label-required" htmlFor="document-request-due">
+            <FormLabel htmlFor="document-request-due" required>
               Tenggat
-            </label>
-            <input
+            </FormLabel>
+            <FormInput
               id="document-request-due"
-              className="form-input"
               type="datetime-local"
               value={dueAt}
               onChange={(event) => setDueAt(event.target.value)}
@@ -430,46 +443,67 @@ export function OrganiserDocumentRequestPanel({
   );
 }
 
+const rejectFormId = (requestId: string) => `reject-document-form-${requestId}`;
+
+const EXTEND_FORM_ID = "extend-document-deadline-form";
+
+const REJECT_NOTE_REQUIRED_MESSAGE = "Alasan penolakan wajib diisi.";
+const DEADLINE_REQUIRED_MESSAGE = "Tenggat wajib diisi.";
+
+// An empty or half-typed datetime-local value is an invalid date, and toISOString throws on one.
+const toIsoDeadlineOrNull = (localValue: string): string | null => {
+  const date = new Date(localValue);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
+};
+
 function RejectForm({
   request,
   onSubmit,
-  onCancel,
 }: {
   request: OrganiserDocumentRequest;
-  onSubmit: (body: Record<string, unknown>) => void;
-  onCancel: () => void;
+  onSubmit: (body: Record<string, unknown>) => Promise<ModalOutcome>;
 }) {
+  const runModalTask = useModalTask();
   const [note, setNote] = useState("");
   const [allowReupload, setAllowReupload] = useState(true);
   const [dueAt, setDueAt] = useState(defaultDeadlineValue);
+  const [hasTriedToSubmit, setHasTriedToSubmit] = useState(false);
+  const trimmedNote = note.trim();
+  const dueAtIso = toIsoDeadlineOrNull(dueAt);
+  const noteIsInvalid = trimmedNote.length === 0;
+  const deadlineIsInvalid = allowReupload && dueAtIso === null;
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    onSubmit({
+    setHasTriedToSubmit(true);
+    if (noteIsInvalid || deadlineIsInvalid) return;
+    const body = {
       action: "review",
       verdict: "reject",
-      note: note.trim(),
+      note: trimmedNote,
       allowReupload,
-      ...(allowReupload ? { dueAt: new Date(dueAt).toISOString() } : {}),
-    });
+      ...(allowReupload && dueAtIso ? { dueAt: dueAtIso } : {}),
+    };
+    void runModalTask(() => onSubmit(body));
   };
 
   return (
-    <form className="auth-form" onSubmit={submit}>
+    <form id={rejectFormId(request.id)} className="auth-form" noValidate onSubmit={submit}>
       <p className="muted-copy">
         Alasan ini ditampilkan kepada peserta sebagai isi halaman, bukan notifikasi sesaat.
       </p>
       <div className="form-field">
-        <label className="form-label form-label-required" htmlFor={`reject-note-${request.id}`}>
+        <FormLabel htmlFor={`reject-note-${request.id}`} required>
           Alasan penolakan
-        </label>
-        <textarea
+        </FormLabel>
+        <FormTextareaWithLimit
           id={`reject-note-${request.id}`}
-          className="form-textarea"
           rows={3}
           value={note}
           onChange={(event) => setNote(event.target.value)}
           maxLength={2000}
+          error={hasTriedToSubmit && noteIsInvalid ? REJECT_NOTE_REQUIRED_MESSAGE : undefined}
           required
         />
       </div>
@@ -490,66 +524,61 @@ function RejectForm({
 
       {allowReupload ? (
         <div className="form-field">
-          <label className="form-label form-label-required" htmlFor={`reject-due-${request.id}`}>
+          <FormLabel htmlFor={`reject-due-${request.id}`} required>
             Tenggat baru
-          </label>
-          <input
+          </FormLabel>
+          <FormInput
             id={`reject-due-${request.id}`}
-            className="form-input"
             type="datetime-local"
             value={dueAt}
             onChange={(event) => setDueAt(event.target.value)}
+            aria-invalid={hasTriedToSubmit && deadlineIsInvalid ? true : undefined}
+            aria-describedby={
+              hasTriedToSubmit && deadlineIsInvalid ? `reject-due-error-${request.id}` : undefined
+            }
             required
           />
+          {hasTriedToSubmit && deadlineIsInvalid ? (
+            <FormError id={`reject-due-error-${request.id}`}>{DEADLINE_REQUIRED_MESSAGE}</FormError>
+          ) : null}
         </div>
       ) : null}
-
-      <div className="record-actions">
-        <Button type="button" variant="secondary" onClick={onCancel}>
-          Batal
-        </Button>
-        <Button type="submit" variant="danger">
-          Tolak dokumen
-        </Button>
-      </div>
     </form>
   );
 }
 
-function DeadlineForm({
-  onSubmit,
-  onCancel,
-}: {
-  onSubmit: (dueAtIso: string) => void;
-  onCancel: () => void;
-}) {
+function DeadlineForm({ onSubmit }: { onSubmit: (dueAtIso: string) => Promise<ModalOutcome> }) {
+  const runModalTask = useModalTask();
   const [dueAt, setDueAt] = useState(defaultDeadlineValue);
+  const [hasTriedToSubmit, setHasTriedToSubmit] = useState(false);
+  const dueAtIso = toIsoDeadlineOrNull(dueAt);
+  const showsDeadlineError = hasTriedToSubmit && dueAtIso === null;
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    onSubmit(new Date(dueAt).toISOString());
+    setHasTriedToSubmit(true);
+    if (dueAtIso === null) return;
+    void runModalTask(() => onSubmit(dueAtIso));
   };
 
   return (
-    <form className="auth-form" onSubmit={submit}>
+    <form id={EXTEND_FORM_ID} className="auth-form" noValidate onSubmit={submit}>
       <div className="form-field">
-        <label className="form-label form-label-required" htmlFor="extend-due">
+        <FormLabel htmlFor="extend-due" required>
           Tenggat baru
-        </label>
-        <input
+        </FormLabel>
+        <FormInput
           id="extend-due"
-          className="form-input"
           type="datetime-local"
           value={dueAt}
           onChange={(event) => setDueAt(event.target.value)}
+          aria-invalid={showsDeadlineError ? true : undefined}
+          aria-describedby={showsDeadlineError ? "extend-due-error" : undefined}
           required
         />
-      </div>
-      <div className="record-actions">
-        <Button type="button" variant="secondary" onClick={onCancel}>
-          Batal
-        </Button>
-        <Button type="submit">Perpanjang</Button>
+        {showsDeadlineError ? (
+          <FormError id="extend-due-error">{DEADLINE_REQUIRED_MESSAGE}</FormError>
+        ) : null}
       </div>
     </form>
   );

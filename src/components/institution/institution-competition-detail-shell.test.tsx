@@ -73,14 +73,18 @@ const BLOCKED = {
 // The exact sentence `competition-publish-messages.ts` renders for that code.
 const UNVERIFIED_REASON =
   "Kompetisi berbayar hanya dapat diterbitkan oleh institusi yang sudah terverifikasi.";
-const LOAD_FAILED_MESSAGE = "Gagal memuat kompetisi.";
+// The server's message is never shown: a refused load with no known code shows the load fallback.
+const SERVER_LOAD_FAILED_MESSAGE = "Gagal memuat kompetisi.";
+const LOAD_FAILED_MESSAGE = "Data kompetisi gagal dimuat. Muat ulang halaman lalu coba lagi.";
 
 const okJson = (body: unknown): Response =>
   ({ ok: true, json: async () => body }) as unknown as Response;
 
-const loadOk = (publishReadiness: unknown) =>
+const PUBLISHED_COMPETITION = { ...COMPETITION, status: "published", slug: "lomba-1" };
+
+const loadOk = (publishReadiness: unknown, competition: unknown = COMPETITION) =>
   okJson({
-    competition: COMPETITION,
+    competition,
     hasActiveRegistrations: true,
     participation: PARTICIPATION,
     publishReadiness,
@@ -88,7 +92,7 @@ const loadOk = (publishReadiness: unknown) =>
 const decisionOk = okJson({ participation: PARTICIPATION });
 const loadFailed = {
   ok: false,
-  json: async () => ({ error: { message: LOAD_FAILED_MESSAGE } }),
+  json: async () => ({ error: { message: SERVER_LOAD_FAILED_MESSAGE } }),
 } as unknown as Response;
 
 // Answers in the order the shell asks, and records what it asked, so a test that drifts out of
@@ -110,12 +114,12 @@ const stubFetchSequence = (responses: Array<() => Response>) => {
   return calls;
 };
 
-const mount = () =>
+const mount = (institutionSlug = "institusi-contoh") =>
   render(
     <UIPrimitivesProvider>
       <PageTransitionProvider>
         <InstitutionCompetitionDetailShell
-          institutionSlug="institusi-contoh"
+          institutionSlug={institutionSlug}
           competitionId="comp_1"
           expectedUserId="org_1"
           initialPublishReadiness={BLOCKED}
@@ -138,7 +142,7 @@ const decideToCancel = async () => {
   expect(controls, "expected exactly one closed-dialog control").toHaveLength(1);
   fireEvent.click(controls[0]!);
 
-  const dialog = await screen.findByRole("dialog");
+  const dialog = await screen.findByRole("alertdialog");
   fireEvent.click(within(dialog).getByRole("button", { name: label }));
 };
 
@@ -154,10 +158,10 @@ describe("InstitutionCompetitionDetailShell publish readiness", () => {
 
     mount();
 
-    // 1. KNOWN-BLOCKED. The server refused; the control says so and prints the server's reason.
-    await screen.findByRole("button", { name: "Terbitkan" });
-    await waitFor(() => expect(publishButton().hasAttribute("disabled")).toBe(true));
-    expect(screen.getByText(UNVERIFIED_REASON)).toBeTruthy();
+    // 1. KNOWN-BLOCKED. The server refused; Terbitkan is hidden and the page prints the server's
+    // reason.
+    expect(await screen.findByText(UNVERIFIED_REASON)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Terbitkan" })).toBeNull();
 
     // 2. UNKNOWN. A lifecycle action succeeds and the refetch behind it fails. The readiness that
     // provoked this must go with it: Terbitkan is offered again and no reason is shown. The error
@@ -167,12 +171,13 @@ describe("InstitutionCompetitionDetailShell publish readiness", () => {
     await waitFor(() => expect(publishButton().hasAttribute("disabled")).toBe(false));
     expect(screen.queryByText(UNVERIFIED_REASON)).toBeNull();
     expect(await screen.findByText(LOAD_FAILED_MESSAGE)).toBeTruthy();
+    expect(screen.queryByText(SERVER_LOAD_FAILED_MESSAGE)).toBeNull();
 
     // 3. KNOWN-BLOCKED AGAIN. A second action whose refetch succeeds restores the refusal, which is
     // what proves the unknown state is not sticky.
     await decideToCancel();
 
-    await waitFor(() => expect(publishButton().hasAttribute("disabled")).toBe(true));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Terbitkan" })).toBeNull());
     expect(screen.getByText(UNVERIFIED_REASON)).toBeTruthy();
 
     expect(calls).toEqual([
@@ -184,13 +189,85 @@ describe("InstitutionCompetitionDetailShell publish readiness", () => {
     ]);
   });
 
-  it("keeps the control disabled and the reason visible while the server still refuses", async () => {
+  it("hides Terbitkan and keeps the reason visible while the server still refuses", async () => {
     stubFetchSequence([() => loadOk(BLOCKED)]);
 
     mount();
 
-    await screen.findByRole("button", { name: "Terbitkan" });
-    await waitFor(() => expect(publishButton().hasAttribute("disabled")).toBe(true));
-    expect(screen.getByText(UNVERIFIED_REASON)).toBeTruthy();
+    expect(await screen.findByText(UNVERIFIED_REASON)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Terbitkan" })).toBeNull();
+  });
+});
+
+describe("InstitutionCompetitionDetailShell share panel", () => {
+  const publicUrl = () => `${window.location.origin}/competitions/acme/lomba-1`;
+
+  const stubClipboard = () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    // jsdom has no clipboard.
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    return writeText;
+  };
+
+  it("shows the public address and the copy and view actions for a published competition", async () => {
+    stubFetchSequence([() => loadOk(BLOCKED, PUBLISHED_COMPETITION)]);
+
+    mount("acme");
+
+    expect(await screen.findByText("Kompetisi sudah terbit")).toBeTruthy();
+    expect(screen.getByText(publicUrl())).toBeTruthy();
+    expect(screen.getByText(publicUrl()).tagName).toBe("DD");
+    expect(screen.getByRole("link", { name: "Lihat halaman" }).getAttribute("href")).toBe(
+      "/competitions/acme/lomba-1",
+    );
+  });
+
+  it("copies the public address", async () => {
+    const writeText = stubClipboard();
+    stubFetchSequence([() => loadOk(BLOCKED, PUBLISHED_COMPETITION)]);
+
+    mount("acme");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Salin tautan" }));
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(publicUrl()));
+    expect(await screen.findByText("Tautan disalin ke papan klip.")).toBeTruthy();
+  });
+
+  it("tells the host when the address could not be copied", async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error("denied"));
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    stubFetchSequence([() => loadOk(BLOCKED, PUBLISHED_COMPETITION)]);
+
+    mount("acme");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Salin tautan" }));
+
+    expect(await screen.findByText("Gagal menyalin tautan. Coba lagi.")).toBeTruthy();
+  });
+
+  it("shows no share panel for a draft", async () => {
+    stubFetchSequence([() => loadOk(BLOCKED)]);
+
+    mount("acme");
+
+    await screen.findByRole("button", { name: "Hapus" });
+    expect(screen.queryByText("Kompetisi sudah terbit")).toBeNull();
+  });
+
+  it("shows no share panel for a cancelled competition", async () => {
+    stubFetchSequence([
+      () =>
+        loadOk(BLOCKED, {
+          ...PUBLISHED_COMPETITION,
+          cancelledAt: "2026-11-01T00:00:00.000Z",
+          cancellationReason: "insufficient_participants",
+        }),
+    ]);
+
+    mount("acme");
+
+    await screen.findByText("Dibatalkan");
+    expect(screen.queryByText("Kompetisi sudah terbit")).toBeNull();
   });
 });

@@ -1,10 +1,17 @@
 // @vitest-environment node
 
+import { inspect } from "node:util";
+import { DrizzleQueryError } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CredentialsAuthError } from "@/server/auth/credentials-auth";
 
-const { registerUserWithCredentials } = vi.hoisted(() => ({
+const { registerUserWithCredentials, loggerErrorMock } = vi.hoisted(() => ({
   registerUserWithCredentials: vi.fn(),
+  loggerErrorMock: vi.fn(),
+}));
+
+vi.mock("@/lib/logger", () => ({
+  logger: { warn: vi.fn(), error: loggerErrorMock, info: vi.fn() },
 }));
 
 vi.mock("@/server/auth/credentials-auth", async (importOriginal) => {
@@ -140,5 +147,38 @@ describe("POST /api/v1/auth/register", () => {
 
     expect(response.status).toBe(409);
     expect(body.error.code).toBe("email_exists");
+  });
+
+  it("answers a database failure with the fixed 500 and keeps its query and params out of the body and the log", async () => {
+    registerUserWithCredentials.mockRejectedValue(
+      new DrizzleQueryError(
+        'insert into "users" ("email","password_hash") values ($1, $2)',
+        ["a@b.c", "$2b$12$secrethashvalue"],
+        new Error("duplicate"),
+      ),
+    );
+
+    const request = new Request("http://localhost/api/v1/auth/register?as=candidate", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Candidate",
+        email: "candidate@example.com",
+        password: "very-strong-password",
+      }),
+    });
+
+    const response = await POST(request);
+    const bodyText = await response.text();
+
+    expect(response.status).toBe(500);
+    expect(JSON.parse(bodyText).error.code).toBe("auth_unexpected_error");
+    expect(bodyText).not.toContain("password_hash");
+    expect(bodyText).not.toContain("secrethashvalue");
+    const loggedCalls = inspect(loggerErrorMock.mock.calls, { depth: null });
+    expect(loggedCalls).not.toContain("password_hash");
+    expect(loggedCalls).not.toContain("secrethashvalue");
+    expect(loggerErrorMock).toHaveBeenCalledTimes(1);
+    expect(loggerErrorMock).toHaveBeenCalledWith("route.unexpected_error", expect.anything());
   });
 });

@@ -131,4 +131,47 @@ describe("credentials-auth validation", () => {
   it("normalizes email helper", () => {
     expect(normalizeEmail("  USER@Example.COM ")).toBe("user@example.com");
   });
+
+  it("keeps the field name of a refused candidate profile", () => {
+    let refusal: unknown;
+    try {
+      parseRegistrationInput({
+        name: "  Dinda Putri ",
+        email: "  Dinda@Campus.AC.ID ",
+        password: "very-strong-password",
+        signupRole: "candidate",
+        fullName: "Dinda Putri",
+        phoneNumber: "12",
+        occupation: "college_student",
+        dateOfBirth: "2000-01-15",
+      });
+    } catch (error) {
+      refusal = error;
+    }
+
+    expect(refusal).toBeInstanceOf(CredentialsAuthError);
+    expect(refusal).toMatchObject({ code: "candidate_profile_invalid_value" });
+    expect((refusal as CredentialsAuthError).details).toEqual({ fields: ["phoneNumber"] });
+  });
+
+  it("keeps the field name of a refused recruiter form", () => {
+    let refusal: unknown;
+    try {
+      parseRegistrationInput({
+        name: "Rendra",
+        email: "rendra@example.com",
+        password: "very-strong-password",
+        signupRole: "recruiter",
+        fullName: "Rendra Wijaya",
+        mobileNumber: "12",
+        corporateEmail: "Rendra@Corp.CO.ID",
+      });
+    } catch (error) {
+      refusal = error;
+    }
+
+    expect(refusal).toBeInstanceOf(CredentialsAuthError);
+    expect(refusal).toMatchObject({ code: "recruiter_verification_invalid_value" });
+    expect((refusal as CredentialsAuthError).details).toEqual({ fields: ["mobileNumber"] });
+  });
 });

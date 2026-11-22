@@ -2,9 +2,10 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/finance/candidate-payment-view");
 
-import { and, eq, gt, inArray } from "drizzle-orm";
+import { and, desc, eq, gt, inArray } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
 import {
+  type CompetitionRegistrationStatus,
   competitionRegistrations,
   financeManualPaymentProofs,
   financePaymentEvents,
@@ -14,6 +15,7 @@ import {
 import { foldPaymentEvents, type PaymentDerivedStatus } from "@/lib/finance/payment-state";
 import type { ManualPaymentProofStatus } from "@/lib/finance/payment-model";
 import { isExpirySuspendedByPendingProof } from "@/server/finance/payment-expiry-service";
+import { signQrisImageLink } from "@/server/finance/candidate-payment-qris";
 
 // WHAT A CANDIDATE IS TOLD ABOUT MONEY THEY OWE.
 //
@@ -31,11 +33,26 @@ import { isExpirySuspendedByPendingProof } from "@/server/finance/payment-expiry
 // the cancel control. A non-captain teammate sees what is owed and sees no upload control, which is
 // the truth: `submitManualPaymentProof` filters on the payer and would refuse them.
 
+/**
+ * What the payer is shown of the organiser's QRIS. The bare storage key never appears here.
+ *
+ * - none: the snapshot holds no QRIS.
+ * - hidden: it holds one, and this viewer must not scan it (not the payer, a proof already sent
+ *   or barred from resending, or a closed lane).
+ * - unavailable: this viewer may scan it, and no link could be made.
+ * - shown: the link.
+ */
+export type CandidatePaymentQrisView =
+  | { kind: "none" }
+  | { kind: "hidden" }
+  | { kind: "unavailable" }
+  | { kind: "shown"; url: string };
+
 export type CandidatePaymentInstructionsView = {
   bankName: string | null;
   accountNumber: string | null;
   accountHolderName: string | null;
-  qrisR2Key: string | null;
+  qris: CandidatePaymentQrisView;
   instructionsNote: string | null;
 };
 
@@ -66,6 +83,14 @@ export type CandidatePaymentView = {
   deadlineSuspended: boolean;
   status: PaymentDerivedStatus;
   /**
+   * The viewer's own registration in the payment's group, with the reason it was cancelled.
+   *
+   * The payment status above is about the money and says nothing about who ended the registration,
+   * so a panel that read only it could not tell a lapsed deadline from the person's own withdrawal.
+   */
+  registrationStatus: CompetitionRegistrationStatus;
+  registrationCancellationReason: string | null;
+  /**
    * Where to send the money, as it stood when the payment was created.
    *
    * From the SNAPSHOT, never from the institution's live row (DEC-0169's reasoning applied to the
@@ -82,7 +107,11 @@ export type CandidatePaymentView = {
   canResubmitProof: boolean;
 };
 
-/** The chargeable payment anchoring this registration's group, or null for a free competition. */
+/**
+ * The newest chargeable payment anchored in this registration's group, or null for a free
+ * competition. Newest is the payment whose own registration was made last, so a team that withdrew
+ * and registered again is shown the payment it owes now.
+ */
 const loadGroupPayment = async (registrationId: string, db: Database) => {
   const [self] = await db
     .select({ id: competitionRegistrations.id, teamId: competitionRegistrations.teamId })
@@ -102,9 +131,13 @@ const loadGroupPayment = async (registrationId: string, db: Database) => {
             .where(eq(competitionRegistrations.teamId, self.teamId))
         ).map((row) => row.id);
 
-  const [payment] = await db
+  const [newest] = await db
     .select()
     .from(financePayments)
+    .innerJoin(
+      competitionRegistrations,
+      eq(competitionRegistrations.id, financePayments.competitionRegistrationId),
+    )
     .where(
       and(
         inArray(financePayments.competitionRegistrationId, groupIds),
@@ -113,9 +146,31 @@ const loadGroupPayment = async (registrationId: string, db: Database) => {
         gt(financePayments.grossAmount, 0),
       ),
     )
+    .orderBy(desc(competitionRegistrations.registeredAt), desc(financePayments.createdAt))
     .limit(1);
 
-  return payment ? { payment, groupIds } : null;
+  return newest ? { payment: newest.finance_payments, groupIds } : null;
+};
+
+/**
+ * The QRIS this viewer is shown, from the payment's snapshot and never the institution's current
+ * one.
+ *
+ * A signed link is made only for a viewer who can still send a proof. A teammate who is not the
+ * payer, a payer whose proof is already with the organiser and a payer barred from resending must
+ * not be handed a scannable code, because a second transfer has no row, no proof control and no
+ * record on the platform.
+ */
+const resolveQrisView = async (
+  snapshotQrisR2Key: string | null,
+  receivingInstitutionId: string,
+  viewerCanSendProof: boolean,
+  paymentId: string,
+): Promise<CandidatePaymentQrisView> => {
+  if (snapshotQrisR2Key === null) return { kind: "none" };
+  if (!viewerCanSendProof) return { kind: "hidden" };
+
+  return signQrisImageLink(snapshotQrisR2Key, receivingInstitutionId, paymentId);
 };
 
 /**
@@ -139,8 +194,14 @@ export const loadCandidatePaymentView = async (
   // that was named. Scoping to `registrationId` alone would answer correctly for an individual and
   // wrongly for a team: a member could pass any teammate's registration id and be refused on their
   // own team's payment.
+  // The person's newest row in the group decides whether the lane is open, so a row their team
+  // withdrew does not close the lane of the registration that replaced it.
   const [membership] = await db
-    .select({ id: competitionRegistrations.id, status: competitionRegistrations.status })
+    .select({
+      id: competitionRegistrations.id,
+      status: competitionRegistrations.status,
+      cancellationReason: competitionRegistrations.cancellationReason,
+    })
     .from(competitionRegistrations)
     .where(
       and(
@@ -148,6 +209,7 @@ export const loadCandidatePaymentView = async (
         eq(competitionRegistrations.studentId, userId),
       ),
     )
+    .orderBy(desc(competitionRegistrations.registeredAt))
     .limit(1);
 
   if (!membership) return null;
@@ -170,7 +232,10 @@ export const loadCandidatePaymentView = async (
     .limit(1);
 
   const [anchor] = await db
-    .select({ competitionId: competitionRegistrations.competitionId })
+    .select({
+      competitionId: competitionRegistrations.competitionId,
+      status: competitionRegistrations.status,
+    })
     .from(competitionRegistrations)
     .where(eq(competitionRegistrations.id, payment.competitionRegistrationId ?? ""))
     .limit(1);
@@ -178,13 +243,35 @@ export const loadCandidatePaymentView = async (
   const status = foldPaymentEvents(events).status;
   const isPayer = payment.payerUserId === userId;
 
-  // A settled payment and a cancelled registration both close the lane. Neither is a refusal the
-  // candidate has to discover by clicking. The control is simply not offered.
+  // A settled payment, the person's cancelled registration and a cancelled registration of the
+  // payment itself each close the lane. The server refuses a proof on a payment whose own
+  // registration is cancelled, and a control that appears and then refuses is what DEC-0131 rules
+  // out, so the control is simply not offered.
   const laneOpen =
     membership.status !== "cancelled" &&
+    anchor?.status !== "cancelled" &&
     status !== "succeeded" &&
     status !== "refunded" &&
     status !== "expired";
+
+  const canSubmitProof = isPayer && laneOpen && proof === undefined;
+
+  // The two reopenable arms, restated from the CAS they must agree with: a rejection the organiser
+  // left open, or a void. A void ignores the organiser's bar deliberately. It is platform_ops
+  // correcting something the organiser's rejection was not about.
+  const canResubmitProof =
+    isPayer &&
+    laneOpen &&
+    proof !== undefined &&
+    ((proof.status === "rejected" && proof.resubmissionAllowed) || proof.status === "voided");
+
+  const viewerCanSendProof = canSubmitProof || canResubmitProof;
+  const qris = await resolveQrisView(
+    snapshot?.qrisR2Key ?? null,
+    payment.receivingInstitutionId,
+    viewerCanSendProof,
+    payment.id,
+  );
 
   return {
     paymentId: payment.id,
@@ -194,12 +281,14 @@ export const loadCandidatePaymentView = async (
     dueAt: payment.dueAt,
     deadlineSuspended: await isExpirySuspendedByPendingProof(payment.id, db),
     status,
+    registrationStatus: membership.status,
+    registrationCancellationReason: membership.cancellationReason,
     instructions: snapshot
       ? {
           bankName: snapshot.bankName,
           accountNumber: snapshot.accountNumber,
           accountHolderName: snapshot.accountHolderName,
-          qrisR2Key: snapshot.qrisR2Key,
+          qris,
           instructionsNote: snapshot.instructionsNote,
         }
       : null,
@@ -215,14 +304,7 @@ export const loadCandidatePaymentView = async (
         }
       : null,
     isPayer,
-    canSubmitProof: isPayer && laneOpen && proof === undefined,
-    // The two reopenable arms, restated from the CAS they must agree with: a rejection the organiser
-    // left open, or a void. A void ignores the organiser's bar deliberately. It is platform_ops
-    // correcting something the organiser's rejection was not about.
-    canResubmitProof:
-      isPayer &&
-      laneOpen &&
-      proof !== undefined &&
-      ((proof.status === "rejected" && proof.resubmissionAllowed) || proof.status === "voided"),
+    canSubmitProof,
+    canResubmitProof,
   };
 };

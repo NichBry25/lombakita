@@ -13,6 +13,7 @@ const CHANGE_CATEGORY_BY_FIELD: Record<string, string> = {
   registrationEndAt: "jadwal",
   feeAmount: "biaya",
   mode: "format peserta",
+  location: "lokasi",
   minTeamSize: "format peserta",
   maxTeamSize: "format peserta",
   title: "judul",

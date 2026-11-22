@@ -151,7 +151,9 @@ const lookUp = async (user: ConsoleUser) => {
   renderConsole();
 
   const panel = within(userPanel());
-  fireEvent.change(panel.getByLabelText("Email"), { target: { value: user.email } });
+  fireEvent.change(panel.getByLabelText(/^Email(?: \* \(wajib\)| \(opsional\))?$/), {
+    target: { value: user.email },
+  });
   fireEvent.click(panel.getByRole("button", { name: "Cari" }));
 
   // The name renders as the `<strong>` of the result block, so it is the one text node that proves
@@ -167,11 +169,18 @@ const requestTo = (url: string): SentRequest | undefined => sent.find((r) => r.u
 // Filling the two fields the de-identification action requires. The values are the ones the fixture
 // holds, so a body assertion below reads as "what the operator typed" rather than as a constant.
 const fillDeidentifyForm = () => {
-  fireEvent.change(screen.getByLabelText("Ketik nama pengguna akun untuk konfirmasi"), {
-    target: { value: "bela_rahma" },
-  });
   fireEvent.change(
-    screen.getByLabelText("Alasan (contoh: permintaan melalui email tanggal 28 September 2026)"),
+    screen.getByLabelText(
+      /^Ketik nama pengguna akun untuk konfirmasi(?: \* \(wajib\)| \(opsional\))?$/,
+    ),
+    {
+      target: { value: "bela_rahma" },
+    },
+  );
+  fireEvent.change(
+    screen.getByLabelText(
+      /^Alasan \(contoh: permintaan melalui email tanggal 28 September 2026\)(?: \* \(wajib\)| \(opsional\))?$/,
+    ),
     { target: { value: "permintaan pemilik" } },
   );
 };
@@ -279,9 +288,15 @@ describe("de-identifying an account", () => {
   it("asks for the username and the reason before it offers the confirmation", async () => {
     await lookUp(userFixture());
 
-    expect(screen.getByLabelText("Ketik nama pengguna akun untuk konfirmasi")).toBeTruthy();
     expect(
-      screen.getByLabelText("Alasan (contoh: permintaan melalui email tanggal 28 September 2026)"),
+      screen.getByLabelText(
+        /^Ketik nama pengguna akun untuk konfirmasi(?: \* \(wajib\)| \(opsional\))?$/,
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByLabelText(
+        /^Alasan \(contoh: permintaan melalui email tanggal 28 September 2026\)(?: \* \(wajib\)| \(opsional\))?$/,
+      ),
     ).toBeTruthy();
   });
 
@@ -289,11 +304,18 @@ describe("de-identifying an account", () => {
     await lookUp(userFixture());
     actionResponse = () => jsonResponse({ objectsDeleted: 7 });
 
-    fireEvent.change(screen.getByLabelText("Ketik nama pengguna akun untuk konfirmasi"), {
-      target: { value: "bela_rahma" },
-    });
     fireEvent.change(
-      screen.getByLabelText("Alasan (contoh: permintaan melalui email tanggal 28 September 2026)"),
+      screen.getByLabelText(
+        /^Ketik nama pengguna akun untuk konfirmasi(?: \* \(wajib\)| \(opsional\))?$/,
+      ),
+      {
+        target: { value: "bela_rahma" },
+      },
+    );
+    fireEvent.change(
+      screen.getByLabelText(
+        /^Alasan \(contoh: permintaan melalui email tanggal 28 September 2026\)(?: \* \(wajib\)| \(opsional\))?$/,
+      ),
       { target: { value: "permintaan pemilik" } },
     );
     fireEvent.click(screen.getByRole("button", { name: "Hapus data akun" }));
@@ -324,9 +346,14 @@ describe("de-identifying an account", () => {
   it("names the looked-up account at the top of the confirmation, whatever was typed", async () => {
     await lookUp(userFixture());
 
-    fireEvent.change(screen.getByLabelText("Ketik nama pengguna akun untuk konfirmasi"), {
-      target: { value: "someone_else" },
-    });
+    fireEvent.change(
+      screen.getByLabelText(
+        /^Ketik nama pengguna akun untuk konfirmasi(?: \* \(wajib\)| \(opsional\))?$/,
+      ),
+      {
+        target: { value: "someone_else" },
+      },
+    );
     fireEvent.click(screen.getByRole("button", { name: "Hapus data akun" }));
 
     expect(screen.getByText(/^Akun @bela_rahma akan dihapus\. Nama, email, profil/)).toBeTruthy();
@@ -337,7 +364,7 @@ describe("de-identifying an account", () => {
 // THE REFUSAL TABLE.
 //
 // `message` is the server's own prose packed into the error envelope. It is deliberately NOT equal to
-// the expected toast on the nine codes that have fixed copy: a row that sent the sentence it then
+// the expected toast on the codes that have fixed copy: a row that sent the sentence it then
 // asserts would pass against a console that echoed whatever arrived, which is the behaviour the map
 // exists to replace. The three codes that count or name something are the exception and are marked as
 // such — their copy carries slugs only the server knows, so its message IS the toast.
@@ -364,13 +391,25 @@ const DEIDENTIFY_REFUSALS: {
     code: "deidentify_account_not_found",
     status: 404,
     message: "Account not found",
-    toast: "deidentify_account_not_found: Account not found",
+    toast: "Akun tidak ditemukan. Muat ulang halaman lalu coba lagi.",
   },
   {
     code: "deidentify_invalid_payload",
     status: 400,
     message: "Request body must be valid JSON",
-    toast: "deidentify_invalid_payload: Request body must be valid JSON",
+    toast: "Permintaan tidak dapat diproses. Muat ulang halaman lalu coba lagi.",
+  },
+  {
+    code: "deidentify_reason_too_long",
+    status: 400,
+    message: "reason must be at most 500 characters",
+    toast: "Alasan terlalu panjang (maksimal 500 karakter).",
+  },
+  {
+    code: "deidentify_commit_failed",
+    status: 500,
+    message: "objects deleted but the account update did not commit",
+    toast: "Berkas sudah dihapus tetapi data akun belum diubah. Jalankan lagi untuk menyelesaikan.",
   },
   {
     code: "deidentify_target_is_operator",
@@ -455,11 +494,13 @@ describe("what the console tells the operator when the server refuses", () => {
       await waitFor(() => {
         expect(screen.getByText(toast)).toBeTruthy();
       });
-      expect(toastOf(toast)?.getAttribute("data-toast-type")).toBe("error");
+      // The refusal stays inside the confirm pop-up, which is still open for another try.
+      const confirmDialog = screen.getByRole("alertdialog");
+      expect(within(confirmDialog).getByRole("alert").textContent).toContain(toast);
 
       // The other half of the same claim: on the codes that have copy, the message the server packed
-      // beside the code is not what the operator reads. Only the two institution codes, and the two
-      // the console has no copy for, are allowed to pass the server's prose through.
+      // beside the code is not what the operator reads. Only the rows marked fromServerMessage are
+      // allowed to pass the server's prose through.
       const fallback = `${code}: ${message}`;
 
       if (fromServerMessage !== true && toast !== fallback) {
@@ -485,7 +526,9 @@ describe("what the console tells the operator when a lookup or an institution ac
     renderConsole();
 
     const panel = within(userPanel());
-    fireEvent.change(panel.getByLabelText("Email"), { target: { value: "nobody@example.test" } });
+    fireEvent.change(panel.getByLabelText(/^Email(?: \* \(wajib\)| \(opsional\))?$/), {
+      target: { value: "nobody@example.test" },
+    });
     fireEvent.click(panel.getByRole("button", { name: "Cari" }));
 
     await waitFor(() => {

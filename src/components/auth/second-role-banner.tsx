@@ -11,12 +11,12 @@ type SecondRoleBannerProps = {
 
 const COPY: Record<VerifiableRole, { headline: string; cta: string }> = {
   candidate: {
-    headline: "Ingin ikut kompetisi sebagai mahasiswa? Verifikasi akun kandidat Anda.",
+    headline: "Ingin ikut kompetisi? Verifikasi akun kandidat Anda.",
     cta: "Verifikasi kandidat",
   },
   recruiter: {
-    headline: "Ingin mempublikasikan peluang? Verifikasi akun rekruter Anda.",
-    cta: "Verifikasi rekruter",
+    headline: "Ingin menyelenggarakan kompetisi?",
+    cta: "Daftar sebagai penyelenggara",
   },
 };
 
@@ -63,7 +63,7 @@ export function SecondRoleBanner({ unverifiedRole, userId }: SecondRoleBannerPro
         <ButtonLink href={`/auth/verify-role?as=${unverifiedRole}`} variant="primary" size="sm">
           {copy.cta}
         </ButtonLink>
-        <IconButton icon="close" label="Tutup pemberitahuan" size="sm" onClick={onDismiss} />
+        <IconButton icon="close" label="Tutup" variant="plain" onClick={onDismiss} />
       </span>
     </div>
   );

@@ -21,7 +21,7 @@
 // a fixture that changes every later run (Rule 35).
 
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { randomUUID } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 import { TransactionRollbackError, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
@@ -44,6 +44,7 @@ import {
   financeFeeRules,
   financePaymentInstructionSnapshots,
   financePayments,
+  institutionAuditLogs,
   institutionInvitations,
   institutionMemberships,
   institutionPaymentInstructions,
@@ -109,6 +110,9 @@ vi.mock("@/server/storage/r2.client", () => ({
 }));
 
 import { deidentifyAccount, DeidentificationError } from "./account-deidentification-service";
+import type { Database } from "@/server/db/client";
+import { setCompetitionOrganizerContactForEditor } from "@/server/competitions/competition-organizer-contact-service";
+import { changeMemberRole, removeMember } from "@/server/institution-members/member-service";
 import { OperatorActorError } from "@/server/platform-ops/operator-actor";
 
 const client = TEST_DATABASE_URL ? postgres(TEST_DATABASE_URL, { max: 1 }) : null;
@@ -430,7 +434,7 @@ const buildFixture = async (tx: Tx): Promise<Fixture> => {
     userId: f.target,
     fullName: f.targetName,
     mobileNumber: "+628123456789",
-    status: "draft",
+    status: "approved",
   });
 
   await tx.insert(recruiterVerificationDocuments).values({
@@ -1907,6 +1911,590 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
 
         expect(user!.status).toBe("active");
         expect(await countRows(tx, "platform_ops_audit_logs", "target_user_id", f.target)).toBe(0);
+      });
+    });
+  });
+
+  describe("a competition's contact", () => {
+    type ContactKind = "whatsapp" | "phone" | "email";
+
+    const setContact = async (
+      tx: Tx,
+      competitionId: string,
+      kind: ContactKind,
+      value: string,
+    ): Promise<void> => {
+      await tx
+        .update(competitions)
+        .set({ organizerContactKind: kind, organizerContactValue: value })
+        .where(eq(competitions.id, competitionId));
+    };
+
+    const readContact = async (tx: Tx, competitionId: string) => {
+      const [row] = await tx
+        .select({
+          kind: competitions.organizerContactKind,
+          value: competitions.organizerContactValue,
+        })
+        .from(competitions)
+        .where(eq(competitions.id, competitionId))
+        .limit(1);
+      return row;
+    };
+
+    const runDeletion = (tx: Tx, f: Fixture) =>
+      run(tx, f.operator, f.target, {
+        confirmUsername: f.targetUsername,
+        reason: "permintaan pemilik",
+      });
+
+    // A company institution and its published competition showing the given contact. The target
+    // holds no membership in it unless a test adds one.
+    const insertInstitutionWithCompetition = async (
+      tx: Tx,
+      f: Fixture,
+      slugPart: string,
+      kind: ContactKind,
+      value: string,
+    ): Promise<{ institutionId: string; competitionId: string }> => {
+      const institutionId = randomUUID();
+      await tx.insert(institutions).values({
+        id: institutionId,
+        slug: `deident-${slugPart}-${f.suffix}`,
+        institutionType: "company",
+        displayName: `Penyelenggara ${f.suffix}`,
+        status: "active",
+        verificationStatus: "verified",
+      });
+      const competitionId = randomUUID();
+      await tx.insert(competitions).values({
+        id: competitionId,
+        institutionId,
+        slug: `deident-${slugPart}-comp-${f.suffix}`,
+        title: `Kompetisi lain ${f.suffix}`,
+        status: "published",
+        publishedAt: new Date(),
+        organizerContactKind: kind,
+        organizerContactValue: value,
+      });
+      return { institutionId, competitionId };
+    };
+
+    const readAuditMetadata = async (tx: Tx, f: Fixture) => {
+      const audit = await tx
+        .select()
+        .from(platformOpsAuditLogs)
+        .where(eq(platformOpsAuditLogs.targetUserId, f.target));
+      return audit[0]!.metadata as {
+        rowsScrubbed: Record<string, number>;
+        clearedOrganizerContacts: { competitionId: string; institutionId: string }[];
+      };
+    };
+
+    // The clear reaches every competition in the database, so a test that counts what it cleared
+    // signs the account up with a number no other row holds.
+    const signUpWithUniqueNumber = async (
+      tx: Tx,
+      f: Fixture,
+      writeNumber: (nationalNumber: string) => string,
+    ): Promise<string> => {
+      const nationalNumber = `812${randomInt(10_000_000, 100_000_000)}`;
+      await tx
+        .update(recruiterVerificationSubmissions)
+        .set({ mobileNumber: writeNumber(nationalNumber) })
+        .where(eq(recruiterVerificationSubmissions.id, f.recruiterSubmission));
+      return `62${nationalNumber}`;
+    };
+
+    const SIGNUP_NUMBER_FORMS: [string, (nationalNumber: string) => string][] = [
+      ["0812...", (nationalNumber) => `0${nationalNumber}`],
+      ["62812...", (nationalNumber) => `62${nationalNumber}`],
+      ["+62 812...", (nationalNumber) => `+62 ${nationalNumber}`],
+      ["+62 0812...", (nationalNumber) => `+62 0${nationalNumber}`],
+      ["+0812...", (nationalNumber) => `+0${nationalNumber}`],
+      ["0062 812...", (nationalNumber) => `0062 ${nationalNumber}`],
+      ["000812...", (nationalNumber) => `000${nationalNumber}`],
+      ["812...", (nationalNumber) => nationalNumber],
+    ];
+
+    it("clears the account's own sign-up number on its own institution and on an institution it never belonged to", async () => {
+      await inRollback(async (tx) => {
+        const f = await buildFixture(tx);
+        const digits = await signUpWithUniqueNumber(tx, f, (national) => `0${national}`);
+        await setContact(tx, f.competition, "whatsapp", digits);
+        const other = await insertInstitutionWithCompetition(tx, f, "other", "phone", digits);
+
+        await runDeletion(tx, f);
+
+        const metadata = await readAuditMetadata(tx, f);
+        expect({
+          own: await readContact(tx, f.competition),
+          other: await readContact(tx, other.competitionId),
+          competitionsScrubbed: metadata.rowsScrubbed.competitions,
+        }).toEqual({
+          own: { kind: null, value: null },
+          other: { kind: null, value: null },
+          competitionsScrubbed: 2,
+        });
+      });
+    });
+
+    it("clears a contact written in another form of the account's approved sign-up number", async () => {
+      await inRollback(async (tx) => {
+        const f = await buildFixture(tx);
+        await tx.insert(recruiterVerificationSubmissions).values({
+          userId: f.target,
+          fullName: f.targetName,
+          mobileNumber: "81234567890",
+          status: "approved",
+        });
+        await setContact(tx, f.competition, "phone", "6281234567890");
+
+        await runDeletion(tx, f);
+
+        expect(await readContact(tx, f.competition)).toEqual({ kind: null, value: null });
+      });
+    });
+
+    it("clears the account's own sign-up number on an institution where the account was only a member", async () => {
+      await inRollback(async (tx) => {
+        const f = await buildFixture(tx);
+        const memberOnly = await insertInstitutionWithCompetition(
+          tx,
+          f,
+          "member-only",
+          "whatsapp",
+          "628123456789",
+        );
+        await tx.insert(institutionMemberships).values({
+          id: randomUUID(),
+          institutionId: memberOnly.institutionId,
+          userId: f.target,
+          membershipRole: "institution_member",
+          status: "active",
+        });
+
+        await runDeletion(tx, f);
+
+        expect(await readContact(tx, memberOnly.competitionId)).toEqual({
+          kind: null,
+          value: null,
+        });
+      });
+    });
+
+    it("clears the account's own sign-up number on an institution it ran before a demotion", async () => {
+      await inRollback(async (tx) => {
+        const f = await buildFixture(tx);
+        const ran = await insertInstitutionWithCompetition(
+          tx,
+          f,
+          "demoted",
+          "whatsapp",
+          "628123456789",
+        );
+        const targetMembershipId = randomUUID();
+        await tx.insert(institutionMemberships).values([
+          {
+            id: randomUUID(),
+            institutionId: ran.institutionId,
+            userId: f.bystander,
+            membershipRole: "institution_owner",
+            status: "active",
+          },
+          {
+            id: targetMembershipId,
+            institutionId: ran.institutionId,
+            userId: f.target,
+            membershipRole: "institution_staff",
+            status: "active",
+          },
+        ]);
+        await changeMemberRole(
+          f.bystander,
+          `deident-demoted-${f.suffix}`,
+          targetMembershipId,
+          "institution_member",
+          tx as unknown as Database,
+        );
+
+        await runDeletion(tx, f);
+
+        expect(await readContact(tx, ran.competitionId)).toEqual({ kind: null, value: null });
+      });
+    });
+
+    it("clears the account's own sign-up number on an institution it left as owner", async () => {
+      await inRollback(async (tx) => {
+        const f = await buildFixture(tx);
+        const left = await insertInstitutionWithCompetition(
+          tx,
+          f,
+          "left",
+          "whatsapp",
+          "628123456789",
+        );
+        const membershipId = randomUUID();
+        await tx.insert(institutionMemberships).values({
+          id: membershipId,
+          institutionId: left.institutionId,
+          userId: f.target,
+          membershipRole: "institution_member",
+          status: "revoked",
+        });
+        await tx.insert(institutionAuditLogs).values({
+          institutionId: left.institutionId,
+          action: "member.removed",
+          targetMembershipId: membershipId,
+          metadata: { removedRole: "institution_owner" },
+        });
+
+        await runDeletion(tx, f);
+
+        expect(await readContact(tx, left.competitionId)).toEqual({ kind: null, value: null });
+      });
+    });
+
+    it("clears the account's own sign-up number on an institution where its owner membership was revoked", async () => {
+      await inRollback(async (tx) => {
+        const f = await buildFixture(tx);
+        const revoked = await insertInstitutionWithCompetition(
+          tx,
+          f,
+          "revoked-owner",
+          "whatsapp",
+          "628123456789",
+        );
+        await tx.insert(institutionMemberships).values({
+          id: randomUUID(),
+          institutionId: revoked.institutionId,
+          userId: f.target,
+          membershipRole: "institution_owner",
+          status: "revoked",
+        });
+
+        await runDeletion(tx, f);
+
+        expect(await readContact(tx, revoked.competitionId)).toEqual({ kind: null, value: null });
+      });
+    });
+
+    it("clears the account's own sign-up number on an institution where only another person's history shows owner or staff", async () => {
+      await inRollback(async (tx) => {
+        const f = await buildFixture(tx);
+        const history = await insertInstitutionWithCompetition(
+          tx,
+          f,
+          "history",
+          "whatsapp",
+          "628123456789",
+        );
+        const bystanderMembershipId = randomUUID();
+        const targetMembershipId = randomUUID();
+        await tx.insert(institutionMemberships).values([
+          {
+            id: bystanderMembershipId,
+            institutionId: history.institutionId,
+            userId: f.bystander,
+            membershipRole: "institution_owner",
+            status: "active",
+          },
+          {
+            id: targetMembershipId,
+            institutionId: history.institutionId,
+            userId: f.target,
+            membershipRole: "institution_member",
+            status: "active",
+          },
+        ]);
+        await tx.insert(institutionAuditLogs).values({
+          institutionId: history.institutionId,
+          actorUserId: f.bystander,
+          action: "member.role_changed",
+          targetMembershipId: bystanderMembershipId,
+          metadata: { from: "institution_staff", to: "institution_owner" },
+        });
+        await removeMember(
+          f.bystander,
+          `deident-history-${f.suffix}`,
+          targetMembershipId,
+          tx as unknown as Database,
+        );
+        // Stands in for a re-invitation accepted as a member.
+        await tx
+          .update(institutionMemberships)
+          .set({ status: "active" })
+          .where(eq(institutionMemberships.id, targetMembershipId));
+
+        await runDeletion(tx, f);
+
+        expect(await readContact(tx, history.competitionId)).toEqual({ kind: null, value: null });
+      });
+    });
+
+    it("clears the account's own sign-up number on an institution it was removed from and rejoined as a member", async () => {
+      await inRollback(async (tx) => {
+        const f = await buildFixture(tx);
+        const rejoined = await insertInstitutionWithCompetition(
+          tx,
+          f,
+          "rejoined",
+          "whatsapp",
+          "628123456789",
+        );
+        const targetMembershipId = randomUUID();
+        await tx.insert(institutionMemberships).values([
+          {
+            id: randomUUID(),
+            institutionId: rejoined.institutionId,
+            userId: f.bystander,
+            membershipRole: "institution_owner",
+            status: "active",
+          },
+          {
+            id: targetMembershipId,
+            institutionId: rejoined.institutionId,
+            userId: f.target,
+            membershipRole: "institution_staff",
+            status: "active",
+          },
+        ]);
+        await removeMember(
+          f.bystander,
+          `deident-rejoined-${f.suffix}`,
+          targetMembershipId,
+          tx as unknown as Database,
+        );
+        // Stands in for a re-invitation accepted as a member.
+        await tx
+          .update(institutionMemberships)
+          .set({ membershipRole: "institution_member", status: "active" })
+          .where(eq(institutionMemberships.id, targetMembershipId));
+
+        await runDeletion(tx, f);
+
+        expect(await readContact(tx, rejoined.competitionId)).toEqual({ kind: null, value: null });
+      });
+    });
+
+    it.each(["pending_review", "rejected", "draft"] as const)(
+      "keeps a contact saved through the editor when the account's matching sign-up is %s",
+      async (status) => {
+        await inRollback(async (tx) => {
+          const f = await buildFixture(tx);
+          await tx
+            .update(recruiterVerificationSubmissions)
+            .set({ mobileNumber: "+0812 3456 7890", status })
+            .where(eq(recruiterVerificationSubmissions.id, f.recruiterSubmission));
+          const saved = await setCompetitionOrganizerContactForEditor(
+            f.target,
+            f.competition,
+            { kind: "phone", value: "0812 3456 7890" },
+            tx as unknown as Database,
+          );
+
+          await runDeletion(tx, f);
+
+          expect({
+            saved,
+            afterDeletion: await readContact(tx, f.competition),
+          }).toEqual({
+            saved: { kind: "phone", value: "6281234567890" },
+            afterDeletion: { kind: "phone", value: "6281234567890" },
+          });
+        });
+      },
+    );
+
+    it("names every cleared competition and its institution in the audit row", async () => {
+      await inRollback(async (tx) => {
+        const f = await buildFixture(tx);
+        const digits = await signUpWithUniqueNumber(tx, f, (national) => `0${national}`);
+        await setContact(tx, f.competition, "whatsapp", digits);
+        const stranger = await insertInstitutionWithCompetition(
+          tx,
+          f,
+          "stranger",
+          "email",
+          f.targetEmail,
+        );
+
+        await runDeletion(tx, f);
+
+        const metadata = await readAuditMetadata(tx, f);
+        expect(metadata.clearedOrganizerContacts).toHaveLength(2);
+        expect(metadata.clearedOrganizerContacts).toEqual(
+          expect.arrayContaining([
+            { competitionId: f.competition, institutionId: f.institution },
+            { competitionId: stranger.competitionId, institutionId: stranger.institutionId },
+          ]),
+        );
+      });
+    });
+
+    it("clears a competition contact that is the account's own email, whatever its letter case", async () => {
+      await inRollback(async (tx) => {
+        const f = await buildFixture(tx);
+        await setContact(tx, f.competition, "email", f.targetEmail.toUpperCase());
+
+        await runDeletion(tx, f);
+
+        expect(await readContact(tx, f.competition)).toEqual({ kind: null, value: null });
+      });
+    });
+
+    it("keeps a competition contact that is someone else's", async () => {
+      await inRollback(async (tx) => {
+        const f = await buildFixture(tx);
+        await setContact(tx, f.competition, "whatsapp", "6281111111111");
+        const secondDraft = randomUUID();
+        await tx.insert(competitions).values({
+          id: secondDraft,
+          institutionId: f.institution,
+          slug: `deident-second-${f.suffix}`,
+          title: `Draf kedua ${f.suffix}`,
+          organizerContactKind: "email",
+          organizerContactValue: "panitia@example.test",
+        });
+
+        await runDeletion(tx, f);
+
+        expect(await readContact(tx, f.competition)).toEqual({
+          kind: "whatsapp",
+          value: "6281111111111",
+        });
+        expect(await readContact(tx, secondDraft)).toEqual({
+          kind: "email",
+          value: "panitia@example.test",
+        });
+      });
+    });
+
+    it("keeps every contact when the run stops before its commit", async () => {
+      await inRollback(async (tx) => {
+        const f = await buildFixture(tx);
+        await setContact(tx, f.competition, "whatsapp", "628123456789");
+        r2.failFrom = `resumes/${f.target}/`;
+
+        await expectCode(runDeletion(tx, f), "deidentify_storage_failed", 502);
+
+        expect(await readContact(tx, f.competition)).toEqual({
+          kind: "whatsapp",
+          value: "628123456789",
+        });
+      });
+    });
+
+    it.each(SIGNUP_NUMBER_FORMS)(
+      "clears a contact another institution saved through its editor when the account's sign-up number was written %s",
+      async (_form, writeNumber) => {
+        await inRollback(async (tx) => {
+          const f = await buildFixture(tx);
+          const digits = await signUpWithUniqueNumber(tx, f, writeNumber);
+          const other = await insertInstitutionWithCompetition(
+            tx,
+            f,
+            "elsewhere",
+            "email",
+            "panitia@example.test",
+          );
+          await tx.insert(institutionMemberships).values({
+            id: randomUUID(),
+            institutionId: other.institutionId,
+            userId: f.bystander,
+            membershipRole: "institution_owner",
+            status: "active",
+          });
+          const saved = await setCompetitionOrganizerContactForEditor(
+            f.bystander,
+            other.competitionId,
+            { kind: "whatsapp", value: `0${digits.slice(2)}` },
+            tx as unknown as Database,
+          );
+
+          await runDeletion(tx, f);
+
+          const metadata = await readAuditMetadata(tx, f);
+          expect({
+            saved,
+            afterDeletion: await readContact(tx, other.competitionId),
+            clearedOrganizerContacts: metadata.clearedOrganizerContacts,
+          }).toEqual({
+            saved: { kind: "whatsapp", value: digits },
+            afterDeletion: { kind: null, value: null },
+            clearedOrganizerContacts: [
+              { competitionId: other.competitionId, institutionId: other.institutionId },
+            ],
+          });
+        });
+      },
+    );
+
+    it("keeps a contact on another institution that is not the account's sign-up number", async () => {
+      await inRollback(async (tx) => {
+        const f = await buildFixture(tx);
+        const longer = await insertInstitutionWithCompetition(
+          tx,
+          f,
+          "longer",
+          "whatsapp",
+          "6281234567890",
+        );
+        const shorter = await insertInstitutionWithCompetition(
+          tx,
+          f,
+          "shorter",
+          "phone",
+          "62812345678",
+        );
+        const emailHoldingDigits = await insertInstitutionWithCompetition(
+          tx,
+          f,
+          "email-digits",
+          "email",
+          "628123456789",
+        );
+
+        await runDeletion(tx, f);
+
+        expect({
+          longer: await readContact(tx, longer.competitionId),
+          shorter: await readContact(tx, shorter.competitionId),
+          emailHoldingDigits: await readContact(tx, emailHoldingDigits.competitionId),
+        }).toEqual({
+          longer: { kind: "whatsapp", value: "6281234567890" },
+          shorter: { kind: "phone", value: "62812345678" },
+          emailHoldingDigits: { kind: "email", value: "628123456789" },
+        });
+      });
+    });
+
+    it("keeps a contact on an institution the account never belonged to when the run stops before its commit", async () => {
+      await inRollback(async (tx) => {
+        const f = await buildFixture(tx);
+        const other = await insertInstitutionWithCompetition(
+          tx,
+          f,
+          "uncommitted",
+          "whatsapp",
+          "628123456789",
+        );
+        r2.failFrom = `resumes/${f.target}/`;
+
+        const refusal = (await rejection(runDeletion(tx, f))) as DeidentificationError;
+
+        const target = await readUser(tx, f.target);
+        expect({
+          code: refusal.code,
+          status: refusal.status,
+          contact: await readContact(tx, other.competitionId),
+          accountStatus: target?.status,
+        }).toEqual({
+          code: "deidentify_storage_failed",
+          status: 502,
+          contact: { kind: "whatsapp", value: "628123456789" },
+          accountStatus: "active",
+        });
       });
     });
   });

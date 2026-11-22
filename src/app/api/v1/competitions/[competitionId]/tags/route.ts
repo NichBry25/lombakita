@@ -5,6 +5,10 @@ import {
 } from "@/server/auth/access-core";
 import { requireAuthenticatedSession } from "@/server/auth/session";
 import {
+  CompetitionError,
+  toCompetitionErrorResponse,
+} from "@/server/competitions/competition-core";
+import {
   CompetitionTagsInputError,
   toCompetitionTagsErrorResponse,
 } from "@/server/competitions/competition-tags-core";
@@ -23,6 +27,7 @@ export async function GET(
     const tags = await getCompetitionTagsForEditor(session.user.id, competitionId);
     return NextResponse.json({ tags });
   } catch (error) {
+    if (error instanceof CompetitionError) return toCompetitionErrorResponse(error);
     if (error instanceof CompetitionTagsInputError) {
       return toCompetitionTagsErrorResponse(error);
     }
@@ -52,6 +57,7 @@ export async function PUT(
     const tags = await setCompetitionTagsForEditor(session.user.id, competitionId, body);
     return NextResponse.json({ tags });
   } catch (error) {
+    if (error instanceof CompetitionError) return toCompetitionErrorResponse(error);
     if (error instanceof CompetitionTagsInputError) {
       return toCompetitionTagsErrorResponse(error);
     }

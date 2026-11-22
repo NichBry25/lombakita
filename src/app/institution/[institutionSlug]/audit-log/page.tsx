@@ -5,13 +5,31 @@ import { getDb } from "@/server/db/client";
 import { requireAdminInstitutionBySlug } from "@/server/institution-members/member-service";
 import { desc, eq, sql } from "drizzle-orm";
 import { institutionAuditLogs, users } from "@/server/db/schema";
-import { EmptyState, PageHeader, Pagination } from "@/components/ui";
-import { formatDisplayToken } from "@/lib/text/capitalize";
+import {
+  EmptyState,
+  PageHeader,
+  Pagination,
+  Table,
+  TableDataList,
+  TableExpandToggle,
+  type TableColumn,
+  type TableRowData,
+} from "@/components/ui";
+import { LocalDate } from "@/components/ui/local-date";
+import { auditEventDataEntries, auditEventName, auditEventSummary } from "./audit-event-display";
 
 type Props = {
   params: Promise<{ institutionSlug: string }>;
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
+
+const AUDIT_COLUMNS: readonly TableColumn[] = [
+  { key: "event", header: "Peristiwa", kind: "name" },
+  { key: "actor", header: "Aktor", kind: "text" },
+  { key: "summary", header: "Ringkasan", kind: "long" },
+  { key: "time", header: "Waktu", kind: "date" },
+  { key: "data", header: "Tindakan", kind: "control", hideHeader: true },
+];
 
 export default async function AuditLogPage({ params, searchParams }: Props) {
   const { institutionSlug } = await params;
@@ -64,54 +82,40 @@ export default async function AuditLogPage({ params, searchParams }: Props) {
   const total = countRows[0]?.count ?? 0;
   const totalPages = total > 0 ? Math.ceil(total / limit) : 0;
 
+  const auditRows: TableRowData[] = events.map((event) => ({
+    key: event.id,
+    cells: {
+      event: auditEventName(event.eventType),
+      actor: event.actorName,
+      summary: auditEventSummary(event.eventType, event.metadata),
+      time: <LocalDate value={event.createdAt} format="shortDateTimeSeconds" />,
+      data: <TableExpandToggle>Lihat data</TableExpandToggle>,
+    },
+    band: <TableDataList entries={auditEventDataEntries(event.metadata)} />,
+  }));
+
   return (
     <main className="page-shell app-page audit-log-page">
       <PageHeader
         title="Log audit"
         description={`Riwayat perubahan penting untuk ${institutionSlug}, diurutkan dari yang terbaru.`}
         backHref={`/institution/${institutionSlug}`}
-        backLabel="Kembali"
       />
 
       {events.length === 0 ? (
         <EmptyState
-          icon="inbox"
-          title="Belum ada entri audit."
+          kind="nothing-yet"
+          title="Belum ada entri audit"
           description="Tindakan administratif dan perubahan penting akan muncul di sini."
         />
       ) : (
         <section className="content-section">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">Aktivitas terbaru</p>
               <h2>{total} entri tercatat</h2>
             </div>
           </div>
-          <div className="table-scroll">
-            <table className="data-table audit-log-table">
-              <thead>
-                <tr>
-                  <th>Tipe event</th>
-                  <th>Aktor</th>
-                  <th>Ringkasan</th>
-                  <th>Waktu</th>
-                </tr>
-              </thead>
-              <tbody>
-                {events.map((e) => {
-                  const summary = JSON.stringify(e.metadata ?? {}).slice(0, 80);
-                  return (
-                    <tr key={e.id}>
-                      <td className="data-text">{formatDisplayToken(e.eventType)}</td>
-                      <td>{e.actorName ?? "—"}</td>
-                      <td className="data-text audit-summary">{summary}</td>
-                      <td className="data-text">{new Date(e.createdAt).toLocaleString("id-ID")}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <Table label="Log audit" columns={AUDIT_COLUMNS} rows={auditRows} />
         </section>
       )}
 

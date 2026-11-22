@@ -4,7 +4,7 @@ import { ButtonLink, Icon } from "@/components/ui";
 export default function VerifyRequestPage() {
   return (
     <AuthPageFrame
-      title="Satu langkah lagi sebelum akun aktif."
+      title="Satu langkah lagi sebelum akun aktif"
       description="Tautan verifikasi dikirim ke alamat yang digunakan saat pendaftaran."
     >
       <div className="auth-state stack-md">

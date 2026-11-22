@@ -3,12 +3,57 @@ import { AccessError } from "@/server/auth/access-core";
 import { requireRolePage } from "@/server/auth/page-guard";
 import { requireAdminInstitutionBySlug } from "@/server/institution-members/member-service";
 import { getDb } from "@/server/db/client";
-import { Card, EmptyState, Feedback, PageHeader } from "@/components/ui";
-import { loadInstitutionFeeStatement } from "@/server/finance/fee-statement";
+import {
+  EmptyState,
+  Feedback,
+  PageHeader,
+  Table,
+  type TableColumn,
+  type TableRowData,
+} from "@/components/ui";
+import { loadInstitutionFeeStatement, type FeeStatementLine } from "@/server/finance/fee-statement";
 import { formatBasisPoints } from "@/lib/finance/fee-display";
-import { formatFinanceDateTime, formatRupiah } from "@/lib/finance/payment-display";
+import { LocalDate } from "@/components/ui/local-date";
+import { formatRupiah } from "@/lib/finance/payment-display";
 
 type Props = { params: Promise<{ institutionSlug: string }> };
+
+const LINE_COLUMNS: readonly TableColumn[] = [
+  { key: "date", header: "Tanggal", kind: "date" },
+  { key: "competition", header: "Kompetisi", kind: "wrap" },
+  { key: "grossAmount", header: "Biaya pendaftaran", kind: "number" },
+  { key: "rate", header: "Tarif saat itu", kind: "number" },
+  { key: "fee", header: "Biaya layanan", kind: "number" },
+];
+
+const describeCompetition = (line: FeeStatementLine): string => {
+  const title = line.competitionTitle ?? "—";
+  const correction = line.entryType === "reversed" ? " (koreksi)" : "";
+  const reason = line.reason ? ` · ${line.reason}` : "";
+  return `${title}${correction}${reason}`;
+};
+
+// THE RATE AS IT STOOD ON THIS LINE, read from the accrual's own snapshot. Rendering today's rate
+// against a historical line would show a figure that was never charged.
+const describeRateAtThatTime = (line: FeeStatementLine): string => {
+  const rate = formatBasisPoints(line.feeBasisPoints);
+  if (line.feeFlatAmount <= 0) return rate;
+  return `${rate} + ${formatRupiah(line.feeFlatAmount, line.currency)}`;
+};
+
+// `Math.abs` because the stored amount on a `reversed` row is already negative. Formatting it
+// as-is under an explicit "−" prints the sign twice.
+const describeServiceFee = (line: FeeStatementLine): string => {
+  const sign = line.entryType === "reversed" ? "−" : "";
+  return `${sign}${formatRupiah(Math.abs(line.amount), line.currency)}`;
+};
+
+const ACKNOWLEDGEMENT_COLUMNS: readonly TableColumn[] = [
+  { key: "name", header: "Nama", kind: "name" },
+  { key: "rate", header: "Tarif disetujui", kind: "number" },
+  { key: "fee", header: "Untuk biaya", kind: "number" },
+  { key: "approvedAt", header: "Disetujui", kind: "date" },
+];
 
 export const metadata = {
   title: "Biaya layanan tercatat",
@@ -54,6 +99,29 @@ export default async function InstitutionFeeStatementPage({ params }: Props) {
   const statement = await loadInstitutionFeeStatement(institutionId, db);
   const currency = statement.currency ?? "IDR";
 
+  const lineRows: TableRowData[] = statement.lines.map((line) => ({
+    key: line.accrualId,
+    cells: {
+      date: <LocalDate value={line.recordedAt} format="shortDateTime" />,
+      competition: describeCompetition(line),
+      grossAmount: formatRupiah(line.grossAmount, line.currency),
+      rate: describeRateAtThatTime(line),
+      fee: describeServiceFee(line),
+    },
+  }));
+
+  // An approval has no id of its own, so a row is told apart by its competition and the moment it
+  // was approved.
+  const acknowledgementRows: TableRowData[] = statement.acknowledgements.map((ack) => ({
+    key: `${ack.competitionId}:${ack.acknowledgedAt.toISOString()}`,
+    cells: {
+      name: ack.competitionTitle,
+      rate: formatBasisPoints(ack.feeBasisPoints),
+      fee: formatRupiah(ack.feeAmount, ack.feeCurrency),
+      approvedAt: <LocalDate value={ack.acknowledgedAt} format="shortDateTime" />,
+    },
+  }));
+
   return (
     <main className="page-shell app-page">
       <PageHeader
@@ -62,14 +130,12 @@ export default async function InstitutionFeeStatementPage({ params }: Props) {
         backHref={`/institution/${institutionSlug}`}
       />
 
-      <Feedback tone="info">
-        Dana peserta masuk langsung ke rekening lembaga Anda, sehingga biaya layanan tidak pernah
-        dipotong dari transfer mereka. Angka di bawah ini adalah tagihan Lombakita kepada lembaga
-        Anda, bukan saldo yang kami simpan untuk Anda. Belum ada proses penagihan yang berjalan.
-        Halaman ini hanya mencatat.
+      <Feedback tone="info" lead="Biaya layanan tidak dipotong dari transfer peserta.">
+        Angka di bawah adalah catatan tagihan, bukan saldo yang kami simpan, dan belum ada penagihan
+        yang berjalan.
       </Feedback>
 
-      <Card variant="surface" className="stack-md">
+      <div className="stack-md">
         <h2>Ringkasan</h2>
         <dl className="detail-grid">
           <div>
@@ -87,62 +153,19 @@ export default async function InstitutionFeeStatementPage({ params }: Props) {
             <dd className="data-text">{formatRupiah(statement.outstandingAmount, currency)}</dd>
           </div>
         </dl>
-      </Card>
+      </div>
 
       <section className="content-section">
         <h2>Rincian</h2>
         {statement.lines.length === 0 ? (
           <EmptyState
-            icon="check"
+            kind="nothing-yet"
+            size="compact"
             title="Belum ada biaya layanan"
             description="Biaya layanan tercatat saat Anda memverifikasi pembayaran peserta pertama."
           />
         ) : (
-          <div className="table-scroll">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Tanggal</th>
-                  <th>Kompetisi</th>
-                  <th>Biaya pendaftaran</th>
-                  <th>Tarif saat itu</th>
-                  <th>Biaya layanan</th>
-                </tr>
-              </thead>
-              <tbody>
-                {statement.lines.map((line) => (
-                  <tr key={line.accrualId}>
-                    <td>
-                      <time dateTime={line.recordedAt.toISOString()}>
-                        {formatFinanceDateTime(line.recordedAt.toISOString())}
-                      </time>
-                    </td>
-                    <td>
-                      {line.competitionTitle ?? "—"}
-                      {line.entryType === "reversed" ? " (koreksi)" : ""}
-                      {line.reason ? ` · ${line.reason}` : ""}
-                    </td>
-                    <td className="data-text">{formatRupiah(line.grossAmount, line.currency)}</td>
-                    {/* THE RATE AS IT STOOD ON THIS LINE, read from the accrual's own snapshot.
-                        Rendering today's rate against a historical line would show a figure that
-                        was never charged. */}
-                    <td className="data-text">
-                      {formatBasisPoints(line.feeBasisPoints)}
-                      {line.feeFlatAmount > 0
-                        ? ` + ${formatRupiah(line.feeFlatAmount, line.currency)}`
-                        : ""}
-                    </td>
-                    {/* `Math.abs` because the stored amount on a `reversed` row is already
-                        negative. Formatting it as-is under an explicit "−" prints the sign twice. */}
-                    <td className="data-text">
-                      {line.entryType === "reversed" ? "−" : ""}
-                      {formatRupiah(Math.abs(line.amount), line.currency)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <Table label="Rincian" columns={LINE_COLUMNS} rows={lineRows} />
         )}
       </section>
 
@@ -154,38 +177,17 @@ export default async function InstitutionFeeStatementPage({ params }: Props) {
         </p>
         {statement.acknowledgements.length === 0 ? (
           <EmptyState
-            icon="info"
+            kind="nothing-yet"
+            size="compact"
             title="Belum ada persetujuan tarif"
             description="Persetujuan tercatat saat Anda mengaktifkan pendaftaran berbayar pada sebuah kompetisi."
           />
         ) : (
-          <ul className="record-list">
-            {statement.acknowledgements.map((ack) => (
-              <li key={ack.competitionId}>
-                <Card variant="inset" className="stack-sm">
-                  <h3>{ack.competitionTitle}</h3>
-                  <dl className="detail-grid">
-                    <div>
-                      <dt>Tarif disetujui</dt>
-                      <dd className="data-text">{formatBasisPoints(ack.feeBasisPoints)}</dd>
-                    </div>
-                    <div>
-                      <dt>Untuk biaya</dt>
-                      <dd className="data-text">{formatRupiah(ack.feeAmount, ack.feeCurrency)}</dd>
-                    </div>
-                    <div>
-                      <dt>Disetujui</dt>
-                      <dd>
-                        <time dateTime={ack.acknowledgedAt.toISOString()}>
-                          {formatFinanceDateTime(ack.acknowledgedAt.toISOString())}
-                        </time>
-                      </dd>
-                    </div>
-                  </dl>
-                </Card>
-              </li>
-            ))}
-          </ul>
+          <Table
+            label="Persetujuan tarif"
+            columns={ACKNOWLEDGEMENT_COLUMNS}
+            rows={acknowledgementRows}
+          />
         )}
       </section>
     </main>

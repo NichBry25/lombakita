@@ -33,7 +33,7 @@ export default async function MfaChallengePage(props: {
 
   return (
     <AuthPageFrame
-      title="Verifikasi dua langkah diperlukan."
+      title="Verifikasi dua langkah diperlukan"
       description="Masukkan kode dari aplikasi autentikator Anda untuk melanjutkan sesi ini."
     >
       {/* The heading lives in the form, not here: it names the step the operator is on, and the

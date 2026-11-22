@@ -1,21 +1,35 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import {
   Button,
   EmptyState,
   Feedback,
+  FormError,
+  FormLabel,
+  FormTextarea,
   PageHeader,
   Pagination,
   SelectField,
   Skeleton,
+  Table,
+  TableClamp,
+  TableExpandToggle,
+  type TableColumn,
+  type TableRowData,
 } from "@/components/ui";
-import { useModal, useToast } from "@/components/ui/primitives";
+import { useModal, useModalTask, useToast, type ModalOutcome } from "@/components/ui/primitives";
+import { LocalDate } from "@/components/ui/local-date";
 import { emailDeliveryWarning } from "@/lib/email/delivery-notice";
+import { NETWORK_ERROR_MESSAGE } from "@/lib/errors/error-copy";
 import { resolveVerificationRefusalMessage } from "@/lib/institutions/verification-refusal-copy";
 import { INSTITUTION_VERIFICATION_STATUS_LABELS } from "@/lib/institutions/verification-status-labels";
 
 type VerificationStatus = "pending_verification" | "under_review" | "verified" | "rejected";
+
+const REJECT_FALLBACK = "Institusi gagal ditolak. Coba lagi.";
+const REVOKE_FALLBACK = "Verifikasi gagal dicabut. Coba lagi.";
+const TRANSITION_FALLBACK = "Status verifikasi gagal diubah. Coba lagi.";
 
 type AuditEntry = {
   id: string;
@@ -64,11 +78,70 @@ const AVAILABLE_TRANSITIONS: Record<VerificationStatus, ValidTransition[]> = {
   rejected: [{ label: "Tinjau ulang", targetStatus: "under_review" }],
 };
 
+const INSTITUTION_COLUMNS: readonly TableColumn[] = [
+  { key: "name", header: "Nama", kind: "name" },
+  { key: "adminEmail", header: "Admin email", kind: "text" },
+  { key: "status", header: "Status", kind: "long" },
+  { key: "createdAt", header: "Terdaftar", kind: "date" },
+  { key: "actions", header: "Tindakan", kind: "control", hideHeader: true },
+  { key: "audit", header: "Riwayat status", kind: "control", hideHeader: true },
+];
+
+const STATUS_HISTORY_COLUMNS: readonly TableColumn[] = [
+  { key: "from", header: "Dari", kind: "text" },
+  { key: "to", header: "Ke", kind: "text" },
+  { key: "reason", header: "Alasan", kind: "wrap" },
+  { key: "actor", header: "Aktor", kind: "text" },
+  { key: "at", header: "Waktu", kind: "date" },
+];
+
+const verificationStatusTone = (status: VerificationStatus): string | undefined => {
+  if (status === "verified") return "open";
+  if (status === "rejected") return "closing";
+  if (status === "pending_verification") return "awaiting";
+  return undefined;
+};
+
+// The verification status history of one institution, oldest first, flat inside the band of its row.
+function StatusHistory({
+  institutionName,
+  entries,
+}: {
+  institutionName: string;
+  entries: AuditEntry[];
+}) {
+  if (entries.length === 0) {
+    return <em className="record-meta">Belum ada log audit.</em>;
+  }
+
+  const historyRows: TableRowData[] = entries.map((entry) => ({
+    key: entry.id,
+    cells: {
+      from: INSTITUTION_VERIFICATION_STATUS_LABELS[entry.fromStatus],
+      to: INSTITUTION_VERIFICATION_STATUS_LABELS[entry.toStatus],
+      reason: entry.reason,
+      actor: entry.actorUserId,
+      at: <LocalDate value={entry.createdAt} format="shortDateTime" />,
+    },
+  }));
+
+  return (
+    <Table
+      flat
+      label={`Riwayat status ${institutionName}`}
+      columns={STATUS_HISTORY_COLUMNS}
+      rows={historyRows}
+    />
+  );
+}
+
+const REJECT_INSTITUTION_FORM_ID = "reject-institution-form";
+
+// The pop-up footer submits this form. An empty reason shows the field error and sends nothing.
 function RejectInstitutionForm({
   institutionId,
   displayName,
   isRevocation,
-  onClose,
   onSuccess,
 }: {
   institutionId: string;
@@ -76,54 +149,53 @@ function RejectInstitutionForm({
   // A revocation takes a badge away that was already granted, so it says so plainly and names what
   // it does not do — ops should not reach for it expecting a takedown.
   isRevocation: boolean;
-  onClose: () => void;
   onSuccess: () => void;
 }) {
   const { addToast } = useToast();
+  const runModalTask = useModalTask();
   const [reason, setReason] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [hasTriedToSubmit, setHasTriedToSubmit] = useState(false);
+  const trimmedReason = reason.trim();
+  const reasonMissingMessage = isRevocation
+    ? "Alasan pencabutan wajib diisi."
+    : "Alasan penolakan wajib diisi.";
+  const showsReasonError = hasTriedToSubmit && trimmedReason.length === 0;
 
-  const submit = async () => {
-    if (!reason.trim()) {
-      addToast({
-        type: "error",
-        message: isRevocation ? "Alasan pencabutan wajib diisi." : "Alasan penolakan wajib diisi.",
-      });
-      return;
-    }
-    setBusy(true);
+  const sendRejection = async (): Promise<ModalOutcome> => {
     try {
       const res = await fetch(`/api/admin/institutions/${institutionId}/verify`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ targetStatus: "rejected", reason: reason.trim() }),
+        body: JSON.stringify({ targetStatus: "rejected", reason: trimmedReason }),
       });
       const data = await res.json();
       if (!res.ok) {
-        addToast({
-          type: "error",
-          message: resolveVerificationRefusalMessage(data?.error, `Error ${res.status}`),
-        });
-        return;
+        const fallback = isRevocation ? REVOKE_FALLBACK : REJECT_FALLBACK;
+        return { ok: false, message: resolveVerificationRefusalMessage(data?.error, fallback) };
       }
 
       // The status change is committed either way, so a failed notice is a warning on a success.
       const deliveryWarning = emailDeliveryWarning(data?.emailDelivery);
       if (deliveryWarning) {
-        addToast({ type: "warning", message: deliveryWarning, duration: 0 });
+        addToast({ type: "error", message: deliveryWarning });
       }
 
-      onClose();
       onSuccess();
+      return { ok: true };
     } catch {
-      addToast({ type: "error", message: "Terjadi kesalahan jaringan." });
-    } finally {
-      setBusy(false);
+      return { ok: false, message: "Terjadi kesalahan jaringan." };
     }
   };
 
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setHasTriedToSubmit(true);
+    if (trimmedReason.length === 0) return;
+    void runModalTask(sendRejection);
+  };
+
   return (
-    <div className="stack-md">
+    <form id={REJECT_INSTITUTION_FORM_ID} noValidate onSubmit={submit} className="stack-md">
       <p className="muted-copy">
         <strong>{displayName}</strong>
       </p>
@@ -137,34 +209,30 @@ function RejectInstitutionForm({
         </Feedback>
       )}
       <div className="form-field">
-        <label htmlFor="reject-reason-textarea" className="form-label form-label-required">
+        <FormLabel htmlFor="reject-reason-textarea" required>
           {isRevocation ? "Alasan pencabutan" : "Alasan penolakan"}
-        </label>
-        <textarea
+        </FormLabel>
+        <FormTextarea
           id="reject-reason-textarea"
           value={reason}
           onChange={(e) => setReason(e.target.value)}
           rows={3}
-          className="form-textarea"
+          aria-invalid={showsReasonError ? true : undefined}
+          aria-describedby={showsReasonError ? "reject-reason-error" : undefined}
           placeholder={
             isRevocation ? "Masukkan alasan pencabutan..." : "Masukkan alasan penolakan..."
           }
         />
+        {showsReasonError ? (
+          <FormError id="reject-reason-error">{reasonMissingMessage}</FormError>
+        ) : null}
       </div>
-      <div className="modal-actions">
-        <Button variant="outline" onClick={onClose} disabled={busy}>
-          Batal
-        </Button>
-        <Button variant="danger" loading={busy} onClick={() => void submit()}>
-          {isRevocation ? "Cabut verifikasi" : "Tolak institusi"}
-        </Button>
-      </div>
-    </div>
+    </form>
   );
 }
 
 export default function AdminInstitutionsPage() {
-  const { openModal, closeModal } = useModal();
+  const { openModal } = useModal();
   const { addToast } = useToast();
   const [rows, setRows] = useState<InstitutionRow[]>([]);
   const [total, setTotal] = useState(0);
@@ -221,11 +289,13 @@ export default function AdminInstitutionsPage() {
       const data = await res.json();
       if (!res.ok) {
         return {
-          ok: false,
-          message: resolveVerificationRefusalMessage(data?.error, `Error ${res.status}`),
+          ok: false as const,
+          message: resolveVerificationRefusalMessage(data?.error, TRANSITION_FALLBACK),
         };
       }
-      return { ok: true, deliveryWarning: emailDeliveryWarning(data?.emailDelivery) };
+      return { ok: true as const, deliveryWarning: emailDeliveryWarning(data?.emailDelivery) };
+    } catch {
+      return { ok: false as const, message: NETWORK_ERROR_MESSAGE };
     } finally {
       setActionLoading(false);
     }
@@ -236,11 +306,11 @@ export default function AdminInstitutionsPage() {
     const result = await performTransition(institutionId, targetStatus);
     setPendingRowAction(null);
     if (!result.ok) {
-      addToast({ type: "error", message: `Gagal: ${result.message}` });
+      addToast({ type: "error", message: result.message });
       return;
     }
     if (result.deliveryWarning) {
-      addToast({ type: "warning", message: result.deliveryWarning, duration: 0 });
+      addToast({ type: "error", message: result.deliveryWarning });
     }
     await fetchInstitutions();
   };
@@ -249,52 +319,118 @@ export default function AdminInstitutionsPage() {
     // Both actions PATCH to 'rejected' with a reason; only the institution's current status says
     // whether this is a first denial or the withdrawal of a badge already granted.
     const isRevocation = currentStatus === "verified";
+    const mainLabel = isRevocation ? "Cabut verifikasi" : "Tolak institusi";
     openModal({
-      title: isRevocation ? "Cabut verifikasi" : "Tolak institusi",
+      title: mainLabel,
+      wide: true,
+      formId: REJECT_INSTITUTION_FORM_ID,
       body: (
         <RejectInstitutionForm
           institutionId={id}
           displayName={displayName}
           isRevocation={isRevocation}
-          onClose={closeModal}
           onSuccess={() => void fetchInstitutions()}
         />
       ),
-      actions: [],
-      closeable: true,
+      actions: [{ label: "Batal" }, { label: mainLabel, variant: "primary" }],
     });
   };
 
-  const toggleAudit = async (rowId: string, institutionId: string) => {
-    const row = rows.find((r) => r.id === rowId);
-    if (!row) return;
-    setPendingRowAction(`audit:${rowId}`);
+  const updateRow = (rowId: string, patch: Partial<InstitutionRow>) => {
+    setRows((prev) => prev.map((r) => (r.id === rowId ? { ...r, ...patch } : r)));
+  };
 
-    if (row.auditExpanded && row.auditLog) {
-      setRows((prev) => prev.map((r) => (r.id === rowId ? { ...r, auditExpanded: false } : r)));
-      return;
-    }
-
+  // Deliberate: a history that cannot be read opens as an empty one, not as an error.
+  const fetchAuditEntries = async (institutionId: string): Promise<AuditEntry[]> => {
     try {
       const auditRes = await fetch(`/api/admin/institutions/${institutionId}/audit`);
-      if (auditRes.ok) {
-        const auditData: { entries: AuditEntry[] } = await auditRes.json();
-        setRows((prev) =>
-          prev.map((r) =>
-            r.id === rowId ? { ...r, auditExpanded: true, auditLog: auditData.entries } : r,
-          ),
-        );
-      } else {
-        setRows((prev) =>
-          prev.map((r) => (r.id === rowId ? { ...r, auditExpanded: true, auditLog: [] } : r)),
-        );
-      }
+      if (!auditRes.ok) return [];
+      const auditData: { entries: AuditEntry[] } = await auditRes.json();
+      return auditData.entries;
     } catch {
-      setRows((prev) =>
-        prev.map((r) => (r.id === rowId ? { ...r, auditExpanded: true, auditLog: [] } : r)),
-      );
+      return [];
     }
   };
+
+  const openAudit = async (rowId: string) => {
+    setPendingRowAction(`audit:${rowId}`);
+    const entries = await fetchAuditEntries(rowId);
+    updateRow(rowId, { auditExpanded: true, auditLog: entries });
+    setPendingRowAction(null);
+  };
+
+  const onAuditOpenChange = (rowId: string, isOpen: boolean) => {
+    if (isOpen) {
+      void openAudit(rowId);
+      return;
+    }
+    updateRow(rowId, { auditExpanded: false });
+  };
+
+  const buildInstitutionRow = (row: InstitutionRow): TableRowData => {
+    const transitions = AVAILABLE_TRANSITIONS[row.verificationStatus] ?? [];
+
+    return {
+      key: row.id,
+      open: row.auditExpanded === true,
+      onOpenChange: (isOpen) => onAuditOpenChange(row.id, isOpen),
+      cells: {
+        name: (
+          <>
+            {row.displayName}
+            <span className="ui-table-sub data-text">{row.slug}</span>
+          </>
+        ),
+        adminEmail: row.adminEmail,
+        status: (
+          <>
+            <span
+              className="status-badge"
+              data-status={verificationStatusTone(row.verificationStatus)}
+            >
+              {INSTITUTION_VERIFICATION_STATUS_LABELS[row.verificationStatus]}
+            </span>
+            {row.rejectionReason ? (
+              <div className="admin-rejection-reason">
+                <TableClamp>{row.rejectionReason}</TableClamp>
+              </div>
+            ) : null}
+          </>
+        ),
+        createdAt: <LocalDate value={row.createdAt} format="shortDate" />,
+        actions: (
+          <div className="table-actions">
+            {transitions.map((t) => (
+              <Button
+                key={t.targetStatus}
+                variant={t.targetStatus === "rejected" ? "outline" : "primary"}
+                size="sm"
+                loading={pendingRowAction === `transition:${row.id}:${t.targetStatus}`}
+                disabled={actionLoading}
+                onClick={() => {
+                  if (t.needsReason) {
+                    openRejectModal(row.id, row.displayName, row.verificationStatus);
+                  } else {
+                    void handleTransition(row.id, t.targetStatus);
+                  }
+                }}
+              >
+                {t.label}
+              </Button>
+            ))}
+          </div>
+        ),
+        audit: (
+          <TableExpandToggle loading={pendingRowAction === `audit:${row.id}`}>
+            Lihat log
+          </TableExpandToggle>
+        ),
+      },
+      band: <StatusHistory institutionName={row.displayName} entries={row.auditLog ?? []} />,
+    };
+  };
+
+  const institutionRows = rows.map(buildInstitutionRow);
 
   const totalPages = Math.ceil(total / 20);
 
@@ -303,14 +439,14 @@ export default function AdminInstitutionsPage() {
       <PageHeader
         title="Verifikasi institusi"
         description="Kelola transisi status dan jejak audit institusi terdaftar."
-        actions={<span className="status-badge data-text">{total} institusi</span>}
+        titleMark={
+          total > 0 ? <span className="status-badge data-text">{total} institusi</span> : null
+        }
       />
 
       {/* Filter */}
       <div className="admin-filter-toolbar glass-chrome">
-        <label htmlFor="institution-status-filter" className="form-label">
-          Filter
-        </label>
+        <FormLabel htmlFor="institution-status-filter">Filter</FormLabel>
         <SelectField
           id="institution-status-filter"
           label="Filter"
@@ -337,148 +473,31 @@ export default function AdminInstitutionsPage() {
         </div>
       )}
 
-      {!loading && rows.length === 0 && (
+      {!loading && rows.length === 0 && statusFilter === "" && (
         <EmptyState
-          icon="building"
-          title="Tidak ada institusi ditemukan."
+          kind="nothing-yet"
+          title="Belum ada institusi"
+          description="Institusi yang mendaftar akan muncul di sini."
+        />
+      )}
+
+      {!loading && rows.length === 0 && statusFilter !== "" && (
+        <EmptyState
+          kind="no-match"
+          title="Belum ada institusi yang cocok"
           description="Ubah filter status untuk melihat kelompok institusi lainnya."
+          action={{
+            label: "Bersihkan filter",
+            onSelect: () => {
+              setStatusFilter("");
+              setPage(1);
+            },
+          }}
         />
       )}
 
       {!loading && rows.length > 0 && (
-        <div className="table-scroll">
-          <table className="data-table admin-institutions-table">
-            <thead>
-              <tr>
-                <th>Nama</th>
-                <th>Admin email</th>
-                <th>Status</th>
-                <th>Terdaftar</th>
-                <th>Aksi</th>
-                <th>Audit</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => {
-                const transitions = AVAILABLE_TRANSITIONS[row.verificationStatus] ?? [];
-                return (
-                  <React.Fragment key={row.id}>
-                    <tr>
-                      <td>
-                        <strong>{row.displayName}</strong>
-                        <br />
-                        <span className="record-meta data-text">{row.slug}</span>
-                      </td>
-                      <td>{row.adminEmail ?? <em>–</em>}</td>
-                      <td>
-                        <span
-                          className="status-badge"
-                          data-status={
-                            row.verificationStatus === "verified"
-                              ? "open"
-                              : row.verificationStatus === "rejected"
-                                ? "closed"
-                                : row.verificationStatus === "pending_verification"
-                                  ? "closing"
-                                  : undefined
-                          }
-                        >
-                          {INSTITUTION_VERIFICATION_STATUS_LABELS[row.verificationStatus]}
-                        </span>
-                        {row.rejectionReason && (
-                          <div className="admin-rejection-reason">{row.rejectionReason}</div>
-                        )}
-                      </td>
-                      <td className="data-text">
-                        {new Date(row.createdAt).toLocaleDateString("id-ID")}
-                      </td>
-                      <td>
-                        {transitions.length === 0 ? (
-                          <em>–</em>
-                        ) : (
-                          <div className="table-actions">
-                            {transitions.map((t) => (
-                              <Button
-                                key={t.targetStatus}
-                                variant={t.targetStatus === "rejected" ? "danger" : "primary"}
-                                size="sm"
-                                loading={
-                                  pendingRowAction === `transition:${row.id}:${t.targetStatus}`
-                                }
-                                disabled={actionLoading}
-                                onClick={() => {
-                                  if (t.needsReason) {
-                                    openRejectModal(
-                                      row.id,
-                                      row.displayName,
-                                      row.verificationStatus,
-                                    );
-                                  } else {
-                                    void handleTransition(row.id, t.targetStatus);
-                                  }
-                                }}
-                              >
-                                {t.label}
-                              </Button>
-                            ))}
-                          </div>
-                        )}
-                      </td>
-                      <td>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          loading={pendingRowAction === `audit:${row.id}`}
-                          onClick={() => void toggleAudit(row.id, row.id)}
-                        >
-                          {row.auditExpanded ? "Sembunyikan" : "Lihat log"}
-                        </Button>
-                      </td>
-                    </tr>
-                    {row.auditExpanded && (
-                      <tr className="admin-audit-row">
-                        <td colSpan={6}>
-                          {!row.auditLog || row.auditLog.length === 0 ? (
-                            <em className="record-meta">Belum ada log audit.</em>
-                          ) : (
-                            <table className="data-table admin-audit-table">
-                              <thead>
-                                <tr>
-                                  <th>Dari</th>
-                                  <th>Ke</th>
-                                  <th>Alasan</th>
-                                  <th>Aktor</th>
-                                  <th>Waktu</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {row.auditLog.map((entry) => (
-                                  <tr key={entry.id}>
-                                    <td>
-                                      {INSTITUTION_VERIFICATION_STATUS_LABELS[entry.fromStatus]}
-                                    </td>
-                                    <td>
-                                      {INSTITUTION_VERIFICATION_STATUS_LABELS[entry.toStatus]}
-                                    </td>
-                                    <td>{entry.reason ?? "–"}</td>
-                                    <td className="data-text">{entry.actorUserId ?? "–"}</td>
-                                    <td className="data-text">
-                                      {new Date(entry.createdAt).toLocaleString("id-ID")}
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          )}
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <Table label="Institusi" columns={INSTITUTION_COLUMNS} rows={institutionRows} stacked />
       )}
 
       {/* Pagination */}

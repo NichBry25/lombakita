@@ -3,7 +3,7 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 assertServerOnly("server/finance/cancel-affordance");
 
 import { getDb, type Database } from "@/server/db/client";
-import { findTeamPaymentGroupAnchor, hasSubmittedPaymentProof } from "./paid-registration";
+import { findAnyTeamRegistrationRow, hasSubmittedPaymentProof } from "./paid-registration";
 
 // WHETHER THE CANCEL AFFORDANCE MAY BE OFFERED, for both registration modes at once (DEC-0131).
 //
@@ -19,7 +19,7 @@ import { findTeamPaymentGroupAnchor, hasSubmittedPaymentProof } from "./paid-reg
 
 export type CancelAffordanceInput = {
   /** The calling candidate's own individual registration, when they hold one. */
-  individualRegistration: { id: string; status: string } | null;
+  individualRegistration: { id: string; status: string; registrationType: string } | null;
   /** The team they belong to for this competition, when they belong to one. */
   team: { id: string; status: string } | null;
 };
@@ -27,6 +27,8 @@ export type CancelAffordanceInput = {
 export type CancelAffordanceState = {
   /** True when the individual cancel control must be WITHHELD. */
   individualCancellationClosed: boolean;
+  /** True when the individual cancel control must be WITHHELD because the row is a team row. */
+  teamRowCancellationClosed: boolean;
   /** True when the team cancel control must be WITHHELD. */
   teamCancellationClosed: boolean;
 };
@@ -50,9 +52,11 @@ export const resolveCancelAffordanceState = async (
       ? await hasSubmittedPaymentProof(input.individualRegistration.id, db)
       : false;
 
+  const teamRowCancellationClosed = input.individualRegistration?.registrationType === "team";
+
   const teamAnchorRegistrationId =
     input.team !== null && input.team.status === "submitted"
-      ? await findTeamPaymentGroupAnchor(input.team.id, db)
+      ? await findAnyTeamRegistrationRow(input.team.id, db)
       : null;
 
   const teamCancellationClosed =
@@ -60,5 +64,5 @@ export const resolveCancelAffordanceState = async (
       ? false
       : await hasSubmittedPaymentProof(teamAnchorRegistrationId, db);
 
-  return { individualCancellationClosed, teamCancellationClosed };
+  return { individualCancellationClosed, teamRowCancellationClosed, teamCancellationClosed };
 };

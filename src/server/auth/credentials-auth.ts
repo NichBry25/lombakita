@@ -6,6 +6,7 @@ import {
   UsernameGenerationError,
 } from "@/lib/username/generate";
 import { getDb, type Database } from "@/server/db/client";
+import { findPostgresDriverError } from "@/server/db/postgres-driver-error";
 import {
   candidateProfiles,
   recruiterVerificationSubmissions,
@@ -258,7 +259,7 @@ export const parseRegistrationInput = (payload: unknown): RegistrationInput => {
       candidateProfile = parseCandidateProfileInput(payload);
     } catch (error) {
       if (error instanceof CandidateProfileError) {
-        throw new CredentialsAuthError(error.code, 400, error.message);
+        throw new CredentialsAuthError(error.code, 400, error.message, error.details);
       }
       throw error;
     }
@@ -277,7 +278,7 @@ export const parseRegistrationInput = (payload: unknown): RegistrationInput => {
           error.code === "recruiter_verification_invalid_payload"
             ? ("recruiter_verification_invalid_payload" as const)
             : ("recruiter_verification_invalid_value" as const);
-        throw new CredentialsAuthError(code, 400, error.message);
+        throw new CredentialsAuthError(code, 400, error.message, error.details);
       }
       throw error;
     }
@@ -379,15 +380,10 @@ const usernameFailureError = (error: unknown, email: string): CredentialsAuthErr
   // would be misreported to the client as `email_exists`. The constraint
   // name is exposed as `constraint_name` (postgres.js) or `constraint`
   // (node-postgres); `detail` is a final fallback.
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: string }).code === "23505"
-  ) {
-    const pgError = error as { constraint_name?: string; constraint?: string; detail?: string };
-    const constraint = pgError.constraint_name ?? pgError.constraint ?? "";
-    const detail = pgError.detail ?? "";
+  const driverError = findPostgresDriverError(error);
+  if (driverError?.code === "23505") {
+    const constraint = driverError.constraint_name ?? driverError.constraint ?? "";
+    const detail = driverError.detail ?? "";
 
     if (constraint.includes("username") || detail.includes("username")) {
       logger.error("username.generation.collision", { email });
@@ -550,12 +546,7 @@ export const registerUserWithCredentials = async (
       throw usernameError;
     }
 
-    if (
-      typeof error === "object" &&
-      error !== null &&
-      "code" in error &&
-      (error as { code?: string }).code === "23505"
-    ) {
+    if (findPostgresDriverError(error)?.code === "23505") {
       throw new CredentialsAuthError(
         "email_exists",
         409,
@@ -923,8 +914,8 @@ export const verifyEmailCodeAndSetPassword = async (
 //
 // Enumeration note (flagged for security review): branching existing-vs-new inherently reveals
 // whether an email has an account — this is intrinsic to the owner-approved method-first UX. It
-// exposes nothing the existing register endpoint does not already leak (register returns 409
-// `email_exists` for a taken, verified email).
+// exposes nothing the register endpoint does not already answer (register returns 409
+// `email_exists` for a verified email and 409 `email_not_verified` for an unverified one).
 //
 // Rate limiting for THIS function is applied by its route (POST /api/v1/auth/identify), before the
 // classification runs. That is a statement about this classifier only, not about the file: the

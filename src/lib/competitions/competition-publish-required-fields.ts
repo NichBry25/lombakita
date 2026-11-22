@@ -3,6 +3,7 @@ export type CompetitionPublishFormValues = {
   description: string;
   category: string;
   mode: string;
+  location: string;
   registrationStartAt: string;
   registrationEndAt: string;
   eventStartAt: string;
@@ -20,6 +21,7 @@ const REQUIRED_PUBLISH_FIELDS: ReadonlyArray<{
   { field: "category", label: "Kategori" },
   // Mode remains an existing domain requirement because it determines how candidates register.
   { field: "mode", label: "Mode" },
+  { field: "location", label: "Lokasi" },
   { field: "registrationStartAt", label: "Pendaftaran mulai" },
   { field: "registrationEndAt", label: "Pendaftaran berakhir" },
   { field: "eventStartAt", label: "Acara mulai" },

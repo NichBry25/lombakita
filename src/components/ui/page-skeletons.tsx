@@ -25,7 +25,7 @@ function countTo(total: number) {
 function SkeletonPage({ label, className, children }: PageSkeletonProps & { children: ReactNode }) {
   return (
     <main
-      className={joinClassNames("page-shell app-page", className)}
+      className={joinClassNames("page-shell app-page skeleton-page", className)}
       aria-busy="true"
       aria-label={label}
     >
@@ -34,25 +34,18 @@ function SkeletonPage({ label, className, children }: PageSkeletonProps & { chil
   );
 }
 
-function SkeletonHeading({
-  withEyebrow = false,
-  withActions = false,
-}: {
-  withEyebrow?: boolean;
-  withActions?: boolean;
-}) {
+function SkeletonHeading({ withActions = false }: { withActions?: boolean }) {
   return (
     <header className="page-heading">
-      <div className="page-heading-main">
-        {withEyebrow ? <Skeleton variant="eyebrow" /> : null}
+      <div className="page-heading-title-row">
         <Skeleton variant="title" />
-        <Skeleton width="wide" />
+        {withActions ? (
+          <div className="page-heading-icon-action">
+            <Skeleton variant="button" />
+          </div>
+        ) : null}
       </div>
-      {withActions ? (
-        <div className="page-heading-actions">
-          <Skeleton variant="button" />
-        </div>
-      ) : null}
+      <Skeleton width="wide" />
     </header>
   );
 }
@@ -130,7 +123,7 @@ export function DetailPageSkeleton({
 }: PageSkeletonProps & { withRail?: boolean }) {
   return (
     <SkeletonPage label={label} className={className}>
-      <SkeletonHeading withEyebrow withActions />
+      <SkeletonHeading withActions />
       <div className={withRail ? "detail-layout" : undefined}>
         <div className="detail-main stack-lg">
           <Skeleton variant="media" />
@@ -214,5 +207,50 @@ export function PageShellSkeleton({ label = "Memuat halaman", className }: PageS
         <Skeleton variant="button" />
       </section>
     </SkeletonPage>
+  );
+}
+
+/**
+ * The sign-in frame: a brand panel beside a card, for the pages that render AuthPageFrame. A form
+ * page shows a title, its fields and the submit button; a state page (a confirmation or a notice)
+ * shows its icon, two lines and one button.
+ */
+export function AuthPageSkeleton({
+  label = "Memuat autentikasi",
+  variant = "form",
+  fields = 2,
+}: Pick<PageSkeletonProps, "label"> & { variant?: "form" | "state"; fields?: number }) {
+  return (
+    <main className="auth-page skeleton-page" aria-busy="true" aria-label={label}>
+      <section className="brand-band auth-context-panel">
+        <div className="stack-md">
+          <Skeleton variant="avatar" />
+          <div className="stack-sm">
+            <Skeleton variant="title" />
+            <Skeleton width="wide" />
+          </div>
+        </div>
+      </section>
+      <section className="auth-card">
+        {variant === "state" ? (
+          <div className="auth-state">
+            <Skeleton variant="avatar" />
+            <SkeletonTextLines lines={2} />
+            <Skeleton variant="button" />
+          </div>
+        ) : (
+          <div className="auth-form">
+            <Skeleton variant="title" />
+            {countTo(fields).map((index) => (
+              <div key={index} className="stack-xs">
+                <Skeleton width="narrow" />
+                <Skeleton variant="block" />
+              </div>
+            ))}
+            <Skeleton variant="button" />
+          </div>
+        )}
+      </section>
+    </main>
   );
 }

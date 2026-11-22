@@ -1,5 +1,6 @@
 import { and, count, eq, inArray, isNotNull, ne, or, sql } from "drizzle-orm";
 import { logger } from "@/lib/logger";
+import { toDialDigits } from "@/lib/competitions/organizer-contact";
 import { getDb, type Database } from "@/server/db/client";
 import {
   accounts,
@@ -11,6 +12,7 @@ import {
   competitionReviews,
   competitionSaves,
   competitionSubmissions,
+  competitions,
   financePaymentInstructionSnapshots,
   institutionInvitations,
   institutionMemberships,
@@ -816,6 +818,23 @@ const runDeidentificationWrites = async (
   // still names them.
   const retainedKeys = await findReferencedPaymentInstructionKeys(tx);
 
+  // Read BEFORE the host sign-up rows are deleted below. A sign-up number is never checked, so
+  // only an approved sign-up counts: a reviewer accepted it. A draft, pending or rejected one could
+  // name another host's number and clear that host's contact from every competition.
+  const ownSignupNumbers = await tx
+    .select({ mobileNumber: recruiterVerificationSubmissions.mobileNumber })
+    .from(recruiterVerificationSubmissions)
+    .where(
+      and(
+        eq(recruiterVerificationSubmissions.userId, accountId),
+        eq(recruiterVerificationSubmissions.status, "approved"),
+      ),
+    );
+  const ownContactDigits = ownSignupNumbers.flatMap((row) => {
+    const digits = toDialDigits(row.mobileNumber);
+    return digits === null ? [] : [digits];
+  });
+
   const flipped = await tx
     .update(users)
     .set({
@@ -1120,6 +1139,35 @@ const runDeidentificationWrites = async (
       .returning({ id: competitionReviews.id }),
   );
 
+  // The public contact of every competition that shows this person's own address or one of their
+  // own approved sign-up numbers, whichever institution runs it. A contact that matches neither
+  // stays.
+  // Nobody is told, so the audit row names every competition and institution it touched.
+  const ownEmailContact = and(
+    eq(competitions.organizerContactKind, "email"),
+    sql`lower(${competitions.organizerContactValue}) = lower(${facts.originalEmail})`,
+  );
+  const ownNumberContact =
+    ownContactDigits.length === 0
+      ? undefined
+      : and(
+          inArray(competitions.organizerContactKind, ["whatsapp", "phone"]),
+          inArray(competitions.organizerContactValue, ownContactDigits),
+        );
+  let clearedOrganizerContacts: { competitionId: string; institutionId: string }[] = [];
+  await scrubIn("competitions", async () => {
+    const clearedRows = await tx
+      .update(competitions)
+      .set({ organizerContactKind: null, organizerContactValue: null, updatedAt: sql`now()` })
+      .where(or(ownEmailContact, ownNumberContact))
+      .returning({ id: competitions.id, institutionId: competitions.institutionId });
+    clearedOrganizerContacts = clearedRows.map((row) => ({
+      competitionId: row.id,
+      institutionId: row.institutionId,
+    }));
+    return clearedRows;
+  });
+
   // Revoked, not deleted: the membership row is what tells a reader the institution once had this
   // owner, and deleting it is what the `preflight-owners` predicate exists to prevent elsewhere.
   await scrubIn("institution_memberships", () =>
@@ -1218,6 +1266,7 @@ const runDeidentificationWrites = async (
       rowsDeleted,
       rowsScrubbed,
       personalInstitutionId,
+      clearedOrganizerContacts,
     },
   });
 

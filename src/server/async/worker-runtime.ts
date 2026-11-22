@@ -24,6 +24,7 @@ import { getQueueRegistrations, getRegisteredQueueNames } from "@/server/async/r
 import { registerRetentionPurgeSchedule } from "@/server/async/retention-scheduler";
 import { registerPaymentExpirySchedule } from "@/server/async/payment-expiry-scheduler";
 import { registerEmailEgressSchedule } from "@/server/async/email-egress-scheduler";
+import { registerTeamCloseCheckSchedule } from "@/server/async/team-close-check-scheduler";
 import { captureWorkerJobFailure } from "@/server/observability/worker-sentry";
 import { createBullmqRedisClient } from "@/server/redis/client";
 
@@ -260,6 +261,16 @@ export const createAsyncWorkerRuntime = (): AsyncWorkerRuntime => {
       await registerEmailEgressSchedule();
     } catch (error) {
       logger.error("Email egress schedule registration failed", {
+        detail: toSafeErrorMessage(error),
+      });
+    }
+
+    // Its own try, on the same reasoning as the blocks above: the team close check is unrelated to
+    // the other scheduled jobs.
+    try {
+      await registerTeamCloseCheckSchedule();
+    } catch (error) {
+      logger.error("Team close check schedule registration failed", {
         detail: toSafeErrorMessage(error),
       });
     }

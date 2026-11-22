@@ -1,8 +1,5 @@
-import {
-  SESSION_MISMATCH_CODE,
-  SESSION_MISMATCH_MESSAGE,
-  sessionFetch,
-} from "@/lib/session/session-fetch";
+import { errorMessageFor } from "@/lib/errors/error-copy";
+import { sessionFetch } from "@/lib/session/session-fetch";
 import { PROFILE_FILE_RULES, type ProfileFileKind } from "@/server/user-profile/profile-files-core";
 
 export type UploadOutcome = { ok: true } | { ok: false; message: string };
@@ -10,19 +7,22 @@ export type UploadOutcome = { ok: true } | { ok: false; message: string };
 const MESSAGES = {
   profile_file_type_not_allowed: "Tipe berkas tidak didukung.",
   profile_file_too_large: "Ukuran berkas melebihi batas.",
-  profile_file_unavailable: "Penyimpanan berkas belum dikonfigurasi. Coba lagi nanti.",
-  [SESSION_MISMATCH_CODE]: SESSION_MISMATCH_MESSAGE,
+  profile_file_unavailable: "Unggahan berkas sedang tidak tersedia. Coba lagi nanti.",
+  profile_file_invalid_key: "Unggahan tidak cocok dengan akun ini. Unggah ulang berkas Anda.",
+  profile_file_not_found: "Sertifikat ini sudah tidak ada. Muat ulang halaman.",
+  rate_limited: "Terlalu banyak permintaan unggah. Coba lagi dalam beberapa menit.",
 };
 
-const messageFor = (data: { error?: { code?: string; message?: string } }): string => {
-  const code = data.error?.code;
-  const mapped = code ? (MESSAGES as Record<string, string>)[code] : undefined;
-  return mapped ?? data.error?.message ?? "Terjadi kesalahan. Coba lagi.";
-};
+const PROFILE_FILE_UPLOAD_FALLBACK = "Gagal mengunggah berkas. Coba lagi.";
+export const PROFILE_FILE_REMOVE_FALLBACK = "Gagal menghapus berkas. Coba lagi.";
+export const RESUME_VISIBILITY_FALLBACK = "Gagal mengubah visibilitas resume. Coba lagi.";
+
+const messageFor = (data: { error?: { code?: string } }, fallback: string): string =>
+  errorMessageFor(data.error?.code, MESSAGES, fallback);
 
 const readJson = async (
   res: Response,
-): Promise<{ error?: { code?: string; message?: string } } & Record<string, unknown>> => {
+): Promise<{ error?: { code?: string } } & Record<string, unknown>> => {
   try {
     return await res.json();
   } catch {
@@ -60,7 +60,7 @@ export async function uploadProfileFile(
   }).catch(() => null);
   if (!urlRes) return { ok: false, message: "Gagal terhubung ke server." };
   const urlData = await readJson(urlRes);
-  if (!urlRes.ok) return { ok: false, message: messageFor(urlData) };
+  if (!urlRes.ok) return { ok: false, message: messageFor(urlData, PROFILE_FILE_UPLOAD_FALLBACK) };
 
   const uploadUrl = urlData.uploadUrl as string | undefined;
   const fileKey = urlData.fileKey as string | undefined;
@@ -87,7 +87,9 @@ export async function uploadProfileFile(
   }).catch(() => null);
   if (!recordRes) return { ok: false, message: "Gagal terhubung ke server." };
   const recordData = await readJson(recordRes);
-  if (!recordRes.ok) return { ok: false, message: messageFor(recordData) };
+  if (!recordRes.ok) {
+    return { ok: false, message: messageFor(recordData, PROFILE_FILE_UPLOAD_FALLBACK) };
+  }
 
   return { ok: true };
 }
@@ -97,11 +99,12 @@ export async function ownerFetch(
   expectedUserId: string,
   path: string,
   init: RequestInit,
+  fallback: string,
 ): Promise<UploadOutcome> {
   const res = await sessionFetch(expectedUserId, `/api/v1/users/me/profile${path}`, init).catch(
     () => null,
   );
   if (!res) return { ok: false, message: "Gagal terhubung ke server." };
-  if (!res.ok) return { ok: false, message: messageFor(await readJson(res)) };
+  if (!res.ok) return { ok: false, message: messageFor(await readJson(res), fallback) };
   return { ok: true };
 }

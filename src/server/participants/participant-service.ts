@@ -1,12 +1,13 @@
-// Reads across three table groups:
+// Reads across four table groups:
 //   1. competitions + competitionRegistrations — main data and institution ownership verification
 //   2. teams + teamMemberships + users + userProfiles — participant identity and team info
 //   3. competitionSubmissions — submission presence and finalization state
+//   4. teamInvitations: the teammates of a registered free team who have not joined, never an address
 // Access invariant: competitions.institution_id must equal institutionId before any data is returned.
 // Cross-institution competitionId (IDOR) collapses to an empty result — same no-leak pattern as
 // assertCompetitionInInstitution in competition-service.ts.
 
-import { and, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, or, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { getDb, type Database } from "@/server/db/client";
 import {
@@ -15,10 +16,16 @@ import {
   competitionSubmissions,
   teams,
   teamMemberships,
+  teamInvitations,
   userProfiles,
   users,
   type CompetitionRegistrationReviewStatus,
 } from "@/server/db/schema";
+import { isPaidCompetition } from "@/lib/competitions/paid-competition";
+import {
+  isPublishedAndNotCancelledOrDeleted,
+  registeredTeamCondition,
+} from "@/server/teams/registered-team";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/participants/participant-service");
@@ -60,6 +67,9 @@ export type ParticipantRecord = {
       username: string;
       isCaptain: boolean;
     }>;
+    // Invites of a registered free team not yet answered. A null username is an invite to an email
+    // with no account, and the address is never read.
+    pendingTeammates: Array<{ invitationId: string; username: string | null }>;
   } | null;
   submission: SubmissionView | null;
   // Institution-internal review state — never returned to candidates.
@@ -110,6 +120,39 @@ const EMPTY_RESULT: ParticipantListResult = {
   counts: EMPTY_COUNTS,
 };
 
+const loadPendingTeammatesByTeam = async (
+  db: Database,
+  teamIds: string[],
+  now: Date,
+): Promise<Map<string, Array<{ invitationId: string; username: string | null }>>> => {
+  const rows = await db
+    .select({
+      teamId: teamInvitations.teamId,
+      invitationId: teamInvitations.id,
+      username: users.username,
+    })
+    .from(teamInvitations)
+    .innerJoin(teams, eq(teams.id, teamInvitations.teamId))
+    .leftJoin(users, eq(users.id, teamInvitations.targetUserId))
+    .where(
+      and(
+        inArray(teamInvitations.teamId, teamIds),
+        inArray(teamInvitations.status, ["pending", "pending_claim"]),
+        gt(teamInvitations.expiresAt, now),
+        registeredTeamCondition(),
+      ),
+    )
+    .orderBy(teamInvitations.createdAt);
+
+  const pendingByTeam = new Map<string, Array<{ invitationId: string; username: string | null }>>();
+  for (const row of rows) {
+    const teammates = pendingByTeam.get(row.teamId) ?? [];
+    teammates.push({ invitationId: row.invitationId, username: row.username });
+    pendingByTeam.set(row.teamId, teammates);
+  }
+  return pendingByTeam;
+};
+
 export const listCompetitionParticipants = async (
   institutionId: string,
   competitionId: string,
@@ -118,12 +161,21 @@ export const listCompetitionParticipants = async (
 ): Promise<ParticipantListResult> => {
   // Ownership check: collapse to empty result on mismatch (no info leak).
   const [comp] = await db
-    .select({ id: competitions.id })
+    .select({
+      id: competitions.id,
+      status: competitions.status,
+      cancelledAt: competitions.cancelledAt,
+      deletedAt: competitions.deletedAt,
+      feeAmount: competitions.feeAmount,
+    })
     .from(competitions)
     .where(and(eq(competitions.id, competitionId), eq(competitions.institutionId, institutionId)))
     .limit(1);
 
   if (!comp) return EMPTY_RESULT;
+
+  const showsPendingTeammates =
+    isPublishedAndNotCancelledOrDeleted(comp) && !isPaidCompetition(comp.feeAmount);
 
   const page = resolvePage(filters.page);
   const limit = resolveLimit(filters.limit);
@@ -261,6 +313,11 @@ export const listCompetitionParticipants = async (
     }
   }
 
+  const pendingByTeam =
+    showsPendingTeammates && teamIds.length > 0
+      ? await loadPendingTeammatesByTeam(db, teamIds, new Date())
+      : new Map<string, Array<{ invitationId: string; username: string | null }>>();
+
   // Map raw DB rows to the ParticipantRecord shape.
   const participants: ParticipantRecord[] = dataRows.map((row) => {
     const submission: SubmissionView | null =
@@ -287,6 +344,7 @@ export const listCompetitionParticipants = async (
           captainDisplayName: row.captainDisplayName ?? null,
           activeMemberCount: members.length,
           members,
+          pendingTeammates: pendingByTeam.get(row.teamId!) ?? [],
         },
         submission,
         internalReviewStatus: row.internalReviewStatus,

@@ -1,12 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactElement } from "react";
+import { PALM_INK, PAIRS } from "@/components/home/memphis-palette";
 
 /*
  * Neo-Memphis / Y2K decorative panel for the homepage hero. Purely presentational
  * (aria-hidden). A dense grid of mixed-size tiles (1x1, 2x1, 1x2, 2x2 and L-shaped)
- * sits on the deep-palm hero; palm shows through wherever a tile is empty.
+ * sits on the deep-palm hero; palm shows through wherever a tile is empty. The grid fills its
+ * panel edge to edge: its column and row counts follow the panel's measured size, so the
+ * layout is built on the client once the panel has a size.
  *
  * Behaviours:
  *  - Idle: on each tick a few filled tiles empty and a few empty tiles fill with a
@@ -16,44 +19,6 @@ import type { CSSProperties, ReactElement } from "react";
  *    the whole grid drifts a few pixels toward the cursor (per-tile depth = parallax).
  * Both are suppressed under prefers-reduced-motion, where every tile stays visible.
  */
-
-const PALM = "#14453d";
-const PALM_INK = "#0e332d";
-const TANGERINE = "#f4632a";
-const TERRACOTTA = "#c6491b";
-const PAPER = "#fbf6eb";
-const LIME = "#d0f05e";
-const LIME_DEEP = "#9db53c";
-const PEACH = "#ffd3b0";
-const BLUSH = "#ffe9da";
-const MIST = "#e4ede4";
-
-/*
- * Curated ground/ink pairs, drawn only from the brand book palette (Brand Book
- * v2 — docs/product/ui-preferences.md). Every pair keeps the motif legible on
- * its ground.
- */
-type ColorPair = { ground: string; ink: string };
-const PAIRS: ColorPair[] = [
-  { ground: LIME, ink: PALM },
-  { ground: LIME, ink: TANGERINE },
-  { ground: LIME, ink: TERRACOTTA },
-  { ground: TANGERINE, ink: PALM },
-  { ground: TANGERINE, ink: PAPER },
-  { ground: PALM, ink: LIME },
-  { ground: PALM, ink: PEACH },
-  { ground: PEACH, ink: TERRACOTTA },
-  { ground: PEACH, ink: PALM },
-  { ground: PAPER, ink: TERRACOTTA },
-  { ground: PAPER, ink: TANGERINE },
-  { ground: TERRACOTTA, ink: PAPER },
-  { ground: BLUSH, ink: TERRACOTTA },
-  { ground: BLUSH, ink: PALM },
-  { ground: MIST, ink: PALM },
-  { ground: PALM_INK, ink: LIME },
-  { ground: LIME_DEEP, ink: PALM_INK },
-  { ground: TANGERINE, ink: PALM_INK },
-];
 
 /*
  * Motifs 0-8 are single objects (kept square, centred in the tile); motifs 9-14 are
@@ -73,30 +38,135 @@ const L_TR = "polygon(0 0, 100% 0, 100% 50%, 50% 50%, 50% 100%, 0 100%)";
 const L_BL = "polygon(50% 0, 100% 0, 100% 100%, 0 100%, 0 50%, 50% 50%)";
 const L_CLIPS = [L_BR, L_TL, L_TR, L_BL];
 
-const GRID_SIZE = 9;
+const CELL_TARGET_PX = 60;
+const MIN_FILLED_SHARE = 0.8;
+const INITIAL_EMPTY_SHARE = 0.1;
+const INITIAL_EMPTY_EVERY = 7;
+
+const CLEARING_MARGIN_PX = 48;
+const CLEARING_POINT_DEPTH_PX = 120;
+const CLEARING_ATTRIBUTE = "data-hero-clearing";
 
 type Cell = { col: number; row: number; w: number; h: number; depth: number; clip?: string };
+type GridShape = { columns: number; rows: number };
+type Box = { left: number; top: number; right: number; bottom: number };
+type CellSize = { width: number; height: number };
+type GridGeometry = { shape: GridShape; outsideClearing: boolean[] };
+
+function shapeFromPanelSize(width: number, height: number): GridShape | null {
+  const columns = Math.round(width / CELL_TARGET_PX);
+  const rows = Math.round(height / CELL_TARGET_PX);
+  if (columns < 1 || rows < 1) return null;
+  return { columns, rows };
+}
+
+function isSameGeometry(a: GridGeometry | null, b: GridGeometry | null): boolean {
+  if (a === null || b === null) return a === b;
+  if (a.shape.columns !== b.shape.columns || a.shape.rows !== b.shape.rows) return false;
+  return a.outsideClearing.every((outside, index) => outside === b.outsideClearing[index]);
+}
 
 /*
- * Tile the square grid deterministically: scan cells row-major and drop the first
- * shape that fits into the top-left-most free cell, biased toward 2x1/1x2/2x2 pieces
- * with 1x1 as the always-available fallback. Row-major greedy placement can never get
- * stuck, so the pieces always cover the grid exactly with no gaps or overflow. A fixed
- * seed keeps the layout identical on server and client (no hydration mismatch); every
- * other 2x2 is clipped into an L-shape, palm showing through the notch.
+ * The clearing is a hexagon around the box that holds the heading and the search bar: flat top
+ * and bottom edges CLEARING_MARGIN_PX away from the box, and left and right edges that start
+ * CLEARING_MARGIN_PX out at the top and bottom and bend outward to a point at the box's vertical
+ * middle, CLEARING_POINT_DEPTH_PX further out.
  */
-function buildLayout(size: number): Cell[] {
-  const occupied = new Array<boolean>(size * size).fill(false);
-  const at = (row: number, col: number) => row * size + col;
+function clearingSpanAt(clearing: Box, y: number): { left: number; right: number } {
+  const zoneTop = clearing.top - CLEARING_MARGIN_PX;
+  const middle = (clearing.top + clearing.bottom) / 2;
+  const distanceFromEdgeToMiddle = middle - zoneTop;
+  const closenessToPoint = 1 - Math.abs(y - middle) / distanceFromEdgeToMiddle;
+  const outward = CLEARING_MARGIN_PX + CLEARING_POINT_DEPTH_PX * closenessToPoint;
+  return { left: clearing.left - outward, right: clearing.right + outward };
+}
 
-  let seed = 0x9e3779b1;
+// Touching the zone's edge is not overlapping it. The zone is widest at the box's vertical middle,
+// so the row of the cell nearest that middle is the one where the cell reaches furthest in.
+function cellOverlapsClearing(cell: Box, clearing: Box): boolean {
+  const zoneTop = clearing.top - CLEARING_MARGIN_PX;
+  const zoneBottom = clearing.bottom + CLEARING_MARGIN_PX;
+  const overlapTop = Math.max(cell.top, zoneTop);
+  const overlapBottom = Math.min(cell.bottom, zoneBottom);
+  if (overlapTop >= overlapBottom) return false;
+
+  const middle = (clearing.top + clearing.bottom) / 2;
+  const nearestY = Math.min(Math.max(middle, overlapTop), overlapBottom);
+  const span = clearingSpanAt(clearing, nearestY);
+  return cell.right > span.left && cell.left < span.right;
+}
+
+/*
+ * Reports, per grid unit in row-major order, whether the unit lies wholly outside the clearing.
+ * The box is in the field's own coordinates, in pixels.
+ */
+export function findGridUnitsOutsideClearing({
+  columns,
+  rows,
+  cellSize,
+  clearing,
+}: GridShape & { cellSize: CellSize; clearing: Box }): boolean[] {
+  return Array.from({ length: columns * rows }, (_, index) => {
+    const col = index % columns;
+    const row = Math.floor(index / columns);
+    const cell: Box = {
+      left: col * cellSize.width,
+      top: row * cellSize.height,
+      right: (col + 1) * cellSize.width,
+      bottom: (row + 1) * cellSize.height,
+    };
+    return !cellOverlapsClearing(cell, clearing);
+  });
+}
+
+function measureGridGeometry(field: HTMLElement): GridGeometry | null {
+  const fieldRect = field.getBoundingClientRect();
+  const shape = shapeFromPanelSize(fieldRect.width, fieldRect.height);
+  if (!shape) return null;
+
+  const clearingElement = field.parentElement?.querySelector(`[${CLEARING_ATTRIBUTE}]`);
+  if (!clearingElement) {
+    return { shape, outsideClearing: new Array<boolean>(shape.columns * shape.rows).fill(true) };
+  }
+
+  const clearingRect = clearingElement.getBoundingClientRect();
+  const outsideClearing = findGridUnitsOutsideClearing({
+    ...shape,
+    cellSize: { width: fieldRect.width / shape.columns, height: fieldRect.height / shape.rows },
+    clearing: {
+      left: clearingRect.left - fieldRect.left,
+      top: clearingRect.top - fieldRect.top,
+      right: clearingRect.right - fieldRect.left,
+      bottom: clearingRect.bottom - fieldRect.top,
+    },
+  });
+  return { shape, outsideClearing };
+}
+
+/*
+ * Tile the grid deterministically: scan cells row-major and drop the first shape that
+ * fits into the top-left-most free cell, biased toward 2x1/1x2/2x2 pieces with 1x1 as
+ * the always-available fallback. Units inside the clearing are marked occupied first, so no
+ * piece covers them and the clearing's edge is a staircase of whole units. Row-major greedy
+ * placement can never get stuck, so the pieces always cover every unit outside the clearing
+ * exactly with no gaps or overflow. The seed makes a layout repeatable for one panel size and
+ * clearing; every other 2x2 is clipped into an L-shape, palm showing through the notch.
+ */
+function buildTileLayout(
+  { shape: { columns, rows }, outsideClearing }: GridGeometry,
+  layoutSeed: number,
+): Cell[] {
+  const occupied = outsideClearing.map((outside) => !outside);
+  const at = (row: number, col: number) => row * columns + col;
+
+  let seed = layoutSeed >>> 0;
   const nextRandom = () => {
     seed = (seed * 1664525 + 1013904223) >>> 0;
     return seed / 0xffffffff;
   };
 
   const fits = (row: number, col: number, w: number, h: number) => {
-    if (row + h > size || col + w > size) return false;
+    if (row + h > rows || col + w > columns) return false;
     for (let dr = 0; dr < h; dr += 1) {
       for (let dc = 0; dc < w; dc += 1) {
         if (occupied[at(row + dr, col + dc)]) return false;
@@ -108,8 +178,8 @@ function buildLayout(size: number): Cell[] {
   const cells: Cell[] = [];
   let bigTileCount = 0;
 
-  for (let row = 0; row < size; row += 1) {
-    for (let col = 0; col < size; col += 1) {
+  for (let row = 0; row < rows; row += 1) {
+    for (let col = 0; col < columns; col += 1) {
       if (occupied[at(row, col)]) continue;
 
       const larger: Array<[number, number]> = [];
@@ -148,22 +218,39 @@ function buildLayout(size: number): Cell[] {
   return cells;
 }
 
-const LAYOUT: Cell[] = buildLayout(GRID_SIZE);
-
 function motifPoolFor(cell: Cell): number[] {
   return cell.clip ? FILL_MOTIFS : ALL_MOTIFS;
 }
 
+function cellArea(cell: Cell): number {
+  return cell.w * cell.h;
+}
+
+function totalCellArea(layout: Cell[]): number {
+  return layout.reduce((sum, cell) => sum + cellArea(cell), 0);
+}
+
 type TileState = { filled: boolean; motif: number; pair: number };
 
-const INITIAL_TILES: TileState[] = LAYOUT.map((cell, index) => {
-  const pool = motifPoolFor(cell);
-  return {
-    filled: index % 3 === 0,
-    motif: pool[(index * 7) % pool.length] ?? pool[0] ?? 0,
-    pair: (index * 5) % PAIRS.length,
-  };
-});
+// Every tile starts filled except a scattered few, whose combined area stays within
+// INITIAL_EMPTY_SHARE of the grid, so the panel is never sparse.
+function buildInitialTiles(layout: Cell[]): TileState[] {
+  const emptyAreaBudget = totalCellArea(layout) * INITIAL_EMPTY_SHARE;
+  let emptiedArea = 0;
+
+  return layout.map((cell, index) => {
+    const pool = motifPoolFor(cell);
+    const isEmptyCandidate = index % INITIAL_EMPTY_EVERY === INITIAL_EMPTY_EVERY - 1;
+    const fitsEmptyBudget = emptiedArea + cellArea(cell) <= emptyAreaBudget;
+    const filled = !(isEmptyCandidate && fitsEmptyBudget);
+    if (!filled) emptiedArea += cellArea(cell);
+    return {
+      filled,
+      motif: pool[(index * 7) % pool.length] ?? pool[0] ?? 0,
+      pair: (index * 5) % PAIRS.length,
+    };
+  });
+}
 
 const BLINK_INTERVAL_MS = 500;
 const SWAPS_PER_TICK = 3;
@@ -357,18 +444,43 @@ function renderMotif(motif: number, ink: string): ReactElement {
   }
 }
 
-export function MemphisHeroArt(): ReactElement {
-  const gridRef = useRef<HTMLDivElement>(null);
+type RelocatedTiles = { layout: Cell[]; tiles: TileState[] };
+
+export function MemphisHeroArt({ layoutSeed }: { layoutSeed: number }): ReactElement {
+  const panelRef = useRef<HTMLDivElement>(null);
   const driftFrameRef = useRef<number | null>(null);
   const hoveredRef = useRef<number | null>(null);
-  const [tiles, setTiles] = useState<TileState[]>(INITIAL_TILES);
+  const [gridGeometry, setGridGeometry] = useState<GridGeometry | null>(null);
+  const [relocated, setRelocated] = useState<RelocatedTiles | null>(null);
   const [hovered, setHovered] = useState<number | null>(null);
   const [reducedMotion, setReducedMotion] = useState(false);
-  // The panel is hidden below the mobile breakpoint (see .home-memphis in globals.css). CSS alone
+  // The panel is hidden at 1199px and below (see .home-memphis in globals.css). CSS alone
   // would stop it being seen but not being computed — the tick below would keep re-rendering the
   // whole tile grid off-screen, on the devices least able to afford it. This mirrors the
   // reduced-motion query so both conditions silence the same interval.
   const [isNarrow, setIsNarrow] = useState(false);
+
+  const layout = useMemo(
+    () => (gridGeometry ? buildTileLayout(gridGeometry, layoutSeed) : []),
+    [gridGeometry, layoutSeed],
+  );
+  const initialTiles = useMemo(() => buildInitialTiles(layout), [layout]);
+  const tiles = relocated && relocated.layout === layout ? relocated.tiles : initialTiles;
+
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+    const observer = new ResizeObserver(() => {
+      const nextGeometry = measureGridGeometry(panel);
+      setGridGeometry((current) =>
+        isSameGeometry(current, nextGeometry) ? current : nextGeometry,
+      );
+    });
+    observer.observe(panel);
+    const clearingElement = panel.parentElement?.querySelector(`[${CLEARING_ATTRIBUTE}]`);
+    if (clearingElement) observer.observe(clearingElement);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     const query = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -379,7 +491,7 @@ export function MemphisHeroArt(): ReactElement {
   }, []);
 
   useEffect(() => {
-    const query = window.matchMedia("(max-width: 760px)");
+    const query = window.matchMedia("(max-width: 1199px)");
     const sync = () => setIsNarrow(query.matches);
     sync();
     query.addEventListener("change", sync);
@@ -387,12 +499,15 @@ export function MemphisHeroArt(): ReactElement {
   }, []);
 
   useEffect(() => {
-    if (reducedMotion || isNarrow) return;
+    if (reducedMotion || isNarrow || layout.length === 0) return;
     const id = window.setInterval(() => {
-      setTiles((prev) => relocateTiles(prev, hoveredRef.current));
+      setRelocated((current) => {
+        const currentTiles = current && current.layout === layout ? current.tiles : initialTiles;
+        return { layout, tiles: relocateTiles(layout, currentTiles, hoveredRef.current) };
+      });
     }, BLINK_INTERVAL_MS);
     return () => window.clearInterval(id);
-  }, [reducedMotion, isNarrow]);
+  }, [reducedMotion, isNarrow, layout, initialTiles]);
 
   function trackHover(index: number) {
     hoveredRef.current = index;
@@ -400,30 +515,37 @@ export function MemphisHeroArt(): ReactElement {
   }
 
   function driftToCursor(clientX: number, clientY: number) {
-    const grid = gridRef.current;
-    if (!grid) return;
-    const rect = grid.getBoundingClientRect();
+    const panel = panelRef.current;
+    if (!panel) return;
+    const rect = panel.getBoundingClientRect();
     const offsetX = (clientX - rect.left) / rect.width - 0.5;
     const offsetY = (clientY - rect.top) / rect.height - 0.5;
     if (driftFrameRef.current) cancelAnimationFrame(driftFrameRef.current);
     driftFrameRef.current = requestAnimationFrame(() => {
-      grid.style.setProperty("--drift-x", `${offsetX * DRIFT_RANGE_PX}px`);
-      grid.style.setProperty("--drift-y", `${offsetY * DRIFT_RANGE_PX}px`);
+      panel.style.setProperty("--drift-x", `${offsetX * DRIFT_RANGE_PX}px`);
+      panel.style.setProperty("--drift-y", `${offsetY * DRIFT_RANGE_PX}px`);
     });
   }
 
   function resetDrift() {
     hoveredRef.current = null;
     setHovered(null);
-    const grid = gridRef.current;
-    if (!grid) return;
-    grid.style.setProperty("--drift-x", "0px");
-    grid.style.setProperty("--drift-y", "0px");
+    const panel = panelRef.current;
+    if (!panel) return;
+    panel.style.setProperty("--drift-x", "0px");
+    panel.style.setProperty("--drift-y", "0px");
   }
+
+  const gridTemplate: CSSProperties | undefined = gridGeometry
+    ? {
+        gridTemplateColumns: `repeat(${gridGeometry.shape.columns}, minmax(0, 1fr))`,
+        gridTemplateRows: `repeat(${gridGeometry.shape.rows}, minmax(0, 1fr))`,
+      }
+    : undefined;
 
   return (
     <div
-      ref={gridRef}
+      ref={panelRef}
       className="home-memphis"
       aria-hidden="true"
       onMouseMove={
@@ -431,41 +553,49 @@ export function MemphisHeroArt(): ReactElement {
       }
       onMouseLeave={reducedMotion ? undefined : resetDrift}
     >
-      {tiles.map((tile, index) => {
-        const cell = LAYOUT[index];
-        const pair = PAIRS[tile.pair];
-        if (!cell || !pair) return null;
-        const shown = reducedMotion || tile.filled || hovered === index;
-        return (
-          <div
-            key={index}
-            className="home-memphis-tile"
-            style={
-              {
-                gridColumn: `${cell.col} / span ${cell.w}`,
-                gridRow: `${cell.row} / span ${cell.h}`,
-                "--tile-depth": cell.depth,
-              } as CSSProperties
-            }
-            onMouseEnter={reducedMotion ? undefined : () => trackHover(index)}
-          >
-            <span
-              className="home-memphis-fill"
-              data-active={shown}
-              style={{ background: pair.ground, clipPath: cell.clip }}
+      <div className="home-memphis-grid" style={gridTemplate}>
+        {tiles.map((tile, index) => {
+          const cell = layout[index];
+          const pair = PAIRS[tile.pair];
+          if (!cell || !pair) return null;
+          const shown = reducedMotion || tile.filled || hovered === index;
+          return (
+            <div
+              key={index}
+              className="home-memphis-tile"
+              style={
+                {
+                  gridColumn: `${cell.col} / span ${cell.w}`,
+                  gridRow: `${cell.row} / span ${cell.h}`,
+                  "--tile-depth": cell.depth,
+                } as CSSProperties
+              }
+              onMouseEnter={reducedMotion ? undefined : () => trackHover(index)}
             >
-              <span className="home-memphis-art" data-fill={isFillMotif(tile.motif)}>
-                {renderMotif(tile.motif, pair.ink)}
+              <span
+                className="home-memphis-fill"
+                data-active={shown}
+                style={{ background: pair.ground, clipPath: cell.clip }}
+              >
+                <span className="home-memphis-art" data-fill={isFillMotif(tile.motif)}>
+                  {renderMotif(tile.motif, pair.ink)}
+                </span>
               </span>
-            </span>
-          </div>
-        );
-      })}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
 
-function relocateTiles(prev: TileState[], hoveredIndex: number | null): TileState[] {
+// Fills a few empty tiles first, then empties a few filled ones, but never empties a tile
+// when that would take the filled area below MIN_FILLED_SHARE of the grid.
+function relocateTiles(
+  layout: Cell[],
+  prev: TileState[],
+  hoveredIndex: number | null,
+): TileState[] {
   const next = prev.map((tile) => ({ ...tile }));
   const filled: number[] = [];
   const empty: number[] = [];
@@ -474,22 +604,33 @@ function relocateTiles(prev: TileState[], hoveredIndex: number | null): TileStat
     (tile.filled ? filled : empty).push(index);
   });
 
-  for (let swap = 0; swap < SWAPS_PER_TICK && filled.length > 0; swap += 1) {
-    const [target] = filled.splice(randomIndex(filled.length), 1);
-    if (target === undefined) continue;
-    const tile = next[target];
-    if (tile) tile.filled = false;
-  }
-
   for (let swap = 0; swap < SWAPS_PER_TICK && empty.length > 0; swap += 1) {
     const [target] = empty.splice(randomIndex(empty.length), 1);
     if (target === undefined) continue;
     const tile = next[target];
-    const cell = LAYOUT[target];
+    const cell = layout[target];
     if (!tile || !cell) continue;
     tile.filled = true;
     tile.motif = pick(motifPoolFor(cell));
     tile.pair = randomIndex(PAIRS.length);
+  }
+
+  let filledArea = 0;
+  next.forEach((tile, index) => {
+    const cell = layout[index];
+    if (tile.filled && cell) filledArea += cellArea(cell);
+  });
+  const minFilledArea = Math.ceil(totalCellArea(layout) * MIN_FILLED_SHARE);
+
+  for (let swap = 0; swap < SWAPS_PER_TICK && filled.length > 0; swap += 1) {
+    const [target] = filled.splice(randomIndex(filled.length), 1);
+    if (target === undefined) continue;
+    const tile = next[target];
+    const cell = layout[target];
+    if (!tile || !cell) continue;
+    if (filledArea - cellArea(cell) < minFilledArea) continue;
+    tile.filled = false;
+    filledArea -= cellArea(cell);
   }
 
   return next;

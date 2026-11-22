@@ -31,6 +31,8 @@ import {
   sendResultPublishedEmail,
   sendPaymentProofSubmittedEmail,
   sendPaymentOutcomeEmail,
+  sendRecruiterVerificationApprovedEmail,
+  sendRecruiterVerificationRejectedEmail,
 } from "@/server/notifications/notification-email";
 
 describe("sendRegistrationConfirmedEmail", () => {
@@ -320,7 +322,7 @@ describe("sendCompetitionCancelledEmail: the refund sentence", () => {
     // DEC-0130: the funds are in the organiser's account and always were. Naming the holder is the
     // only useful thing this notice can do.
     expect(call.text).toContain("rekening penyelenggara");
-    expect(call.text).toContain("Lombakita tidak menampung dana peserta");
+    expect(call.text).toContain("Ketentuan lengkapnya ada di Syarat & Ketentuan Lombakita.");
     // And no promise the platform cannot keep.
     expect(call.text).not.toContain("akan kami kembalikan");
     expect(call.text).not.toContain("pengembalian dana otomatis");
@@ -337,5 +339,47 @@ describe("sendCompetitionCancelledEmail: the refund sentence", () => {
 
     const call = sendEmailMock.mock.calls[0]![0] as Record<string, string>;
     expect(call.text).not.toContain("rekening penyelenggara");
+  });
+});
+
+describe("recruiter verification notices", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sendEmailMock.mockResolvedValue({ data: { id: "email_1" }, error: null });
+  });
+
+  it("approval email links the newest draft", async () => {
+    await sendRecruiterVerificationApprovedEmail({
+      toEmail: "delivered@resend.dev",
+      recipientId: "u_1",
+      draft: { title: "Lomba Esai", path: "/institution/budi/competitions/lomba-esai" },
+    });
+
+    const call = sendEmailMock.mock.calls[0]![0] as Record<string, string>;
+    expect(call.subject).toBe("Anda kini penyelenggara terverifikasi");
+    expect(call.text).toContain("https://lombakita.local/institution/budi/competitions/lomba-esai");
+  });
+
+  it("approval email links the dashboard without a draft", async () => {
+    await sendRecruiterVerificationApprovedEmail({
+      toEmail: "delivered@resend.dev",
+      recipientId: "u_1",
+      draft: null,
+    });
+
+    const call = sendEmailMock.mock.calls[0]![0] as Record<string, string>;
+    expect(call.text).toContain("https://lombakita.local/recruiter-dashboard");
+  });
+
+  it("rejection email names penyelenggara terverifikasi", async () => {
+    await sendRecruiterVerificationRejectedEmail({
+      toEmail: "delivered@resend.dev",
+      recipientId: "u_1",
+      rejectionReason: "Dokumen tidak jelas",
+      resubmissionAllowed: true,
+    });
+
+    const call = sendEmailMock.mock.calls[0]![0] as Record<string, string>;
+    expect(call.subject).toBe("Permohonan penyelenggara terverifikasi ditolak");
   });
 });

@@ -6,7 +6,7 @@
 // `recruiterVerifiedAt` (a Date) and `recruiterVerificationTier="minimal"` in the SAME INSERT
 // `values()` call — i.e. one DB statement, not two separate writes.
 
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { mockGetDb, generateUsername, hashPassword, sendRegistrationVerificationEmail } = vi.hoisted(
   () => ({
@@ -36,7 +36,10 @@ vi.mock("@/server/auth/registration-code", async (importOriginal) => ({
   hashRegistrationCode: (userId: string, code: string) => `hash:${userId}:${code}`,
 }));
 
-import { registerUserWithCredentials } from "@/server/auth/credentials-auth";
+import {
+  registerUserWithCredentials,
+  resendRegistrationVerification,
+} from "@/server/auth/credentials-auth";
 
 // Build a transaction stub that:
 // - returns no existing user (first .select() chain returns [])
@@ -160,5 +163,81 @@ describe("registerUserWithCredentials — recruiter signup atomic auto-grant (4.
     expect(values).toHaveProperty("recruiterVerificationTier", "unverified");
     expect(values?.recruiterVerifiedAt).toBeNull();
     expect(values?.candidateVerifiedAt).toBeInstanceOf(Date);
+  });
+});
+
+const candidateSignupPayload = {
+  name: "Dinda Candidate",
+  email: "candidate@example.com",
+  password: "very-strong-password",
+  signupRole: "candidate",
+  fullName: "Dinda Candidate",
+  phoneNumber: "0812345678",
+  occupation: "college_student",
+  dateOfBirth: "2000-01-15",
+};
+
+const registerCandidateWithReturnAddress = async (callbackUrl: string) => {
+  const { db } = buildRegistrationStubDb();
+  mockGetDb.mockReturnValue(db);
+  generateUsername.mockResolvedValue("dinda_candidate_1234");
+  hashPassword.mockResolvedValue("$2b$10$mockhash");
+  sendRegistrationVerificationEmail.mockResolvedValue(undefined);
+
+  await registerUserWithCredentials({ ...candidateSignupPayload, callbackUrl });
+};
+
+const buildResendStubDb = () => {
+  const selectChain = {
+    from: vi.fn(),
+    where: vi.fn(),
+    limit: vi
+      .fn()
+      .mockResolvedValueOnce([{ id: "user-1", name: "Dinda Candidate", emailVerified: null }])
+      .mockResolvedValueOnce([{ userId: "user-1" }]),
+  };
+  selectChain.from.mockReturnValue(selectChain);
+  selectChain.where.mockReturnValue(selectChain);
+
+  return {
+    select: vi.fn().mockReturnValue(selectChain),
+    delete: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) }),
+    insert: vi.fn().mockReturnValue({ values: vi.fn().mockResolvedValue(undefined) }),
+  };
+};
+
+const resendWithReturnAddress = async (callbackUrl: string) => {
+  sendRegistrationVerificationEmail.mockResolvedValue(undefined);
+  const db = buildResendStubDb();
+
+  await resendRegistrationVerification(
+    { email: "candidate@example.com", callbackUrl },
+    db as unknown as Parameters<typeof resendRegistrationVerification>[1],
+  );
+};
+
+describe("the verification email of a sign-up that carries a return address", () => {
+  beforeEach(() => {
+    sendRegistrationVerificationEmail.mockClear();
+  });
+
+  it("sends only the address and the code after a sign-up", async () => {
+    await registerCandidateWithReturnAddress("/competitions/acme/lomba-1");
+
+    expect(sendRegistrationVerificationEmail).toHaveBeenCalledTimes(1);
+    expect(sendRegistrationVerificationEmail).toHaveBeenCalledWith({
+      email: "candidate@example.com",
+      code: "123456",
+    });
+  });
+
+  it("sends only the address and the code after a resend", async () => {
+    await resendWithReturnAddress("/competitions/acme/lomba-1");
+
+    expect(sendRegistrationVerificationEmail).toHaveBeenCalledTimes(1);
+    expect(sendRegistrationVerificationEmail).toHaveBeenCalledWith({
+      email: "candidate@example.com",
+      code: "123456",
+    });
   });
 });

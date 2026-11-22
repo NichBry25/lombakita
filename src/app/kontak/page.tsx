@@ -5,7 +5,7 @@ import { INDEXABLE_ROBOTS } from "@/config/indexable-routes";
 
 const TITLE = "Kontak · Lombakita";
 const DESCRIPTION =
-  "Identitas badan usaha, alamat, email, dan telepon resmi yang mengoperasikan Lombakita.";
+  "Cara menghubungi tim Lombakita melalui email dukungan untuk pertanyaan, keluhan, atau sengketa terkait layanan.";
 
 export const metadata: Metadata = {
   title: TITLE,
@@ -29,46 +29,27 @@ export default function ContactPage() {
         <div className="content-shell document-hero-inner">
           <h1>Kontak</h1>
           <p>
-            Lombakita dioperasikan oleh badan usaha di bawah ini. Gunakan email resmi di bawah ini
-            untuk pertanyaan, keluhan, atau sengketa terkait layanan.
+            Lombakita dioperasikan oleh tim Lombakita. Gunakan email di bawah ini untuk pertanyaan,
+            keluhan, atau sengketa terkait layanan.
           </p>
         </div>
       </section>
 
       <div className="page-shell document-page">
-        <section className="surface-card card-padding-lg stack-md">
-          <h2 className="section-title">Identitas penyelenggara sistem</h2>
+        <section className="stack-md">
+          <h2 className="section-title">Kontak tim Lombakita</h2>
           <dl className="detail-grid">
-            <div>
-              <dt>Nama badan usaha</dt>
-              <dd>{COMPANY.legalName}</dd>
-            </div>
-            <div>
-              <dt>Alamat terdaftar</dt>
-              <dd>{COMPANY.address}</dd>
-            </div>
             <div>
               <dt>Email</dt>
               <dd>
                 <a href={`mailto:${COMPANY.supportEmail}`}>{COMPANY.supportEmail}</a>
               </dd>
             </div>
-            <div>
-              <dt>Telepon</dt>
-              <dd>
-                <a href={COMPANY.phone.href}>{COMPANY.phone.display}</a>
-              </dd>
-            </div>
-            <div>
-              <dt>NIB</dt>
-              <dd className="data-text">{COMPANY.nib}</dd>
-            </div>
           </dl>
         </section>
 
-        <section className="surface-card card-padding-lg stack-md">
+        <section className="stack-md">
           <div className="stack-xs">
-            <p className="eyebrow">Sebelum menghubungi</p>
             <h2 className="section-title">Hal yang diurus penyelenggara kompetisi</h2>
           </div>
           <div className="document-clause stack-sm">

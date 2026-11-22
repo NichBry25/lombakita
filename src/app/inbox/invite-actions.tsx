@@ -1,15 +1,10 @@
 "use client";
 
-import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui";
-import {
-  readErrorCode,
-  SESSION_MISMATCH_CODE,
-  SESSION_MISMATCH_MESSAGE,
-  sessionFetch,
-} from "@/lib/session/session-fetch";
-import { useModal, useToast } from "@/components/ui/primitives";
+import { COMPETITION_HOST_CANNOT_JOIN_MESSAGE, errorMessageFor } from "@/lib/errors/error-copy";
+import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
+import { useModal, useToast, type ModalOutcome } from "@/components/ui/primitives";
 
 // Actionable accept/reject controls for an inbox invitation card. Acceptance is in-app
 // and session-id matched server-side (the invitation is addressed by id; the server checks
@@ -25,15 +20,40 @@ const ENDPOINT_SEGMENT: Record<InviteKind, string> = {
   team: "team",
 };
 
-const readErrorMessage = async (response: Response): Promise<string> => {
+const INVITE_ERROR_COPY: Partial<Record<string, string>> = {
+  invitation_not_found: "Undangan tidak ditemukan. Muat ulang halaman.",
+  team_invite_not_found: "Undangan tidak ditemukan. Muat ulang halaman.",
+  invitation_not_actionable: "Undangan ini sudah tidak berlaku.",
+  team_invite_not_actionable: "Undangan ini sudah tidak berlaku.",
+  invitation_role_verification_required:
+    "Undangan ini hanya bisa diterima oleh akun penyelenggara yang sudah diverifikasi. Verifikasi akun penyelenggara Anda terlebih dahulu.",
+  invitation_already_member: "Anda sudah menjadi anggota institusi ini.",
+  account_deactivated: "Data akun ini sudah dihapus. Tindakan ini tidak tersedia.",
+  team_not_found: "Tim ini sudah tidak ada. Muat ulang halaman.",
+  team_not_forming: "Tim ini sudah tidak menerima anggota baru.",
+  team_competition_registration_closed:
+    "Pendaftaran kompetisi ini sudah ditutup, jadi undangan tim ini tidak dapat diterima lagi.",
+  team_competition_not_published:
+    "Kompetisi ini sudah tidak membuka pendaftaran, jadi undangan tim ini tidak dapat diterima.",
+  team_at_capacity: "Tim ini sudah penuh, jadi undangan ini tidak dapat diterima.",
+  team_member_already_registered:
+    "Anda sudah terdaftar di kompetisi ini, jadi tidak dapat bergabung dengan tim ini.",
+  team_state_conflict: "Status tim baru saja berubah. Muat ulang halaman lalu coba lagi.",
+  team_invite_candidate_required:
+    "Undangan tim hanya bisa diterima oleh akun kandidat. Verifikasi akun kandidat Anda terlebih dahulu.",
+  team_host_of_competition: COMPETITION_HOST_CANNOT_JOIN_MESSAGE,
+  team_candidate_already_member: "Anda sudah tergabung dalam tim untuk kompetisi ini.",
+  forbidden: "Akun ini tidak dapat menerima undangan.",
+};
+
+const INVITE_FALLBACK: Record<InviteAction, string> = {
+  accept: "Gagal menerima undangan. Coba lagi.",
+  decline: "Gagal menolak undangan. Coba lagi.",
+};
+
+const readErrorMessage = async (response: Response, action: InviteAction): Promise<string> => {
   const code = await readErrorCode(response);
-  if (code === SESSION_MISMATCH_CODE) return SESSION_MISMATCH_MESSAGE;
-  try {
-    const body = (await response.clone().json()) as { error?: { message?: string } };
-    return body.error?.message ?? `Permintaan gagal (${response.status}).`;
-  } catch {
-    return `Permintaan gagal (${response.status}).`;
-  }
+  return errorMessageFor(code, INVITE_ERROR_COPY, INVITE_FALLBACK[action]);
 };
 
 export function InboxInviteActions({
@@ -48,11 +68,8 @@ export function InboxInviteActions({
   const router = useRouter();
   const { openModal } = useModal();
   const { addToast } = useToast();
-  // Which action is in flight, so the spinner lands on the button the user actually pressed.
-  const [runningAction, setRunningAction] = useState<InviteAction | null>(null);
-
-  const run = async (action: InviteAction) => {
-    setRunningAction(action);
+  // The confirm pop-up shows the waiting and the failure, so this reports an outcome.
+  const run = async (action: InviteAction): Promise<ModalOutcome> => {
     try {
       const res = await sessionFetch(
         expectedUserId,
@@ -60,20 +77,18 @@ export function InboxInviteActions({
         { method: "POST" },
       );
       if (!res.ok) {
-        addToast({ type: "error", message: await readErrorMessage(res) });
         // A stale card (already accepted/declined/expired elsewhere) is dropped by refreshing.
         router.refresh();
-        return;
+        return { ok: false, message: await readErrorMessage(res, action) };
       }
       addToast({
         type: "success",
         message: action === "accept" ? "Undangan diterima." : "Undangan ditolak.",
       });
       router.refresh();
+      return { ok: true };
     } catch {
-      addToast({ type: "error", message: "Terjadi kesalahan jaringan. Coba lagi." });
-    } finally {
-      setRunningAction(null);
+      return { ok: false, message: "Terjadi kesalahan jaringan. Coba lagi." };
     }
   };
 
@@ -84,41 +99,24 @@ export function InboxInviteActions({
         action === "accept"
           ? "Anda akan bergabung sesuai undangan ini."
           : "Undangan ini akan ditolak dan tidak dapat dibatalkan.",
-      closeable: true,
+      alert: action === "decline",
       actions: [
+        { label: "Batal" },
         {
           label: action === "accept" ? "Terima" : "Tolak",
-          variant: action === "accept" ? "primary" : "secondary",
-          autoClose: true,
-          onClick: () => {
-            void run(action);
-          },
+          variant: "primary",
+          onClick: () => run(action),
         },
-        { label: "Batal", variant: "secondary", autoClose: true, onClick: () => {} },
       ],
     });
   };
 
   return (
     <div className="inbox-actions">
-      <Button
-        type="button"
-        variant="primary"
-        size="sm"
-        loading={runningAction === "accept"}
-        disabled={runningAction !== null}
-        onClick={() => confirm("accept")}
-      >
+      <Button type="button" variant="primary" size="sm" onClick={() => confirm("accept")}>
         Terima
       </Button>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        loading={runningAction === "decline"}
-        disabled={runningAction !== null}
-        onClick={() => confirm("decline")}
-      >
+      <Button type="button" variant="outline" size="sm" onClick={() => confirm("decline")}>
         Tolak
       </Button>
     </div>

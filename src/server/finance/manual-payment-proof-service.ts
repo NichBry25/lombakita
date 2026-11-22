@@ -20,6 +20,11 @@ import { foldPaymentEvents } from "@/lib/finance/payment-state";
 import { recordFeeAccrual, recordFeeAccrualReversal } from "@/server/finance/fee-accrual-service";
 import { mintManualPaymentEventKey } from "@/server/finance/idempotency-key";
 import {
+  lockRegistrationRow,
+  resolveActivePaymentGroupMemberUserIdsByPaymentId,
+} from "@/server/finance/paid-registration";
+import { acquireCompetitionParticipationLock } from "@/server/competitions/competition-participation-lock";
+import {
   deleteObject,
   generatePresignedGetUrl,
   generatePresignedPutUrl,
@@ -35,6 +40,8 @@ import {
   notifyPaymentOutcome,
   notifyPaymentProofSubmitted,
 } from "@/server/finance/payment-notifications";
+
+type TransactionClient = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
 // THE BUKTI TRANSFER REVIEW LOOP. Services only. The upload, verdict, view and void routes are thin
 // wrappers that read a request body and call in here.
@@ -235,7 +242,10 @@ type OpenManualLane = { paymentId: string; registrationId: string };
  * reordering a reviewer has to notice. There is no harmful move to detect because the ordering is
  * not expressible.
  */
-const requireOpenManualLane = async (tx: Database, paymentId: string): Promise<OpenManualLane> => {
+const requireOpenManualLane = async (
+  tx: TransactionClient,
+  paymentId: string,
+): Promise<OpenManualLane> => {
   const [payment] = await tx
     .select({ registrationId: financePayments.competitionRegistrationId })
     .from(financePayments)
@@ -250,11 +260,7 @@ const requireOpenManualLane = async (tx: Database, paymentId: string): Promise<O
     );
   }
 
-  const registrationRows = await tx.execute(
-    sql`select status from competition_registrations
-        where id = ${payment.registrationId} for update`,
-  );
-  const [registration] = [...registrationRows] as { status: string }[];
+  const registration = await lockRegistrationRow(payment.registrationId, tx);
 
   if (!registration) {
     throw new ManualProofError(
@@ -609,7 +615,11 @@ export const submitManualPaymentProof = async (
   const created = await db.transaction(async (tx) => {
     const scoped = tx as unknown as Database;
 
-    const lane = await requireOpenManualLane(scoped, payment.id);
+    // DEC-0132: a withdrawal of the competition reads whether a transfer is in flight under this
+    // lock, so a proof never lands between that read and the withdrawal's commit.
+    await acquireCompetitionParticipationLock(tx, competitionId);
+
+    const lane = await requireOpenManualLane(tx, payment.id);
 
     const [created] = await scoped
       .insert(financeManualPaymentProofs)
@@ -695,7 +705,7 @@ export const verifyManualPaymentProof = async (
   db: Database = getDb(),
   now: Date = new Date(),
 ): Promise<FinanceManualPaymentProofRecord> => {
-  const verified = await db.transaction(async (tx) => {
+  const { proof: verified, recipientUserIds } = await db.transaction(async (tx) => {
     // A CANCELLED REGISTRATION CANNOT BECOME PAID. Resolved and locked BEFORE the CAS, because the
     // verdict is the write that turns a proof into money: it appends `succeeded` and accrues a
     // platform fee, and under DEC-0133 both are append-only. There is no participation for that
@@ -738,7 +748,7 @@ export const verifyManualPaymentProof = async (
       );
     }
 
-    const lane = await requireOpenManualLane(tx as unknown as Database, target.paymentId);
+    const lane = await requireOpenManualLane(tx, target.paymentId);
 
     const [proof] = await tx
       .update(financeManualPaymentProofs)
@@ -817,10 +827,15 @@ export const verifyManualPaymentProof = async (
 
     await recordFeeAccrual(payment.id, tx);
 
-    return proof;
+    const activeRecipientUserIds = await resolveActivePaymentGroupMemberUserIdsByPaymentId(
+      payment.id,
+      tx,
+    );
+
+    return { proof, recipientUserIds: activeRecipientUserIds };
   });
 
-  await notifyPaymentOutcome(verified.paymentId, "verified", {}, db);
+  await notifyPaymentOutcome(verified.paymentId, "verified", { recipientUserIds }, db);
 
   return verified;
 };
@@ -858,7 +873,7 @@ export const rejectManualPaymentProof = async (
   // The CAS and the history row are one transaction: a rejection recorded on the live row while its
   // attempt failed to reach the history would lose the attempt the moment the candidate resubmits
   // over it, which is precisely the loss the history exists to prevent.
-  const rejected = await db.transaction(async (tx) => {
+  const { proof: rejected, recipientUserIds } = await db.transaction(async (tx) => {
     const [proof] = await tx
       .update(financeManualPaymentProofs)
       .set({
@@ -909,7 +924,12 @@ export const rejectManualPaymentProof = async (
 
     await recordProofAttempt(tx as unknown as Database, proof, "rejected", trimmedReason);
 
-    return proof;
+    const activeRecipientUserIds = await resolveActivePaymentGroupMemberUserIdsByPaymentId(
+      proof.paymentId,
+      tx,
+    );
+
+    return { proof, recipientUserIds: activeRecipientUserIds };
   });
 
   // The reason and the bar both ride along: a rejection notice that omits either tells the payer
@@ -917,7 +937,7 @@ export const rejectManualPaymentProof = async (
   await notifyPaymentOutcome(
     rejected.paymentId,
     "rejected",
-    { rejectionReason: trimmedReason, resubmissionAllowed },
+    { rejectionReason: trimmedReason, resubmissionAllowed, recipientUserIds },
     db,
   );
 
@@ -1001,12 +1021,15 @@ export const reopenManualPaymentProof = async (
   const proof = await db.transaction(async (tx) => {
     const scoped = tx as unknown as Database;
 
+    // The same lock a first submission takes, for the same reason.
+    await acquireCompetitionParticipationLock(tx, existing.competitionId);
+
     // THE SAME PRECONDITION THE FIRST SUBMISSION TAKES. A resubmission is a submission. The row it
     // writes is indistinguishable from a first attempt once written, so a condition that refuses one
     // must refuse the other. Without it a rejected proof could be refiled onto a registration the
     // expiry sweep had already cancelled, then verified, appending `succeeded` and accruing a
     // platform fee against a participation that no longer exists.
-    const lane = await requireOpenManualLane(scoped, existing.paymentId);
+    const lane = await requireOpenManualLane(tx, existing.paymentId);
 
     const [reopened] = await scoped
       .update(financeManualPaymentProofs)

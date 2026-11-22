@@ -14,9 +14,11 @@
 //
 // The seam is drawn at the two questions the route asks that a rolled-back transaction cannot
 // answer: which database (the pooled client, not this transaction) and who is signed in (a cookie
-// this process does not have). Everything else — the route handler, `assertCompetitionInInstitution`,
-// `transitionCompetitionStatus`, every guard, and all the SQL — is the production code, reading rows
-// this suite inserted through the real schema. Both the readiness call and the route are handed the
+// this process does not have). One test also skips the contact gate's read, to stand in for a
+// deletion that clears the contact after it; every other test runs the real gate. Everything
+// else — the route handler, `assertCompetitionInInstitution`, `transitionCompetitionStatus`, every
+// guard, and all the SQL — is the production code, reading rows this suite inserted through the
+// real schema. Both the readiness call and the route are handed the
 // SAME transaction, so they are looking at the same uncommitted state.
 //
 // Every test runs inside a transaction that is always rolled back.
@@ -108,6 +110,23 @@ vi.mock("@/server/auth/session", async (importOriginal) => ({
   },
 }));
 
+// One test stands in for an account deletion that clears the contact after the publish gate read
+// it. While the flag is off, every test runs the real gate.
+const contactGateState = vi.hoisted(() => ({ skipGate: false }));
+
+vi.mock("@/server/competitions/competition-access", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/server/competitions/competition-access")>();
+  return {
+    ...actual,
+    assertCompetitionHasOrganizerContact: async (
+      ...args: Parameters<typeof actual.assertCompetitionHasOrganizerContact>
+    ): Promise<void> => {
+      if (contactGateState.skipGate) return;
+      await actual.assertCompetitionHasOrganizerContact(...args);
+    },
+  };
+});
+
 import { POST as publishCompetition } from "@/app/api/v1/institutions/[institutionSlug]/competitions/[competitionId]/publish/route";
 
 // Collection is finished, so every `getDb()` from here belongs to a test.
@@ -154,6 +173,10 @@ type SeedOptions = {
   otherPublished?: number;
   /** The competition's status. A published row is one the transition gate refuses to move again. */
   status?: "draft" | "published";
+  /** Whether the competition has no contact for participants. Publishing needs one. */
+  withoutContact?: boolean;
+  /** Whether the competition has no audience (Untuk). Publishing needs one. */
+  withoutAudience?: boolean;
 };
 
 type Fixture = {
@@ -189,6 +212,8 @@ const seedCompetition = async (
     maxTeamSize: number | null;
     feeAmount: number | null;
     status?: "draft" | "published";
+    withContact: boolean;
+    withAudience: boolean;
   },
 ): Promise<string> => {
   const id = uniqueSuffix();
@@ -205,6 +230,10 @@ const seedCompetition = async (
       description: input.validChecklist ? "Deskripsi kompetisi untuk pengujian." : "",
       category: input.validChecklist ? "hackathon" : null,
       mode: input.mode,
+      // Every fixture names a location, so a gate case fails the one gate it is about. The
+      // location itself is part of the checklist, which its own suite covers.
+      location: "online",
+      audience: input.withAudience ? ["umum"] : null,
       minTeamSize: input.minTeamSize,
       maxTeamSize: input.maxTeamSize,
       status: input.status ?? "draft",
@@ -213,6 +242,9 @@ const seedCompetition = async (
       // currency its integer counts.
       feeCurrency: input.feeAmount ? "IDR" : null,
       ...timeline,
+      ...(input.withContact
+        ? { organizerContactKind: "whatsapp" as const, organizerContactValue: "6281234567890" }
+        : {}),
     })
     .returning({ id: competitions.id });
   return row!.id;
@@ -258,6 +290,8 @@ const seedFixture = async (tx: Tx, options: SeedOptions = {}): Promise<Fixture> 
     maxTeamSize: options.maxTeamSize ?? (mode === "team" ? 5 : null),
     feeAmount: options.feeAmount ?? null,
     status: options.status,
+    withContact: !options.withoutContact,
+    withAudience: !options.withoutAudience,
   });
 
   for (let i = 0; i < (options.otherPublished ?? 0); i += 1) {
@@ -269,6 +303,8 @@ const seedFixture = async (tx: Tx, options: SeedOptions = {}): Promise<Fixture> 
       maxTeamSize: null,
       feeAmount: null,
       status: "published",
+      withContact: false,
+      withAudience: false,
     });
   }
 
@@ -322,13 +358,6 @@ const GATE_CASES: GateCase[] = [
     expectedHttpStatus: 403,
   },
   {
-    code: "competition_invalid_transition",
-    // Already published, and everything else about it is publishable — so the state machine's lack
-    // of an edge from `published` back to `published` is the one question that fails.
-    seed: (tx) => seedFixture(tx, { status: "published" }),
-    expectedHttpStatus: 422,
-  },
-  {
     code: "competition_recruiter_not_trusted",
     seed: (tx) => seedFixture(tx, { actorTier: "minimal" }),
     expectedHttpStatus: 403,
@@ -341,6 +370,18 @@ const GATE_CASES: GateCase[] = [
   {
     code: "competition_publish_validation_failed",
     seed: (tx) => seedFixture(tx, { validChecklist: false }),
+    expectedHttpStatus: 422,
+  },
+  {
+    code: "competition_organizer_contact_missing",
+    // A complete draft with no contact for participants.
+    seed: (tx) => seedFixture(tx, { withoutContact: true }),
+    expectedHttpStatus: 422,
+  },
+  {
+    code: "competition_audience_missing",
+    // A complete draft with a location and no audience.
+    seed: (tx) => seedFixture(tx, { withoutAudience: true }),
     expectedHttpStatus: 422,
   },
   {
@@ -374,11 +415,17 @@ describe.skipIf(skipWithoutDatabase)(
     beforeEach(() => {
       routeState.transaction = null;
       routeState.actorUserId = null;
+      contactGateState.skipGate = false;
     });
 
-    it("covers every blocker code the module declares", () => {
+    // The transition code is the one the endpoint gives a published competition and readiness
+    // does not report, so it has its own test below.
+    it("covers every blocker code the module declares, except the transition code", () => {
       const exercised = GATE_CASES.map((gate) => gate.code).sort();
-      expect(exercised).toEqual([...COMPETITION_PUBLISH_BLOCKER_CODES].sort());
+      const reportedByReadiness = COMPETITION_PUBLISH_BLOCKER_CODES.filter(
+        (code) => code !== "competition_invalid_transition",
+      );
+      expect(exercised).toEqual([...reportedByReadiness].sort());
     });
 
     for (const gate of GATE_CASES) {
@@ -409,6 +456,26 @@ describe.skipIf(skipWithoutDatabase)("a competition that can publish", () => {
   beforeEach(() => {
     routeState.transaction = null;
     routeState.actorUserId = null;
+    contactGateState.skipGate = false;
+  });
+
+  it("refuses at the write when the contact is gone after the gate passed, and the draft stays a draft", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx, { withoutContact: true });
+      contactGateState.skipGate = true;
+
+      const published = await publishViaRoute(fixture, fixture.actorUserId, tx);
+      expect(published.status).toBe(422);
+      expect(published.code).toBe("competition_invalid_transition");
+
+      const [row] = await tx
+        .select({ status: competitions.status, publishedAt: competitions.publishedAt })
+        .from(competitions)
+        .where(eq(competitions.id, fixture.competitionId))
+        .limit(1);
+      expect(row?.status).toBe("draft");
+      expect(row?.publishedAt).toBeNull();
+    });
   });
 
   it("reports canPublish and then actually publishes", async () => {
@@ -436,13 +503,11 @@ describe.skipIf(skipWithoutDatabase)("a competition that can publish", () => {
     });
   });
 
-  // The transition is one of the questions readiness answers, in the publish path's own position:
-  // straight after the access gate, before any publish-only guard (competition-service.ts:855-861).
-  // So an already-published competition is reported as blocked, and the endpoint refuses that same
-  // attempt with the same code. The row is published through the real route rather than seeded with
-  // `status: 'published'`, so it carries the `published_at` production writes and both answers are
-  // read from one row.
-  it("blocks an already-published competition with the transition code, and the endpoint refuses", async () => {
+  // A published competition has no publish control, so readiness names no reason for it, while the
+  // endpoint still refuses the attempt with the transition code. The row is published through the
+  // real route rather than seeded with `status: 'published'`, so it carries the `published_at`
+  // production writes and both answers are read from one row.
+  it("names no reason for an already-published competition, and the endpoint still refuses", async () => {
     await inRollback(async (tx) => {
       const fixture = await seedFixture(tx, { feeAmount: null });
 
@@ -450,7 +515,7 @@ describe.skipIf(skipWithoutDatabase)("a competition that can publish", () => {
       expect(first.status).toBe(200);
 
       const readiness = await readinessFor(fixture.actorUserId, fixture.competitionId, tx);
-      expect(readiness.blockers).toEqual(["competition_invalid_transition"]);
+      expect(readiness.blockers).toEqual([]);
       expect(readiness.canPublish).toBe(false);
 
       const second = await publishViaRoute(fixture, fixture.actorUserId, tx);

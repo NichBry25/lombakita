@@ -102,24 +102,18 @@ export default async function PublicProfilePage({
               </a>
             )}
 
-            {(profile.candidateVerified || profile.recruiterVerified) && (
+            {(profile.candidateVerified || profile.trustedRecruiter) && (
               <div className="pf-badges">
                 {profile.candidateVerified && (
-                  <span className="status-badge" data-status="open">
+                  <span className="status-badge" data-status="verified">
                     <Icon name="check" size="sm" aria-hidden="true" />
                     Kandidat Terverifikasi
                   </span>
                 )}
-                {profile.recruiterVerified && !profile.trustedRecruiter && (
-                  <span className="status-badge" data-status="open">
-                    <Icon name="check" size="sm" aria-hidden="true" />
-                    Rekruter Terverifikasi
-                  </span>
-                )}
                 {profile.trustedRecruiter && (
-                  <span className="status-badge" data-status="open">
+                  <span className="status-badge" data-status="verified">
                     <Icon name="check" size="sm" aria-hidden="true" />
-                    Rekruter Terpercaya
+                    Penyelenggara terverifikasi
                   </span>
                 )}
               </div>
@@ -132,7 +126,6 @@ export default async function PublicProfilePage({
         <section className="content-section">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">Dokumen</p>
               <h2>Resume</h2>
             </div>
           </div>

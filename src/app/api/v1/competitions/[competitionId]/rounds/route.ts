@@ -5,6 +5,10 @@ import {
 } from "@/server/auth/access-core";
 import { requireAuthenticatedSession } from "@/server/auth/session";
 import {
+  CompetitionError,
+  toCompetitionErrorResponse,
+} from "@/server/competitions/competition-core";
+import {
   CompetitionRoundsInputError,
   toCompetitionRoundsErrorResponse,
 } from "@/server/competitions/competition-rounds-core";
@@ -23,6 +27,7 @@ export async function GET(
     const rounds = await getCompetitionRoundsForEditor(session.user.id, competitionId);
     return NextResponse.json({ rounds });
   } catch (error) {
+    if (error instanceof CompetitionError) return toCompetitionErrorResponse(error);
     if (error instanceof CompetitionRoundsInputError) {
       return toCompetitionRoundsErrorResponse(error);
     }
@@ -52,6 +57,7 @@ export async function PUT(
     const rounds = await setCompetitionRoundsForEditor(session.user.id, competitionId, body);
     return NextResponse.json({ rounds });
   } catch (error) {
+    if (error instanceof CompetitionError) return toCompetitionErrorResponse(error);
     if (error instanceof CompetitionRoundsInputError) {
       return toCompetitionRoundsErrorResponse(error);
     }

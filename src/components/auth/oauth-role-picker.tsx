@@ -2,10 +2,20 @@
 
 import { FormEvent, useState } from "react";
 import { signIn } from "next-auth/react";
-import { Button, SelectField, usePageTransition } from "@/components/ui";
+import {
+  Button,
+  ChoiceCard,
+  FormInput,
+  FormLabel,
+  SelectField,
+  StepIndicator,
+  usePageTransition,
+} from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import { AuthPageFrame } from "@/components/auth/auth-page-frame";
 import { AssentNotice } from "@/components/legal/assent-notice";
+import { readGoogleReturnPath } from "@/components/auth/google-return-path";
+import { GOOGLE_EMAIL_UNVERIFIED_MESSAGE } from "@/lib/errors/error-copy";
 
 // Minimal-proof OAuth role picker. Reached after a brand-new Google user is routed to
 // /auth/login?oauth=<carrier> — the role picker lives on the single login page. The
@@ -36,6 +46,9 @@ const OCCUPATION_OPTIONS = [
 
 const mapFinalizeError = (error: string | null | undefined): string => {
   const normalized = error?.toUpperCase() ?? "";
+  if (normalized.includes("EMAIL_UNVERIFIED")) {
+    return GOOGLE_EMAIL_UNVERIFIED_MESSAGE;
+  }
   // Single-use carrier. A replayed carrier (already redeemed) and a fail-closed
   // "cannot confirm single-use" both mean the same user action: start Google sign-in again.
   if (normalized.includes("REPLAYED") || normalized.includes("UNAVAILABLE")) {
@@ -48,13 +61,13 @@ const mapFinalizeError = (error: string | null | undefined): string => {
     return "Data kandidat belum lengkap atau tidak valid. Periksa kembali isian Anda.";
   }
   if (normalized.includes("RECRUITER_VERIFICATION")) {
-    return "Data rekruter belum lengkap atau tidak valid. Periksa kembali isian Anda.";
+    return "Data penyelenggara belum lengkap atau tidak valid. Periksa kembali isian Anda.";
   }
   if (normalized.includes("ACCOUNT_CONFLICT")) {
     return "Akun untuk email ini sudah ada. Coba masuk dengan metode yang sudah terdaftar.";
   }
   if (normalized.includes("INVALID_ROLE")) {
-    return "Peran tidak valid. Pilih kandidat atau rekruter.";
+    return "Peran tidak valid. Pilih kandidat atau penyelenggara.";
   }
   return "Pendaftaran dengan Google gagal. Silakan coba lagi.";
 };
@@ -90,7 +103,7 @@ export const OAuthRolePicker = ({ carrier, email, name }: OAuthRolePickerProps) 
         carrier,
         role,
         ...(extraFields ?? {}),
-        callbackUrl: "/",
+        callbackUrl: readGoogleReturnPath(),
         redirect: false,
       });
 
@@ -162,49 +175,44 @@ export const OAuthRolePicker = ({ carrier, email, name }: OAuthRolePickerProps) 
 
   return (
     <AuthPageFrame
-      title="Tetapkan peran utama untuk memulai."
-      description="Kandidat mencari kompetisi, rekruter menerbitkannya. Anda bisa menambah peran lain nanti."
+      title="Tetapkan peran utama untuk memulai"
+      description="Kandidat mencari kompetisi, penyelenggara menerbitkannya. Anda bisa menambah peran lain nanti."
     >
       <div className="auth-entry">
         <header className="auth-entry-header">
           <h1>Selesaikan pendaftaran dengan Google</h1>
         </header>
         <p className="auth-intro-copy">
-          Anda masuk sebagai <span className="auth-email-emphasis">{email}</span>. Pilih peran untuk
-          menyelesaikan pembuatan akun. Akun baru hanya dibuat setelah Anda memilih peran.
+          Anda masuk sebagai <span className="auth-email-emphasis">{email}</span>. Akun baru hanya
+          dibuat setelah Anda memilih peran.
         </p>
 
         {stage === "choose" ? (
           <>
-            <div className="auth-role-list">
-              <button
-                type="button"
+            <StepIndicator currentStep={1} totalSteps={2} stepName="Peran" />
+            <div className="auth-role-list" role="radiogroup" aria-label="Peran">
+              <ChoiceCard
+                title="Daftar sebagai kandidat"
+                description="Siapa pun yang mencari kompetisi, beasiswa, dan peluang lain."
                 disabled={isSubmitting !== null}
-                onClick={() => {
+                onSelect={() => {
                   // The Google display name when the provider sent one; empty otherwise. Never the
                   // email — the field asks for a name. It stays editable.
                   setFullName((current) => current || name?.trim() || "");
                   setStage("candidateOnboarding");
                 }}
-                className="auth-role-option"
-              >
-                <strong>Daftar sebagai kandidat</strong>
-                <span>Siapa pun yang mencari kompetisi, beasiswa, dan peluang lain.</span>
-              </button>
-              <button
-                type="button"
+              />
+              <ChoiceCard
+                title="Daftar sebagai penyelenggara"
+                description="Perwakilan institusi yang ingin menerbitkan dan mengelola peluang."
                 disabled={isSubmitting !== null}
-                onClick={() => {
+                onSelect={() => {
                   // The Google display name when the provider sent one; empty otherwise. Never the
                   // email — the field asks for a name. It stays editable.
                   setRecruiterFullName((current) => current || name?.trim() || "");
                   setStage("recruiterOnboarding");
                 }}
-                className="auth-role-option"
-              >
-                <strong>Daftar sebagai rekruter</strong>
-                <span>Perwakilan institusi yang ingin menerbitkan dan mengelola peluang.</span>
-              </button>
+              />
             </div>
             <AssentNotice />
           </>
@@ -212,44 +220,44 @@ export const OAuthRolePicker = ({ carrier, email, name }: OAuthRolePickerProps) 
 
         {stage === "candidateOnboarding" ? (
           <form onSubmit={onSubmitCandidateOnboarding} className="auth-form">
+            <StepIndicator currentStep={2} totalSteps={2} stepName="Profil" />
             <p>Lengkapi data kandidat Anda. Data ini bisa diubah nanti di dasbor Anda.</p>
 
             <div className="form-field">
-              <label className="form-label form-label-required" htmlFor="candidate-full-name">
+              <FormLabel htmlFor="candidate-full-name" required>
                 Nama lengkap
-              </label>
-              <input
+              </FormLabel>
+              <FormInput
                 id="candidate-full-name"
                 type="text"
                 autoComplete="name"
                 value={fullName}
                 onChange={(event) => setFullName(event.target.value)}
-                className="form-input"
                 placeholder="Nama lengkap sesuai identitas"
               />
             </div>
 
             <div className="form-field">
-              <label className="form-label form-label-required" htmlFor="candidate-phone">
+              <FormLabel htmlFor="candidate-phone" required>
                 Nomor telepon
-              </label>
-              <input
+              </FormLabel>
+              <FormInput
                 id="candidate-phone"
                 type="tel"
                 value={phoneNumber}
                 onChange={(event) => setPhoneNumber(event.target.value)}
-                className="form-input"
                 placeholder="Contoh: 0812xxxxxxx"
               />
             </div>
 
             <div className="form-field">
-              <label className="form-label form-label-required" htmlFor="candidate-occupation">
+              <FormLabel htmlFor="candidate-occupation" required>
                 Status saat ini
-              </label>
+              </FormLabel>
               <SelectField
                 id="candidate-occupation"
                 label="Status saat ini"
+                required
                 value={occupation}
                 placeholder="Pilih status Anda"
                 options={[...OCCUPATION_OPTIONS]}
@@ -258,15 +266,14 @@ export const OAuthRolePicker = ({ carrier, email, name }: OAuthRolePickerProps) 
             </div>
 
             <div className="form-field">
-              <label className="form-label form-label-required" htmlFor="candidate-dob">
+              <FormLabel htmlFor="candidate-dob" required>
                 Tanggal lahir
-              </label>
-              <input
+              </FormLabel>
+              <FormInput
                 id="candidate-dob"
                 type="date"
                 value={dateOfBirth}
                 onChange={(event) => setDateOfBirth(event.target.value)}
-                className="form-input"
               />
             </div>
 
@@ -276,7 +283,7 @@ export const OAuthRolePicker = ({ carrier, email, name }: OAuthRolePickerProps) 
                 onClick={() => {
                   setStage("choose");
                 }}
-                variant="ghost"
+                variant="outline"
                 size="sm"
               >
                 Kembali
@@ -296,50 +303,48 @@ export const OAuthRolePicker = ({ carrier, email, name }: OAuthRolePickerProps) 
 
         {stage === "recruiterOnboarding" ? (
           <form onSubmit={onSubmitRecruiterOnboarding} className="auth-form">
+            <StepIndicator currentStep={2} totalSteps={2} stepName="Profil" />
             <p>
               Lengkapi data penyelenggara Anda. Akun akan menunggu peninjauan sebelum dapat
               menerbitkan kompetisi.
             </p>
 
             <div className="form-field">
-              <label className="form-label form-label-required" htmlFor="recruiter-full-name">
+              <FormLabel htmlFor="recruiter-full-name" required>
                 Nama lengkap
-              </label>
-              <input
+              </FormLabel>
+              <FormInput
                 id="recruiter-full-name"
                 type="text"
                 autoComplete="name"
                 value={recruiterFullName}
                 onChange={(event) => setRecruiterFullName(event.target.value)}
-                className="form-input"
                 placeholder="Nama lengkap sesuai identitas"
               />
             </div>
 
             <div className="form-field">
-              <label className="form-label form-label-required" htmlFor="recruiter-mobile">
+              <FormLabel htmlFor="recruiter-mobile" required>
                 Nomor ponsel
-              </label>
-              <input
+              </FormLabel>
+              <FormInput
                 id="recruiter-mobile"
                 type="tel"
                 value={mobileNumber}
                 onChange={(event) => setMobileNumber(event.target.value)}
-                className="form-input"
                 placeholder="Contoh: 0812xxxxxxx"
               />
             </div>
 
             <div className="form-field">
-              <label className="form-label" htmlFor="recruiter-corporate-email">
-                Email korporat / institusi (Opsional)
-              </label>
-              <input
+              <FormLabel htmlFor="recruiter-corporate-email" optional>
+                Email korporat / institusi
+              </FormLabel>
+              <FormInput
                 id="recruiter-corporate-email"
                 type="email"
                 value={corporateEmail}
                 onChange={(event) => setCorporateEmail(event.target.value)}
-                className="form-input"
                 placeholder="nama@perusahaan.co.id"
               />
               <p className="form-help">
@@ -353,7 +358,7 @@ export const OAuthRolePicker = ({ carrier, email, name }: OAuthRolePickerProps) 
                 onClick={() => {
                   setStage("choose");
                 }}
-                variant="ghost"
+                variant="outline"
                 size="sm"
               >
                 Kembali

@@ -16,10 +16,20 @@ vi.mock("@/server/competitions/competition-participation-lock", () => ({
 // this file tests cancelRegistration's OWN gate ORDER against a queued fake with no proof tables;
 // that the predicate reads a real proof row, and that both of its answers drive the right outcome,
 // is proven against a live Postgres in the manual-lane integration suite.
-const { hasSubmittedPaymentProof } = vi.hoisted(() => ({
+const { hasSubmittedPaymentProof, lockPaymentGroupAnchorRow } = vi.hoisted(() => ({
   hasSubmittedPaymentProof: vi.fn().mockResolvedValue(false),
+  lockPaymentGroupAnchorRow: vi.fn().mockResolvedValue(null),
 }));
-vi.mock("@/server/finance/paid-registration", () => ({ hasSubmittedPaymentProof }));
+vi.mock("@/server/finance/paid-registration", () => ({
+  hasSubmittedPaymentProof,
+  lockPaymentGroupAnchorRow,
+}));
+vi.mock("@/server/competitions/competition-access", async () => {
+  const actual = await vi.importActual<typeof import("@/server/competitions/competition-access")>(
+    "@/server/competitions/competition-access",
+  );
+  return { ...actual, isCompetitionHost: vi.fn().mockResolvedValue(false) };
+});
 
 import {
   cancelRegistration,
@@ -86,9 +96,9 @@ const baseRegistration = (overrides: Partial<RegistrationRow> = {}): Registratio
   ...overrides,
 });
 
-// Build a queueing select() mock. Each call returns a select chain whose .limit() resolves to
-// the next pre-queued row set. This lets us stage the multi-SELECT enforcement chain
-// (competition load, existing-registration check, cancel re-load).
+// Build a queueing select() mock. Each call returns a select chain whose .where() and .limit()
+// both resolve to the next pre-queued row set. This lets us stage the multi-SELECT enforcement
+// chain (competition load, existing-registration check, cancel re-load).
 const makeQueuedDb = (
   selectQueue: Array<unknown[]>,
   options: {
@@ -105,7 +115,9 @@ const makeQueuedDb = (
 
     const limit = vi.fn().mockResolvedValue(result);
     const orderBy = vi.fn().mockReturnValue({ limit });
-    const where = vi.fn().mockReturnValue({ limit, orderBy });
+    const where = vi
+      .fn()
+      .mockReturnValue(Object.assign(Promise.resolve(result), { limit, orderBy }));
     const from = vi.fn().mockReturnValue({ where });
 
     return { from };
@@ -200,10 +212,11 @@ describe("createIndividualRegistration enforcement chain", () => {
   // Open-candidacy negative contract (DEC-0106): there is no age band and no eligibility
   // gate. A candidate who would have been blocked under the retired 18–32 rule must be able
   // to register. The service never receives a date of birth and must never look one up: the
-  // only SELECTs on the happy path are the competition load, duplicate-registration check, the
-  // locked deadline re-check, and the pricing read that decides whether a payment is owed. If a
-  // future change reintroduces an age/eligibility lookup, either registration stops succeeding or
-  // another SELECT appears here, and both fail this test.
+  // only SELECTs on the happy path are the competition load, the active-registration check, the
+  // locked deadline re-check, the cancelled-registration read under the lock, and the pricing
+  // read that decides whether a payment is owed. If a future change reintroduces an
+  // age/eligibility lookup, either registration stops succeeding or another SELECT appears here,
+  // and both fail this test.
   it("allows a candidate over 32 to register (no age/eligibility gate, DEC-0106)", async () => {
     const inserted = baseRegistration({ studentId: "candidate_over_32" });
     const { db, spies } = makeQueuedDb(
@@ -223,9 +236,10 @@ describe("createIndividualRegistration enforcement chain", () => {
     );
 
     expect(result).toEqual(inserted);
-    // No profile/age/eligibility SELECT was issued. Four reads: the three enforcement-chain ones
-    // plus the pricing read that decides whether this registration owes a payment.
-    expect(spies.selectCallTraces).toHaveLength(4);
+    // No profile/age/eligibility SELECT was issued. Five reads: the three enforcement-chain ones,
+    // the cancelled-registration read under the lock, and the pricing read that decides whether
+    // this registration owes a payment.
+    expect(spies.selectCallTraces).toHaveLength(5);
   });
 
   it("rejects with competition_not_found when competition does not exist", async () => {
@@ -311,17 +325,43 @@ describe("createIndividualRegistration enforcement chain", () => {
     ).rejects.toMatchObject({ code: "registration_already_exists" });
   });
 
-  it("blocks re-registration after cancellation (deferred to future hardening)", async () => {
-    const { db } = makeQueuedDb([
-      [baseCompetition()],
-      [{ id: "reg_existing", status: "cancelled" }],
-    ]);
+  describe("registering again after a cancellation", () => {
+    afterEach(() => {
+      hasSubmittedPaymentProof.mockReset();
+      hasSubmittedPaymentProof.mockResolvedValue(false);
+    });
 
-    await expect(
-      createIndividualRegistration("stud_1", "comp_1", db as never, NOW),
-    ).rejects.toMatchObject({
-      code: "registration_already_exists",
-      details: { existingStatus: "cancelled" },
+    it("lets a cancelled registrant who sent no payment proof register again", async () => {
+      const inserted = baseRegistration();
+      const { db, spies } = makeQueuedDb(
+        [[baseCompetition()], [], [baseCompetition()], [{ id: "reg_cancelled" }]],
+        { insertReturning: [inserted] },
+      );
+
+      const result = await createIndividualRegistration("stud_1", "comp_1", db as never, NOW);
+
+      expect(result).toEqual(inserted);
+      expect(hasSubmittedPaymentProof).toHaveBeenCalledWith("reg_cancelled", expect.anything());
+      expect(spies.insertValues).toHaveBeenCalledWith(
+        expect.objectContaining({ status: "confirmed" }),
+      );
+    });
+
+    it("refuses a cancelled registrant who sent a payment proof for that registration", async () => {
+      const inserted = baseRegistration();
+      const { db, spies } = makeQueuedDb(
+        [[baseCompetition()], [], [baseCompetition()], [{ id: "reg_cancelled" }]],
+        { insertReturning: [inserted] },
+      );
+      hasSubmittedPaymentProof.mockResolvedValueOnce(true);
+
+      await expect(
+        createIndividualRegistration("stud_1", "comp_1", db as never, NOW),
+      ).rejects.toMatchObject({
+        code: "registration_already_exists",
+        details: { existingStatus: "cancelled" },
+      });
+      expect(spies.insertValues).not.toHaveBeenCalled();
     });
   });
 

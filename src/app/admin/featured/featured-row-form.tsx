@@ -1,8 +1,27 @@
 "use client";
 
 import { useState } from "react";
-import { Button, CheckboxField } from "@/components/ui";
+import { Button, CheckboxField, FormInput } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
+import { errorMessageFor } from "@/lib/errors/error-copy";
+
+const FEATURED_ERROR_COPY: Partial<Record<string, string>> = {
+  invalid_competition_id: "Permintaan tidak dapat diproses. Muat ulang halaman lalu coba lagi.",
+  invalid_body: "Urutan harus berupa bilangan bulat.",
+  competition_not_found: "Kompetisi tidak ditemukan.",
+  competition_personal_not_featurable:
+    "Kompetisi dari institusi personal tidak dapat dijadikan unggulan.",
+  competition_not_published:
+    "Hanya kompetisi berstatus terbit yang dapat dijadikan unggulan. Muat ulang halaman untuk melihat status terbaru.",
+  operator_actor_not_found: "Akun Anda tidak ditemukan. Masuk lagi untuk melanjutkan.",
+  operator_actor_not_platform_ops:
+    "Akun Anda tidak lagi memiliki peran yang diperlukan untuk tindakan ini.",
+  operator_actor_suspended: "Akun Anda sedang ditangguhkan oleh tim Lombakita.",
+  operator_actor_conflicted:
+    "Anda tidak dapat mengambil tindakan atas institusi ini karena akun Anda pernah mengajukan verifikasi, diundang, atau menjadi anggota institusi tersebut.",
+};
+
+const FEATURED_SAVE_FALLBACK = "Pengaturan unggulan gagal disimpan. Coba lagi.";
 
 type FeaturedRowFormProps = {
   competitionId: string;
@@ -42,7 +61,10 @@ export function FeaturedRowForm({
       });
       const data = await res.json();
       if (!res.ok) {
-        addToast({ type: "error", message: data?.error?.message ?? `Error ${res.status}` });
+        addToast({
+          type: "error",
+          message: errorMessageFor(data?.error?.code, FEATURED_ERROR_COPY, FEATURED_SAVE_FALLBACK),
+        });
         return;
       }
       setIsFeatured(data.isFeatured);
@@ -60,13 +82,13 @@ export function FeaturedRowForm({
       <CheckboxField checked={isFeatured} onChange={(e) => setIsFeatured(e.target.checked)}>
         Unggulan
       </CheckboxField>
-      <input
+      <FormInput
         type="number"
         value={featuredOrder}
         onChange={(e) => setFeaturedOrder(e.target.value)}
         placeholder="Urutan"
         aria-label="Urutan unggulan"
-        className="form-input featured-order-input"
+        className="featured-order-input"
       />
       <Button type="submit" loading={saving} size="sm">
         Simpan

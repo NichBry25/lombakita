@@ -13,5 +13,10 @@ export default async function InstitutionCompetitionCreatePage({ params }: Props
   if (!isAdmin) {
     redirect("/");
   }
-  return <InstitutionCompetitionCreateShell institutionSlug={institutionSlug} />;
+  return (
+    <InstitutionCompetitionCreateShell
+      institutionSlug={institutionSlug}
+      expectedUserId={session.user.id}
+    />
+  );
 }

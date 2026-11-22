@@ -3,6 +3,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccessError } from "@/server/auth/access-core";
 import { InstitutionWorkspaceInputError } from "@/server/institution-workspace/institution-core";
+import { SESSION_USER_HEADER } from "@/lib/session/session-fetch";
 
 const {
   requireAuthenticatedSession,
@@ -120,6 +121,64 @@ describe("/api/v1/institutions/[institutionSlug]/settings", () => {
       },
     );
     expect(body.institution.slug).toBe("universitas-nusantara-indonesia");
+  });
+
+  it("refuses a mismatched expected user before updating the settings", async () => {
+    requireAuthenticatedSession.mockResolvedValue(sessionFixture);
+    updateInstitutionWorkspaceForOwnerBySlug.mockResolvedValue({
+      ...institutionFixture,
+      displayName: "Universitas Nusantara Indonesia",
+      slug: "universitas-nusantara-indonesia",
+    });
+
+    const request = new Request("http://localhost", {
+      method: "PATCH",
+      headers: {
+        "content-type": "application/json",
+        [SESSION_USER_HEADER]: "someone_else",
+      },
+      body: JSON.stringify({
+        displayName: "Universitas Nusantara Indonesia",
+        slug: "universitas-nusantara-indonesia",
+      }),
+    });
+
+    const response = await PATCH(request as never, {
+      params: Promise.resolve({ institutionSlug: "universitas-nusantara" }),
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe("session_user_mismatch");
+    expect(updateInstitutionWorkspaceForOwnerBySlug).not.toHaveBeenCalled();
+  });
+
+  it("updates the settings when the expected user matches the session", async () => {
+    requireAuthenticatedSession.mockResolvedValue(sessionFixture);
+    updateInstitutionWorkspaceForOwnerBySlug.mockResolvedValue({
+      ...institutionFixture,
+      displayName: "Universitas Nusantara Indonesia",
+      slug: "universitas-nusantara-indonesia",
+    });
+
+    const request = new Request("http://localhost", {
+      method: "PATCH",
+      headers: {
+        "content-type": "application/json",
+        [SESSION_USER_HEADER]: "user_1",
+      },
+      body: JSON.stringify({
+        displayName: "Universitas Nusantara Indonesia",
+        slug: "universitas-nusantara-indonesia",
+      }),
+    });
+
+    const response = await PATCH(request as never, {
+      params: Promise.resolve({ institutionSlug: "universitas-nusantara" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(updateInstitutionWorkspaceForOwnerBySlug).toHaveBeenCalledOnce();
   });
 
   it("returns 400 for invalid settings payload", async () => {

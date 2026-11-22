@@ -20,15 +20,24 @@ vi.mock("@/lib/logger", () => ({
 // against a queued fake with no proof tables. That a team's proof resolves across the whole payment
 // group (one payment anchored on the captain's row, every member's row in the same group) is
 // proven against a live Postgres in the manual-lane integration suite.
-const { hasSubmittedPaymentProof, findTeamPaymentGroupAnchor } = vi.hoisted(() => ({
-  hasSubmittedPaymentProof: vi.fn().mockResolvedValue(false),
-  // A team always has an anchor row here; the no-rows case is covered against a real database.
-  findTeamPaymentGroupAnchor: vi.fn().mockResolvedValue("reg-anchor"),
-}));
+const { hasSubmittedPaymentProof, findAnyTeamRegistrationRow, lockPaymentGroupAnchorRow } =
+  vi.hoisted(() => ({
+    hasSubmittedPaymentProof: vi.fn().mockResolvedValue(false),
+    // A team always has an anchor row here; the no-rows case is covered against a real database.
+    findAnyTeamRegistrationRow: vi.fn().mockResolvedValue("reg-anchor"),
+    lockPaymentGroupAnchorRow: vi.fn().mockResolvedValue(null),
+  }));
 vi.mock("@/server/finance/paid-registration", () => ({
   hasSubmittedPaymentProof,
-  findTeamPaymentGroupAnchor,
+  findAnyTeamRegistrationRow,
+  lockPaymentGroupAnchorRow,
 }));
+vi.mock("@/server/competitions/competition-access", async () => {
+  const actual = await vi.importActual<typeof import("@/server/competitions/competition-access")>(
+    "@/server/competitions/competition-access",
+  );
+  return { ...actual, isCompetitionHost: vi.fn().mockResolvedValue(false) };
+});
 
 import { cancelTeamRegistration, submitTeamRegistration } from "./team-registration-service";
 
@@ -60,13 +69,18 @@ type DbOptions = {
   txInsertError?: unknown;
   txUpdateReturning?: unknown[];
   txCompetitionReturning?: unknown[];
+  txMemberRows?: SelectResult;
 };
 
 const makeDb = (selectQueue: SelectResult[], options: DbOptions = {}) => {
   const select = buildSelect(selectQueue);
 
   const tx = {
-    select: buildSelect([options.txCompetitionReturning ?? [competition()]]),
+    select: buildSelect([
+      options.txCompetitionReturning ?? selectQueue[1] ?? [competition()],
+      options.txMemberRows ?? selectQueue[2] ?? [],
+      [{ count: 0 }],
+    ]),
     insert: vi.fn(() => {
       if (options.txInsertError) {
         return {

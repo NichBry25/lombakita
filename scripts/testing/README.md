@@ -194,6 +194,52 @@ for c in "^0" "^1" "^2" "^3" "^4" "^5" "^6" "^7" "^8"; do node scripts/testing/g
 node scripts/testing/gallery.mjs   # final pass — picks up anything still missing
 ```
 
+### Gallery at four widths
+
+`GALLERY_OUT` names the output folder of any run (default `test-artifacts/gallery`). A run with
+`GALLERY_WIDTHS` refuses to start without `GALLERY_OUT`, so it never overwrites the default run's
+index. A gallery made before state entries stopped repeating their state in the folder name uses
+other ids, so start a width run in a fresh folder rather than resuming such a gallery. Setting
+`GALLERY_WIDTHS` switches the gallery to the whole inventory: `PAGES` from `pages.mjs`, then
+`STATE_PAGES` from `state-pages.mjs`, which adds the routes `PAGES` leaves out, every seeded state,
+the empty states and the validation errors. The contrast and mobile audits read `PAGES` only, so
+they do not measure the `STATE_PAGES` entries. Each shot is written to
+`<output>/<page>/<role or anon>__<theme>__<width>.png`, and
+`index.md` lists every shot with its page, role, state, theme and width. When a role's shot below
+the site header is pixel-identical to an earlier role's shot of the same page, state, width and
+theme, it is not written and its index row says `same as <file>`. `GALLERY_THEMES` and
+`GALLERY_START_HERE` need `GALLERY_WIDTHS`; without it the run exits 2. The run is resumable and
+takes the same regex argument and the same chunking as above. The full capture takes eight shots
+per entry where the default run takes four, so one chunk can outlast the node process: repeat each
+chunk's command, and then the final pass, until it prints its closing `Gallery:` line. Every repeat
+skips what is already captured.
+
+The full capture, four widths and both themes:
+
+```bash
+GALLERY_OUT=/path/to/screens GALLERY_WIDTHS=1440x900,1024x768,768x1024,390x844 GALLERY_THEMES=light,dark node scripts/testing/gallery.mjs
+```
+
+The same capture with the start-here set, one 1440x900 and one 390x844 light shot of every entry
+that has no state, written to `<output>/start-here/`:
+
+```bash
+GALLERY_OUT=/path/to/screens GALLERY_WIDTHS=1440x900,1024x768,768x1024,390x844 GALLERY_THEMES=light,dark GALLERY_START_HERE=1 node scripts/testing/gallery.mjs
+```
+
+The quick mode, 1440 and 390 in light, for the page ids a regex matches:
+
+```bash
+GALLERY_OUT=/path/to/quick GALLERY_WIDTHS=1440x900,390x844 GALLERY_THEMES=light node scripts/testing/gallery.mjs '^(01-home|02-competitions)$'
+```
+
+The dry run prints the number of shots per page, per mode and in total, and captures nothing. It
+works with or without `GALLERY_WIDTHS`:
+
+```bash
+GALLERY_DRY_RUN=1 GALLERY_WIDTHS=1440x900,1024x768,768x1024,390x844 GALLERY_THEMES=light,dark node scripts/testing/gallery.mjs
+```
+
 `api-matrix.mjs` deliberately runs its rate-limit assertion **last**, because it burns the per-IP
 `/identify` budget for the following 60 seconds. That also means **back-to-back runs need a ~70 s
 gap** — start a second run immediately and the three `/identify` classification assertions fail
@@ -225,7 +271,8 @@ upward by one per run.
 | `seeds.mjs` | Ids, slugs, and emails of every seeded fixture — the single place to update if the seed changes |
 | `lib-auth.mjs` | Mints real NextAuth credential sessions over HTTP; thin fetch wrapper |
 | `lib-browser.mjs` | Playwright launch, session-carrying contexts, theme switching, screenshots, and `MOBILE_VIEWPORTS` — the widths the mobile audit measures |
-| `pages.mjs` | The 85-entry page inventory for the gallery (`as` selects the session) |
+| `pages.mjs` | The gallery's page inventory, `PAGES` (`as` selects the session) |
+| `state-pages.mjs` | The gallery's states on top of `PAGES`, captured only by the four-width run |
 | `api-matrix.mjs` | Auth branches, ownership/IDOR, publish gates, ops guards, rate limiting |
 | `r2-flows.mjs` | Presign → real PUT → record/finalize → read back, plus the negative cases |
 | `flows.mjs` | Clicks and typing, capturing how each state looks |

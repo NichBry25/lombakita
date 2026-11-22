@@ -1712,7 +1712,10 @@ export const TABLE_RULINGS: readonly StoreRuling[] = Object.freeze([
       "staff member who drafted it. What survives with it is everything they WROTE on it — and " +
       "the title is enough on its own. A recruiter's personal competition survives a deletion " +
       "still titled `Kuis Mingguan Rina`, published and publicly reachable, carrying a given " +
-      "name that appears nowhere in the account's own rows",
+      "name that appears nowhere in the account's own rows. The de-identification action clears " +
+      "`organizer_contact_kind` and `organizer_contact_value` on every competition whose value " +
+      "is the account's own email or a number from its own approved host sign-up submissions. A " +
+      "contact that matches neither stays",
   },
   {
     store: "finance_fee_accruals",

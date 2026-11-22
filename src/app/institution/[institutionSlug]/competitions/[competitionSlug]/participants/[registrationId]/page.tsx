@@ -75,7 +75,6 @@ export default async function RegistrationReviewPage({ params }: Props) {
         title="Detail peserta"
         description="Catatan internal tidak terlihat oleh peserta."
         backHref={listPath}
-        backLabel="Peserta"
       />
       {/* The work comes before the verdict: a reviewer should read the submission, then judge it. */}
       <OrganiserSubmissionPanel

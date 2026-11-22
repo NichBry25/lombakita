@@ -165,6 +165,26 @@ export const competitionCategoryEnum = pgEnum("competition_category", [
   "other",
 ]);
 
+// Where a competition takes place. Display ONLY plus the list filter: online and offline both also
+// match hybrid there. Nullable: legacy rows stay empty until edited, and publishing requires it.
+export const competitionLocationEnum = pgEnum("competition_location", [
+  "online",
+  "offline",
+  "hybrid",
+]);
+
+// Who a competition is meant for. A label ONLY: it never gates registration (DEC-0106). Display
+// labels and the fixed display order live in @/lib/competitions/audiences.
+export const competitionAudienceEnum = pgEnum("competition_audience", [
+  "umum",
+  "mahasiswa",
+  "sma_smk",
+  "smp",
+  "sd",
+]);
+
+export type CompetitionLocation = (typeof competitionLocationEnum.enumValues)[number];
+export type CompetitionAudience = (typeof competitionAudienceEnum.enumValues)[number];
 export type CompetitionMode = (typeof competitionModeEnum.enumValues)[number];
 export type CompetitionStatus = (typeof competitionStatusEnum.enumValues)[number];
 export type CompetitionCategory = (typeof competitionCategoryEnum.enumValues)[number];
@@ -852,6 +872,7 @@ export const competitions = pgTable(
     status: competitionStatusEnum("status").notNull().default("draft"),
     category: competitionCategoryEnum("category"),
     mode: competitionModeEnum("mode"),
+    location: competitionLocationEnum("location"),
     minTeamSize: integer("min_team_size"),
     maxTeamSize: integer("max_team_size"),
     registrationStartAt: timestamp("registration_start_at", { mode: "date", withTimezone: true }),
@@ -910,6 +931,10 @@ export const competitions = pgTable(
     // Descriptive, organizer-authored eligibility note. Display ONLY — never read to authorize any
     // action (open candidacy, DEC-0106). Registration remains open to every verified candidate.
     eligibilityNote: text("eligibility_note"),
+    // Descriptive audience label, stored in the fixed display order without duplicates. Empty is
+    // NULL and never an empty array. Never read to authorize anything (DEC-0106), and deliberately
+    // absent from the registration-facing CompetitionRow.
+    audience: competitionAudienceEnum("audience").array(),
     isFeatured: boolean("is_featured").notNull().default(false),
     featuredOrder: integer("featured_order"),
     publishedAt: timestamp("published_at", { mode: "date", withTimezone: true }),
@@ -1118,11 +1143,11 @@ export const competitionRegistrationTypeEnum = pgEnum("competition_registration_
 ]);
 
 // `competition_registration_status` is the state machine for a registration row.
-// `confirmed` is the only initial state in MVP — competitions are free, so registrations skip
-// payment. `cancelled` is terminal: cancelled rows cannot transition back to confirmed and
-// cannot be re-registered (product simplification).
-// Phase 7: pending_payment state — not reachable in MVP. Schema-present so the state machine
-// can grow into paid registration without a destructive enum migration.
+// `confirmed` is the only initial state, for a paid registration too (DEC-0175). `cancelled` is
+// terminal for the row: nothing moves a cancelled row back to confirmed. Registering again inserts
+// a new row and keeps the cancelled one as history.
+// `pending_payment` is an enum member that no code path writes. Dropping it would take a
+// destructive enum migration.
 export const competitionRegistrationStatusEnum = pgEnum("competition_registration_status", [
   "confirmed",
   "cancelled",
@@ -1148,9 +1173,9 @@ export type CompetitionRegistrationReviewStatus =
 // Individual competition registration.
 // One non-cancelled row per (student_id, competition_id) — enforced by a partial unique index
 // in the migration: UNIQUE (student_id, competition_id) WHERE status != 'cancelled'. Cancelled
-// rows are retained as historical artefacts and do not block the partial unique; re-registration
-// is blocked at the application layer (a confirmed-or-cancelled row makes the student
-// "already known" to this competition for the lifetime of MVP).
+// rows are kept as history and sit outside the index, so registering again inserts a new row.
+// A cancelled individual row that a payment proof was sent for still blocks registering again
+// as an individual, in the service (DEC-0264), until an unpublish closes its publication.
 //
 // `team_id` joins a registration row to a `teams` row when registration_type='team'.
 // The DB CHECK `competition_registrations_type_team_id_chk` enforces co-presence: a 'team' row
@@ -1175,11 +1200,16 @@ export const competitionRegistrations = pgTable(
       .notNull()
       .default("individual"),
     status: competitionRegistrationStatusEnum("status").notNull().default("confirmed"),
+    // DEC-0262: a payment's expiry cancels the team rows registered no later than the payment's own
+    // row, so this column is never rewritten after insert. Its value comes from the app server's clock.
     registeredAt: timestamp("registered_at", { mode: "date", withTimezone: true })
       .defaultNow()
       .notNull(),
     cancelledAt: timestamp("cancelled_at", { mode: "date", withTimezone: true }),
     cancellationReason: text("cancellation_reason"),
+    // Set when an unpublish ends the publication this row was made in. Such a row refuses nothing
+    // once the competition is published again.
+    publicationClosedAt: timestamp("publication_closed_at", { mode: "date", withTimezone: true }),
     // Institution-internal review — not candidate-visible.
     internalReviewStatus: competitionRegistrationReviewStatusEnum("internal_review_status")
       .notNull()
@@ -1403,7 +1433,10 @@ export const teams = pgTable(
     updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
-    uniqueIndex("teams_competition_id_name_unique_idx").on(table.competitionId, table.name),
+    // A cancelled team keeps its row and gives up its name.
+    uniqueIndex("teams_competition_id_name_unique_idx")
+      .on(table.competitionId, table.name)
+      .where(sql`${table.status} <> 'cancelled'`),
     index("teams_competition_id_idx").on(table.competitionId),
     index("teams_captain_id_idx").on(table.captainId),
     // Redundant on its own, since `id` is already the primary key, and required by Postgres so that

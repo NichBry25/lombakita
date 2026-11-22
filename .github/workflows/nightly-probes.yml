@@ -235,6 +235,22 @@ jobs:
         if: ${{ !cancelled() && steps.database-ready.outcome == 'success' }}
         run: node scripts/testing/probes/registration-cancel-session.mjs
 
+      - name: "Probe suite: team-row-cancel"
+        if: ${{ !cancelled() && steps.database-ready.outcome == 'success' }}
+        run: node scripts/testing/probes/team-row-cancel.mjs
+
+      - name: "Probe suite: lane-guards"
+        if: ${{ !cancelled() && steps.database-ready.outcome == 'success' }}
+        run: node scripts/testing/probes/lane-guards.mjs
+
+      - name: "Probe suite: notice-recipients"
+        if: ${{ !cancelled() && steps.database-ready.outcome == 'success' }}
+        run: node scripts/testing/probes/notice-recipients.mjs
+
+      - name: "Probe suite: qris-payer-gate"
+        if: ${{ !cancelled() && steps.database-ready.outcome == 'success' }}
+        run: node scripts/testing/probes/qris-payer-gate.mjs
+
       - name: "Probe suite: operator-page-guards"
         if: ${{ !cancelled() && steps.database-ready.outcome == 'success' }}
         run: node scripts/testing/probes/operator-page-guards.mjs

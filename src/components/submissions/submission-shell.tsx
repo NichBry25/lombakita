@@ -1,18 +1,15 @@
 "use client";
 
 import { ChangeEvent, useEffect, useRef, useState } from "react";
-import { Button, Icon } from "@/components/ui";
+import { Button, Feedback, FormLabel, Icon } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
-import {
-  readErrorCode,
-  SESSION_MISMATCH_CODE,
-  SESSION_MISMATCH_MESSAGE,
-  sessionFetch,
-} from "@/lib/session/session-fetch";
+import { errorMessageFor } from "@/lib/errors/error-copy";
+import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
 import {
   preValidateSubmissionFile,
   SUBMISSION_ACCEPT_ATTRIBUTE,
   SUBMISSION_FORMAT_HINT,
+  SUBMISSION_MAX_BYTES,
 } from "@/lib/submissions/submission-file";
 
 type ClientSubmission = {
@@ -32,6 +29,37 @@ type SubmissionShellProps = {
   registrationCancelled: boolean;
   initialSubmission: ClientSubmission;
 };
+
+const SUBMISSION_MAX_MEGABYTES = SUBMISSION_MAX_BYTES / (1024 * 1024);
+
+const SUBMISSION_ERROR_COPY: Partial<Record<string, string>> = {
+  forbidden: "Akun Anda bukan akun kandidat. Masuk dengan akun kandidat untuk melanjutkan.",
+  submission_invalid_payload: "Data berkas tidak lengkap. Pilih berkas lagi lalu unggah ulang.",
+  submission_invalid_file_key:
+    "Unggahan tidak cocok dengan pendaftaran ini. Muat ulang halaman lalu unggah ulang.",
+  submission_registration_not_found: "Pendaftaran tidak ditemukan.",
+  submission_registration_cancelled: "Pendaftaran dibatalkan, jadi submission ditutup.",
+  submission_window_closed: "Jendela submission belum dibuka atau sudah ditutup.",
+  submission_file_missing: "Berkas belum selesai terunggah. Unggah ulang berkas Anda.",
+  submission_finalized: "Submission sudah difinalisasi dan tidak dapat diubah.",
+  submission_not_found: "Unggah berkas terlebih dahulu sebelum finalisasi.",
+  submission_upload_unavailable: "Unggahan berkas sedang tidak tersedia. Coba lagi nanti.",
+};
+
+const UPLOAD_URL_ERROR_COPY: Partial<Record<string, string>> = {
+  ...SUBMISSION_ERROR_COPY,
+  rate_limited: "Terlalu banyak permintaan unggah. Coba lagi dalam beberapa menit.",
+  submission_invalid_file_type: `Format tidak didukung. Unggah ${SUBMISSION_FORMAT_HINT}, atau kemas berkas Anda sebagai ZIP.`,
+};
+
+const RECORD_ERROR_COPY: Partial<Record<string, string>> = {
+  ...SUBMISSION_ERROR_COPY,
+  submission_invalid_file_type: `Berkas tidak lolos pemeriksaan. Pastikan formatnya didukung, tidak kosong, dan tidak melebihi ${SUBMISSION_MAX_MEGABYTES} MB.`,
+};
+
+const UPLOAD_URL_FALLBACK = "Gagal menyiapkan unggahan. Coba lagi.";
+const RECORD_FALLBACK = "Gagal menyimpan berkas. Coba lagi.";
+const FINALIZE_FALLBACK = "Gagal memfinalisasi submission. Coba lagi.";
 
 const baseUrl = (competitionId: string, registrationId: string): string =>
   `/api/v1/competitions/${competitionId}/registrations/${registrationId}/submission`;
@@ -65,14 +93,9 @@ export const SubmissionShell = ({
   useEffect(() => {
     if (registrationCancelled) {
       addToast({ type: "error", message: "Pendaftaran dibatalkan, jadi submission ditutup." });
-    } else if (!windowOpen) {
-      addToast({
-        type: "warning",
-        message: "Jendela submission belum dibuka atau sudah ditutup.",
-      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [registrationCancelled, windowOpen]);
+  }, [registrationCancelled]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -81,16 +104,13 @@ export const SubmissionShell = ({
   const url = baseUrl(competitionId, registrationId);
   const fileInputId = `submission-file-${registrationId}`;
 
-  const surfaceError = async (res: Response) => {
+  const surfaceError = async (
+    res: Response,
+    surfaceCopy: Partial<Record<string, string>>,
+    fallback: string,
+  ) => {
     const code = await readErrorCode(res);
-    if (code === SESSION_MISMATCH_CODE) {
-      addToast({ type: "error", message: SESSION_MISMATCH_MESSAGE });
-    } else {
-      addToast({
-        type: "error",
-        message: code ? `Error: ${code}` : `Error (HTTP ${res.status})`,
-      });
-    }
+    addToast({ type: "error", message: errorMessageFor(code, surfaceCopy, fallback) });
   };
 
   const handleFileSelect = (event: ChangeEvent<HTMLInputElement>) => {
@@ -120,7 +140,7 @@ export const SubmissionShell = ({
         body: JSON.stringify({ fileName: selectedFile.name }),
       });
       if (!presign.ok) {
-        await surfaceError(presign);
+        await surfaceError(presign, UPLOAD_URL_ERROR_COPY, UPLOAD_URL_FALLBACK);
         return;
       }
       const { uploadUrl, fileKey, contentType } = (await presign.json()) as {
@@ -150,7 +170,7 @@ export const SubmissionShell = ({
         }),
       });
       if (!record.ok) {
-        await surfaceError(record);
+        await surfaceError(record, RECORD_ERROR_COPY, RECORD_FALLBACK);
         return;
       }
 
@@ -171,7 +191,7 @@ export const SubmissionShell = ({
     try {
       const res = await sessionFetch(expectedUserId, `${url}/finalize`, { method: "POST" });
       if (!res.ok) {
-        await surfaceError(res);
+        await surfaceError(res, SUBMISSION_ERROR_COPY, FINALIZE_FALLBACK);
         return;
       }
       const body = (await res.json()) as { submission: unknown };
@@ -186,18 +206,14 @@ export const SubmissionShell = ({
 
   return (
     <div className="submission-shell">
+      {!registrationCancelled && !windowOpen ? (
+        <Feedback tone="warning">Jendela submission belum dibuka atau sudah ditutup.</Feedback>
+      ) : null}
       <section className="content-section submission-status">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Status saat ini</p>
             <h2>Status submission</h2>
           </div>
-          <span
-            className="status-badge"
-            data-status={finalized ? "closed" : submission ? "open" : undefined}
-          >
-            {finalized ? "Final" : submission ? "Draft" : "Belum dimulai"}
-          </span>
         </div>
         {submission ? (
           <dl className="submission-summary">
@@ -224,15 +240,14 @@ export const SubmissionShell = ({
           <div className="submission-step-heading">
             <span className="submission-step-number data-text">01</span>
             <div>
-              <p className="eyebrow">Unggah berkas</p>
               <h2>{submission ? "Ganti berkas" : "Unggah karya Anda"}</h2>
             </div>
           </div>
 
           <div className="form-field">
-            <label className="form-label" htmlFor={fileInputId}>
+            <FormLabel htmlFor={fileInputId} required>
               Berkas karya
-            </label>
+            </FormLabel>
             <div className="pf-media-actions">
               <Button
                 type="button"
@@ -294,7 +309,7 @@ export const SubmissionShell = ({
             onClick={finalizeSubmission}
             loading={pendingStep === "finalize"}
             disabled={loading}
-            variant="secondary"
+            variant="primary"
             size="md"
           >
             Finalisasi submission

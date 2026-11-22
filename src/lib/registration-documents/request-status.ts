@@ -74,7 +74,7 @@ export const DOCUMENT_REQUEST_STATUS_TONES: Record<
   unfulfilled: "closing",
   submitted: "open",
   accepted: "announced",
-  rejected: "cancelled",
+  rejected: "closing",
   cancelled: "closed",
 };
 

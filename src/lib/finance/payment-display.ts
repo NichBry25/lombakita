@@ -99,7 +99,7 @@ export const PAYMENT_STATUS_TONES: Record<PaymentDisplayStatus, StatusBadgeTone>
   awaiting_review: "awaiting",
   // Urgent rather than failed: the candidate can still act, and the deadline is still running.
   rejected_resubmittable: "closing",
-  rejected_final: "cancelled",
+  rejected_final: "closing",
   paid: "paid",
   expired: "expired",
   refunded: "refunded",
@@ -138,21 +138,3 @@ export const asSentence = (text: string): string => {
 
   return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
 };
-
-/**
- * A finance timestamp spelled out in full: a deadline, but also an accrual date or the moment a
- * rate was acknowledged. Never a relative "3 hari lagi": a transfer needs a real date, and on the
- * fee statement there is no deadline for a relative phrase to be relative TO.
- */
-export const formatFinanceDateTime = (isoDate: string): string =>
-  new Date(isoDate)
-    .toLocaleString("id-ID", {
-      day: "numeric",
-      month: "long",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    })
-    // Intl writes the separator in lower case. Every other word the app shows in a value position
-    // is capitalised, so this one is too.
-    .replace(" pukul ", " Pukul ");

@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import {
   Button,
   FormActionBar,
+  FormInput,
+  FormLabel,
   IconButton,
   PageHeader,
   SelectField,
@@ -22,15 +24,31 @@ const TYPE_OPTIONS = Object.entries(FULL_INSTITUTION_TYPE_LABELS).map(([value, l
   label,
 }));
 
+const WORKSPACE_ERROR_MESSAGES: Record<string, string> = {
+  recruiter_role_not_verified:
+    "Verifikasi akun penyelenggara Anda terlebih dahulu untuk membuat institusi.",
+  recruiter_tier_insufficient:
+    "Akun Anda belum menjadi penyelenggara terverifikasi. Selesaikan verifikasi penyelenggara untuk dapat membuat institusi.",
+  recruiter_institution_limit_reached: "Satu akun hanya dapat memiliki 3 institusi.",
+  institution_invalid_value: "Periksa nama institusi dan slug lalu coba lagi.",
+  institution_display_name_reserved: "Nama institusi ini tidak dapat digunakan. Pilih nama lain.",
+  institution_slug_reserved: "Slug ini tidak dapat digunakan. Pilih slug lain.",
+  institution_slug_conflicts_with_username:
+    "Slug ini sudah dipakai sebagai username. Pilih slug lain.",
+  account_deactivated: "Data akun ini sudah dihapus. Tindakan ini tidak tersedia.",
+};
+
 const extractErrorMessage = async (response: Response): Promise<string> => {
   try {
     const payload = (await response.json()) as {
       error?: {
-        message?: string;
+        code?: string;
       };
     };
 
-    return payload.error?.message ?? "Permintaan ruang kerja institusi gagal diproses.";
+    const code = payload.error?.code;
+    const message = code ? WORKSPACE_ERROR_MESSAGES[code] : undefined;
+    return message ?? "Permintaan ruang kerja institusi gagal diproses.";
   } catch {
     return "Permintaan ruang kerja institusi gagal diproses.";
   }
@@ -73,14 +91,21 @@ export const InstitutionWorkspaceShell = () => {
       payload.slug = slug;
     }
 
-    const response = await fetch("/api/v1/institutions", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-      },
-      credentials: "include",
-      body: JSON.stringify(payload),
-    });
+    let response: Response;
+    try {
+      response = await fetch("/api/v1/institutions", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+    } catch {
+      addToast({ type: "error", message: "Gagal mengirim permintaan karena gangguan koneksi." });
+      setIsCreating(false);
+      return false;
+    }
 
     if (!response.ok) {
       const message = await extractErrorMessage(response);
@@ -106,12 +131,11 @@ export const InstitutionWorkspaceShell = () => {
       <section className="content-section">
         <form className="stack-md" onSubmit={onSubmit}>
           <div className="form-field">
-            <label className="form-label" htmlFor="institution-display-name">
+            <FormLabel htmlFor="institution-display-name" required>
               Nama institusi
-            </label>
-            <input
+            </FormLabel>
+            <FormInput
               id="institution-display-name"
-              className="form-input"
               autoComplete="organization"
               value={displayName}
               onChange={(event) => setDisplayName(event.target.value)}
@@ -131,12 +155,11 @@ export const InstitutionWorkspaceShell = () => {
           </div>
 
           <div className="form-field">
-            <label className="form-label" htmlFor="institution-slug">
-              Slug (Opsional)
-            </label>
-            <input
+            <FormLabel htmlFor="institution-slug" optional>
+              Slug
+            </FormLabel>
+            <FormInput
               id="institution-slug"
-              className="form-input"
               value={slug}
               onChange={(event) => setSlug(event.target.value)}
               placeholder="universitas-nusantara"
@@ -147,8 +170,10 @@ export const InstitutionWorkspaceShell = () => {
 
       <FormActionBar>
         <IconButton
+          variant="plain"
+          size="back"
           icon="arrow-left"
-          label="Dasbor rekruter"
+          label="Kembali ke Dasbor penyelenggara"
           onClick={() => router.push("/recruiter-dashboard")}
         />
         <div className="form-action-bar-end">

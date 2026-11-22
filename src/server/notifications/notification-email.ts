@@ -6,6 +6,7 @@ import { Resend } from "resend";
 import { asSentence } from "@/lib/finance/payment-display";
 import { publicEnv } from "@/config/env";
 import { serverEnv } from "@/config/env.server";
+import { formatWib } from "@/lib/dates/date-format";
 import { logger } from "@/lib/logger";
 import { resolveEmailDelivery, type EmailDelivery } from "@/server/email/delivery";
 import { throwEmailSendFailure } from "@/server/email/send-failure";
@@ -13,14 +14,7 @@ import { throwEmailSendFailure } from "@/server/email/send-failure";
 // A deadline carried on a job payload travels as an ISO string. Rendered in Indonesian long form
 // to match the registration-confirmation email, and with the time included because a document
 // deadline is acted on the same day it falls.
-const formatEmailDate = (isoDate: string): string =>
-  new Date(isoDate).toLocaleString("id-ID", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+const formatEmailDate = (isoDate: string): string => formatWib(isoDate, "longDateTime");
 
 const resolveBaseUrl = (): string => {
   return serverEnv.authUrl ?? serverEnv.appBaseUrl ?? publicEnv.appUrl ?? "http://localhost:3000";
@@ -45,11 +39,7 @@ export const sendRegistrationConfirmedEmail = async (options: {
 
   const { apiKey, from } = delivery;
   const typeLabel = options.registrationType === "team" ? "Tim" : "Individu";
-  const dateFormatted = options.registeredAt.toLocaleDateString("id-ID", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
+  const dateFormatted = formatWib(options.registeredAt, "longDate");
 
   const resend = new Resend(apiKey);
   const { error } = await resend.emails.send({
@@ -126,14 +116,7 @@ export const sendSubmissionFinalizedEmail = async (options: {
   }
 
   const { apiKey, from } = delivery;
-  const dateFormatted = options.finalizedAt.toLocaleString("id-ID", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZoneName: "short",
-  });
+  const dateFormatted = formatWib(options.finalizedAt, "longDateTime");
 
   const resend = new Resend(apiKey);
   const { error } = await resend.emails.send({
@@ -284,7 +267,8 @@ export const sendCompetitionCancelledEmail = async (options: {
       ...(options.transferRefundNotice
         ? [
             "",
-            "Jika kamu sudah melakukan transfer, dana tersebut ada pada rekening penyelenggara. Hubungi penyelenggara secara langsung untuk pengembaliannya. Lombakita tidak menampung dana peserta sehingga tidak dapat memprosesnya.",
+            "Jika kamu sudah melakukan transfer, dana tersebut ada di rekening penyelenggara. Hubungi penyelenggara secara langsung untuk pengembaliannya. Ketentuan lengkapnya ada di Syarat & Ketentuan Lombakita.",
+            `${resolveBaseUrl()}/syarat-ketentuan#pembatalan-kompetisi`,
           ]
         : []),
       "",
@@ -319,16 +303,16 @@ export const sendRecruiterVerificationRejectedEmail = async (options: {
   const { apiKey, from } = delivery;
 
   const nextStep = options.resubmissionAllowed
-    ? "Perbarui data dan dokumen Anda di dasbor rekruter, lalu ajukan ulang."
+    ? "Perbarui data dan dokumen Anda di dasbor penyelenggara, lalu ajukan ulang."
     : "Akun Anda tidak dapat mengirim permohonan baru. Hubungi tim dukungan jika Anda merasa keputusan ini keliru.";
 
   const resend = new Resend(apiKey);
   const { error } = await resend.emails.send({
     from,
     to: options.toEmail,
-    subject: "Permohonan Rekruter Terpercaya ditolak",
+    subject: "Permohonan penyelenggara terverifikasi ditolak",
     text: [
-      "Permohonan verifikasi Rekruter Terpercaya Anda ditolak.",
+      "Permohonan Anda untuk menjadi penyelenggara terverifikasi ditolak.",
       "",
       `Alasan: ${options.rejectionReason}`,
       "",
@@ -344,6 +328,45 @@ export const sendRecruiterVerificationRejectedEmail = async (options: {
 
   logger.info("notification.sent", {
     event: "recruiter.verification.rejected",
+    recipientId: options.recipientId,
+  });
+};
+
+export const sendRecruiterVerificationApprovedEmail = async (options: {
+  toEmail: string;
+  recipientId: string;
+  draft: { title: string; path: string } | null;
+}): Promise<void> => {
+  const delivery = resolveNotificationDelivery("recruiter_verification_approved", options.toEmail);
+
+  if (!delivery) {
+    return;
+  }
+
+  const { apiKey, from } = delivery;
+
+  const nextStep = options.draft
+    ? `Buka draf "${options.draft.title}" di ${resolveBaseUrl()}${options.draft.path}, lalu tekan Terbitkan.`
+    : `Buka dasbor penyelenggara di ${resolveBaseUrl()}/recruiter-dashboard.`;
+
+  const resend = new Resend(apiKey);
+  const { error } = await resend.emails.send({
+    from,
+    to: options.toEmail,
+    subject: "Anda kini penyelenggara terverifikasi",
+    text: [
+      "Akun Anda sudah disetujui sebagai penyelenggara terverifikasi. Sekarang Anda dapat menerbitkan kompetisi.",
+      "",
+      nextStep,
+    ].join("\n"),
+  });
+
+  if (error) {
+    throwEmailSendFailure("recruiter_verification_approved", error);
+  }
+
+  logger.info("notification.sent", {
+    event: "recruiter.verification.approved",
     recipientId: options.recipientId,
   });
 };

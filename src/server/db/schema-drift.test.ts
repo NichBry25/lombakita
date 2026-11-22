@@ -8,7 +8,7 @@
 // belong to somebody else, and passes for a .sql file edited after it was applied. Both are things
 // that have actually happened in this repository.
 //
-// The accepted-divergence cases are the ones worth reading twice: two migration files were edited
+// The accepted-divergence cases are the ones worth reading twice: three migration files were edited
 // after being applied, deliberately, and the check has to keep watching them rather than look away.
 
 import { describe, expect, it } from "vitest";
@@ -119,7 +119,7 @@ describe("accepted divergences", () => {
 
   it("STILL FAILS on a third hash, so the row is pinned rather than skipped", () => {
     // The difference between a declared exception and a hole. Skipping the index would make the
-    // two most-edited migrations in the repository permanently unwatchable.
+    // edited migrations in the repository permanently unwatchable.
     const journal = [entry(0, "aaa"), entry(1, "bbb")];
 
     const problems = compareAppliedToJournal(
@@ -147,12 +147,13 @@ describe("accepted divergences", () => {
 });
 
 describe("the declared divergences", () => {
-  it("names the two migrations 8206ec4 edited after they were applied, and no others", () => {
+  it("names 0032, 0047 and 0065, the migrations edited after they were applied, and no others", () => {
     // Every entry here is a place the strict comparison is relaxed, so the list is part of the
     // declaration and growing it must be a deliberate, reviewed act.
     expect(ACCEPTED_DIVERGENCES.map((d) => d.tag)).toEqual([
       "0032_eager_cerise",
       "0047_glorious_tiger_shark",
+      "0065_team_invitations_expire_at_close",
     ]);
   });
 
@@ -178,9 +179,9 @@ describe("readJournalMigrations", () => {
   it("hashes every declared migration in the real journal", () => {
     const journal = readJournalMigrations("drizzle");
 
-    expect(journal).toHaveLength(64);
+    expect(journal).toHaveLength(67);
     expect(journal[0]?.index).toBe(0);
-    expect(journal[63]?.index).toBe(63);
+    expect(journal[66]?.index).toBe(66);
     for (const migration of journal) {
       expect(migration.hash, migration.tag).toMatch(/^[0-9a-f]{64}$/);
     }

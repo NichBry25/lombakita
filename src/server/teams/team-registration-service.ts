@@ -2,24 +2,32 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/teams/team-registration-service");
 
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 import { logger } from "@/lib/logger";
 import { getDb, type Database } from "@/server/db/client";
 import { enqueueRegistrationConfirmed, enqueueRegistrationCancelled } from "@/server/async/enqueue";
 import {
   competitionRegistrations,
   competitions,
+  teamInvitations,
   teamMemberships,
   teams,
   type CompetitionRegistrationStatus,
 } from "@/server/db/schema";
 import { TeamError } from "@/server/teams/team-core";
+import {
+  cancelExpiredTeamInvitations,
+  setOpenTeamInvitationsExpiryToClose,
+} from "@/server/teams/registered-team";
 import { MAX_CANCELLATION_REASON_LENGTH } from "@/server/registrations/registration-core";
 import { isParticipantCancellationClosedByConfirmation } from "@/lib/competitions/competition-participation";
+import { isPaidCompetition } from "@/lib/competitions/paid-competition";
 import { acquireCompetitionParticipationLock } from "@/server/competitions/competition-participation-lock";
+import { isCompetitionHost } from "@/server/competitions/competition-access";
 import {
-  findTeamPaymentGroupAnchor,
+  findAnyTeamRegistrationRow,
   hasSubmittedPaymentProof,
+  lockPaymentGroupAnchorRow,
 } from "@/server/finance/paid-registration";
 import {
   createRegistrationPayment,
@@ -68,6 +76,8 @@ type TeamRegistrationResult = {
   registrations: { id: string; studentId: string; status: CompetitionRegistrationStatus }[];
 };
 
+type TransactionClient = Parameters<Parameters<Database["transaction"]>[0]>[0];
+
 type DbOrTx = Database | Parameters<Parameters<Database["transaction"]>[0]>[0];
 
 const loadTeam = async (teamId: string, db: Database): Promise<TeamSnapshot | null> => {
@@ -110,10 +120,11 @@ const loadCompetition = async (
   return row ?? null;
 };
 
+// Returns the registration close it checked.
 const assertCompetitionAcceptsTeamRegistration = (
   competition: CompetitionSnapshot,
   now: Date,
-): void => {
+): Date => {
   if (competition.status !== "published" || competition.cancelledAt) {
     throw new TeamError(
       "team_competition_not_published",
@@ -135,6 +146,7 @@ const assertCompetitionAcceptsTeamRegistration = (
   if (!competition.registrationEndAt || competition.registrationEndAt.getTime() <= now.getTime()) {
     throw new TeamError("registration_window_closed", "Registration window has closed");
   }
+  return competition.registrationEndAt;
 };
 
 const assertTeamCancellationWindowOpen = (competition: CompetitionSnapshot, now: Date): void => {
@@ -156,12 +168,88 @@ const assertTeamCancellationWindowOpen = (competition: CompetitionSnapshot, now:
 
 const loadActiveMemberUserIds = async (
   teamId: string,
-  db: Database,
+  db: DbOrTx,
 ): Promise<{ membershipId: string; userId: string }[]> => {
   return db
     .select({ membershipId: teamMemberships.id, userId: teamMemberships.userId })
     .from(teamMemberships)
     .where(and(eq(teamMemberships.teamId, teamId), eq(teamMemberships.status, "active")));
+};
+
+const countOpenTeamInvitations = async (db: DbOrTx, teamId: string, now: Date): Promise<number> => {
+  const [row] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(teamInvitations)
+    .where(
+      and(
+        eq(teamInvitations.teamId, teamId),
+        inArray(teamInvitations.status, ["pending", "pending_claim"]),
+        gt(teamInvitations.expiresAt, now),
+      ),
+    );
+  return row?.count ?? 0;
+};
+
+const assertFreeTeamSeatsWithinSize = (
+  seatCount: number,
+  competition: CompetitionSnapshot,
+): void => {
+  if (competition.minTeamSize !== null && seatCount < competition.minTeamSize) {
+    throw new TeamError(
+      "team_size_insufficient",
+      `Team has ${seatCount} member(s) and open invitation(s); minimum is ${competition.minTeamSize}`,
+      { seatCount, minTeamSize: competition.minTeamSize },
+    );
+  }
+  if (competition.maxTeamSize !== null && seatCount > competition.maxTeamSize) {
+    throw new TeamError(
+      "team_size_exceeded",
+      `Team has ${seatCount} member(s) and open invitation(s); maximum is ${competition.maxTeamSize}`,
+      { seatCount, maxTeamSize: competition.maxTeamSize },
+    );
+  }
+};
+
+// Whether a payment proof was ever sent for this team's money, in any status (DEC-0174: the
+// proof, not the competition's price). Asked only of a forming team, whose registrations are all
+// cancelled: one cancelled row stands for the team, because hasSubmittedPaymentProof reads every
+// payment anchored on any row sharing its team_id. Asked of a submitted team it would also count
+// a proof on the payment of its live registration. The page asks the same question with this
+// reader, so it never offers what the server refuses.
+export const hasFormingTeamSentPaymentProof = async (
+  teamId: string,
+  competitionId: string,
+  db: DbOrTx = getDb(),
+): Promise<boolean> => {
+  // A never-cancelled submitted team has no cancelled row, so its live proof is not counted. Not
+  // findAnyTeamRegistrationRow, which would count it.
+  const [cancelledRow] = await db
+    .select({ id: competitionRegistrations.id })
+    .from(competitionRegistrations)
+    .where(
+      and(
+        eq(competitionRegistrations.teamId, teamId),
+        eq(competitionRegistrations.competitionId, competitionId),
+        eq(competitionRegistrations.status, "cancelled"),
+      ),
+    )
+    .limit(1);
+
+  if (!cancelledRow) return false;
+  return hasSubmittedPaymentProof(cancelledRow.id, db);
+};
+
+const assertFormingTeamSentNoPaymentProof = async (
+  teamId: string,
+  competitionId: string,
+  tx: TransactionClient,
+): Promise<void> => {
+  if (await hasFormingTeamSentPaymentProof(teamId, competitionId, tx)) {
+    throw new TeamError(
+      "team_register_again_closed_by_payment_proof",
+      "A payment proof was sent for a cancelled registration of this team, so it cannot register again",
+    );
+  }
 };
 
 // Assert that the caller is the active captain of this team and that the team belongs to the
@@ -177,6 +265,23 @@ const assertCaptainAccess = (
   }
   if (team.captainId !== callerUserId) {
     throw new TeamError("team_not_captain", "Only the team captain may perform this action");
+  }
+};
+
+// Refuses the registration while any member it would register, the captain included, is an owner
+// or staff member of the competition's institution, whenever they became one.
+const assertNoCompetitionHostOnTeam = async (
+  tx: DbOrTx,
+  userIds: readonly string[],
+  competitionId: string,
+): Promise<void> => {
+  for (const userId of userIds) {
+    if (await isCompetitionHost(userId, competitionId, tx)) {
+      throw new TeamError(
+        "team_member_host_of_competition",
+        "A member of this team is an owner or staff member of the competition's institution",
+      );
+    }
   }
 };
 
@@ -213,6 +318,9 @@ export const submitTeamRegistration = async (
   // (c-e) publication, mode, and registration window. If start is null the window is treated
   // as immediately open (matches the individual-registration helper which only enforces end).
   assertCompetitionAcceptsTeamRegistration(competition, requestAt);
+  // A free team registers once joined members plus open invites reach the size. A paid team still
+  // needs every member joined.
+  const countsOpenInvitations = !isPaidCompetition(competition.feeAmount);
 
   // (f) load active members. Must include the captain — captain has an active membership row
   // by construction of createTeam.
@@ -220,19 +328,21 @@ export const submitTeamRegistration = async (
   const memberCount = members.length;
 
   // (g) team size bounds. Both bounds optional; only enforced when set on the competition.
-  if (competition.minTeamSize !== null && memberCount < competition.minTeamSize) {
-    throw new TeamError(
-      "team_size_insufficient",
-      `Team has ${memberCount} active member(s); minimum is ${competition.minTeamSize}`,
-      { activeMemberCount: memberCount, minTeamSize: competition.minTeamSize },
-    );
-  }
-  if (competition.maxTeamSize !== null && memberCount > competition.maxTeamSize) {
-    throw new TeamError(
-      "team_size_exceeded",
-      `Team has ${memberCount} active member(s); maximum is ${competition.maxTeamSize}`,
-      { activeMemberCount: memberCount, maxTeamSize: competition.maxTeamSize },
-    );
+  if (!countsOpenInvitations) {
+    if (competition.minTeamSize !== null && memberCount < competition.minTeamSize) {
+      throw new TeamError(
+        "team_size_insufficient",
+        `Team has ${memberCount} active member(s); minimum is ${competition.minTeamSize}`,
+        { activeMemberCount: memberCount, minTeamSize: competition.minTeamSize },
+      );
+    }
+    if (competition.maxTeamSize !== null && memberCount > competition.maxTeamSize) {
+      throw new TeamError(
+        "team_size_exceeded",
+        `Team has ${memberCount} active member(s); maximum is ${competition.maxTeamSize}`,
+        { activeMemberCount: memberCount, maxTeamSize: competition.maxTeamSize },
+      );
+    }
   }
 
   const memberUserIds = members.map((m) => m.userId);
@@ -277,12 +387,36 @@ export const submitTeamRegistration = async (
       if (!lockedCompetition) {
         throw new TeamError("team_competition_not_found", "Competition not found");
       }
-      assertCompetitionAcceptsTeamRegistration(lockedCompetition, mutationAt);
+      const closesAt = assertCompetitionAcceptsTeamRegistration(lockedCompetition, mutationAt);
+      const lockedCountsOpenInvitations = !isPaidCompetition(lockedCompetition.feeAmount);
+      // The size rule was chosen from the fee read before the lock, so a fee changed since is refused.
+      if (lockedCountsOpenInvitations !== countsOpenInvitations) {
+        throw new TeamError(
+          "team_state_conflict",
+          "The competition's fee changed during registration. Reload and retry.",
+        );
+      }
+
+      let registrationUserIds = memberUserIds;
+      if (countsOpenInvitations) {
+        // Read under the participation lock, which every accept also takes, so a teammate joining at this
+        // moment is either registered here or joins the registered team with their own registration.
+        const lockedMembers = await loadActiveMemberUserIds(teamId, tx);
+        const openInvitationCount = await countOpenTeamInvitations(tx, teamId, mutationAt);
+        assertFreeTeamSeatsWithinSize(
+          lockedMembers.length + openInvitationCount,
+          lockedCompetition,
+        );
+        registrationUserIds = lockedMembers.map((member) => member.userId);
+      }
+
+      await assertFormingTeamSentNoPaymentProof(teamId, competitionId, tx);
+      await assertNoCompetitionHostOnTeam(tx, registrationUserIds, competitionId);
 
       const insertedRows = await tx
         .insert(competitionRegistrations)
         .values(
-          memberUserIds.map((userId) => ({
+          registrationUserIds.map((userId) => ({
             competitionId,
             studentId: userId,
             teamId,
@@ -310,6 +444,11 @@ export const submitTeamRegistration = async (
           "team_state_conflict",
           "Team state changed during submission — reload and retry",
         );
+      }
+
+      if (countsOpenInvitations) {
+        await cancelExpiredTeamInvitations(tx, teamId, mutationAt);
+        await setOpenTeamInvitationsExpiryToClose(tx, teamId, closesAt, mutationAt);
       }
 
       // ONE PAYMENT FOR THE WHOLE TEAM, anchored on the CAPTAIN'S row.
@@ -347,7 +486,7 @@ export const submitTeamRegistration = async (
       logger.info("team_registration.submitted", {
         teamId,
         competitionId,
-        memberCount: memberUserIds.length,
+        memberCount: registrationUserIds.length,
       });
 
       return {
@@ -396,6 +535,61 @@ export const submitTeamRegistration = async (
   }
 
   return submitResult;
+};
+
+// Today's team cancellation, shared by the captain's cancel and the registration close check, so
+// both leave the team in forming with its joined members. The caller holds the participation lock.
+export const revertSubmittedTeamToForming = async (
+  tx: TransactionClient,
+  teamId: string,
+  competitionId: string,
+  cancellationReason: string,
+  mutationAt: Date,
+): Promise<TeamRegistrationResult> => {
+  const cancelled = await tx
+    .update(competitionRegistrations)
+    .set({
+      status: "cancelled",
+      cancelledAt: mutationAt,
+      cancellationReason,
+      updatedAt: sql`now()`,
+    })
+    .where(
+      and(
+        eq(competitionRegistrations.teamId, teamId),
+        eq(competitionRegistrations.status, "confirmed"),
+      ),
+    )
+    .returning({
+      id: competitionRegistrations.id,
+      studentId: competitionRegistrations.studentId,
+      status: competitionRegistrations.status,
+    });
+
+  const teamUpdate = await tx
+    .update(teams)
+    .set({ status: "forming", updatedAt: mutationAt })
+    .where(and(eq(teams.id, teamId), eq(teams.status, "submitted")))
+    .returning({ id: teams.id });
+
+  if (teamUpdate.length !== 1) {
+    throw new TeamError(
+      "team_state_conflict",
+      "Team state changed during cancellation — reload and retry",
+    );
+  }
+
+  logger.info("team_registration.cancelled", {
+    teamId,
+    competitionId,
+    cancelledRegistrations: cancelled.length,
+  });
+
+  return {
+    teamId,
+    status: "forming" as const,
+    registrations: cancelled,
+  };
 };
 
 // Captain reverts a submitted team back to forming by cancelling every team-typed
@@ -452,12 +646,13 @@ export const cancelTeamRegistration = async (
   // a solo entrant on the same competition, both having paid nothing, got different answers.
   // A team with no registration rows at all has no payment and therefore no proof. The anchor
   // lookup is shared with the surface that decides whether to OFFER the cancel control, so the
-  // control cannot appear on a team this guard would refuse.
+  // control cannot appear on a team this guard would refuse. It returns any row of the team, not
+  // the payment anchor.
   //
   // Asked of the TEAM'S OWN MONEY, never of the competition's current price, for the same reason
   // the individual arm is: a fee lowered to zero would otherwise skip the check against a team
   // whose payment row still carries its original gross amount.
-  const anchorRegistrationId = await findTeamPaymentGroupAnchor(teamId, db);
+  const anchorRegistrationId = await findAnyTeamRegistrationRow(teamId, db);
 
   if (anchorRegistrationId !== null && (await hasSubmittedPaymentProof(anchorRegistrationId, db))) {
     throw new TeamError(
@@ -487,50 +682,26 @@ export const cancelTeamRegistration = async (
     }
     assertTeamCancellationWindowOpen(lockedCompetition, mutationAt);
 
-    const cancelled = await tx
-      .update(competitionRegistrations)
-      .set({
-        status: "cancelled",
-        cancelledAt: mutationAt,
-        cancellationReason,
-        updatedAt: sql`now()`,
-      })
-      .where(
-        and(
-          eq(competitionRegistrations.teamId, teamId),
-          eq(competitionRegistrations.status, "confirmed"),
-        ),
-      )
-      .returning({
-        id: competitionRegistrations.id,
-        studentId: competitionRegistrations.studentId,
-        status: competitionRegistrations.status,
-      });
+    // Read again under the payment's row lock. The read above runs before this transaction, so a
+    // proof sent after it would land on a registration this withdrawal cancels. Here, a proof whose
+    // upload holds the row is committed before this read, and an upload that waits behind this
+    // withdrawal finds the registration cancelled.
+    const lockedAnchorRegistrationId =
+      anchorRegistrationId === null
+        ? null
+        : await lockPaymentGroupAnchorRow(anchorRegistrationId, tx);
 
-    const teamUpdate = await tx
-      .update(teams)
-      .set({ status: "forming", updatedAt: mutationAt })
-      .where(and(eq(teams.id, teamId), eq(teams.status, "submitted")))
-      .returning({ id: teams.id });
-
-    if (teamUpdate.length !== 1) {
+    if (
+      lockedAnchorRegistrationId !== null &&
+      (await hasSubmittedPaymentProof(lockedAnchorRegistrationId, tx))
+    ) {
       throw new TeamError(
-        "team_state_conflict",
-        "Team state changed during cancellation — reload and retry",
+        "cancellation_not_supported_for_paid",
+        "Pendaftaran tidak dapat dibatalkan setelah bukti transfer dikirim",
       );
     }
 
-    logger.info("team_registration.cancelled", {
-      teamId,
-      competitionId,
-      cancelledRegistrations: cancelled.length,
-    });
-
-    return {
-      teamId,
-      status: "forming" as const,
-      registrations: cancelled,
-    };
+    return revertSubmittedTeamToForming(tx, teamId, competitionId, cancellationReason, mutationAt);
   });
 
   for (const reg of cancelResult.registrations) {

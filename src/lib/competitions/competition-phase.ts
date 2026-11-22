@@ -148,6 +148,20 @@ const PHASE_LABELS: Record<CompetitionPhase, string> = {
   results_announced: "Hasil diumumkan",
 };
 
+// Shorter words for the competition card's footer pill, which also holds a date and must stay on
+// one line in a narrow card. Every other surface keeps PHASE_LABELS.
+const PHASE_CARD_LABELS: Record<CompetitionPhase, string> = {
+  cancelled: "Dibatalkan",
+  upcoming: "Akan dibuka",
+  registration_open: "Dibuka",
+  registration_closing: "Segera ditutup",
+  registration_closed: "Ditutup",
+  in_progress: "Berlangsung",
+  awaiting_results: "Menunggu hasil",
+  results_overdue: "Hasil tertunda",
+  results_announced: "Hasil diumumkan",
+};
+
 // Maps onto the `data-status` values the shared .status-badge styles already implement, so every
 // phase renders as a tinted pill with its own dot and never depends on colour alone.
 // Typed to the badge vocabulary rather than `string`. `string` is what let a tone that styles
@@ -166,6 +180,9 @@ const PHASE_BADGE_STATUS: Record<CompetitionPhase, StatusBadgeTone> = {
 };
 
 export const getCompetitionPhaseLabel = (phase: CompetitionPhase): string => PHASE_LABELS[phase];
+
+export const getCompetitionPhaseCardLabel = (phase: CompetitionPhase): string =>
+  PHASE_CARD_LABELS[phase];
 
 export const getCompetitionPhaseBadgeStatus = (phase: CompetitionPhase): StatusBadgeTone =>
   PHASE_BADGE_STATUS[phase];

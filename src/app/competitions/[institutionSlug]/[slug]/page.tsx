@@ -1,10 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Button, ButtonLink, Icon, LinkPendingSlot } from "@/components/ui";
+import { CompetitionCard } from "@/components/competitions/competition-card";
+import { Fact, Icon, IconButtonLink, LinkPendingSlot } from "@/components/ui";
+import { LocalDate } from "@/components/ui/local-date";
 import { INDEXABLE_ROBOTS } from "@/config/indexable-routes";
 import { sessionHasRole } from "@/lib/access/roles";
-import { getCompetitionCategoryLabel } from "@/lib/competitions/categories";
+import { getCompetitionCategoryLabel, tagsOtherThanCategory } from "@/lib/competitions/categories";
+import { formatAudienceLabels } from "@/lib/competitions/audiences";
+import { getCompetitionLocationLabel } from "@/lib/competitions/locations";
 import { getCompetitionModeLabel } from "@/lib/competitions/modes";
 import { getCompetitionCancellationReasonLabel } from "@/lib/competitions/competition-participation";
 import {
@@ -29,31 +33,21 @@ import {
   listPublicReviews,
 } from "@/server/competitions/competition-reviews-service";
 import { loadInstitutionVerificationSummaryBySlug } from "@/server/institution-workspace/institution-service";
+import { isCompetitionHost } from "@/server/competitions/competition-access";
+import { RegisterStickyBar } from "./register-sticky-bar";
+import { shouldShowRegisterBar } from "./register-bar-rule";
+import { RegistrationButton } from "./registration-button";
+import { candidateRoleOfferPath } from "./candidate-role-offer-path";
 import { SaveButton } from "./save-button";
 import { DetailActions } from "./detail-actions";
+import { OrganizerContactLink } from "./organizer-contact-link";
 import { CompetitionReviewForm } from "./competition-review-form";
 import { formatTeamSizeText } from "./team-size-utils";
 import { isPaidCompetition } from "@/lib/competitions/paid-competition";
+import { COMPETITION_HOST_CANNOT_JOIN_MESSAGE } from "@/lib/errors/error-copy";
 
-const formatDate = (date: Date | string | null) =>
-  date
-    ? new Date(date).toLocaleDateString("id-ID", {
-        day: "numeric",
-        month: "long",
-        year: "numeric",
-      })
-    : "—";
-
-const formatDateTime = (date: Date | string | null) =>
-  date
-    ? new Date(date).toLocaleString("id-ID", {
-        day: "numeric",
-        month: "long",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      })
-    : "—";
+// Shown for a location or an audience the host has not filled in.
+const NOT_FILLED_IN_TEXT = "Belum diisi";
 
 // The fee and its currency are read TOGETHER. `fee_amount` is an integer count of the currency's
 // smallest unit (@/lib/finance/money), so the number alone does not say what it means. The same
@@ -86,60 +80,6 @@ function FeeDisplay({
       </p>
       <p className="detail-rail-note">Pembayaran online segera hadir.</p>
     </div>
-  );
-}
-
-function CTANavLink({
-  ctaState,
-  registrationPath,
-  isCandidate,
-  isCancelled,
-}: {
-  ctaState: PublicCompetitionDetail["ctaState"];
-  registrationPath: string;
-  isCandidate: boolean;
-  isCancelled: boolean;
-}) {
-  if (isCancelled) {
-    return (
-      <Button disabled size="lg" fullWidth>
-        Kompetisi dibatalkan
-      </Button>
-    );
-  }
-  if (ctaState === "open" && isCandidate) {
-    return (
-      <ButtonLink href={registrationPath} variant="primary" size="lg" fullWidth>
-        Daftar kompetisi
-        <Icon name="arrow-right" size="md" />
-      </ButtonLink>
-    );
-  }
-
-  if (ctaState === "open" && !isCandidate) {
-    return (
-      <Button disabled size="lg" fullWidth>
-        Daftar kompetisi
-      </Button>
-    );
-  }
-
-  // "Pendaftaran belum dibuka" sits exactly on the §9 24-character cap. The visible label
-  // shortens to "Belum dibuka" so it reads as a status rather than a sentence; the accessible name
-  // keeps the full phrase, because someone reaching this control by screen reader has no visual
-  // "Daftar kompetisi" heading above it to supply the missing subject.
-  if (ctaState === "not_yet_open") {
-    return (
-      <Button disabled size="lg" fullWidth aria-label="Pendaftaran belum dibuka">
-        Belum dibuka
-      </Button>
-    );
-  }
-
-  return (
-    <Button disabled size="lg" fullWidth>
-      Pendaftaran ditutup
-    </Button>
   );
 }
 
@@ -182,7 +122,13 @@ function CompetitionPhaseSummary({
     <div className="detail-phase-summary" data-status={getCompetitionPhaseBadgeStatus(phase)}>
       <p className="detail-phase-title">
         {getCompetitionPhaseLabel(phase)}
-        {phaseDate ? `: ${formatDate(phaseDate)}` : ""}
+        {phaseDate ? (
+          <>
+            : <LocalDate value={phaseDate} format="longDate" />
+          </>
+        ) : (
+          ""
+        )}
       </p>
     </div>
   );
@@ -204,7 +150,7 @@ function ResultAnnouncementSummary({
   if (phase === "results_announced") {
     return (
       <div className="stack-xs">
-        <p className="eyebrow">Hasil</p>
+        <p>Hasil</p>
         <p className="detail-deadline data-text">Sudah diumumkan</p>
       </div>
     );
@@ -220,9 +166,13 @@ function ResultAnnouncementSummary({
 
   return (
     <div className="stack-xs">
-      <p className="eyebrow">{heading}</p>
+      <p>{heading}</p>
       <p className="detail-deadline data-text">
-        {announcement.at ? formatDateTime(announcement.at) : "Belum dijadwalkan"}
+        {announcement.at ? (
+          <LocalDate value={announcement.at} format="longDateTime" />
+        ) : (
+          "Belum dijadwalkan"
+        )}
       </p>
       {phase === "results_overdue" ? (
         <p className="form-help">
@@ -239,46 +189,9 @@ function CompetitionRail({ heading, items }: { heading: string; items: PublicCom
     <section className="content-shell detail-rail-section stack-md">
       <h2 className="section-title">{heading}</h2>
       <div className="competition-grid">
-        {items.map((item) => {
-          const detailPath = `/competitions/${item.institutionSlug}/${item.slug}`;
-          return (
-            <article className="competition-card" key={item.id}>
-              <Link
-                href={detailPath}
-                className="competition-cover"
-                data-category={item.category ?? "other"}
-                aria-label={`Buka ${item.title}`}
-              >
-                <span className="competition-cover-icon" aria-hidden="true">
-                  <LinkPendingSlot leadingIcon={<Icon name="trophy" size="lg" />} />
-                </span>
-                <span className="competition-cover-label">
-                  {item.category ? getCompetitionCategoryLabel(item.category) : "Kompetisi"}
-                </span>
-              </Link>
-              <div className="competition-card-body">
-                <div className="competition-card-badges">
-                  {item.mode ? (
-                    <span className="status-badge">{getCompetitionModeLabel(item.mode)}</span>
-                  ) : null}
-                </div>
-                <div className="stack-xs">
-                  <Link href={detailPath} className="competition-title-link">
-                    {item.title}
-                    <LinkPendingSlot />
-                  </Link>
-                  <p className="competition-organizer">{item.institutionName}</p>
-                </div>
-                <div className="competition-card-footer">
-                  <span className="status-badge">Batas · {formatDate(item.registrationEndAt)}</span>
-                  <span className="competition-card-arrow" aria-hidden="true">
-                    <Icon name="arrow-right" size="md" />
-                  </span>
-                </div>
-              </div>
-            </article>
-          );
-        })}
+        {items.map((item) => (
+          <CompetitionCard key={item.id} competition={item} />
+        ))}
       </div>
     </section>
   );
@@ -368,6 +281,10 @@ export default async function CompetitionDetailPage({
 
   if (!competition) notFound();
 
+  const isHostOfCompetition = session?.user
+    ? await isCompetitionHost(session.user.id, competition.id)
+    : false;
+
   const isCandidate = sessionHasRole(
     session?.user?.role,
     session?.user?.verifiedRoles,
@@ -378,9 +295,27 @@ export default async function CompetitionDetailPage({
     : false;
 
   const registrationPath = `/competitions/${institutionSlug}/${slug}/registration`;
+  const competitionPath = `/competitions/${institutionSlug}/${slug}`;
+  const signInPath = `/auth/login?callbackUrl=${encodeURIComponent(competitionPath)}`;
+  const calendarEvent = {
+    competitionId: competition.id,
+    title: competition.title,
+    eventStartAt: competition.eventStartAt
+      ? new Date(competition.eventStartAt).toISOString()
+      : null,
+    eventEndAt: competition.eventEndAt ? new Date(competition.eventEndAt).toISOString() : null,
+    description: competition.description,
+  };
+  const roleOfferPath = candidateRoleOfferPath(
+    session?.user?.role,
+    session?.user?.verifiedRoles,
+    competitionPath,
+  );
   const showTeamSize =
     competition.mode !== "individual" &&
     (competition.minTeamSize !== null || competition.maxTeamSize !== null);
+  const locationText = getCompetitionLocationLabel(competition.location) || NOT_FILLED_IN_TEXT;
+  const audienceText = formatAudienceLabels(competition.audience) || NOT_FILLED_IN_TEXT;
 
   const [organizerRailResult, relatedRailResult, reviewSummary, reviews] = await Promise.all([
     listPublicCompetitions({ institutionSlug, limit: 4 }),
@@ -411,10 +346,13 @@ export default async function CompetitionDetailPage({
         data-category={competition.category ?? "other"}
       >
         <div className="content-shell competition-detail-hero-inner">
-          <Link href="/competitions" className="detail-back-link">
-            <span aria-hidden="true">←</span>
-            Kompetisi
-          </Link>
+          <IconButtonLink
+            href="/competitions"
+            icon="arrow-left"
+            variant="plain"
+            size="back"
+            label="Kembali ke Kompetisi"
+          />
 
           <div className="detail-hero-content stack-md">
             <h1>{competition.title}</h1>
@@ -428,7 +366,10 @@ export default async function CompetitionDetailPage({
               {competition.mode ? (
                 <span className="status-badge">{getCompetitionModeLabel(competition.mode)}</span>
               ) : null}
-              {competition.tags.map((tag) => (
+              {tagsOtherThanCategory(
+                competition.tags,
+                competition.category ? getCompetitionCategoryLabel(competition.category) : null,
+              ).map((tag) => (
                 <span className="status-badge" key={tag}>
                   {tag}
                 </span>
@@ -477,14 +418,20 @@ export default async function CompetitionDetailPage({
                 {getCompetitionCancellationReasonLabel(competition.cancellationReason) ??
                   "Kompetisi ini tidak akan dilaksanakan."}
               </p>
-              <p className="data-text">Dibatalkan pada {formatDateTime(competition.cancelledAt)}</p>
+              <p className="data-text">
+                Dibatalkan pada{" "}
+                {competition.cancelledAt ? (
+                  <LocalDate value={competition.cancelledAt} format="longDateTime" />
+                ) : (
+                  "—"
+                )}
+              </p>
             </section>
           ) : null}
 
           {competition.description ? (
-            <section className="surface-card card-padding-lg stack-md">
+            <section className="stack-md">
               <div className="stack-xs">
-                <p className="eyebrow">Tentang kompetisi</p>
                 <h2 className="section-title">Gambaran umum</h2>
               </div>
               <p className="detail-description">{competition.description}</p>
@@ -492,9 +439,8 @@ export default async function CompetitionDetailPage({
           ) : null}
 
           {competition.rounds.length > 0 ? (
-            <section className="surface-card card-padding-lg stack-md">
+            <section className="stack-md">
               <div className="stack-xs">
-                <p className="eyebrow">Tahapan</p>
                 <h2 className="section-title">Tahapan &amp; linimasa</h2>
               </div>
               <div className="detail-timeline">
@@ -510,8 +456,19 @@ export default async function CompetitionDetailPage({
                       </div>
                       {round.startsAt || round.endsAt ? (
                         <span className="data-text">
-                          {formatDateTime(round.startsAt)}
-                          {round.endsAt ? ` – ${formatDateTime(round.endsAt)}` : ""}
+                          {round.startsAt ? (
+                            <LocalDate value={round.startsAt} format="longDateTime" />
+                          ) : (
+                            "—"
+                          )}
+                          {round.endsAt ? (
+                            <>
+                              {" "}
+                              – <LocalDate value={round.endsAt} format="longDateTime" />
+                            </>
+                          ) : (
+                            ""
+                          )}
                         </span>
                       ) : null}
                       {round.description ? <p className="muted-copy">{round.description}</p> : null}
@@ -523,9 +480,8 @@ export default async function CompetitionDetailPage({
           ) : null}
 
           {competition.rounds.length === 0 ? (
-            <section className="surface-card card-padding-lg stack-md">
+            <section className="stack-md">
               <div className="stack-xs">
-                <p className="eyebrow">Jadwal</p>
                 <h2 className="section-title">Tanggal penting</h2>
               </div>
               <div className="detail-timeline">
@@ -533,28 +489,52 @@ export default async function CompetitionDetailPage({
                   <span className="detail-timeline-node" aria-hidden="true" />
                   <div>
                     <span>Pendaftaran dibuka</span>
-                    <strong>{formatDateTime(competition.registrationStartAt)}</strong>
+                    <strong>
+                      {competition.registrationStartAt ? (
+                        <LocalDate value={competition.registrationStartAt} format="longDateTime" />
+                      ) : (
+                        "—"
+                      )}
+                    </strong>
                   </div>
                 </div>
                 <div className="detail-timeline-item" data-key-date="true">
                   <span className="detail-timeline-node" aria-hidden="true" />
                   <div>
                     <span>Batas pendaftaran</span>
-                    <strong>{formatDateTime(competition.registrationEndAt)}</strong>
+                    <strong>
+                      {competition.registrationEndAt ? (
+                        <LocalDate value={competition.registrationEndAt} format="longDateTime" />
+                      ) : (
+                        "—"
+                      )}
+                    </strong>
                   </div>
                 </div>
                 <div className="detail-timeline-item">
                   <span className="detail-timeline-node" aria-hidden="true" />
                   <div>
                     <span>Mulai kompetisi</span>
-                    <strong>{formatDate(competition.eventStartAt)}</strong>
+                    <strong>
+                      {competition.eventStartAt ? (
+                        <LocalDate value={competition.eventStartAt} format="longDate" />
+                      ) : (
+                        "—"
+                      )}
+                    </strong>
                   </div>
                 </div>
                 <div className="detail-timeline-item">
                   <span className="detail-timeline-node" aria-hidden="true" />
                   <div>
                     <span>Akhir kompetisi</span>
-                    <strong>{formatDate(competition.eventEndAt)}</strong>
+                    <strong>
+                      {competition.eventEndAt ? (
+                        <LocalDate value={competition.eventEndAt} format="longDate" />
+                      ) : (
+                        "—"
+                      )}
+                    </strong>
                   </div>
                 </div>
               </div>
@@ -562,9 +542,8 @@ export default async function CompetitionDetailPage({
           ) : null}
 
           {competition.prizes.length > 0 ? (
-            <section className="surface-card card-padding-lg stack-md">
+            <section className="stack-md">
               <div className="stack-xs">
-                <p className="eyebrow">Apresiasi</p>
                 <h2 className="section-title">Hadiah</h2>
                 {competition.prizePoolTotal ? (
                   <p className="detail-prize-total data-text">
@@ -574,8 +553,12 @@ export default async function CompetitionDetailPage({
               </div>
               <ul className="detail-prize-list stack-sm">
                 {competition.prizes.map((prize, index) => (
-                  <li key={`${prize.title}-${index}`} className="detail-prize-item stack-xs">
-                    {prize.rankLabel ? <p className="eyebrow">{prize.rankLabel}</p> : null}
+                  <li
+                    key={`${prize.title}-${index}`}
+                    className="detail-prize-item stack-xs"
+                    data-main={index === 0 ? "true" : undefined}
+                  >
+                    {prize.rankLabel ? <p>{prize.rankLabel}</p> : null}
                     <div className="cluster">
                       <strong>{prize.title}</strong>
                       {prize.cashAmount && parseFloat(prize.cashAmount) > 0 ? (
@@ -594,34 +577,28 @@ export default async function CompetitionDetailPage({
             </section>
           ) : null}
 
+          <Fact icon="pin" label="Lokasi" value={locationText} />
+          <Fact icon="users" label="Untuk" value={audienceText} />
+
           {showTeamSize ? (
-            <div className="detail-information-grid">
-              <section className="surface-card card-padding stack-md">
-                <span className="detail-info-icon" aria-hidden="true">
-                  <Icon name="users" size="lg" />
-                </span>
-                <div className="stack-xs">
-                  <p className="eyebrow">Format peserta</p>
-                  <h2>Ukuran tim</h2>
-                  <p>{formatTeamSizeText(competition.minTeamSize, competition.maxTeamSize)}</p>
-                </div>
-              </section>
-            </div>
+            <Fact
+              icon="users"
+              label="Ukuran tim"
+              value={formatTeamSizeText(competition.minTeamSize, competition.maxTeamSize)}
+            />
           ) : null}
 
           {competition.eligibilityNote ? (
-            <section className="surface-card card-padding-lg stack-md">
+            <section className="stack-md">
               <div className="stack-xs">
-                <p className="eyebrow">Informasi</p>
                 <h2 className="section-title">Kelayakan</h2>
               </div>
               <p className="detail-description">{competition.eligibilityNote}</p>
             </section>
           ) : null}
 
-          <section className="surface-card card-padding-lg stack-md">
+          <section className="stack-md">
             <div className="stack-xs">
-              <p className="eyebrow">Ulasan peserta</p>
               <h2 className="section-title">Ulasan</h2>
               {reviewSummary.count > 0 ? (
                 <p className="data-text">
@@ -638,11 +615,11 @@ export default async function CompetitionDetailPage({
                 expectedUserId={session!.user.id}
                 initialReview={myReview ? { rating: myReview.rating, body: myReview.body } : null}
               />
-            ) : isCandidate ? (
+            ) : isCandidate && !isHostOfCompetition ? (
               <p className="muted-copy">Daftar dan ikuti kompetisi ini untuk memberi ulasan.</p>
             ) : !session?.user ? (
               <p className="detail-rail-note">
-                <Link href="/auth/login">Masuk</Link> sebagai peserta untuk memberi ulasan.
+                <Link href={signInPath}>Masuk</Link> sebagai peserta untuk memberi ulasan.
               </p>
             ) : null}
 
@@ -665,7 +642,7 @@ export default async function CompetitionDetailPage({
           </section>
 
           <section
-            className="inset-panel card-padding detail-verification-panel"
+            className="detail-verification-panel"
             data-verified={organizerIsVerified ? "true" : "false"}
             aria-labelledby="organizer-verification-title"
           >
@@ -673,7 +650,6 @@ export default async function CompetitionDetailPage({
               <Icon name={organizerIsVerified ? "check" : "info"} size="md" />
             </span>
             <div className="stack-xs">
-              <p className="eyebrow">Status penyelenggara</p>
               <h2 id="organizer-verification-title">
                 {organizerIsVerified ? "Institusi terverifikasi" : "Belum terverifikasi"}
               </h2>
@@ -690,9 +666,13 @@ export default async function CompetitionDetailPage({
           <div className="detail-rail-summary">
             <CompetitionPhaseSummary phase={competition.phase} phaseDate={competitionPhaseDate} />
             <div className="stack-xs">
-              <p className="eyebrow">Batas pendaftaran</p>
+              <p>Batas pendaftaran</p>
               <p className="detail-deadline data-text">
-                {formatDateTime(competition.registrationEndAt)}
+                {competition.registrationEndAt ? (
+                  <LocalDate value={competition.registrationEndAt} format="longDateTime" />
+                ) : (
+                  "—"
+                )}
               </p>
             </div>
             <ResultAnnouncementSummary
@@ -701,14 +681,14 @@ export default async function CompetitionDetailPage({
               eventEndAt={competition.eventEndAt}
             />
             <div className="stack-xs">
-              <p className="eyebrow">Terdaftar</p>
+              <p>Terdaftar</p>
               <p className="detail-deadline data-text">
                 {competition.registrantCount.toLocaleString("id-ID")} peserta
               </p>
             </div>
             {competition.prizePoolTotal ? (
               <div className="stack-xs">
-                <p className="eyebrow">Total hadiah</p>
+                <p>Total hadiah</p>
                 <p className="detail-deadline data-text">
                   Rp {competition.prizePoolTotal.toLocaleString("id-ID")}
                 </p>
@@ -719,17 +699,25 @@ export default async function CompetitionDetailPage({
           <div className="detail-rail-divider" />
 
           <div className="stack-xs">
-            <p className="eyebrow">Biaya pendaftaran</p>
+            <p>Biaya pendaftaran</p>
             <FeeDisplay feeAmount={competition.feeAmount} feeCurrency={competition.feeCurrency} />
           </div>
           <div className="detail-rail-actions">
-            <div className="detail-primary-actions">
-              <CTANavLink
-                ctaState={competition.ctaState}
-                registrationPath={registrationPath}
-                isCandidate={isCandidate}
-                isCancelled={competition.cancelledAt !== null}
-              />
+            <div className="detail-primary-actions" id="register-actions">
+              {isHostOfCompetition ? (
+                <p className="detail-rail-note">{COMPETITION_HOST_CANNOT_JOIN_MESSAGE}</p>
+              ) : (
+                <RegistrationButton
+                  ctaState={competition.ctaState}
+                  registrationPath={registrationPath}
+                  signInPath={signInPath}
+                  candidateRoleOfferPath={roleOfferPath}
+                  isCandidate={isCandidate}
+                  isSignedIn={Boolean(session?.user)}
+                  isCancelled={competition.cancelledAt !== null}
+                  calendarEvent={calendarEvent}
+                />
+              )}
               {isCandidate ? (
                 <SaveButton
                   competitionId={competition.id}
@@ -738,34 +726,58 @@ export default async function CompetitionDetailPage({
                 />
               ) : null}
             </div>
+            {organizerIsVerified ? (
+              <div className="pf-badges">
+                <span className="status-badge" data-status="verified">
+                  <Icon name="check" size="sm" aria-hidden="true" />
+                  Institusi Terverifikasi
+                </span>
+              </div>
+            ) : null}
             {!session?.user ? (
               <p className="detail-rail-note">
-                <Link href="/auth/login">Masuk</Link> sebagai mahasiswa untuk mendaftar.
+                <Link href={signInPath}>Masuk</Link> sebagai kandidat untuk mendaftar.
               </p>
             ) : null}
-            {session?.user && !isCandidate ? (
+            {session?.user && !isHostOfCompetition && !isCandidate && roleOfferPath === null ? (
               <p className="detail-rail-note">Hanya akun kandidat yang dapat mendaftar.</p>
             ) : null}
 
-            {!isCandidate ? (
+            {!session?.user ? (
               <p className="detail-rail-note">
-                <Link href="/auth/login">Masuk</Link> untuk menyimpan kompetisi ini.
+                <Link href={signInPath}>Masuk</Link> untuk menyimpan kompetisi ini.
               </p>
             ) : null}
 
-            <DetailActions
-              competitionId={competition.id}
-              title={competition.title}
-              eventStartAt={
-                competition.eventStartAt ? new Date(competition.eventStartAt).toISOString() : null
-              }
-              eventEndAt={
-                competition.eventEndAt ? new Date(competition.eventEndAt).toISOString() : null
-              }
-              description={competition.description}
-            />
+            <DetailActions {...calendarEvent} />
           </div>
+          {competition.organizerContact ? (
+            <>
+              <div className="detail-rail-divider" />
+              <OrganizerContactLink contact={competition.organizerContact} />
+            </>
+          ) : null}
         </aside>
+        {!isHostOfCompetition &&
+        shouldShowRegisterBar({
+          ctaState: competition.ctaState,
+          isCancelled: competition.cancelledAt !== null,
+          isSignedIn: Boolean(session?.user),
+          isCandidate,
+        }) ? (
+          <RegisterStickyBar targetId="register-actions">
+            <RegistrationButton
+              ctaState={competition.ctaState}
+              registrationPath={registrationPath}
+              signInPath={signInPath}
+              candidateRoleOfferPath={roleOfferPath}
+              isCandidate={isCandidate}
+              isSignedIn={Boolean(session?.user)}
+              isCancelled={competition.cancelledAt !== null}
+              calendarEvent={calendarEvent}
+            />
+          </RegisterStickyBar>
+        ) : null}
       </div>
 
       <CompetitionRail

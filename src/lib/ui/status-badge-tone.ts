@@ -24,7 +24,7 @@ export type StatusBadgeTone =
   | "overdue"
   | "announced"
   | "cancelled"
-  | "featured"
+  | "verified"
   | "paid"
   | "expired"
   | "refunded";
@@ -40,7 +40,7 @@ export const STATUS_BADGE_TONES: readonly StatusBadgeTone[] = [
   "overdue",
   "announced",
   "cancelled",
-  "featured",
+  "verified",
   "paid",
   "expired",
   "refunded",

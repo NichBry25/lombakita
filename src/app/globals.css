@@ -123,21 +123,41 @@ svg {
   height: var(--icon-xl);
 }
 
+/* Invisible until the first Tab, then it appears over the wordmark on the column edge. */
 .skip-link {
   position: fixed;
-  inset-block-start: var(--space-2);
-  inset-inline-start: var(--space-2);
+  inset-block-start: var(--header-skip-link-top);
+  inset-inline-start: calc((100% - min(100%, var(--content-max))) / 2 + var(--page-padding));
   z-index: var(--z-toast);
-  padding: var(--space-2) var(--space-4);
+  display: inline-flex;
+  min-height: var(--touch-target);
+  align-items: center;
+  padding-inline: var(--space-5);
   border-radius: var(--radius-control);
-  background: var(--color-brand-surface);
-  color: var(--color-brand-ink);
+  background: var(--brand-palm);
+  color: var(--brand-paper);
+  font-size: var(--text-body);
+  font-weight: 600;
+  text-decoration: none;
   transform: translateY(calc(-100% - var(--space-4)));
   transition: transform var(--duration-fast) var(--ease-primary);
 }
 
+[data-theme="dark"] .skip-link {
+  background: var(--brand-paper);
+  color: var(--brand-palm);
+}
+
 .skip-link:focus {
   transform: translateY(var(--space-0));
+}
+
+@media (max-width: 640px) {
+  .skip-link {
+    inset-inline-start: calc(
+      (100% - min(100%, var(--content-max))) / 2 + var(--page-padding-mobile)
+    );
+  }
 }
 
 .site-layout {
@@ -181,49 +201,77 @@ svg {
   gap: var(--space-8);
 }
 
+/* Page header, in order: back arrow, title with its mark, description, text action. */
 .page-heading {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.page-heading > .ui-icon-button[data-size="back"] {
+  justify-self: start;
+  margin: calc(-1 * var(--border-strong)) var(--space-0) var(--border-strong)
+    calc(-1 * var(--space-3));
+}
+
+.page-heading-title-row {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
   gap: var(--space-5);
 }
 
-.page-heading-main {
-  display: grid;
+.page-heading h1 {
   max-width: var(--content-prose);
-  gap: var(--space-2);
-}
-
-.page-heading-main h1 {
   font-size: var(--text-page-title);
 }
 
-.page-heading-main > p:last-child:not(.eyebrow) {
+/* The mark stays with the title's last word, so a wrapped title never strands it on its own line. */
+.page-heading-last-word {
+  white-space: nowrap;
+}
+
+.page-heading-mark {
+  display: inline-flex;
+  gap: var(--space-2);
+  margin-inline-start: var(--space-3);
+  vertical-align: middle;
+  transform: translateY(calc(-1 * var(--border-strong)));
+}
+
+/* On a phone two marks side by side can be wider than the screen, so the group drops under the
+   title and its pills wrap. */
+@media (max-width: 640px) {
+  .page-heading-last-word {
+    white-space: normal;
+  }
+
+  .page-heading-mark {
+    display: flex;
+    flex-wrap: wrap;
+    margin-inline-start: var(--space-0);
+    margin-block-start: var(--space-2);
+    transform: none;
+  }
+}
+
+.page-heading-description {
+  max-width: var(--content-prose);
   margin: var(--space-0);
   color: var(--color-ink-soft);
   font-size: var(--text-lead);
 }
 
-/*
- * Renders as a ghost .ui-button (icon + label) — see PageHeader. The label can be a dynamic
- * value (e.g. a competition title, up to 200 chars), so it's capped and truncated here rather
- * than letting a long back-destination name stretch the pill across the viewport.
- */
-.page-heading-back {
-  width: fit-content;
-  max-width: min(20rem, 100%);
-}
-
-.page-heading-back > span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.page-heading-actions {
+.page-heading-icon-action {
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
+  flex: none;
+}
+
+/* The link row starts directly under the description or the title, and the first content sits
+   24 px below it, so the negative margin takes 8 px off the grid gap on each side. */
+.page-heading-text-action {
+  display: flex;
+  justify-content: flex-start;
+  margin-block: calc(-1 * var(--space-2));
 }
 
 .content-section {
@@ -232,11 +280,6 @@ svg {
      one unbreakable string inside a section drags the whole section past its container. */
   grid-template-columns: minmax(0, 1fr);
   gap: var(--space-5);
-  padding: var(--space-6);
-  border: var(--border-thin) solid var(--color-line);
-  border-radius: var(--radius-card);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-sm);
 }
 
 .section-heading {
@@ -244,8 +287,6 @@ svg {
   align-items: flex-end;
   justify-content: space-between;
   gap: var(--space-4);
-  padding-block-end: var(--space-3);
-  border-bottom: var(--border-thin) solid var(--color-line-soft);
 }
 
 .section-heading h2 {
@@ -293,6 +334,7 @@ svg {
   color: var(--color-ink);
   font-weight: 600;
   text-decoration: none;
+  text-wrap: balance;
 }
 
 .record-row-title:hover {
@@ -395,7 +437,6 @@ svg {
   border-radius: var(--blob-radius-a);
   background: var(--color-inset);
   color: var(--color-ink-faint);
-  box-shadow: var(--shadow-sm);
 }
 
 .institution-card-logo img {
@@ -410,6 +451,11 @@ svg {
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
+}
+
+.record-actions-end {
+  justify-content: flex-end;
+  gap: var(--space-3);
 }
 
 .hub-grid,
@@ -460,17 +506,13 @@ svg {
 }
 
 /* Tangerine action card: the brand's solid orange fill uses terracotta (white label at 4.81:1;
-   pure tangerine fails AA behind text) framed by a tangerine border and peach offset, so the
-   panel reads as the primary "do this" action. */
+   pure tangerine fails AA behind text), so the panel reads as the primary "do this" action. */
 .hub-card--action {
-  border-color: var(--brand-tangerine);
   background: var(--color-action);
   color: var(--color-action-ink);
-  box-shadow: var(--space-2) var(--space-2) 0 var(--surface-offset-block);
 }
 
 .hub-card--action:hover {
-  border-color: var(--brand-tangerine);
   background: var(--color-action-hover);
   color: var(--color-action-ink);
 }
@@ -521,17 +563,6 @@ svg {
   gap: var(--space-3);
 }
 
-.eyebrow {
-  margin: var(--space-0);
-  color: var(--color-accent);
-  font-family: var(--font-data);
-  font-size: var(--text-micro);
-  font-weight: 500;
-  letter-spacing: var(--tracking-label);
-  line-height: var(--leading-heading);
-  text-transform: uppercase;
-}
-
 .display-title {
   font-size: var(--text-page-title);
 }
@@ -564,37 +595,263 @@ svg {
   text-shadow: 0 0 var(--space-3) var(--overlay-highlight);
 }
 
-/* Opaque reading surfaces */
-.surface-card,
-.glass-card,
-.raised-card,
-.inset-panel {
+/* Card kit. One box holds one thing and nothing sits inside another box. A shadow means that a
+   surface floats, so no card has one. */
+.ui-card {
+  box-sizing: border-box;
+  padding: var(--space-6);
   border: var(--border-thin) solid var(--color-line);
-  border-radius: var(--radius-card);
-}
-
-.surface-card,
-.glass-card {
+  border-radius: var(--radius-kartu);
   background: var(--color-surface);
-  box-shadow: var(--shadow-sm);
 }
 
-.raised-card {
-  background: var(--color-raised);
-  box-shadow: var(--shadow-md);
+.ui-panel {
+  box-sizing: border-box;
+  padding: var(--space-6);
+  border-radius: var(--radius-panel);
+  background: var(--color-panel);
 }
 
-.inset-panel {
-  background: var(--color-inset);
-  box-shadow: none;
+/* Kartu tautan. The title link is stretched over the card by its ::after, and the trailing group
+   sits above that layer, so a secondary action takes its own press and its own hover. */
+.ui-link-card {
+  position: relative;
+  display: flex;
+  min-height: var(--link-card-min-height);
+  box-sizing: border-box;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border: var(--border-thin) solid var(--color-line);
+  border-radius: var(--radius-kartu);
+  background: var(--color-surface);
+  list-style: none;
+  transition: background-color var(--duration-fast) var(--ease-primary);
 }
 
-.card-padding {
-  padding: var(--space-5);
+.ui-link-card:has(.ui-link-card-title:hover) {
+  box-shadow: 0 0 0 var(--link-card-ring-width) var(--color-ink);
 }
 
-.card-padding-lg {
-  padding: var(--space-7);
+.ui-link-card:has(.ui-link-card-title:active) {
+  background: var(--color-link-card-pressed);
+}
+
+.ui-link-card:has(.ui-link-card-title:focus-visible) {
+  outline: var(--focus-width) solid var(--focus-color);
+  outline-offset: var(--focus-offset);
+}
+
+.ui-link-card-main {
+  display: grid;
+  min-width: 0;
+  flex: 1 1 auto;
+  gap: var(--space-1);
+}
+
+.ui-link-card-title {
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-size: var(--text-link-card-title);
+  line-height: 1.3;
+  text-decoration: none;
+}
+
+.ui-link-card-title:focus-visible {
+  outline: none;
+}
+
+.ui-link-card-title::after {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  content: "";
+}
+
+.ui-link-card-trailing {
+  position: relative;
+  z-index: var(--z-content);
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-4);
+}
+
+.ui-link-card-chevron {
+  width: var(--space-5);
+  height: var(--space-5);
+  flex: none;
+  color: var(--color-ink);
+}
+
+.ui-link-card .record-meta,
+.ui-link-card p {
+  margin: var(--space-0);
+  color: var(--color-ink-soft);
+  font-size: var(--text-body);
+}
+
+.record-list:has(> .ui-link-card, > .ui-card) {
+  gap: var(--space-4);
+}
+
+.candidate-saved-unavailable {
+  display: flex;
+  min-height: var(--link-card-min-height);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  color: var(--color-disabled-text);
+}
+
+.candidate-saved-unavailable-title {
+  font-family: var(--font-display);
+  font-size: var(--text-link-card-title);
+  line-height: 1.3;
+}
+
+/* Candidate dashboard: 40 px from the title row to the summary row and 48 px between parts. */
+.candidate-dashboard {
+  gap: var(--space-12);
+}
+
+.candidate-dashboard > .page-heading {
+  margin-block-end: calc(-1 * var(--space-2));
+}
+
+@media (max-width: 640px) {
+  .candidate-dashboard {
+    gap: var(--space-14);
+  }
+
+  .candidate-dashboard > .page-heading {
+    margin-block-end: calc(-1 * (var(--space-14) - var(--space-12)));
+  }
+}
+
+/* Rincian. */
+.ui-detail-list {
+  display: grid;
+  gap: var(--space-2-5);
+  margin: var(--space-0);
+}
+
+.ui-detail-row {
+  display: grid;
+  grid-template-columns: var(--detail-label-width) minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: baseline;
+}
+
+.ui-detail-row dt {
+  color: var(--color-ink-soft);
+  font-size: var(--text-body-sm);
+  font-weight: 400;
+}
+
+.ui-detail-row dd {
+  margin: var(--space-0);
+  color: var(--color-ink);
+  font-size: var(--text-button-lg);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.ui-detail-list[data-layout="stacked"] {
+  grid-template-columns: repeat(auto-fit, minmax(var(--detail-stacked-min), 1fr));
+  gap: var(--space-4);
+}
+
+.ui-detail-list[data-layout="stacked"] .ui-detail-row {
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-1);
+}
+
+/* Fakta. */
+.ui-fact {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.ui-fact-circle {
+  display: grid;
+  width: var(--icon-chip);
+  height: var(--icon-chip);
+  flex: none;
+  place-items: center;
+  border-radius: var(--radius-circle);
+  background: var(--color-fact-circle);
+  color: var(--color-ink);
+}
+
+.ui-fact-circle > .ui-icon {
+  width: var(--space-5);
+  height: var(--space-5);
+}
+
+.ui-fact-text {
+  display: grid;
+}
+
+.ui-fact-label {
+  color: var(--color-ink-soft);
+  font-size: var(--text-body-sm);
+}
+
+.ui-fact-value {
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-size: var(--text-heading-sm);
+  line-height: 1.3;
+}
+
+/* Bagian. A heading row, 16 px under it, and no box. The container sets the space between
+   sections: 40 px on a form page, 48 px on the candidate dashboard. */
+.ui-page-section {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.ui-page-section-heading {
+  display: flex;
+  min-height: var(--touch-target);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.ui-page-section-heading h2 {
+  margin: var(--space-0);
+  font-size: var(--text-bagian);
+  line-height: 1.25;
+}
+
+@media (max-width: 640px) {
+  .ui-card,
+  .ui-panel {
+    padding: var(--space-4);
+  }
+
+  .ui-card,
+  .ui-link-card {
+    border-radius: var(--radius-panel);
+  }
+
+  /* On a phone the pill and the secondary link drop to their own line under the title. */
+  .ui-link-card {
+    flex-wrap: wrap;
+  }
+
+  .ui-link-card-trailing {
+    order: 3;
+    flex-basis: 100%;
+    justify-content: space-between;
+  }
 }
 
 /* Selective glass chrome, each with fallback fill, edge, blur enhancement, and shadow. */
@@ -703,7 +960,6 @@ svg {
   white-space: nowrap;
 }
 
-.ui-button:hover:not(:disabled):not([aria-disabled="true"]),
 .primary-button:hover:not(:disabled),
 .action-chip:hover:not(:disabled) {
   box-shadow: var(--shadow-md);
@@ -711,11 +967,14 @@ svg {
   transform: translateY(var(--motion-lift-control));
 }
 
-.ui-button:active:not(:disabled):not([aria-disabled="true"]),
 .primary-button:active:not(:disabled),
 .action-chip:active:not(:disabled) {
   filter: brightness(0.97);
   transform: translateY(var(--space-0));
+}
+
+.ui-button:active:not(:disabled):not([aria-disabled="true"]) {
+  transform: translateY(var(--border-thin));
 }
 
 .ui-button[data-size="sm"] {
@@ -738,16 +997,21 @@ svg {
   font-size: var(--text-button-lg);
 }
 
-.ui-button[data-variant="primary"],
 .primary-button {
   background: var(--color-action);
   color: var(--color-action-ink);
   box-shadow: var(--shadow-action);
 }
 
-.ui-button[data-variant="secondary"] {
-  background: var(--brand-palm);
-  color: var(--brand-paper);
+/* Three text styles: primary (Utama), outline (Kedua), link (Tautan aksi). */
+.ui-button[data-variant="primary"] {
+  background: var(--color-action);
+  color: var(--color-action-ink);
+}
+
+.ui-button[data-variant="primary"]:hover:not(:disabled):not([aria-disabled="true"]),
+.ui-button[data-variant="primary"]:active:not(:disabled):not([aria-disabled="true"]) {
+  background: var(--color-action-hover);
 }
 
 /*
@@ -763,73 +1027,71 @@ svg {
   color: var(--color-ink);
 }
 
-.ui-button[data-variant="ghost"] {
+.ui-button[data-variant="outline"] {
+  border-width: 1.5px;
+}
+
+.ui-button[data-variant="outline"]:hover:not(:disabled):not([aria-disabled="true"]),
+.ui-button[data-variant="outline"]:active:not(:disabled):not([aria-disabled="true"]) {
+  background: var(--color-hover-surface);
+}
+
+.ui-button[data-variant="link"] {
+  min-height: var(--touch-target);
+  padding-inline: 0.625rem;
   background: transparent;
-  color: var(--color-ink-soft);
+  color: var(--color-ink);
 }
 
-.ui-button[data-variant="danger"] {
-  background: var(--color-error-text);
-  color: var(--color-surface);
+.ui-button[data-variant="link"] > span {
+  text-decoration: underline;
+  text-decoration-thickness: 1.5px;
+  text-decoration-color: color-mix(in srgb, currentcolor 35%, transparent);
+  text-underline-offset: 4px;
 }
 
-.ui-button[data-variant="ghost"]:hover:not(:disabled),
+[data-theme="dark"] .ui-button[data-variant="link"] > span {
+  text-decoration-color: color-mix(in srgb, currentcolor 40%, transparent);
+}
+
 .action-chip:hover:not(:disabled) {
   background: var(--color-inset);
 }
 
 /*
- * --color-accent is tuned for the page, not for a palm band: in light mode the olive drops to
- * 2.22:1 on palm. Lime is the brand's own accent-on-palm pairing (8.37:1) and reads the same in
- * both themes, since the band is dark in both.
+ * On the deep-palm brand bands, the palm-coloured button variants (outline border, link text)
+ * would sink into the surface. Flip them to a paper treatment so they read as real, tappable
+ * buttons against the dark background.
  */
-.brand-band .eyebrow {
-  color: var(--brand-lime);
-}
-
-/*
- * On the deep-palm brand bands, the palm-coloured button variants (secondary fill, outline
- * border, ghost text) would sink into the surface. Flip them to a paper treatment so they read
- * as real, tappable buttons against the dark background.
- */
-.brand-band .ui-button[data-variant="secondary"] {
-  background: var(--brand-paper);
-  color: var(--brand-palm);
-}
-
 .brand-band .ui-button[data-variant="outline"] {
   border-color: var(--brand-paper);
   color: var(--brand-paper);
 }
 
-.brand-band .ui-button[data-variant="ghost"] {
-  color: var(--brand-paper);
-}
-
-.brand-band .ui-button[data-variant="ghost"]:hover:not(:disabled) {
+.brand-band .ui-button[data-variant="outline"]:hover:not(:disabled):not([aria-disabled="true"]) {
   background: rgba(251, 246, 235, 0.16);
 }
 
-/*
- * Exception: the glass search bars are light sub-surfaces sitting on the palm band, so a button
- * inside them needs the palm (not paper) treatment to contrast. Restore it.
- */
-.glass-focus .ui-button[data-variant="secondary"] {
-  background: var(--brand-palm);
+.brand-band .ui-button[data-variant="link"] {
   color: var(--brand-paper);
 }
 
-.glass-focus .ui-button[data-variant="outline"] {
-  border-color: var(--brand-palm);
-  color: var(--brand-palm);
+/*
+ * Exception: the glass panels are their own surface, light in the light theme and Deep Palm in
+ * the dark theme, so a button inside one follows the theme ink rather than the band's paper.
+ */
+.glass-focus .ui-button[data-variant="outline"],
+.glass-focus .ui-button[data-variant="link"] {
+  border-color: var(--color-ink);
+  color: var(--color-ink);
 }
 
 .ui-button[data-full-width="true"] {
   width: 100%;
 }
 
-.ui-button:disabled,
-.ui-button[aria-disabled="true"],
+.ui-button:disabled:not([data-loading="true"]),
+.ui-button[aria-disabled="true"]:not([data-loading="true"]),
 .primary-button:disabled,
 .action-chip:disabled {
   border-color: var(--color-disabled-border);
@@ -838,6 +1100,25 @@ svg {
   box-shadow: none;
   filter: none;
   transform: none;
+}
+
+/* A loading button keeps its own colours; only the spinner and aria-busy say it is waiting. */
+.ui-button[data-loading="true"] {
+  cursor: progress;
+}
+
+.ui-button[data-loading="true"] > span > .ui-icon {
+  display: none;
+}
+
+.ui-button > .spinner {
+  width: var(--space-4);
+  height: var(--space-4);
+}
+
+.ui-button[data-size="lg"] > .spinner {
+  width: var(--icon-md);
+  height: var(--icon-md);
 }
 
 .icon-button {
@@ -881,8 +1162,11 @@ svg {
 }
 
 /* Forms */
+/* A field in a grid row is as tall as the row. Packing its label, control and lines at the top
+   keeps its control level with a neighbour's when only one of them has a line beneath it. */
 .form-field {
   display: grid;
+  align-content: start;
   gap: var(--space-2);
 }
 
@@ -898,41 +1182,46 @@ svg {
 
 .form-label {
   color: var(--color-ink-soft);
-  font-size: var(--text-meta);
+  font-size: var(--text-body-sm);
   font-weight: 600;
   line-height: var(--leading-heading);
 }
 
-.form-label-required::after {
-  margin-inline-start: var(--space-1);
+.form-label-marker {
   color: var(--color-error-text);
-  content: "*";
 }
 
+.form-label-optional {
+  font-weight: 400;
+}
+
+/* The ring is an inset shadow, so the rest ring (1.5px) and the engaged ring (2px) never change the
+   box. Radius 12px and the 16px text belong to the fields only. */
 .form-input,
 .form-select,
 .form-textarea {
   width: 100%;
-  border: var(--border-thin) solid var(--color-line);
-  border-radius: var(--radius-input);
+  border: 0;
+  border-radius: 12px;
   background: var(--color-raised);
+  box-shadow: inset 0 0 0 1.5px var(--color-field-ring);
   color: var(--color-ink);
-  font-size: var(--text-body);
+  font-size: var(--text-search);
   transition:
     background-color var(--duration-fast) var(--ease-primary),
-    border-color var(--duration-fast) var(--ease-primary),
     box-shadow var(--duration-fast) var(--ease-primary);
 }
 
 .form-input,
 .form-select {
   min-height: var(--control-height-md);
-  padding-inline: var(--space-3);
+  padding-inline: var(--space-4);
 }
 
 .form-textarea {
-  min-height: calc(var(--control-height-lg) * 2.25);
-  padding: var(--space-3);
+  min-height: 6.5rem;
+  padding: var(--space-3) var(--space-4);
+  line-height: 1.5;
   resize: vertical;
 }
 
@@ -944,37 +1233,79 @@ svg {
 .form-input:hover:not(:disabled):not([readonly]),
 .form-select:hover:not(:disabled),
 .form-textarea:hover:not(:disabled):not([readonly]) {
-  border-color: var(--color-ink-faint);
+  box-shadow: inset 0 0 0 var(--border-strong) var(--color-ink);
 }
 
 .form-input:focus-visible,
 .form-select:focus-visible,
 .form-textarea:focus-visible {
-  border-color: var(--focus-color);
-  outline: none;
-  box-shadow: 0 0 0 var(--focus-width) var(--focus-halo);
+  outline: var(--focus-width) solid var(--focus-color);
+  outline-offset: var(--border-strong);
+  box-shadow: inset 0 0 0 var(--border-strong) var(--focus-color);
+}
+
+.form-input[aria-invalid="true"],
+.form-select[aria-invalid="true"],
+.form-textarea[aria-invalid="true"] {
+  box-shadow: inset 0 0 0 var(--border-strong) var(--color-error-text);
 }
 
 .form-input:disabled,
 .form-select:disabled,
 .form-textarea:disabled {
-  border-color: var(--color-disabled-border);
   background: var(--color-disabled-surface);
+  box-shadow: inset 0 0 0 var(--border-thin) var(--color-disabled-border);
   color: var(--color-disabled-text);
 }
 
 .form-input-readonly,
 .form-input[readonly],
 .form-textarea[readonly] {
-  border-color: var(--color-disabled-border);
-  background: var(--color-inset);
+  background: var(--color-field-readonly);
+  box-shadow: none;
+  color: var(--color-ink);
+}
+
+.form-input-lock-wrap {
+  position: relative;
+  display: block;
+}
+
+.form-input-lock-wrap .form-input {
+  padding-inline-end: calc(var(--space-4) + var(--space-5) + var(--space-2));
+}
+
+.form-input-lock {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: var(--space-4);
+  width: var(--space-5);
+  height: var(--space-5);
+  margin-block: auto;
   color: var(--color-ink-soft);
+  pointer-events: none;
+}
+
+.form-password-wrap {
+  position: relative;
+  display: block;
+}
+
+.form-password-wrap .form-password-input {
+  padding-inline-end: calc(var(--touch-target) + var(--space-2));
+}
+
+.form-password-wrap .form-password-toggle {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: var(--space-1);
+  margin-block: auto;
 }
 
 .form-help,
 .form-error {
   margin: var(--space-0);
-  font-size: var(--text-meta);
+  font-size: var(--text-body-sm);
 }
 
 .form-help {
@@ -1000,13 +1331,41 @@ svg {
 }
 
 .form-error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
   color: var(--color-error-text);
+  font-weight: 500;
+}
+
+.form-error-icon {
+  width: var(--space-4);
+  height: var(--space-4);
+  margin-block-start: 0.125rem;
 }
 
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-5);
+}
+
+/* In a row of two fields every field keeps one message line under it, so an error under one never
+   moves its neighbour. A field alone in its row, and every field once the grid is one column,
+   keeps no such line. */
+.form-grid > .form-field:not(:has(.form-help, .form-error))::after {
+  min-height: 1.25rem;
+  content: "";
+}
+
+.form-grid > .form-field:last-child:nth-child(odd)::after {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .form-grid > .form-field:not(:has(.form-help, .form-error))::after {
+    display: none;
+  }
 }
 
 /* A field whose explanation reads beside it rather than beneath it. Spans the full form-grid
@@ -1029,130 +1388,145 @@ svg {
 
 /* Feedback, badges, tables, and empty states */
 .feedback {
+  --notice-fill: var(--tone-calm-fill);
+  --notice-ink: var(--tone-calm-ink);
+  --notice-icon-color: var(--tone-calm-icon);
+
+  position: relative;
   display: flex;
+  box-sizing: border-box;
+  min-height: var(--notice-min-height);
   align-items: flex-start;
   gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
-  border: var(--border-thin) solid;
-  border-radius: var(--radius-input);
-  font-size: var(--text-body-sm);
+  padding: var(--space-4);
+  border: 0;
+  border-radius: var(--radius-notice);
+  background: var(--notice-fill);
+  box-shadow: none;
+  color: var(--notice-ink);
+  font-size: var(--text-body);
+  font-weight: 400;
+  line-height: var(--notice-line);
 }
 
-.feedback[data-tone="success"] {
-  border-color: var(--color-success-border);
-  background: var(--color-success-surface);
-  color: var(--color-success-text);
+/* Perhatian covers warning and error. Tenang, the default, covers info, success and neutral. */
+.feedback:is([data-tone="warning"], [data-tone="error"]) {
+  --notice-fill: var(--tone-attention-notice-fill);
+  --notice-ink: var(--tone-attention-notice-ink);
+  --notice-icon-color: var(--tone-attention-notice-icon);
 }
 
-.feedback[data-tone="warning"] {
-  border-color: var(--color-warning-border);
-  background: var(--color-warning-surface);
-  color: var(--color-warning-text);
+.feedback-icon {
+  flex: none;
+  width: var(--notice-icon);
+  height: var(--notice-icon);
+  margin-block-start: var(--border-thin);
+  color: var(--notice-icon-color);
 }
 
-.feedback[data-tone="error"] {
-  border-color: var(--color-error-border);
-  background: var(--color-error-surface);
-  color: var(--color-error-text);
+.feedback-body {
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
 }
 
-.feedback[data-tone="info"] {
-  border-color: var(--color-info-border);
-  background: var(--color-info-surface);
-  color: var(--color-info-text);
+.feedback-body > p {
+  margin: var(--space-0);
 }
 
-/* The neutral ground the status badges already use for `awaiting`. It exists because `info` shares
-   its hue with `success` (both sit at 120deg, apart only in saturation), so a withheld control or a
-   refused action written as `info` renders in the same green as a verified payment. Nothing here is
-   a new colour: the inset ground, the soft ink and the hairline are the app's standard neutral
-   surface. */
-.feedback[data-tone="neutral"] {
-  border-color: var(--color-line);
-  background: var(--color-inset);
-  color: var(--color-ink-soft);
+.feedback-body > * + * {
+  margin-block-start: var(--space-2);
 }
 
+.feedback-lead {
+  font-weight: 600;
+}
+
+.feedback .ui-button[data-variant="link"] {
+  min-height: var(--touch-target);
+  padding-inline: var(--space-0);
+  color: inherit;
+  font-size: var(--text-body);
+  font-weight: 600;
+}
+
+/* A notice keeps its own fill in both themes, so text inside it takes the notice ink rather than the page's link and muted colours. */
+.feedback a:not(.ui-button),
+.feedback .muted-copy {
+  color: inherit;
+}
+
+/* Pills. A pill is a label and never presses: a pressable one is a chip, a button or a link. */
 .status-badge {
+  --pill-pad-start: var(--space-3);
+
   display: inline-flex;
-  min-height: var(--control-height-sm);
+  box-sizing: border-box;
+  width: fit-content;
+  max-width: 100%;
+  height: var(--pill-height);
+  flex: none;
   align-items: center;
-  gap: var(--space-1-5);
-  padding-inline: var(--space-3);
+  gap: var(--space-2);
+  padding: var(--space-0) var(--space-3) var(--space-0) var(--pill-pad-start);
   border: 0;
   border-radius: var(--radius-pill);
-  background: var(--color-inset);
-  color: var(--color-ink-soft);
+  background: var(--pill-fill, var(--tone-label-fill));
+  color: var(--pill-ink, var(--tone-label-ink));
+  font-family: var(--font-data);
+  font-size: var(--text-body-sm);
   font-variant-numeric: tabular-nums;
-  font-size: var(--text-micro);
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1;
+  white-space: nowrap;
 }
 
-.status-badge[data-status="open"] {
-  background: var(--color-status-open-bg);
-  color: var(--color-status-open-text);
+.status-badge > .ui-icon {
+  flex: none;
+  width: var(--pill-mark-icon);
+  height: var(--pill-mark-icon);
+}
+
+/* Four status tones. Each value of data-status maps to exactly one of them. */
+.status-badge[data-status="open"],
+.status-badge[data-status="verified"],
+.status-badge[data-status="ongoing"],
+.status-badge[data-status="announced"],
+.status-badge[data-status="paid"],
+.status-badge[data-team-status="submitted"] {
+  --pill-fill: var(--tone-positive-fill);
+  --pill-ink: var(--tone-positive-ink);
+  --pill-dot-color: var(--tone-positive-dot);
+  --pill-pad-start: var(--space-2-5);
 }
 
 .status-badge[data-status="closing"] {
-  background: var(--color-status-closing-bg);
-  color: var(--color-status-closing-text);
+  --pill-fill: var(--tone-attention-fill);
+  --pill-ink: var(--tone-attention-ink);
+  --pill-dot-color: var(--tone-attention-dot);
+  --pill-pad-start: var(--space-2-5);
 }
 
-.status-badge[data-status="closed"] {
-  background: var(--color-status-closed-bg);
-  color: var(--color-status-closed-text);
+/* Menunggu draws a hollow dot, a 2px ring with no fill. */
+.status-badge[data-status="upcoming"],
+.status-badge[data-status="awaiting"],
+.status-badge[data-status="overdue"],
+.status-badge[data-team-status="forming"] {
+  --pill-fill: var(--tone-waiting-fill);
+  --pill-ink: var(--tone-waiting-ink);
+  --pill-dot-color: var(--tone-waiting-dot);
+  --pill-dot-fill: transparent;
+  --pill-pad-start: var(--space-2-5);
 }
 
-/* Lifecycle-phase badges. Built on the existing semantic families so no new colour is minted;
-   each carries its own dot below, so adjacent phases never read as the same state. */
-.status-badge[data-status="upcoming"] {
-  background: var(--color-info-surface);
-  color: var(--color-info-text);
-}
-
-.status-badge[data-status="ongoing"] {
-  background: var(--color-success-surface);
-  color: var(--color-success-text);
-}
-
-.status-badge[data-status="awaiting"] {
-  background: var(--color-inset);
-  color: var(--color-ink-soft);
-}
-
-.status-badge[data-status="overdue"] {
-  background: var(--color-warning-surface);
-  color: var(--color-warning-text);
-}
-
-.status-badge[data-status="announced"] {
-  background: var(--color-success-surface);
-  color: var(--color-success-text);
-}
-
-.status-badge[data-status="cancelled"] {
-  background: var(--color-error-surface);
-  color: var(--color-error-text);
-}
-
-/* Payment-lane badges. Same construction as the lifecycle phases above: existing semantic families
-   only, no new colour, each with its own dot. They exist because the lifecycle vocabulary cannot
-   express a payment: a paid, expired or refunded transfer has no equivalent among open/closing/
-   upcoming/ongoing, and reusing one of those would put a competition's word on a payment's state. */
-.status-badge[data-status="paid"] {
-  background: var(--color-success-surface);
-  color: var(--color-success-text);
-}
-
-.status-badge[data-status="expired"] {
-  background: var(--color-error-surface);
-  color: var(--color-error-text);
-}
-
+.status-badge[data-status="closed"],
+.status-badge[data-status="cancelled"],
+.status-badge[data-status="expired"],
 .status-badge[data-status="refunded"] {
-  background: var(--color-info-surface);
-  color: var(--color-info-text);
+  --pill-fill: var(--tone-neutral-fill);
+  --pill-ink: var(--tone-neutral-ink);
+  --pill-dot-color: var(--tone-neutral-dot);
+  --pill-pad-start: var(--space-2-5);
 }
 
 .status-badge:is(
@@ -1169,120 +1543,521 @@ svg {
     [data-status="expired"],
     [data-status="refunded"]
   )::before {
-  width: var(--space-1-5);
-  height: var(--space-1-5);
+  width: var(--pill-dot);
+  height: var(--pill-dot);
+  box-sizing: border-box;
   flex: none;
+  border: var(--border-strong) solid var(--pill-dot-color);
   border-radius: var(--radius-circle);
-  background: currentColor;
+  background: var(--pill-dot-fill, var(--pill-dot-color));
   content: "";
 }
 
-.status-badge[data-status="open"]::before {
-  background: var(--color-status-open-dot);
+.status-badge[data-team-status]::before {
+  width: var(--pill-dot);
+  height: var(--pill-dot);
+  box-sizing: border-box;
+  flex: none;
+  border: var(--border-strong) solid var(--pill-dot-color);
+  border-radius: var(--radius-circle);
+  background: var(--pill-dot-fill, var(--pill-dot-color));
+  content: "";
 }
 
-.status-badge[data-status="closing"]::before {
-  background: var(--color-status-closing-dot);
+/* The verified mark takes a check in place of the dot, with a 6px gap. */
+.status-badge[data-status="verified"] {
+  --pill-pad-start: var(--space-2-5);
+
+  gap: var(--space-1-5);
 }
 
-.status-badge[data-status="closed"]::before {
-  background: var(--color-status-closed-dot);
+/* Count: a number beside a heading. It is one status pill with a square minimum. */
+.status-badge[data-pill="count"] {
+  min-width: var(--pill-height);
+  justify-content: center;
+  padding-inline: var(--space-2);
 }
 
-.status-badge[data-status="upcoming"]::before {
-  background: var(--color-info-border);
-}
-
-.status-badge[data-status="ongoing"]::before {
-  background: var(--color-success-text);
-}
-
-.status-badge[data-status="awaiting"]::before {
-  background: var(--color-status-closed-dot);
-}
-
-.status-badge[data-status="overdue"]::before {
-  background: var(--color-warning-border);
-}
-
-.status-badge[data-status="announced"]::before {
-  background: var(--color-success-border);
-}
-
-.status-badge[data-status="cancelled"]::before {
-  background: var(--color-error-border);
-}
-
-.status-badge[data-status="paid"]::before {
-  background: var(--color-success-border);
-}
-
-.status-badge[data-status="expired"]::before {
-  background: var(--color-error-border);
-}
-
-.status-badge[data-status="refunded"]::before {
-  background: var(--color-info-border);
-}
-
-.table-scroll {
+/* Table kit (Tabel). The frame is a Kartu surface with no shadow. A row is 48 px, or 64 px when it
+   holds a 44 px control, with a 1 px line above every row but the first. There is no hover tint,
+   because a row as a whole is not a link. */
+.ui-table-frame {
+  position: relative;
   max-width: 100%;
-  overflow-x: auto;
+  overflow: hidden;
   border: var(--border-thin) solid var(--color-line);
-  border-radius: var(--radius-card);
+  border-radius: var(--radius-kartu);
   background: var(--color-surface);
 }
 
-.data-table {
-  width: 100%;
-  border-collapse: collapse;
+.ui-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+/* The frame clips the scroll area, so the focus ring sits inside it. */
+.ui-table-scroll:focus-visible {
+  outline-offset: calc(var(--focus-width) * -1);
+}
+
+/* While more columns wait on the right the edge fades into the frame fill. The table component
+   sets data-more and data-scrolled on the frame. */
+.ui-table-frame::after {
+  content: "";
+  position: absolute;
+  inset-block: var(--space-0);
+  inset-inline-end: var(--space-0);
+  display: none;
+  inline-size: var(--table-edge-fade);
+  background: linear-gradient(to right, transparent, var(--color-surface));
+  pointer-events: none;
+}
+
+.ui-table-frame[data-more="true"]::after {
+  display: block;
+}
+
+.ui-table {
+  --table-head-fill: var(--color-panel);
+
+  inline-size: 100%;
+  border-collapse: separate;
+  border-spacing: var(--space-0);
   color: var(--color-ink);
-  font-size: var(--text-body-sm);
+  font-size: var(--text-body);
+  line-height: 1.4667;
 }
 
-.data-table th,
-.data-table td {
-  padding: var(--space-3) var(--space-4);
-  border-bottom: var(--border-thin) solid var(--color-line-soft);
-  text-align: start;
-  vertical-align: top;
+[data-theme="dark"] .ui-table {
+  --table-head-fill: var(--tone-waiting-fill);
 }
 
-/* MANUAL-D41: a header cell is the containing block for its own children. Without this, an
-   absolutely positioned .sr-only child resolves against the initial containing block, escapes
-   .table-scroll's overflow clipping, and widens the document past the viewport. */
-.data-table th {
+/* MANUAL-D41: a cell is the containing block for its own children. Without this, an absolutely
+   positioned .sr-only child resolves against the initial containing block, escapes the scroll
+   area's clipping, and widens the document past the viewport. */
+.ui-table th,
+.ui-table td {
   position: relative;
-  background: var(--color-inset);
+  padding: var(--space-2-5) var(--space-3);
+  text-align: start;
+  vertical-align: middle;
+  font-variant-numeric: tabular-nums;
+}
+
+.ui-table th:first-child,
+.ui-table td:first-child {
+  padding-inline-start: var(--space-5);
+}
+
+.ui-table th:last-child,
+.ui-table td:last-child {
+  padding-inline-end: var(--space-5);
+}
+
+.ui-table th {
+  block-size: var(--touch-target);
+  padding-block: var(--space-0);
+  background: var(--table-head-fill);
   color: var(--color-ink-soft);
-  font-family: var(--font-data);
-  font-size: var(--text-micro);
-  font-weight: 500;
-  letter-spacing: var(--tracking-label);
-  text-transform: uppercase;
+  font-size: var(--text-body-sm);
+  font-weight: 600;
+  white-space: nowrap;
 }
 
-.data-table tr:last-child td {
-  border-bottom: 0;
+.ui-table td {
+  block-size: var(--space-12);
 }
 
+.ui-table > tbody > tr + tr > td {
+  border-block-start: var(--border-thin) solid var(--table-row-line);
+}
+
+.ui-table > tbody > tr[data-band-row] > td {
+  padding: var(--space-0);
+  border-block-start: 0;
+  background: var(--table-head-fill);
+}
+
+/* The first column stays in view while the rest scrolls. */
+.ui-table > thead > tr > th:first-child,
+.ui-table > tbody > tr:not([data-band-row]) > td:first-child {
+  position: sticky;
+  inset-inline-start: var(--space-0);
+  z-index: var(--z-content);
+}
+
+.ui-table > tbody > tr:not([data-band-row]) > td:first-child {
+  background: var(--color-surface);
+}
+
+.ui-table-frame[data-scrolled="true"] .ui-table > thead > tr > th:first-child,
+.ui-table-frame[data-scrolled="true"] .ui-table > tbody > tr:not([data-band-row]) > td:first-child {
+  box-shadow: inset calc(var(--border-thin) * -1) 0 0 var(--color-line);
+}
+
+.ui-table [data-kind="name"] {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.ui-table [data-kind="name"] .record-meta {
+  font-weight: 400;
+}
+
+.ui-table [data-kind="text"] {
+  overflow-wrap: anywhere;
+}
+
+.ui-table [data-kind="long"] {
+  min-inline-size: var(--table-long-min);
+  overflow-wrap: anywhere;
+}
+
+.ui-table [data-kind="wrap"] {
+  min-inline-size: var(--table-reason-min);
+  max-inline-size: var(--table-reason-max);
+  overflow-wrap: anywhere;
+}
+
+.ui-table [data-kind="number"],
+.ui-table [data-kind="control"] {
+  text-align: end;
+  white-space: nowrap;
+}
+
+.ui-table [data-kind="date"] {
+  min-inline-size: var(--table-date-min);
+  white-space: nowrap;
+}
+
+.ui-table [data-kind="pill"] {
+  inline-size: 1%;
+  white-space: nowrap;
+}
+
+.ui-table-empty {
+  color: var(--color-ink-faint);
+}
+
+.ui-table-clamp {
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+/* A second line under a name, such as the slug of an institution. */
+.ui-table-sub {
+  display: block;
+  color: var(--color-ink-soft);
+  font-size: var(--text-body-sm);
+  font-weight: 400;
+  line-height: 1.4286;
+}
+
+/* Tautan aksi inside a table. The 44 px press area is invisible, so a row with only a link stays
+   48 px. */
+.ui-table-link {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-0);
+  border: 0;
+  background: transparent;
+  color: var(--color-ink);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+a.ui-table-link,
+.ui-table-link > span {
+  text-decoration: underline;
+  text-decoration-thickness: 1.5px;
+  text-decoration-color: color-mix(in srgb, currentcolor 35%, transparent);
+  text-underline-offset: 4px;
+}
+
+[data-theme="dark"] a.ui-table-link,
+[data-theme="dark"] .ui-table-link > span {
+  text-decoration-color: color-mix(in srgb, currentcolor 40%, transparent);
+}
+
+.ui-table-link::after {
+  content: "";
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline: calc(var(--space-2) * -1);
+  block-size: var(--touch-target);
+  transform: translateY(-50%);
+}
+
+.ui-table-chevron {
+  transition: transform var(--duration-fast) ease;
+}
+
+.ui-table-link[aria-expanded="true"] .ui-table-chevron {
+  transform: rotate(180deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-table-chevron {
+    transition: none;
+  }
+}
+
+/* The detail band under an open row. */
+.ui-table-band {
+  padding: var(--space-4) var(--space-5);
+}
+
+.ui-table-band:has(> .ui-table[data-flat="true"]) {
+  padding: var(--space-1) var(--space-5) var(--space-3);
+}
+
+.ui-table-band-empty {
+  margin: var(--space-0);
+}
+
+.ui-table-member-list {
+  display: grid;
+  gap: var(--space-1-5);
+  margin: var(--space-0);
+  padding: var(--space-0);
+  list-style: none;
+}
+
+.ui-table-data-list {
+  display: grid;
+  gap: var(--space-1-5);
+  margin: var(--space-0);
+}
+
+.ui-table-data-list > div {
+  display: grid;
+  grid-template-columns: var(--table-data-label) minmax(0, 1fr);
+  gap: var(--space-3);
+}
+
+.ui-table-data-list dt {
+  color: var(--color-ink-soft);
+  overflow-wrap: anywhere;
+}
+
+.ui-table-data-list dd {
+  margin: var(--space-0);
+  overflow-wrap: anywhere;
+}
+
+/* A table inside a detail band has no frame and no header fill. The band already has a fill, so
+   the row line takes the pop-up edge, which stays visible on it. */
+.ui-table[data-flat="true"] > thead > tr > th,
+.ui-table[data-flat="true"] > tbody > tr > td {
+  background: transparent;
+}
+
+.ui-table[data-flat="true"] > thead > tr > th:first-child,
+.ui-table[data-flat="true"] > tbody > tr > td:first-child {
+  position: static;
+  padding-inline-start: var(--space-0);
+}
+
+.ui-table[data-flat="true"] > thead > tr > th:last-child,
+.ui-table[data-flat="true"] > tbody > tr > td:last-child {
+  padding-inline-end: var(--space-0);
+}
+
+.ui-table[data-flat="true"] > tbody > tr > td {
+  border-block-start: var(--border-thin) solid var(--modal-edge);
+}
+
+@media (max-width: 640px) {
+  .ui-table-frame {
+    border-radius: var(--radius-panel);
+  }
+}
+
+/* Below 760 px a table whose rows hold controls shows each row as a card. The name is the title,
+   the controls sit beside it, and every other filled cell is a label and a value. */
+@media (max-width: 760px) {
+  .ui-table-frame[data-stacked="true"] {
+    overflow: visible;
+    border: 0;
+    border-radius: var(--space-0);
+    background: transparent;
+  }
+
+  .ui-table-frame[data-stacked="true"]::after {
+    display: none;
+  }
+
+  .ui-table-frame[data-stacked="true"] .ui-table-scroll {
+    overflow: visible;
+  }
+
+  .ui-table-frame[data-stacked="true"] > .ui-table-scroll > .ui-table {
+    display: block;
+  }
+
+  .ui-table-frame[data-stacked="true"] > .ui-table-scroll > .ui-table > thead {
+    position: absolute;
+    inline-size: var(--border-thin);
+    block-size: var(--border-thin);
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .ui-table-frame[data-stacked="true"] > .ui-table-scroll > .ui-table > tbody {
+    display: grid;
+    gap: var(--space-3);
+  }
+
+  .ui-table-frame[data-stacked="true"]
+    > .ui-table-scroll
+    > .ui-table
+    > tbody
+    > tr:not([data-band-row]) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-3);
+    padding: var(--space-4);
+    border: var(--border-thin) solid var(--color-line);
+    border-radius: var(--radius-panel);
+    background: var(--color-surface);
+  }
+
+  .ui-table-frame[data-stacked="true"] > .ui-table-scroll > .ui-table > tbody > tr[data-band-row] {
+    display: block;
+    border-radius: var(--radius-panel);
+    background: var(--table-head-fill);
+  }
+
+  .ui-table-frame[data-stacked="true"] > .ui-table-scroll > .ui-table > tbody > tr > td {
+    display: block;
+    block-size: auto;
+    min-inline-size: 0;
+    max-inline-size: none;
+    inline-size: auto;
+    padding: var(--space-0);
+    border-block-start: 0;
+    background: transparent;
+    box-shadow: none;
+    text-align: start;
+    white-space: normal;
+  }
+
+  .ui-table-frame[data-stacked="true"]
+    > .ui-table-scroll
+    > .ui-table
+    > tbody
+    > tr
+    > td:first-child {
+    position: static;
+  }
+
+  .ui-table-frame[data-stacked="true"] td[data-kind="name"] {
+    order: 0;
+    flex: 1 1 0;
+    min-inline-size: 0;
+  }
+
+  .ui-table-frame[data-stacked="true"] td[data-kind="control"] {
+    order: 1;
+    flex: 0 0 auto;
+  }
+
+  .ui-table-frame[data-stacked="true"] td:not([data-kind="name"], [data-kind="control"]) {
+    order: 2;
+    flex: 1 1 100%;
+    display: grid;
+    grid-template-columns: calc(var(--space-12) * 2) minmax(0, 1fr);
+    gap: var(--space-3);
+  }
+
+  .ui-table-frame[data-stacked="true"] td:not([data-kind="name"], [data-kind="control"])::before {
+    content: attr(data-label);
+    color: var(--color-ink-soft);
+  }
+
+  .ui-table-frame[data-stacked="true"] td[data-empty="true"]:not([data-kind="name"]) {
+    display: none;
+  }
+}
+
+/* Empty state: text on the page. It has no frame, no fill and no padding of its own, and the page
+   sets the space around it. */
 .empty-state {
   display: grid;
-  width: min(100%, var(--content-narrow));
-  justify-items: center;
-  gap: var(--space-3);
-  margin-inline: auto;
-  padding: var(--space-10) var(--space-6);
-  border: var(--border-thin) dashed var(--color-line);
-  border-radius: var(--radius-card);
-  background: var(--color-inset);
+  width: min(100%, var(--content-empty));
+  justify-items: start;
   color: var(--color-ink-soft);
-  text-align: center;
 }
 
-.empty-state h2,
-.empty-state h3 {
-  font-size: var(--text-empty-title);
+.empty-state[data-size="standard"] {
+  justify-items: center;
+  margin-inline: auto;
+  text-align: center;
+  text-wrap: balance;
+}
+
+.empty-state-title {
+  margin: var(--space-0);
+  color: var(--color-ink);
+}
+
+.empty-state[data-size="standard"] .empty-state-title {
+  margin-block-start: var(--space-4);
+  font-family: var(--font-display);
+  font-size: var(--text-heading-sm);
+  line-height: 1.3;
+}
+
+.empty-state[data-size="compact"] .empty-state-title {
+  font-size: var(--text-button-lg);
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.empty-state-sentence {
+  margin: var(--space-0);
+  color: var(--color-ink-soft);
+}
+
+.empty-state[data-size="standard"] .empty-state-sentence {
+  margin-block-start: var(--space-2);
+  font-size: var(--text-button-lg);
+  line-height: 1.5;
+}
+
+.empty-state[data-size="compact"] .empty-state-sentence {
+  margin-block-start: var(--space-1);
+  font-size: var(--text-empty-sentence);
+  line-height: 1.45;
+  text-wrap: pretty;
+}
+
+.empty-state[data-size="standard"] > .ui-button {
+  margin-block-start: var(--space-6);
+}
+
+.empty-state[data-size="compact"] > .ui-button {
+  margin-block-start: var(--space-1);
+}
+
+@media (max-width: 640px) {
+  .empty-state[data-size="standard"] {
+    width: 100%;
+    margin-block-start: calc(var(--space-12) - var(--space-8));
+  }
+
+  .empty-state[data-size="standard"] > .ui-button {
+    width: 100%;
+  }
 }
 
 /* Skeletons */
@@ -1321,11 +2096,6 @@ svg {
 .skeleton[data-variant="media"] {
   width: 100%;
   min-height: var(--skeleton-media-min);
-}
-
-.skeleton[data-variant="eyebrow"] {
-  width: var(--skeleton-eyebrow-width);
-  height: var(--space-2-5);
 }
 
 /* Control placeholders repeat the real control geometry so the page does not jump on swap. */
@@ -1423,6 +2193,57 @@ svg {
   gap: var(--grid-gap);
 }
 
+.step-indicator {
+  display: grid;
+  gap: var(--space-2);
+}
+
+/* The row keeps its 22 px height with the 48 px arrow in it: the arrow's margin takes the extra
+   height back, and the 12 px at the left puts its icon on the column edge. */
+.step-indicator-row {
+  display: flex;
+  align-items: center;
+}
+
+.step-indicator-row > .ui-icon-button {
+  margin: calc((var(--step-row-height) - var(--control-height-md)) / 2) var(--space-0)
+    calc((var(--step-row-height) - var(--control-height-md)) / 2) calc(-1 * var(--space-3));
+}
+
+.step-indicator-text {
+  color: var(--color-ink-soft);
+  font-size: var(--text-body-sm);
+}
+
+.step-indicator-text strong {
+  color: var(--color-ink);
+  font-weight: 600;
+}
+
+/* The negative margin keeps the bar's layout height at 4 px, so the line above it and the content
+   below it sit where the layout puts them whatever the segment height. */
+.step-indicator-bar {
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  gap: var(--space-1);
+  margin-block: calc(-1 * var(--border-thin));
+}
+
+.step-indicator-segment {
+  height: var(--space-1-5);
+  border-radius: calc(var(--space-1-5) / 2);
+  background: var(--color-step-todo);
+}
+
+.step-indicator-segment[data-state="done"] {
+  background: var(--color-step-done);
+}
+
+.step-indicator-segment[data-state="current"] {
+  background: var(--color-step-current);
+}
+
 .primitive-showcase {
   display: grid;
   gap: var(--space-14);
@@ -1508,6 +2329,26 @@ svg {
 }
 
 /*
+ * A route skeleton stays hidden for the first moments of a load, so a page that arrives quickly
+ * never flashes it. Only the children wait: the page element itself carries aria-busy from the
+ * start. The global reduced-motion rule shortens animation durations, not delays, so the wait
+ * holds there as well.
+ */
+.skeleton-page > * {
+  animation: skeleton-page-reveal 0s linear var(--skeleton-reveal-delay) both;
+}
+
+@keyframes skeleton-page-reveal {
+  from {
+    visibility: hidden;
+  }
+
+  to {
+    visibility: visible;
+  }
+}
+
+/*
  * Spinner — the in-element pending signal.
  *
  * Inherits `currentColor` so it reads correctly inside every button variant without a
@@ -1571,6 +2412,7 @@ svg {
 .page-transition-panel .brand-wordmark {
   width: var(--wordmark-hero-width);
   height: var(--wordmark-hero-height);
+  background-position: center;
 }
 
 .page-transition-message {
@@ -1587,24 +2429,13 @@ svg {
   inset-block-start: var(--space-0);
   z-index: var(--z-header);
   min-height: var(--header-height);
-  border-bottom: var(--border-thin) solid var(--glass-edge);
+  border-bottom: var(--border-thin) solid var(--glass-structure-line);
   background: var(--glass-chrome-fallback);
-  box-shadow:
-    0 18px 42px -32px var(--glow-peach),
-    var(--shadow-glass);
 }
 
-@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .site-header {
-    background: var(--glass-chrome-fill);
-    -webkit-backdrop-filter: blur(var(--glass-blur-chrome));
-    backdrop-filter: blur(var(--glass-blur-chrome));
-  }
-}
-
+/* At the top of the page the bar sits in the page. Once content slides under it, it floats. */
 .site-header[data-scrolled="true"] {
-  border-bottom-color: var(--glass-structure-line);
-  box-shadow: var(--shadow-md), var(--shadow-glass);
+  box-shadow: var(--shadow-glass);
 }
 
 .header-inner {
@@ -1617,14 +2448,16 @@ svg {
   padding-inline: var(--page-padding);
 }
 
+/* The glyph sits on the column edge. The tap box is wider than the glyph and overhangs the edge by
+   the same amount it pads, so the target is 44 px high without moving the glyph. */
 .brand-lockup {
   display: inline-flex;
   flex: none;
   align-items: center;
-  /* Only ever between the wordmark and the navigation spinner: exactly one of the two wordmarks
-     is displayed at a time, and the spinner exists only while a navigation is in flight, so this
-     contributes nothing to the resting header. */
-  gap: var(--space-2);
+  min-inline-size: var(--header-wordmark-tap-width);
+  min-height: var(--touch-target);
+  margin-inline-start: calc(var(--space-2) * -1);
+  padding-inline: var(--space-2);
   color: var(--color-ink);
   text-decoration: none;
 }
@@ -1633,10 +2466,18 @@ svg {
   color: var(--color-ink);
 }
 
+/* The wordmark and the loading spinner share this box, so the swap moves nothing in the header. */
+.brand-wordmark-slot {
+  display: grid;
+  width: var(--header-wordmark-glyph-width);
+  height: var(--header-wordmark-glyph-height);
+  place-items: center;
+}
+
 .brand-wordmark {
-  width: var(--wordmark-header-width);
-  height: var(--wordmark-header-height);
-  background-position: center;
+  width: var(--header-wordmark-glyph-width);
+  height: var(--header-wordmark-glyph-height);
+  background-position: left center;
   background-repeat: no-repeat;
   background-size: contain;
 }
@@ -1665,38 +2506,68 @@ svg {
   gap: var(--space-1);
 }
 
-.desktop-nav {
-  margin-inline-start: var(--space-5);
-}
-
 .header-actions {
   margin-inline-start: auto;
 }
 
 .header-nav-link {
+  position: relative;
   display: inline-flex;
   min-height: var(--touch-target);
   align-items: center;
-  padding-inline: var(--space-3);
+  padding-inline: var(--space-4);
   border-radius: var(--radius-control);
   color: var(--color-ink-soft);
-  font-size: var(--text-button);
+  font-size: var(--text-body);
   font-weight: 500;
   text-decoration: none;
 }
 
-.header-nav-link:hover,
-.header-nav-link[aria-current="page"] {
-  background: var(--color-inset);
+/* Hover never changes the weight, so the label does not jump. */
+.header-nav-link:hover {
+  background: var(--color-hover-surface);
   color: var(--color-ink);
 }
 
 .header-nav-link[aria-current="page"] {
+  color: var(--color-ink);
   font-weight: 600;
 }
 
-/* A <button> can carry .header-nav-link (mobile "Keluar"); strip the native button chrome so it
-   matches the surrounding link rows. */
+/* The label's width is reserved at weight 600, so the current item does not move its neighbours. */
+.header-nav-label {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.header-nav-label::after {
+  content: attr(data-label);
+  block-size: var(--space-0);
+  overflow: hidden;
+  font-weight: 600;
+  visibility: hidden;
+}
+
+/* The current-page mark: a graphic under the item, on the bottom edge of the bar. The tooltip owns
+   ::after on an icon control, so the mark uses ::before everywhere. */
+.header-nav-link[aria-current="page"]::before,
+.site-header .ui-icon-button[aria-current="page"]::before {
+  content: "";
+  position: absolute;
+  inset-inline: var(--header-mark-inset);
+  inset-block-end: calc(var(--header-mark-drop) * -1);
+  block-size: var(--header-mark-height);
+  border-radius: var(--header-mark-height) var(--header-mark-height) 0 0;
+  background: var(--header-mark-color);
+}
+
+.site-header .ui-icon-button[aria-current="page"]::before {
+  inset-inline: var(--header-mark-inset-icon);
+}
+
+/* A <button> can carry .header-nav-link (the Dasbor trigger and the phone sheet's "Keluar"); strip
+   the native button chrome so it matches the surrounding link rows. */
 button.header-nav-link {
   border: 0;
   background: transparent;
@@ -1705,21 +2576,61 @@ button.header-nav-link {
   cursor: pointer;
 }
 
-.locale-label {
-  display: inline-flex;
-  min-height: var(--control-height-sm);
-  align-items: center;
-  padding-inline: var(--space-2);
-  border: var(--border-thin) solid var(--color-line);
-  border-radius: var(--radius-pill);
-  color: var(--color-ink-soft);
-  font-family: var(--font-data);
-  font-size: var(--text-micro);
-  letter-spacing: var(--tracking-label);
+button.header-nav-link:hover,
+button.header-nav-link[aria-expanded="true"] {
+  background: var(--color-hover-surface);
 }
 
-.mobile-nav {
+/* "Masuk" sits 20 px after the tools. Until the session is known the slot holds its width, and a
+   skeleton pill shows only if the wait outlasts 300 ms. The account icon, by contrast, sits 4 px
+   after the moon like the other icons. */
+.header-identity {
+  display: inline-flex;
+}
+
+.header-identity-reserve,
+.ui-button.header-sign-in {
+  margin-inline-start: var(--space-4);
+}
+
+.header-identity-reserve {
+  display: inline-block;
+  min-inline-size: var(--header-sign-in-width);
+  block-size: var(--touch-target);
+}
+
+/* While its menu is open the account icon keeps its held state, and its tooltip would only cover
+   the menu. */
+.header-account-menu-root .ui-icon-button[aria-expanded="true"] {
+  background: var(--color-hover-surface);
+}
+
+.header-account-menu-root .ui-icon-button[aria-expanded="true"]::after {
   display: none;
+}
+
+.header-identity-reserve::before {
+  content: "";
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--color-hover-surface);
+  opacity: 0;
+  animation: header-identity-appear 0s linear var(--header-skeleton-delay) forwards;
+}
+
+@keyframes header-identity-appear {
+  to {
+    opacity: 1;
+  }
+}
+
+.ui-button.header-sign-in {
+  min-inline-size: var(--header-sign-in-width);
+  padding-inline: var(--space-5);
+  font-size: var(--text-body);
+  font-weight: 600;
 }
 
 /* The toggle is a .ui-icon-button, whose own `display` is declared later in this file at equal
@@ -1728,18 +2639,67 @@ button.header-nav-link {
   display: none;
 }
 
-.mobile-nav {
-  border-top: var(--border-thin) solid var(--color-line-soft);
-  background: var(--color-surface);
-  padding: var(--space-3) var(--page-padding) var(--space-4);
+/* The phone sheet and its scrim only exist at the phone width. They hang from the bottom edge of
+   the bar, so the bar stays above the scrim and the page below is not pushed. */
+.header-sheet,
+.header-sheet-scrim {
+  display: none;
 }
 
-.mobile-nav[data-open="true"] {
+.header-sheet-group {
   display: grid;
-  gap: var(--space-1);
 }
 
-.header-dashboard-menu-root {
+.header-sheet-group + .header-sheet-group {
+  margin-block-start: var(--space-2);
+  padding-block-start: var(--space-2);
+  border-block-start: var(--border-thin) solid var(--glass-structure-line);
+}
+
+.header-sheet-row {
+  display: flex;
+  min-height: var(--header-sheet-row-height);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding-inline: var(--space-3);
+  border-radius: var(--space-3);
+  color: var(--color-ink);
+  font-family: inherit;
+  font-size: var(--header-sheet-row-text);
+  font-weight: 500;
+  text-align: start;
+  text-decoration: none;
+}
+
+button.header-sheet-row {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.header-sheet-row:hover {
+  background: var(--color-hover-surface);
+}
+
+.header-sheet-row:focus-visible {
+  outline: var(--border-strong) solid var(--focus-color);
+  outline-offset: calc(-1 * var(--border-strong));
+}
+
+.header-sheet-row[aria-current="page"] {
+  background: var(--color-hover-surface);
+  font-weight: 600;
+}
+
+.ui-button.header-sheet-sign-in {
+  margin-block: var(--space-2);
+  font-size: var(--text-button-lg);
+  font-weight: 600;
+}
+
+.header-dashboard-menu-root,
+.header-account-menu-root {
   position: relative;
   display: inline-flex;
 }
@@ -1759,43 +2719,92 @@ button.header-nav-link {
   transform: rotate(180deg);
 }
 
-/* Menu panel — same focus-glass-with-opaque-fallback treatment as .filter-dropdown-menu. */
+/* The header menus share the dropdown shape of the form controls: a solid raised surface, a
+   one-pixel edge and rows of 44 px. */
 .header-dashboard-panel {
   position: absolute;
   top: calc(100% + var(--space-2));
   left: 0;
   z-index: var(--z-dropdown);
   display: grid;
-  min-width: 10rem;
+  min-width: var(--header-menu-min-width);
   margin: 0;
-  padding: var(--space-1);
-  border: 1px solid var(--glass-structure-line);
-  border-radius: var(--radius-card);
-  background: color-mix(in srgb, var(--glass-focus-fallback) 97%, transparent);
+  padding: var(--space-1-5);
+  border: var(--border-thin) solid var(--color-line);
+  border-radius: var(--radius-panel);
+  background: var(--color-raised);
   box-shadow: var(--shadow-glass);
+}
+
+.header-account-panel {
+  left: auto;
+  right: 0;
 }
 
 .header-dashboard-menuitem {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
   min-height: var(--touch-target);
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-input);
+  padding: var(--space-2) var(--space-3-5);
+  border-radius: var(--radius-menu-row);
   color: var(--color-ink);
-  font-size: var(--text-button);
+  font-size: var(--text-body);
   font-weight: 500;
   text-decoration: none;
 }
 
-.header-dashboard-menuitem:hover,
+.header-dashboard-menuitem:hover {
+  background: var(--color-hover-surface);
+}
+
 .header-dashboard-menuitem:focus-visible {
   background: var(--color-hover-surface);
-  outline: none;
+  outline: var(--border-strong) solid var(--focus-color);
+  outline-offset: calc(-1 * var(--border-strong));
 }
 
 .header-dashboard-menuitem[aria-current="page"] {
-  background: var(--color-inset);
+  background: var(--color-hover-surface);
   font-weight: 600;
+}
+
+.header-dashboard-menuitem .ui-icon {
+  width: var(--space-5);
+  height: var(--space-5);
+}
+
+.header-menu-status {
+  color: var(--color-ink-soft);
+  font-size: var(--text-body-sm);
+  font-weight: 500;
+}
+
+.header-menu-separator {
+  block-size: var(--border-thin);
+  margin: var(--space-1-5) var(--space-2);
+  background: var(--glass-structure-line);
+}
+
+/* The menu button of a row. Its panel is fixed to the viewport so a scroll area around the trigger
+   cannot clip it, and it keeps the header menu's surface and items. */
+.menu-button-root {
+  display: inline-flex;
+}
+
+.menu-button-panel {
+  position: fixed;
+  left: auto;
+}
+
+:where(.menu-button-panel) .header-dashboard-menuitem {
+  inline-size: 100%;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  text-align: start;
+  cursor: pointer;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1831,8 +2840,11 @@ button.header-nav-link {
   font-size: var(--text-micro);
   font-weight: 500;
   line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 
+/* The footer is one Deep Palm block in both themes: the brand, the legal links under a heading,
+   a rule, the support email and one line of fine print. */
 .site-footer {
   margin-block-start: auto;
   background: var(--color-brand-surface);
@@ -1842,136 +2854,104 @@ button.header-nav-link {
 .footer-inner {
   display: grid;
   width: min(100%, var(--content-max));
-  grid-template-columns: minmax(0, 1.4fr) minmax(var(--content-footer-column), 1fr);
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
   gap: var(--space-10);
   margin-inline: auto;
-  padding: var(--space-12) var(--page-padding);
+  padding: var(--space-12) var(--page-padding) var(--space-0);
 }
 
 .site-footer h2,
-.site-footer h3,
 .site-footer a {
   color: var(--color-brand-ink);
-}
-
-.footer-title {
-  font-size: var(--text-footer-title);
 }
 
 .footer-wordmark {
   display: block;
   width: var(--wordmark-footer-width);
   height: var(--wordmark-footer-height);
-  background: url("/brand/lombakita-wordmark-reversed.png") center / contain no-repeat;
+  background: url("/brand/lombakita-wordmark-reversed.png") left center / contain no-repeat;
 }
 
 .footer-copy {
-  max-width: var(--content-narrow);
-  color: var(--brand-mist);
+  max-width: var(--footer-tagline-width);
+  color: var(--color-brand-ink);
+  font-size: var(--text-button-lg);
+  line-height: 1.5;
 }
 
-.footer-support {
+.footer-info h2 {
+  font-family: var(--font-body);
+  font-size: var(--text-button-lg);
+  font-weight: 600;
+}
+
+.footer-link-grid {
   display: grid;
-  align-content: start;
-  gap: var(--space-2);
-}
-
-.footer-support h3 {
-  font-family: var(--font-data);
-  font-size: var(--text-micro);
-  letter-spacing: var(--tracking-label);
-  text-transform: uppercase;
-}
-
-.footer-support-list {
-  display: grid;
-  gap: var(--space-1);
-  margin: 0;
-  padding: 0;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(2, var(--touch-target));
+  column-gap: var(--footer-column-gap);
+  margin: var(--space-0);
+  padding: var(--space-0);
   list-style: none;
-  color: var(--brand-mist);
 }
 
-/* A version is data, so it aligns column-wise down the list rather than drifting with the glyph
-   widths of the browser name beside it. */
-.footer-support-version {
-  font-family: var(--font-data);
-  font-variant-numeric: tabular-nums;
-}
-
-.footer-support-note {
-  max-width: var(--content-narrow);
-  color: var(--brand-mist);
-  font-size: var(--text-micro);
-}
-
-/* Company identity and the legal routes, as a bar under the two-column footer body rather than a
-   third column. The columns above are balanced against each other at every width already, and a
-   third one would have to be re-tuned at each breakpoint; a bar wraps on its own instead.
-
-   The rule is `--overlay-highlight`, not `--color-line-soft`. The page-level line tokens are tuned
-   for the page ground, and the footer sits on the brand surface, which is deep in BOTH themes. */
-.footer-legal {
-  border-block-start: var(--border-thin) solid var(--overlay-highlight);
-}
-
-.footer-legal-inner {
-  display: flex;
-  width: min(100%, var(--content-max));
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3) var(--space-6);
-  margin-inline: auto;
-  padding: var(--space-5) var(--page-padding);
-  color: var(--brand-mist);
-  font-size: var(--text-meta);
-}
-
-.footer-legal-entity {
-  margin: var(--space-0);
-  font-weight: 500;
-}
-
-/* The operator's name, address and contact channels as one block, so the bar's two halves are
-   "who operates this" and "where to read more" rather than four loose items wrapping unevenly. */
-.footer-legal-identity {
-  display: grid;
-  max-width: var(--content-narrow);
-  gap: var(--space-1);
-}
-
-.footer-legal-identity p {
-  margin: var(--space-0);
-}
-
-.footer-legal-contact {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1) var(--space-5);
-}
-
-.footer-legal-links {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2) var(--space-5);
-}
-
-/* The bar's links are ordinary text links rather than controls, so they carry no 44px box of their
-   own. The vertical padding restores the target height without changing how the row reads. */
-.footer-legal-links a,
-.footer-legal-contact a,
-.footer-legal-email {
+/* Tautan aksi on a band. The padding bleeds past the text and the negative margin takes it back,
+   so the focus ring has room and the text still lines up with its column. */
+.footer-link {
   display: inline-flex;
   min-height: var(--touch-target);
   align-items: center;
+  margin-inline: calc(var(--space-2-5) * -1);
+  padding-inline: var(--space-2-5);
+  border-radius: var(--space-3);
+  font-size: var(--text-button-lg);
+  font-weight: 500;
   text-decoration: underline;
+  text-decoration-thickness: var(--footer-link-underline);
+  text-decoration-color: color-mix(in srgb, var(--color-brand-ink) 60%, transparent);
   text-underline-offset: var(--space-1);
 }
 
+.footer-link:focus-visible {
+  outline: var(--border-strong) solid var(--color-brand-ink);
+  outline-offset: var(--border-strong);
+}
+
+.footer-legal {
+  width: min(100%, var(--content-max));
+  margin-inline: auto;
+  padding-inline: var(--page-padding);
+}
+
+.footer-legal-row {
+  display: flex;
+  justify-content: flex-start;
+  margin-block-start: var(--space-8);
+  padding-block-start: var(--space-6);
+  border-block-start: var(--border-thin) solid var(--overlay-highlight);
+}
+
+.footer-legal-row .footer-link {
+  font-size: var(--text-body);
+}
+
+.footer-fine-print {
+  max-width: var(--footer-fine-print-width);
+  margin: var(--space-3) var(--space-0) var(--space-0);
+  padding-block-end: var(--space-8);
+  color: var(--brand-mist);
+  font-size: var(--text-body-sm);
+  line-height: 1.5714;
+}
+
 @media (max-width: 760px) {
-  .footer-legal-inner {
-    justify-content: flex-start;
+  .footer-inner {
+    gap: var(--space-8);
+    padding-inline: var(--page-padding-mobile);
+  }
+
+  .footer-legal {
     padding-inline: var(--page-padding-mobile);
   }
 }
@@ -2040,21 +3020,26 @@ button.header-nav-link {
 }
 
 /* Public discovery */
-.home-hero {
-  padding-block: var(--space-20);
-}
-
+/*
+ * The hero spans the window so its one art field reaches the window edges and fills the band from
+ * top to bottom. The field is laid over the band; the centre column carries the band's vertical
+ * padding and sets its height.
+ */
 .home-hero-inner {
   display: grid;
-  grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
-  gap: var(--space-10);
-  align-items: center;
+  grid-template-columns: minmax(0, var(--content-hero));
+  justify-content: center;
+  padding: var(--space-20) var(--page-padding);
 }
 
 .home-hero-main {
+  position: relative;
   display: grid;
+  align-content: center;
+  justify-items: center;
   gap: var(--space-8);
   min-width: 0;
+  text-align: center;
 }
 
 .home-hero-copy {
@@ -2064,14 +3049,7 @@ button.header-nav-link {
 .home-hero-copy h1 {
   font-size: var(--text-hero);
   line-height: var(--leading-tight);
-}
-
-.home-hero-lead,
-.listing-heading > p:last-child {
-  max-width: var(--content-prose);
-  margin: var(--space-0);
-  color: var(--brand-mist);
-  font-size: var(--text-lead);
+  text-wrap: balance;
 }
 
 .lime-marker {
@@ -2092,18 +3070,24 @@ button.header-nav-link {
 }
 
 /*
- * Neo-Memphis decorative panel. A dense fixed-cell grid of mixed-span tiles; palm
- * shows through empty cells and L-shape notches. Tiles carry their ground colour
- * inline; opacity and scale animate the relocate/reveal, translate carries the
- * cursor-follow drift. Individual transform properties keep drift and pop separate.
+ * Neo-Memphis decorative field. A dense grid of mixed-span tiles; palm shows through empty
+ * cells and L-shape notches. Tiles carry their ground colour inline; opacity and scale
+ * animate the relocate/reveal, translate carries the cursor-follow drift. Individual
+ * transform properties keep drift and pop separate. The field takes the size of the band and
+ * the grid is laid over it, so the component can measure the field without the tiles feeding
+ * back into its size. The tiles skip a clearing around the heading and the search bar.
  */
 .home-memphis {
+  position: absolute;
+  inset: var(--space-0);
+  overflow: hidden;
+}
+
+.home-memphis-grid {
+  position: absolute;
+  inset: var(--space-0);
   display: grid;
-  grid-template-columns: repeat(9, 1fr);
-  grid-template-rows: repeat(9, 1fr);
-  aspect-ratio: 1 / 1;
-  gap: 0.4rem;
-  width: 100%;
+  gap: var(--space-1-5);
 }
 
 /*
@@ -2174,6 +3158,7 @@ button.header-nav-link {
   padding: var(--space-2);
   border-radius: var(--radius-feature);
   color: var(--color-ink);
+  text-align: start;
   text-decoration: none;
   transition:
     box-shadow var(--duration-card) var(--ease-primary),
@@ -2203,28 +3188,24 @@ button.header-nav-link {
   font-size: var(--text-body-sm);
 }
 
-.home-search-label {
+.home-search-copy input {
+  width: 100%;
+  min-width: 0;
+  min-height: var(--touch-target);
+  border: 0;
+  background: transparent;
   color: var(--color-ink);
-  font-size: var(--text-body);
-  font-weight: 600;
+  font-size: var(--text-search);
+  outline: none;
 }
 
-.home-trust-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-4);
-  color: var(--brand-mist);
-  font-size: var(--text-meta);
+.home-search-copy input::placeholder {
+  color: var(--color-ink-faint);
 }
 
-.home-trust-row span {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1-5);
-}
-
-.home-trust-row .ui-icon {
-  color: var(--brand-lime);
+.home-search-entry:focus-within {
+  outline: var(--focus-width) solid var(--focus-color);
+  outline-offset: var(--focus-offset);
 }
 
 /*
@@ -2254,8 +3235,6 @@ button.header-nav-link {
   color: var(--brand-lime);
   font-size: var(--text-micro);
   font-weight: 700;
-  letter-spacing: var(--tracking-label);
-  text-transform: uppercase;
   animation: marquee-scroll var(--marquee-duration) linear infinite;
 }
 
@@ -2287,112 +3266,6 @@ button.header-nav-link {
   gap: var(--space-5);
 }
 
-.home-category-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--grid-gap);
-}
-
-.home-category-card {
-  --category-hue: var(--category-hue-kti);
-  position: relative;
-  isolation: isolate;
-  display: grid;
-  min-height: calc(var(--control-height-lg) * 3.25);
-  align-content: space-between;
-  gap: var(--space-8);
-  padding: var(--space-5);
-  overflow: hidden;
-  border: 0;
-  border-radius: var(--radius-card);
-  background: hsl(
-    var(--category-hue) var(--category-wash-saturation) var(--category-wash-lightness)
-  );
-  color: var(--brand-palm);
-  box-shadow: var(--shadow-sm);
-  text-decoration: none;
-  transition:
-    border-color var(--duration-card) var(--ease-primary),
-    box-shadow var(--duration-card) var(--ease-primary),
-    transform var(--duration-card) var(--ease-primary);
-}
-
-.home-category-card[data-category="hackathon"] {
-  --category-hue: var(--category-hue-hackathon);
-}
-
-.home-category-card[data-category="business"] {
-  --category-hue: var(--category-hue-business);
-}
-
-.home-category-card[data-category="scientific_writing"] {
-  --category-hue: var(--category-hue-kti);
-}
-
-.home-category-card[data-category="design"] {
-  --category-hue: var(--category-hue-uiux);
-}
-
-.home-category-card::after {
-  position: absolute;
-  inset-block-start: calc(var(--space-10) * -1);
-  inset-inline-end: calc(var(--space-8) * -1);
-  z-index: var(--z-base);
-  width: calc(var(--space-20) * 1.4);
-  height: calc(var(--space-20) * 1.4);
-  border-radius: var(--blob-radius-a);
-  background: hsl(
-    var(--category-hue) var(--category-blob-saturation) var(--category-blob-lightness)
-  );
-  content: "";
-}
-
-.home-category-card:hover {
-  box-shadow: var(--shadow-lg);
-  transform: translateY(var(--motion-lift-card));
-}
-
-.home-category-icon,
-.home-category-copy {
-  position: relative;
-  z-index: var(--z-content);
-}
-
-.home-category-icon {
-  display: grid;
-  width: var(--icon-chip);
-  height: var(--icon-chip);
-  place-items: center;
-  border-radius: var(--blob-radius-b);
-  background: var(--on-cover-chip);
-}
-
-.home-category-label {
-  width: fit-content;
-  padding: var(--space-1) var(--space-2-5);
-  border-radius: var(--radius-pill);
-  background: var(--on-cover-chip);
-  color: var(--on-cover-chip-ink);
-  font-size: var(--text-micro);
-  font-weight: 700;
-  letter-spacing: var(--tracking-label);
-  text-transform: uppercase;
-}
-
-.home-category-card h3 {
-  color: var(--on-cover-ink);
-  font-size: var(--text-card-title);
-}
-
-.home-category-card p {
-  /* Reserve two lines so a one-line description doesn't shorten the copy block and drop this
-     card's title below its neighbours — keeps the titles aligned across the row. */
-  min-height: 2lh;
-  margin: var(--space-0);
-  color: var(--on-cover-ink-soft);
-  font-size: var(--text-body-sm);
-}
-
 .home-organizer-cta {
   display: flex;
   align-items: center;
@@ -2422,14 +3295,6 @@ button.header-nav-link {
 .listing-hero-inner {
   display: grid;
   gap: var(--space-8);
-}
-
-.listing-heading {
-  max-width: var(--content-search);
-}
-
-.listing-heading h1 {
-  font-size: var(--text-detail-hero);
 }
 
 .listing-search {
@@ -2492,23 +3357,29 @@ button.header-nav-link {
   color: var(--brand-paper);
 }
 
+/* The result count on its own line, and under it the desktop row. */
 .filter-toolbar {
   position: relative;
   z-index: var(--z-dropdown);
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-5);
+  flex-direction: column;
+  gap: var(--space-3);
   padding: var(--space-4) var(--space-5);
   border-radius: var(--radius-card);
 }
 
+.filter-result-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 .filter-result-title {
-  margin-block-start: var(--space-1);
   font-family: var(--font-body);
   font-size: var(--text-body);
   font-weight: 600;
   letter-spacing: normal;
+  font-variant-numeric: tabular-nums;
 }
 
 .filter-sort-field {
@@ -2524,12 +3395,108 @@ button.header-nav-link {
   font-weight: 600;
 }
 
-/* Filter toolbar — row of dropdowns (replaces the category chip-rail). */
+/* Filter toolbar: one row that never wraps. Each pill grows to its text and stops at the pill
+   maximum, where the text is cut. The Urutkan icon button stays at the right end. */
 .filter-toolbar-filters {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: var(--space-2);
+}
+
+.filter-toolbar-filters > * {
+  flex: none;
+}
+
+.filter-toolbar-sort {
+  margin-inline-start: auto;
+}
+
+/* The Filter pill is the main control of the row, so it is filled where the other pills are not,
+   the same fill the phone bar's Filter pill has. Its hover and pressed states follow the primary
+   button's. */
+.filter-toolbar-filters .filter-dropdown-trigger.filter-toolbar-pill {
+  background: var(--color-action);
+  color: var(--color-action-ink);
+  box-shadow: none;
+}
+
+.filter-toolbar-filters .filter-dropdown-trigger.filter-toolbar-pill:hover {
+  background: var(--color-action-hover);
+  box-shadow: none;
+}
+
+.filter-toolbar-filters .filter-dropdown-trigger.filter-toolbar-pill:active {
+  background: var(--color-action-hover);
+  transform: translateY(var(--border-thin));
+}
+
+/* Urutkan is an icon button drawn like its neighbouring pills: the pills' field ring and raised
+   fill, and the set look of a pill (ink ring, hover fill) while the sort is not the default. The
+   selector names the variant so it outranks the outline variant's ink border. */
+.filter-toolbar-sort .ui-icon-button[data-variant="outline"] {
+  border-color: transparent;
+  border-radius: var(--radius-control);
+  background: var(--color-raised);
+  box-shadow: inset 0 0 0 1.5px var(--color-field-ring);
+}
+
+.filter-toolbar-sort .ui-icon-button:hover:not(:disabled),
+.filter-toolbar-sort .ui-icon-button[aria-expanded="true"],
+.filter-toolbar-sort .ui-icon-button[data-active="true"] {
+  box-shadow: inset 0 0 0 var(--border-strong) var(--color-ink);
+}
+
+.filter-toolbar-sort .ui-icon-button[data-active="true"] {
+  background: var(--color-hover-surface);
+}
+
+/* The button sits at the right end of the row, so its tooltip grows leftwards from the button's
+   right edge instead of overhanging the screen, and it steps aside while the menu is open under it. */
+.filter-toolbar-sort .ui-icon-button[data-tooltip]::after {
+  inset-inline-start: auto;
+  inset-inline-end: 0;
+  transform: translateX(0) scale(0);
+}
+
+.filter-toolbar-sort .ui-icon-button[data-tooltip]:hover::after,
+.filter-toolbar-sort .ui-icon-button[data-tooltip]:focus-visible::after {
+  transform: translateX(0) scale(1);
+}
+
+.filter-toolbar-sort .ui-icon-button[data-tooltip][aria-expanded="true"]::after {
+  opacity: 0;
+}
+
+.filter-toolbar-filters .filter-dropdown-trigger {
+  max-inline-size: var(--filter-pill-max-width);
+}
+
+.filter-toolbar-filters .filter-dropdown-trigger-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.filter-toolbar-filters .filter-dropdown-chevron {
+  flex: none;
+}
+
+/* The number of filters that are set, inside the Filter pill. */
+.filter-count-badge {
+  display: inline-grid;
+  min-width: var(--space-5);
+  height: var(--space-5);
+  padding-inline: var(--space-1);
+  place-items: center;
+  border-radius: var(--radius-pill);
+  background: var(--color-action);
+  color: var(--color-action-ink);
+  font-size: var(--text-meta);
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 
 .filter-dropdown {
@@ -2541,36 +3508,30 @@ button.header-nav-link {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  min-height: 44px;
-  padding: var(--space-2) var(--space-4);
-  border: 1px solid var(--color-line);
+  min-height: var(--touch-target);
+  padding: var(--space-2) 1.125rem;
+  border: 0;
   border-radius: var(--radius-control);
-  background: var(--color-surface);
+  background: var(--color-raised);
   color: var(--color-ink);
   font-family: var(--font-body);
+  font-size: var(--text-body);
   font-weight: 500;
-  box-shadow: var(--shadow-sm);
+  box-shadow: inset 0 0 0 1.5px var(--color-field-ring);
   cursor: pointer;
   transition:
-    border-color var(--duration-fast) ease,
+    background-color var(--duration-fast) ease,
     box-shadow var(--duration-fast) ease;
 }
 
-.filter-dropdown-trigger:hover {
-  border-color: var(--color-ink-soft);
+.filter-dropdown-trigger:hover,
+.filter-dropdown-trigger[aria-expanded="true"] {
+  box-shadow: inset 0 0 0 var(--border-strong) var(--color-ink);
 }
 
-/* Active (non-default) selection: palm border + tangerine accent dot. Never tangerine text. */
 .filter-dropdown-trigger[data-active="true"] {
-  border-color: var(--color-ink);
-}
-
-.filter-dropdown-trigger[data-active="true"]::before {
-  content: "";
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: var(--radius-circle);
-  background: var(--brand-tangerine);
+  background: var(--color-hover-surface);
+  box-shadow: inset 0 0 0 var(--border-strong) var(--color-ink);
 }
 
 .filter-dropdown-chevron {
@@ -2583,45 +3544,47 @@ button.header-nav-link {
 
 .filter-dropdown-trigger:focus-visible {
   outline: var(--focus-width) solid var(--focus-color);
-  outline-offset: var(--focus-offset);
-  box-shadow: 0 0 0 6px var(--focus-halo);
+  outline-offset: var(--border-strong);
 }
 
-/* Menu panel — focus-glass surface, but a near-opaque fill (the .glass-focus 88% is too
-   see-through over cards). Keeps the blur for a subtle frost; theme-aware via the glass
-   opaque fallback. */
 .filter-dropdown-menu {
   position: absolute;
   top: calc(100% + var(--space-2));
   left: 0;
   z-index: var(--z-dropdown);
-  min-width: 12rem;
-  max-height: 20rem;
+  width: 16.5rem;
+  max-width: calc(100vw - var(--space-6) * 2);
+  max-height: calc(var(--touch-target) * 7 + var(--space-3));
   overflow-y: auto;
   margin: 0;
-  padding: var(--space-1);
+  padding: var(--space-1-5);
   list-style: none;
-  border: 1px solid var(--glass-structure-line);
-  border-radius: var(--radius-card);
-  background: color-mix(in srgb, var(--glass-focus-fallback) 97%, transparent);
+  border: var(--border-thin) solid var(--color-line);
+  border-radius: 16px;
+  background: var(--color-raised);
   box-shadow: var(--shadow-glass);
 }
 
 .filter-dropdown-option {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: var(--space-2);
-  min-height: 44px;
+  min-height: var(--touch-target);
   padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-input);
+  border-radius: 10px;
   color: var(--color-ink);
+  font-size: var(--text-body);
   cursor: pointer;
 }
 
-.filter-dropdown-option:hover,
-.filter-dropdown-option:focus-visible {
+.filter-dropdown-option:hover {
   background: var(--color-hover-surface);
-  outline: none;
+}
+
+.filter-dropdown-option:focus-visible {
+  outline: var(--border-strong) solid var(--focus-color);
+  outline-offset: calc(-1 * var(--border-strong));
 }
 
 .filter-dropdown-option[data-selected="true"] {
@@ -2631,13 +3594,294 @@ button.header-nav-link {
 
 .filter-dropdown-option-check {
   display: inline-flex;
-  width: 1rem;
+  width: var(--space-4);
   color: var(--color-ink);
+}
+
+.filter-dropdown-option-check .ui-icon {
+  width: var(--space-4);
+  height: var(--space-4);
+}
+
+/* A menu that opens with its right edge on the right edge of its trigger. */
+.filter-dropdown-menu[data-align="end"] {
+  left: auto;
+  right: 0;
+}
+
+.filter-checks {
+  display: grid;
+  gap: var(--space-1);
+}
+
+/* The fee choices with the price range under them. */
+.filter-fee {
+  display: grid;
+  gap: var(--space-3);
+}
+
+/* A searchable menu keeps its field in place while the options under it scroll. */
+.filter-dropdown-menu[data-searchable="true"] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+  overflow: hidden;
+}
+
+.filter-dropdown-list {
+  min-height: var(--space-0);
+  margin: var(--space-0);
+  padding: var(--space-0);
+  overflow-y: auto;
+  list-style: none;
+}
+
+/* The field is a .form-input. Inside a menu it keeps its place while the options scroll under it
+   and sits one size down, so the menu stays compact. */
+.filter-dropdown-search {
+  flex: none;
+  min-height: var(--control-height-sm);
+}
+
+.filter-dropdown-empty {
+  margin: var(--space-0);
+  padding: var(--space-3);
+  color: var(--color-ink-soft);
+  font-size: var(--text-body);
+}
+
+.filter-dropdown-option[data-active="true"] {
+  background: var(--color-hover-surface);
+}
+
+/* Phone filter bar: pinned to the bottom of the screen, the Filter pill fixed at its left end and
+   the quick chips scrolling sideways beside it. Hidden where the desktop row shows. */
+.filter-phone {
+  position: fixed;
+  inset-inline: var(--space-0);
+  inset-block-end: var(--space-0);
+  z-index: var(--z-dropdown);
+  display: none;
+  align-items: center;
+  gap: var(--space-2);
+  min-inline-size: 0;
+  padding: var(--space-3) var(--page-padding-mobile);
+  padding-block-end: calc(var(--space-3) + env(safe-area-inset-bottom));
+  /* A hairline along the top edge only, and a shadow that lifts upward off the screen's edge. */
+  border-inline-width: var(--space-0);
+  border-block-end-width: var(--space-0);
+  border-block-start: var(--border-thin) solid var(--color-line);
+  box-shadow:
+    0 -24px 52px -34px var(--glow-peach),
+    0 -12px 32px -12px var(--glass-shadow-color),
+    inset 0 1px 0 var(--glass-edge);
+}
+
+/* The Filter pill is the main control of the bar, so it is filled where the quick chips are not. */
+.filter-phone-pill {
+  flex: none;
+  border-color: transparent;
+  background: var(--color-action);
+  color: var(--color-action-ink);
+}
+
+.filter-phone-pill:hover:not(:disabled) {
+  background: var(--color-action-hover);
+}
+
+.filter-phone-pill .filter-count-badge,
+.filter-toolbar-pill .filter-count-badge {
+  background: var(--color-action-ink);
+  color: var(--color-action);
+}
+
+.filter-phone-row {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-2);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.filter-phone-row::-webkit-scrollbar {
+  display: none;
+}
+
+.filter-phone-row > .action-chip,
+.filter-phone-row > .ui-icon-button {
+  flex: none;
+}
+
+/* The Urutkan icon button takes the chips' shape, and their set look while the sort is not the
+   default. The row scrolls sideways, which would clip a tooltip, and a touch screen has no hover
+   to show one, so the tooltip is left out. */
+.filter-phone-row > .ui-icon-button {
+  border-radius: var(--radius-control);
+}
+
+.filter-phone-row > .ui-icon-button[data-tooltip]::after {
+  display: none;
+}
+
+.filter-phone-row > .ui-icon-button[data-active="true"],
+.filter-phone-row
+  > .ui-icon-button[data-active="true"]:hover:not(:disabled):not([aria-disabled="true"]) {
+  border-color: var(--brand-palm);
+  background: var(--brand-palm);
+  color: var(--brand-paper);
+}
+
+/* 832px is the narrowest width at which the desktop row fits on one line. Below it the row gives
+   way to the bar, and the page keeps the bar's height free at its end so the last card and the
+   footer are never under it. */
+@media (max-width: 831.98px) {
+  .filter-toolbar-filters {
+    display: none;
+  }
+
+  .filter-phone {
+    display: flex;
+  }
+
+  body:has(.filter-phone) {
+    padding-block-end: calc(var(--filter-bar-height) + env(safe-area-inset-bottom));
+  }
+
+  /* A focused element scrolls to clear the bar instead of landing under it. */
+  html:has(.filter-phone) {
+    scroll-padding-block-end: calc(var(--filter-bar-height) + env(safe-area-inset-bottom));
+  }
+
+  .filter-result-spinner {
+    display: none;
+  }
+}
+
+/* The filter panel. The pop-up is full height and the panel fills it: a fixed header, a body of
+   collapsible sections that scrolls, and a fixed footer holding the one button. */
+.filter-sheet {
+  display: flex;
+  flex-direction: column;
+  min-height: var(--space-0);
+  block-size: 100%;
+}
+
+.filter-sheet-header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-block-end: var(--border-thin) solid var(--color-line);
+}
+
+.filter-sheet-title {
+  font-size: var(--modal-title-size-phone);
+  line-height: var(--modal-title-leading-phone);
+}
+
+.filter-sheet-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.filter-sheet-body {
+  display: grid;
+  flex: 1;
+  align-content: start;
+  min-height: var(--space-0);
+  padding: var(--space-0) var(--space-4);
+  overflow-y: auto;
+}
+
+.filter-sheet-section {
+  display: grid;
+  border-block-end: var(--border-thin) solid var(--color-line);
+}
+
+.filter-sheet-section > [role="group"] {
+  padding-block-end: var(--space-4);
+}
+
+.filter-sheet-heading {
+  font-family: var(--font-body);
+  font-size: var(--text-body);
+  font-weight: 600;
+  letter-spacing: normal;
+}
+
+.filter-sheet-toggle {
+  display: flex;
+  inline-size: 100%;
+  min-height: var(--touch-target);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-block: var(--space-2);
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.filter-sheet-toggle:focus-visible {
+  outline: var(--focus-width) solid var(--focus-color);
+  outline-offset: var(--focus-offset);
+}
+
+.filter-sheet-value {
+  color: var(--color-ink-soft);
+  font-weight: 400;
+}
+
+.filter-sheet-chevron {
+  flex: none;
+  transition: transform var(--duration-fast) ease;
+}
+
+.filter-sheet-toggle[aria-expanded="true"] .filter-sheet-chevron {
+  transform: rotate(180deg);
+}
+
+.filter-sheet-category {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.filter-sheet-options {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.filter-sheet-option {
+  inline-size: 100%;
+  border: 0;
+  background: transparent;
+  font-family: var(--font-body);
+  text-align: start;
+}
+
+.filter-sheet-option[data-selected="true"] {
+  background: var(--color-hover-surface);
+}
+
+.filter-sheet-footer {
+  flex: none;
+  padding: var(--space-3) var(--space-4);
+  padding-block-end: calc(var(--space-3) + env(safe-area-inset-bottom));
+  border-block-start: var(--border-thin) solid var(--color-line);
 }
 
 @media (prefers-reduced-motion: reduce) {
   .filter-dropdown-chevron,
-  .filter-dropdown-trigger {
+  .filter-dropdown-trigger,
+  .filter-sheet-chevron {
     transition: none;
   }
 }
@@ -2656,33 +3900,33 @@ button.header-nav-link {
   gap: var(--space-2);
   width: 100%;
   min-height: var(--control-height-md);
-  padding-inline: var(--space-3);
-  border: var(--border-thin) solid var(--color-line);
-  border-radius: var(--radius-input);
+  padding-inline: var(--space-4);
+  border: 0;
+  border-radius: 12px;
   background: var(--color-raised);
+  box-shadow: inset 0 0 0 1.5px var(--color-field-ring);
   color: var(--color-ink);
   font-family: var(--font-body);
-  font-size: var(--text-body);
+  font-size: var(--text-search);
   text-align: start;
   cursor: pointer;
-  transition:
-    border-color var(--duration-fast) var(--ease-primary),
-    box-shadow var(--duration-fast) var(--ease-primary);
+  transition: box-shadow var(--duration-fast) var(--ease-primary);
 }
 
-.select-field-trigger:hover:not(:disabled) {
-  border-color: var(--color-ink-soft);
+.select-field-trigger:hover:not(:disabled),
+.select-field-trigger[aria-expanded="true"] {
+  box-shadow: inset 0 0 0 var(--border-strong) var(--color-ink);
 }
 
 .select-field-trigger:focus-visible {
-  border-color: var(--focus-color);
-  outline: none;
-  box-shadow: 0 0 0 var(--focus-width) var(--focus-halo);
+  outline: var(--focus-width) solid var(--focus-color);
+  outline-offset: var(--border-strong);
+  box-shadow: inset 0 0 0 var(--border-strong) var(--focus-color);
 }
 
 .select-field-trigger:disabled {
-  border-color: var(--color-disabled-border);
   background: var(--color-disabled-surface);
+  box-shadow: inset 0 0 0 var(--border-thin) var(--color-disabled-border);
   color: var(--color-disabled-text);
   cursor: not-allowed;
 }
@@ -2699,6 +3943,8 @@ button.header-nav-link {
 
 .select-field-chevron {
   flex: none;
+  width: var(--space-5);
+  height: var(--space-5);
   transition: transform var(--duration-fast) var(--ease-primary);
 }
 
@@ -2706,44 +3952,45 @@ button.header-nav-link {
   transform: rotate(180deg);
 }
 
-/* Never narrower than its trigger, but free to grow past it: a trigger sized by an `auto`
-   grid column is often narrower than the longest option label, and pinning both edges to the
-   trigger clipped that label. Clamped so a long label wraps instead of running off-screen. */
+/* The menu is the field's width and shows at most 6.5 rows, so a half row tells the reader it
+   scrolls. */
 .select-field-menu {
   position: absolute;
   top: calc(100% + var(--space-2));
   inset-inline-start: 0;
-  inset-inline-end: auto;
   z-index: var(--z-dropdown);
-  width: max-content;
-  min-width: 100%;
-  max-width: min(24rem, calc(100vw - var(--space-6) * 2));
-  max-height: 18rem;
+  width: 100%;
+  max-height: calc(var(--touch-target) * 6.5 + var(--space-3));
   overflow-y: auto;
   margin: 0;
-  padding: var(--space-1);
+  padding: var(--space-1-5);
   list-style: none;
-  border: 1px solid var(--glass-structure-line);
-  border-radius: var(--radius-card);
-  background: color-mix(in srgb, var(--glass-focus-fallback) 97%, transparent);
+  border: var(--border-thin) solid var(--color-line);
+  border-radius: 16px;
+  background: var(--color-raised);
   box-shadow: var(--shadow-glass);
 }
 
 .select-field-option {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: var(--space-2);
   min-height: var(--touch-target);
   padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-input);
+  border-radius: 10px;
   color: var(--color-ink);
+  font-size: var(--text-body);
   cursor: pointer;
 }
 
-.select-field-option:hover,
-.select-field-option:focus-visible {
+.select-field-option:hover {
   background: var(--color-hover-surface);
-  outline: none;
+}
+
+.select-field-option:focus-visible {
+  outline: var(--border-strong) solid var(--focus-color);
+  outline-offset: calc(-1 * var(--border-strong));
 }
 
 .select-field-option[data-selected="true"] {
@@ -2753,8 +4000,13 @@ button.header-nav-link {
 
 .select-field-option-check {
   display: inline-flex;
-  width: 1rem;
+  width: var(--space-4);
   color: var(--color-ink);
+}
+
+.select-field-option-check .ui-icon {
+  width: var(--space-4);
+  height: var(--space-4);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2822,13 +4074,20 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
 }
 
 /* ---- Icon-only button ---- */
+/* Three styles: outline (Garis), plain (Polos), fill (Isi). Sizes: md 44 / 20 px glyph, lg 52 / 22
+   (outline only), back 48 / 24 (the back arrow). */
 .ui-icon-button {
+  --icon-button-box: var(--touch-target);
+  --icon-button-glyph: var(--space-5);
+  position: relative;
   display: inline-grid;
   place-items: center;
-  min-width: var(--touch-target);
-  min-height: var(--touch-target);
-  padding: var(--space-2);
-  border: var(--border-thin) solid transparent;
+  width: var(--icon-button-box);
+  height: var(--icon-button-box);
+  min-width: var(--icon-button-box);
+  min-height: var(--icon-button-box);
+  padding: 0;
+  border: 1.5px solid transparent;
   border-radius: var(--radius-pill);
   background: transparent;
   color: var(--color-ink);
@@ -2839,8 +4098,28 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
     color var(--duration-fast) var(--ease-primary);
 }
 
-.ui-icon-button:hover:not(:disabled) {
+.ui-icon-button[data-size="lg"] {
+  --icon-button-box: var(--control-height-lg);
+  --icon-button-glyph: var(--icon-lg);
+}
+
+.ui-icon-button[data-size="back"] {
+  --icon-button-box: var(--control-height-md);
+  --icon-button-glyph: var(--space-6);
+}
+
+.ui-icon-button > .ui-icon,
+.ui-icon-button > .spinner {
+  width: var(--icon-button-glyph);
+  height: var(--icon-button-glyph);
+}
+
+.ui-icon-button:hover:not(:disabled):not([aria-disabled="true"]) {
   background: var(--color-hover-surface);
+}
+
+.ui-icon-button:active:not(:disabled):not([aria-disabled="true"]) {
+  transform: translateY(var(--border-thin));
 }
 
 .ui-icon-button:focus-visible {
@@ -2848,85 +4127,243 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   outline-offset: var(--focus-offset);
 }
 
-.ui-icon-button:disabled {
-  color: var(--color-disabled-text);
-  cursor: not-allowed;
-}
-
-/* An icon-only control still has to carry the weight of the action it replaced, so the
-   variants mirror .ui-button rather than collapsing every converted action into a ghost. */
-.ui-icon-button[data-variant="primary"] {
-  background: var(--color-action);
-  color: var(--color-action-ink);
-  box-shadow: var(--shadow-action);
-}
-
-.ui-icon-button[data-variant="primary"]:hover:not(:disabled) {
-  background: var(--color-action-strong, var(--color-action));
-}
-
-.ui-icon-button[data-variant="secondary"] {
-  background: var(--brand-palm);
-  color: var(--brand-paper);
-}
-
-.ui-icon-button[data-variant="secondary"]:hover:not(:disabled) {
-  background: var(--brand-palm-ink, var(--brand-palm));
-}
-
-/* Same reasoning as the outline button label above. */
 .ui-icon-button[data-variant="outline"] {
   border-color: var(--color-ink);
-  color: var(--color-ink);
 }
 
-.ui-icon-button[data-variant="danger"] {
-  color: var(--color-error-text);
+.ui-icon-button[data-variant="fill"] {
+  border-color: transparent;
+  background: var(--color-action);
+  color: var(--color-action-ink);
 }
 
-.ui-icon-button[data-variant="danger"]:hover:not(:disabled) {
-  background: var(--color-error-surface);
+.ui-icon-button[data-variant="fill"]:hover:not(:disabled):not([aria-disabled="true"]),
+.ui-icon-button[data-variant="fill"]:active:not(:disabled):not([aria-disabled="true"]) {
+  background: var(--color-action-hover);
 }
 
 /* Anchors have no :disabled, and IconButtonLink is the only icon control that can be
    inert while still focusable, so the disabled look keys off aria-disabled too. */
+.ui-icon-button:disabled:not([data-loading="true"]),
 .ui-icon-button[aria-disabled="true"] {
+  border-color: var(--color-disabled-border);
+  background: var(--color-disabled-surface);
   color: var(--color-disabled-text);
   cursor: not-allowed;
 }
 
-/* ---- Page-level sticky form action bar (global Save + Back) ---- */
+.ui-icon-button[data-variant="plain"]:disabled:not([data-loading="true"]),
+.ui-icon-button[data-variant="plain"][aria-disabled="true"] {
+  border-color: transparent;
+  background: transparent;
+}
+
+/* On the deep-palm brand bands a palm icon would sink into the surface, so the plain icon button
+   and its tooltip flip to the paper treatment. */
+.brand-band .ui-icon-button[data-variant="plain"] {
+  color: var(--brand-paper);
+}
+
+.brand-band .ui-icon-button[data-variant="plain"]:hover:not(:disabled):not([aria-disabled="true"]) {
+  background: rgba(251, 246, 235, 0.16);
+}
+
+.brand-band .ui-icon-button[data-tooltip]::after {
+  background: var(--brand-paper);
+  color: var(--brand-palm);
+}
+
+/* Tooltip: CSS only, from the control's own data-tooltip. It shows on hover and on keyboard
+   focus after 400 ms, and hides at once when the pointer or focus leaves. */
+.ui-icon-button[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  inset-block-start: calc(100% + var(--space-2));
+  inset-inline-start: 50%;
+  z-index: var(--z-dropdown);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--space-2);
+  background: var(--color-ink);
+  color: var(--color-bg);
+  font-size: var(--text-meta);
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateX(-50%) scale(0);
+  transition:
+    opacity var(--duration-fast) var(--ease-primary) 0ms,
+    transform 0s 0ms;
+}
+
+.site-header .ui-icon-button[data-tooltip]::after {
+  inset-inline-start: auto;
+  inset-inline-end: 0;
+  transform: translateX(0) scale(0);
+}
+
+.ui-icon-button[data-tooltip]:hover::after,
+.ui-icon-button[data-tooltip]:focus-visible::after {
+  opacity: 1;
+  transform: translateX(-50%) scale(1);
+  transition:
+    opacity var(--duration-fast) var(--ease-primary) 400ms,
+    transform 0s 400ms;
+}
+
+.site-header .ui-icon-button[data-tooltip]:hover::after,
+.site-header .ui-icon-button[data-tooltip]:focus-visible::after {
+  transform: translateX(0) scale(1);
+}
+
+/*
+ * Bottom bar: one floating glass panel with one control at the left and at most one Utama at the
+ * right. The outer element only positions the bar and carries the glow, so the glow sits behind
+ * the glass and not on top of it. The panel inside is the glass.
+ */
 .form-action-bar {
   position: sticky;
-  inset-block-end: var(--space-3);
+  inset-block-end: var(--bar-offset);
   z-index: var(--z-sticky-tabs);
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-3);
+  width: var(--bar-width);
+  /* Centres on the page column, and overhangs it evenly where the column is narrower. */
+  margin-inline: calc((100% - var(--bar-width)) / 2);
   margin-block-start: var(--space-5);
-  padding: var(--space-3) var(--space-4);
-  padding-block-end: max(var(--space-3), env(safe-area-inset-bottom));
-  border-radius: var(--radius-card);
+}
+
+.form-action-bar[data-variant="register"] {
+  position: fixed;
+  inset-inline: var(--space-0);
+  width: var(--bar-register-width);
+  margin: var(--space-0) auto;
+  transition:
+    opacity var(--duration-bar) var(--ease-primary),
+    transform var(--duration-bar) var(--ease-primary),
+    visibility 0s var(--duration-bar);
+}
+
+.form-action-bar[data-variant="register"][data-visible="false"] {
+  visibility: hidden;
+  opacity: 0;
+  transform: translateY(var(--bar-rise));
+  pointer-events: none;
+}
+
+.form-action-bar[data-variant="register"][data-visible="true"] {
+  visibility: visible;
+  opacity: 1;
+  transform: translateY(0);
+  transition-delay: 0s;
+}
+
+.form-action-bar::before {
+  content: "";
+  position: absolute;
+  inset: calc(-1 * var(--bar-glow-spread-above)) calc(-1 * var(--bar-glow-spread-inline))
+    calc(-1 * var(--bar-glow-spread-below));
+  z-index: calc(-1 * var(--z-content));
+  border-radius: var(--radius-feature);
+  background: var(--glow-peach);
+  filter: blur(var(--bar-glow-blur));
+  pointer-events: none;
+}
+
+.form-action-bar-panel {
+  display: flex;
+  box-sizing: border-box;
+  height: var(--bar-height);
+  align-items: center;
+  gap: var(--bar-gap);
+  padding: var(--space-4) var(--space-4) var(--space-4) var(--bar-padding-start);
+  border-radius: var(--radius-feature);
+  box-shadow: var(--shadow-glass);
+}
+
+.form-action-bar[data-variant="register"] .form-action-bar-panel {
+  padding: var(--bar-padding-register);
 }
 
 .form-action-bar .form-action-bar-end {
-  margin-inline-start: auto;
   display: inline-flex;
-  /* A flex item's `min-width` defaults to `auto`, so this group could not shrink below the
-     combined width of its buttons, and `nowrap` meant it could not lay them out on two lines
-     either. At 360px it was 318px wide inside a 292px content box and simply hung out of the bar.
-     Wrapping is what the bar's own `flex-wrap` already assumes for its children. */
   min-width: 0;
-  flex-wrap: wrap;
   align-items: center;
-  /* Keeps a wrapped second line aligned with the bar's trailing edge rather than drifting left. */
   justify-content: flex-end;
-  gap: var(--space-3);
+  gap: var(--bar-gap);
+  margin-inline-start: auto;
 }
 
-.form-action-bar .record-meta[data-dirty="true"] {
-  color: var(--color-warning-text);
+/* The bar sits at the bottom of the screen, so a tooltip opens above its control and starts at the
+   control's own edge, where the panel's side margin leaves room for it. */
+.form-action-bar .ui-icon-button[data-tooltip]::after {
+  inset-block: auto calc(100% + var(--space-2));
+  inset-inline-start: var(--space-0);
+  transform: translateX(0) scale(0);
+}
+
+.form-action-bar .ui-icon-button[data-tooltip]:hover::after,
+.form-action-bar .ui-icon-button[data-tooltip]:focus-visible::after {
+  transform: translateX(0) scale(1);
+}
+
+/* The register bar floats over the page and its footer, so only the sticky bars need the room. */
+.page-shell:has(.form-action-bar:not([data-variant="register"])) {
+  padding-block-end: calc(var(--bar-height) + (var(--bar-offset) * 2));
+}
+
+.bar-note {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--bar-note-gap);
+  margin: var(--space-0);
+  color: var(--bar-note-ink);
+  font-size: var(--text-body-sm);
+  font-weight: 500;
+}
+
+.bar-note strong {
+  color: var(--bar-note-strong-ink);
+  font-weight: 700;
+}
+
+.bar-note-halo {
+  display: grid;
+  width: var(--bar-note-halo);
+  height: var(--bar-note-halo);
+  flex: none;
+  place-items: center;
+  border-radius: var(--radius-circle);
+  background: var(--bar-note-halo-fill);
+}
+
+.bar-note-dot {
+  width: var(--bar-note-dot);
+  height: var(--bar-note-dot);
+  border-radius: var(--radius-circle);
+  background: var(--bar-note-dot-fill);
+}
+
+/* The step 5 notice: a lead sentence and one line per reason. It sits 24 px under the step line
+   and 16 px above the first summary card, inside a grid that spaces its children 32 px apart. */
+.publish-reasons-notice {
+  margin-block: calc(var(--space-6) - var(--space-8)) calc(var(--space-4) - var(--space-8));
+}
+
+.publish-reasons-list {
+  display: grid;
+  gap: var(--space-1);
+  margin: var(--space-0);
+  padding-inline-start: var(--reasons-list-indent);
+}
+
+/* A link ends its reason's sentence, so it takes the sentence's line instead of a 44 px row. */
+.publish-reasons-list .ui-button[data-variant="link"] {
+  display: inline;
+  min-height: var(--space-0);
+  padding: var(--space-0);
+  font-size: inherit;
+  line-height: inherit;
 }
 
 .competition-grid {
@@ -2942,6 +4379,13 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
  */
 .competition-grid--roomy {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+/* The width where the page shell stops growing, the same one the home row switches to four cards. */
+@media (min-width: 75rem) {
+  .competition-grid--four {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }
 
 .competition-card {
@@ -3051,7 +4495,7 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   position: relative;
   isolation: isolate;
   display: flex;
-  height: var(--cover-list-height);
+  aspect-ratio: 4 / 5;
   flex-direction: column;
   justify-content: space-between;
   overflow: hidden;
@@ -3084,23 +4528,33 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   width: var(--touch-target);
   height: var(--touch-target);
   place-items: center;
+  overflow: hidden;
   border: 0;
   border-radius: var(--blob-radius-b);
   background: var(--on-cover-chip);
   color: color-mix(in srgb, var(--cover-accent) 76%, var(--brand-palm));
 }
 
+.competition-cover-logo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .competition-cover-label {
+  display: inline-flex;
   width: fit-content;
-  padding: var(--space-1-5) var(--space-3);
+  height: var(--pill-height);
+  align-items: center;
+  padding-inline: var(--space-3);
   border-radius: var(--radius-pill);
-  background: var(--on-cover-chip);
-  color: var(--on-cover-chip-ink);
+  background: var(--tone-label-cover-fill);
+  color: var(--tone-label-cover-ink);
   font-family: var(--font-data);
-  font-size: var(--text-micro);
-  font-weight: 500;
-  letter-spacing: var(--tracking-label);
-  text-transform: uppercase;
+  font-size: var(--text-body-sm);
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .competition-card-body {
@@ -3108,51 +4562,69 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   flex: 1;
   flex-direction: column;
   gap: var(--space-4);
-  padding: var(--space-5);
+  padding: var(--space-4);
 }
 
+/*
+ * Every card is the same height because each part has a fixed size: the 4:5 cover, one line for
+ * the mode and location pills (kept even when there are none), two lines for the title (kept even when it takes
+ * one), one line for the organiser, and the deadline pill at the bottom.
+ */
 .competition-card-badges {
   display: flex;
-  min-height: var(--control-height-sm);
-  flex-wrap: wrap;
+  min-height: var(--pill-height);
+  min-width: 0;
+  overflow: hidden;
+  flex-wrap: nowrap;
   gap: var(--space-2);
 }
 
-.status-badge[data-status="featured"] {
-  background: var(--brand-palm);
-  color: var(--brand-lime);
+.competition-card-body > .stack-xs {
+  min-width: 0;
 }
 
-.competition-card:has(.status-badge[data-status="featured"]) {
-  border: var(--border-strong) solid var(--brand-tangerine);
-  box-shadow: var(--space-3) var(--space-3) 0 var(--surface-offset-block);
-}
-
+/*
+ * The two-line clamp sits on the title text alone. The pending spinner is its sibling inside the
+ * link, so the clamp's overflow can never clip it.
+ */
 .competition-title-link {
+  display: flex;
+  min-height: calc(2 * var(--leading-heading) * var(--text-card-title));
+  align-items: flex-start;
+  gap: var(--space-2);
   color: var(--color-ink);
   font-family: var(--font-display);
   font-size: var(--text-card-title);
   line-height: var(--leading-heading);
   text-decoration: none;
+  text-wrap: balance;
+}
+
+.competition-title-text {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.competition-title-link > .spinner {
+  flex: none;
 }
 
 .competition-title-link:hover {
   color: var(--color-link);
 }
 
-.competition-organizer,
-.competition-description {
-  margin: var(--space-0);
-  color: var(--color-ink-soft);
-}
-
 .competition-organizer {
+  margin: var(--space-0);
+  overflow: hidden;
+  color: var(--color-ink-soft);
   font-size: var(--text-meta);
   font-weight: 600;
-}
-
-.competition-description {
-  font-size: var(--text-body-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .competition-card-footer {
@@ -3160,7 +4632,7 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  /* Push the deadline + arrow row to the bottom so it lines up across cards of unequal height. */
+  /* Push the deadline row to the bottom so it lines up across cards. */
   margin-block-start: auto;
   padding-block-start: var(--space-3);
   border-top: var(--border-thin) solid var(--color-line-soft);
@@ -3169,7 +4641,7 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
 }
 
 /*
- * Featured carousel (Kompetisi ternama) — a 3-up horizontal scroll-snap rail. The prev/next
+ * Featured carousel (Kompetisi unggulan) — a 3-up horizontal scroll-snap rail. The prev/next
  * arrows flank the rail (left/right), vertically centred; native swipe works too; on mobile it
  * becomes one-up. The "Lihat semua" button stays a single line in the header.
  */
@@ -3177,10 +4649,26 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   flex-shrink: 0;
 }
 
+.featured-view-all-arrow {
+  display: inline-flex;
+}
+
+/* On a phone the link keeps only the arrow, so the heading row never wraps. The link's accessible
+   name is set on the link itself, so it is the same either way. */
+@media (max-width: 640px) {
+  .featured-view-all {
+    min-width: var(--touch-target);
+  }
+
+  .featured-view-all-text {
+    display: none;
+  }
+}
+
 /*
  * The rail keeps its own inline gutter so the flanking prev/next arrows get a lane clear of the
  * cards (the cards get a little narrower in exchange). The header flushes with the page's
- * standard section edge instead, so "Kompetisi ternama" lines up with every other section title
+ * standard section edge instead, so "Kompetisi unggulan" lines up with every other section title
  * on the page; the "Lihat semua" button trails it via space-between.
  */
 .featured-carousel-wrap {
@@ -3192,27 +4680,17 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
    * narrow to its column so the carousel does the scrolling, as intended.
    */
   min-width: 0;
+}
+
+/* Only a row that renders the arrows keeps a side lane for them. */
+.featured-carousel-wrap[data-has-arrows] {
   padding-inline: var(--space-16);
 }
 
-.featured-nav-btn {
+.ui-icon-button.featured-nav-btn {
   position: absolute;
-  inset-block-start: 50%;
+  inset-block-start: calc(50% - var(--icon-button-box) / 2);
   z-index: var(--z-content);
-  display: grid;
-  width: var(--control-height-md);
-  height: var(--control-height-md);
-  place-items: center;
-  border: 0;
-  border-radius: var(--radius-circle);
-  background: var(--brand-palm);
-  color: var(--brand-paper);
-  box-shadow: var(--shadow-md);
-  cursor: pointer;
-  transform: translateY(-50%);
-  transition:
-    background-color var(--duration-fast) var(--ease-primary),
-    opacity var(--duration-fast) var(--ease-primary);
 }
 
 .featured-nav-btn[data-direction="prev"] {
@@ -3223,20 +4701,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   inset-inline-end: var(--space-2);
 }
 
-.featured-nav-btn[data-direction="prev"] .ui-icon {
-  transform: rotate(180deg);
-}
-
-.featured-nav-btn:hover:not(:disabled) {
-  background: var(--brand-tangerine);
-  color: var(--brand-palm);
-}
-
-.featured-nav-btn:disabled {
-  opacity: 0.35;
-  pointer-events: none;
-}
-
 .featured-carousel {
   display: flex;
   min-width: 0;
@@ -3244,7 +4708,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   overflow-x: auto;
   scroll-snap-type: x mandatory;
   scroll-behavior: smooth;
-  /* Room for the featured card's tangerine border + peach offset shadow (down/right) and hover lift. */
   padding: var(--space-2) var(--space-4) var(--space-4) var(--space-1);
   scrollbar-width: none;
 }
@@ -3253,9 +4716,39 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   display: none;
 }
 
+/*
+ * The slide wraps the shared card. min-width:0 keeps a grid or flex item from growing to the
+ * intrinsic width of its content, which would stretch the row instead of letting it scroll.
+ */
 .featured-carousel-slide {
+  display: flex;
+  min-width: 0;
   flex: 0 0 calc((100% - 2 * var(--grid-gap)) / 3);
   scroll-snap-align: start;
+}
+
+.featured-carousel-slide > .competition-card {
+  min-width: 0;
+  flex: 1;
+}
+
+/* From the width where the page shell stops growing, four cards fit across: the row becomes a
+   grid with no side lane and no arrows. Below it the row scrolls sideways with the arrows. */
+@media (min-width: 75rem) {
+  .featured-carousel-wrap[data-has-arrows] {
+    padding-inline: var(--space-0);
+  }
+
+  .ui-icon-button.featured-nav-btn {
+    display: none;
+  }
+
+  .featured-carousel {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    padding-inline: var(--space-0);
+    overflow-x: visible;
+  }
 }
 
 .competition-card-footer > span:first-child {
@@ -3264,29 +4757,29 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   gap: var(--space-1-5);
 }
 
-.competition-card-arrow {
-  display: grid;
-  width: var(--touch-target);
-  height: var(--touch-target);
-  place-items: center;
-  border-radius: var(--radius-circle);
-  background: var(--brand-palm);
-  color: var(--brand-paper);
-  transition: transform var(--duration-fast) var(--ease-primary);
-}
-
-.competition-card:hover .competition-card-arrow {
-  transform: translateX(var(--motion-arrow));
-}
-
 .empty-state-icon {
   display: grid;
-  width: calc(var(--touch-target) + var(--space-4));
-  height: calc(var(--touch-target) + var(--space-4));
+  width: var(--control-height-md);
+  height: var(--control-height-md);
   place-items: center;
-  border-radius: var(--blob-radius-a);
-  background: var(--color-accent-bg);
-  color: var(--color-accent);
+  border-radius: var(--radius-circle);
+  background: var(--color-empty-calm);
+  color: var(--color-empty-calm-icon);
+}
+
+.empty-state-icon > .ui-icon {
+  width: var(--space-6);
+  height: var(--space-6);
+}
+
+.empty-state[data-kind="queue-clear"] .empty-state-icon {
+  background: var(--color-empty-good);
+  color: var(--color-empty-good-icon);
+}
+
+.empty-state[data-kind="not-found"] .empty-state-icon {
+  background: var(--color-empty-error);
+  color: var(--color-empty-error-icon);
 }
 
 .pagination {
@@ -3318,21 +4811,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   padding-block: var(--space-6) var(--space-9);
 }
 
-.detail-back-link {
-  display: inline-flex;
-  width: fit-content;
-  min-height: var(--touch-target);
-  align-items: center;
-  gap: var(--space-2);
-  color: var(--brand-mist);
-  font-size: var(--text-body-sm);
-  text-decoration: none;
-}
-
-.detail-back-link:hover {
-  color: var(--color-brand-ink);
-}
-
 .detail-hero-content {
   max-width: var(--content-search);
 }
@@ -3345,9 +4823,8 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
 }
 
 .detail-hero-content .status-badge {
-  border-color: var(--overlay-highlight);
-  background: var(--overlay-highlight);
-  color: var(--brand-paper);
+  --pill-fill: var(--tone-label-band-fill);
+  --pill-ink: var(--tone-label-band-ink);
 }
 
 .detail-organizer-line {
@@ -3363,6 +4840,7 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   height: var(--control-height-sm);
   border-radius: var(--radius-input);
   object-fit: contain;
+  background: var(--color-inset);
 }
 
 .detail-organizer-link {
@@ -3493,25 +4971,15 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   font-weight: 500;
 }
 
-.detail-information-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--grid-gap);
-}
-
-.detail-information-grid section {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: start;
-}
-
-.detail-information-grid h2 {
+/*
+ * Prizes come in the organiser's rank order, so the first is the top prize and reads larger than
+ * the other tiers.
+ */
+.detail-prize-item[data-main="true"] strong {
+  font-family: var(--font-display);
   font-size: var(--text-card-title);
-}
-
-.detail-information-grid p {
-  margin: var(--space-0);
-  color: var(--color-ink-soft);
+  font-weight: 400;
+  line-height: var(--leading-heading);
 }
 
 .detail-info-icon {
@@ -3537,7 +5005,8 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   margin-block-start: calc(var(--space-6) * -1);
   margin-inline: calc(var(--space-6) * -1);
   padding: var(--space-5) var(--space-6);
-  border-radius: var(--radius-feature) var(--radius-feature) var(--space-0) var(--space-0);
+  border-radius: calc(var(--radius-feature) - var(--border-thin))
+    calc(var(--radius-feature) - var(--border-thin)) var(--space-0) var(--space-0);
   background: var(--color-brand-surface);
   color: var(--color-brand-ink);
 }
@@ -3596,6 +5065,7 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
 
 .detail-fee-amount {
   color: var(--color-ink);
+  font-variant-numeric: tabular-nums;
 }
 
 .detail-rail-divider {
@@ -3625,6 +5095,10 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   fill: currentColor;
 }
 
+.theme-toggle[aria-pressed="true"] .ui-icon {
+  fill: currentColor;
+}
+
 .detail-rail-note {
   margin: var(--space-0);
   color: var(--color-ink-soft);
@@ -3637,7 +5111,9 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: var(--space-3);
+  padding: var(--space-5);
   border: var(--border-thin) solid var(--color-info-border);
+  border-radius: var(--radius-card);
   background: var(--color-info-surface);
 }
 
@@ -3673,7 +5149,7 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   font-weight: 700;
 }
 
-.detail-verification-panel p:not(.eyebrow) {
+.detail-verification-panel p {
   color: var(--color-ink-soft);
   font-size: var(--text-body-sm);
   text-wrap: pretty;
@@ -3713,7 +5189,7 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   font-size: var(--text-page-title);
 }
 
-.auth-context-panel p:not(.eyebrow) {
+.auth-context-panel p {
   margin: var(--space-0);
   color: var(--brand-mist);
   font-size: var(--text-lead);
@@ -3724,7 +5200,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   width: calc(var(--touch-target) + var(--space-3));
   height: calc(var(--touch-target) + var(--space-3));
   place-items: center;
-  border: var(--border-thin) solid var(--overlay-highlight);
   border-radius: var(--blob-radius-a);
   background: var(--overlay-highlight);
   color: var(--brand-lime);
@@ -3758,6 +5233,25 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: var(--space-5);
+}
+
+/* The back arrow sits above the heading and takes 44 px of the card's top, not its own grid row. */
+.auth-entry[data-has-back="true"] {
+  position: relative;
+  padding-block-start: var(--touch-target);
+}
+
+.auth-entry-back {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: calc(-1 * var(--space-3));
+}
+
+.auth-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
 }
 
 .auth-entry-header {
@@ -3797,63 +5291,113 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   gap: var(--space-3);
 }
 
-.auth-method-button,
-.auth-role-option {
+/* The choice card ("Kartu pilihan") and the method card share one card shell. The choice card picks
+   one option, with a round indicator. The method card navigates, with a Deep Palm ring and a
+   chevron. */
+.choice-card,
+.auth-method-button {
   width: 100%;
-  min-height: var(--control-height-lg);
-  border: var(--border-thin) solid var(--color-line);
-  border-radius: var(--radius-card);
+  min-height: 5.25rem;
+  padding: var(--space-4) 1.125rem;
+  border: 0;
+  border-radius: 16px;
   background: var(--color-raised);
+  box-shadow: inset 0 0 0 1.5px var(--color-field-ring);
   color: var(--color-ink);
   cursor: pointer;
   text-align: start;
   transition:
     background-color var(--duration-fast) var(--ease-primary),
-    border-color var(--duration-fast) var(--ease-primary),
-    box-shadow var(--duration-fast) var(--ease-primary),
-    transform var(--duration-fast) var(--ease-primary);
+    box-shadow var(--duration-fast) var(--ease-primary);
 }
 
-.auth-method-button:hover:not(:disabled),
-.auth-role-option:hover:not(:disabled) {
-  border-color: var(--color-ink-faint);
-  background: var(--color-inset);
-  box-shadow: var(--shadow-md);
-  transform: translateY(var(--motion-lift-control));
+.choice-card:focus-visible,
+.auth-method-button:focus-visible {
+  outline: var(--focus-width) solid var(--focus-color);
+  outline-offset: var(--border-strong);
 }
 
-.auth-method-button:disabled,
-.auth-role-option:disabled {
-  border-color: var(--color-disabled-border);
+.choice-card:hover:not(:disabled),
+.choice-card[aria-checked="true"] {
+  box-shadow: inset 0 0 0 var(--border-strong) var(--color-ink);
+}
+
+.choice-card[aria-checked="true"] {
+  background: var(--color-hover-surface);
+}
+
+.choice-card:disabled,
+.auth-method-button:disabled {
   background: var(--color-disabled-surface);
+  box-shadow: inset 0 0 0 var(--border-thin) var(--color-disabled-border);
   color: var(--color-disabled-text);
+  cursor: not-allowed;
 }
 
-.auth-method-button {
+.choice-card {
   display: grid;
-  grid-template-columns: var(--touch-target) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) var(--space-6);
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
 }
 
-.auth-method-button > span:last-child,
-.auth-role-option {
+.choice-card-text,
+.auth-method-button > span:nth-child(2) {
   display: grid;
   gap: var(--space-1);
 }
 
-.auth-method-button strong,
-.auth-role-option strong {
+.choice-card-text strong,
+.auth-method-button strong {
   font-size: var(--text-body);
   font-weight: 600;
 }
 
-.auth-method-button small,
-.auth-role-option span {
+.choice-card-text span,
+.auth-method-button small {
   color: var(--color-ink-soft);
-  font-size: var(--text-meta);
+  font-size: var(--text-body-sm);
   font-weight: 400;
+}
+
+.choice-card-indicator {
+  display: grid;
+  width: var(--space-6);
+  height: var(--space-6);
+  place-items: center;
+  border-radius: var(--radius-circle);
+  background: var(--color-raised);
+  box-shadow: inset 0 0 0 1.5px var(--color-field-ring);
+  color: var(--color-raised);
+}
+
+.choice-card[aria-checked="true"] .choice-card-indicator {
+  background: var(--color-ink);
+  box-shadow: none;
+}
+
+.choice-card-indicator .ui-icon {
+  width: var(--space-4);
+  height: var(--space-4);
+  opacity: 0;
+}
+
+.choice-card[aria-checked="true"] .choice-card-indicator .ui-icon {
+  opacity: 1;
+}
+
+.auth-method-button {
+  display: grid;
+  grid-template-columns: var(--touch-target) minmax(0, 1fr) var(--space-4);
+  align-items: center;
+  gap: var(--space-3);
+  box-shadow: inset 0 0 0 1.5px var(--color-ink);
+}
+
+.auth-method-button-chevron {
+  width: var(--space-4);
+  height: var(--space-4);
+  transform: rotate(-90deg);
 }
 
 .auth-provider-mark {
@@ -3877,13 +5421,9 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   gap: var(--space-2);
 }
 
-.auth-stage-panel > p:first-child {
+.auth-stage-panel > p:first-of-type {
   margin: var(--space-0);
   color: var(--color-ink-soft);
-}
-
-.auth-role-option {
-  padding: var(--space-4);
 }
 
 .auth-state {
@@ -3904,7 +5444,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   width: calc(var(--touch-target) + var(--space-3));
   height: calc(var(--touch-target) + var(--space-3));
   place-items: center;
-  border: var(--border-thin) solid var(--color-info-border);
   border-radius: var(--radius-circle);
   background: var(--color-info-surface);
   color: var(--color-info-text);
@@ -3991,7 +5530,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   width: calc(var(--touch-target) + var(--space-5));
   height: calc(var(--touch-target) + var(--space-5));
   place-items: center;
-  border: var(--border-thin) solid var(--overlay-highlight);
   border-radius: var(--radius-circle);
   background: var(--overlay-highlight);
   color: var(--brand-lime);
@@ -4086,38 +5624,116 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: var(--page-padding);
+  padding: var(--modal-margin-desktop);
   background: var(--overlay-scrim);
 }
 
+/* A solid box, never glass. The body scrolls under a fixed title and footer when the screen is
+   shorter than the content. */
 .modal-dialog {
-  width: min(100%, var(--content-narrow));
-  max-height: calc(100vh - (var(--page-padding) * 2));
-  overflow-y: auto;
-  padding: var(--space-6);
-  border: var(--border-thin) solid var(--color-line);
-  border-radius: var(--radius-card);
-  background: var(--color-raised);
-  box-shadow: var(--shadow-lg);
+  display: flex;
+  box-sizing: border-box;
+  width: min(100%, var(--modal-width));
+  max-height: calc(100dvh - (var(--modal-margin-desktop) * 2));
+  flex-direction: column;
+  padding: var(--modal-padding);
+  border: var(--border-thin) solid var(--modal-edge);
+  border-radius: var(--modal-radius);
+  background: var(--modal-fill);
+  box-shadow: var(--modal-shadow);
+  animation: modal-enter var(--duration-modal) var(--ease-primary) both;
 }
 
-.modal-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-4);
-  margin-block-end: var(--space-4);
+.modal-dialog[data-width="wide"] {
+  width: min(100%, var(--modal-width-wide));
+}
+
+/* Full height: the body supplies its own header and footer, so the dialog holds no padding of its
+   own and its content fills the whole screen at every width. */
+.modal-backdrop[data-height="full"] {
+  padding: var(--space-0);
+}
+
+.modal-dialog[data-height="full"] {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  padding: var(--space-0);
+  border-radius: var(--space-0);
+  overflow: hidden;
+}
+
+/* Side: a full-height pop-up that is a drawer on the right edge where the screen is wider than the
+   drawer, and the whole screen where it is not. */
+.modal-backdrop[data-side="end"] {
+  justify-content: flex-end;
+}
+
+.modal-dialog[data-side="end"] {
+  width: min(100%, var(--modal-width-side));
+}
+
+@keyframes modal-enter {
+  from {
+    opacity: 0;
+    transform: translateY(var(--modal-rise));
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-dialog {
+    animation-name: modal-fade;
+  }
+
+  @keyframes modal-fade {
+    from {
+      opacity: 0;
+    }
+
+    to {
+      opacity: 1;
+    }
+  }
 }
 
 .modal-title {
-  font-size: var(--text-section-title);
+  flex: none;
+  margin: var(--space-0);
+  margin-block-end: var(--modal-title-gap);
+  color: var(--color-ink);
+  font-size: var(--modal-title-size);
+  line-height: var(--modal-title-leading);
+  overflow-wrap: break-word;
 }
 
+/* The inline padding with a matching negative margin keeps a focus ring at the edge of the body
+   from being clipped by the scroll container. */
 .modal-body {
-  margin-block-end: var(--space-5);
+  min-height: var(--space-0);
+  margin-inline: calc(-1 * var(--space-2));
+  padding-inline: var(--space-2);
+  overflow-y: auto;
   color: var(--color-ink-soft);
+  font-size: var(--modal-body-size);
+  line-height: var(--modal-body-leading);
 }
 
+.modal-body > p {
+  margin: var(--space-0);
+}
+
+.modal-failure {
+  flex: none;
+  margin-block-start: var(--modal-failure-gap);
+}
+
+/* The decisions row of the operator review pop-up, which carries three equal decisions in its body
+   and has no shared footer. */
 .modal-actions {
   display: flex;
   flex-wrap: wrap;
@@ -4125,62 +5741,76 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   gap: var(--space-2);
 }
 
-/*
- * Toasts are chrome glass, so they need a glow to sit on — glass never lands on flat
- * paper. Each item paints its own peach glow behind itself (.toast-item::before) rather
- * than the region painting one, so a single toast is not framed by a stack-sized wash.
- */
+/* The safe choice sits on the left and the main action on the right, on one row. */
+.modal-footer {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  margin-block-start: var(--modal-footer-gap);
+}
+
+.modal-footer[data-layout="end"] {
+  justify-content: flex-end;
+}
+
+/* Three choices stack in a centred column so no two different styles sit side by side. */
+.modal-footer[data-layout="stack"] {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--modal-stack-gap);
+}
+
+/* The text of the link, not its padding, lines up with the left edge of the content. */
+.modal-footer[data-layout="row"] > .modal-safe-action {
+  margin-inline-start: calc(-1 * var(--space-2-5));
+}
+
+/* While the main action runs the link dims and does nothing. aria-disabled keeps it announced as
+   unavailable without the grey disabled surface the button kit paints. */
+.modal-footer .modal-safe-action[aria-disabled="true"] {
+  border-color: transparent;
+  background: transparent;
+  color: var(--color-ink-faint);
+  cursor: default;
+}
+
+/* A toast is a notice that floats: a solid card in the same two tones as the notice. */
 .toast-region {
   position: fixed;
-  inset-inline-end: var(--page-padding);
-  inset-block-end: max(var(--page-padding), env(safe-area-inset-bottom));
+  inset-inline-end: var(--space-7);
+  /* A bottom bar on screen sets --toast-bar-lift to keep the region above its top edge. */
+  inset-block-end: var(--toast-bar-lift, var(--space-7));
   z-index: var(--z-toast);
   display: flex;
-  width: min(calc(100% - (var(--page-padding) * 2)), var(--content-toast));
+  width: min(var(--content-toast), calc(100% - (var(--space-4) * 2)));
   flex-direction: column;
-  gap: var(--space-2-5);
+  gap: var(--space-3);
   /* The gaps between toasts stay clickable; each item takes pointer events back. */
   pointer-events: none;
 }
 
 .toast-item {
-  --toast-tint: var(--color-info-surface);
-  --toast-hue: var(--color-info-text);
-  --toast-edge: var(--color-info-border);
+  --toast-fill: var(--tone-calm-fill);
+  --toast-ink: var(--tone-calm-ink);
+  --toast-icon-color: var(--tone-calm-icon);
 
   position: relative;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
+  display: flex;
+  box-sizing: border-box;
+  align-items: flex-start;
   gap: var(--space-3);
-  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
-  border: var(--border-thin) solid var(--toast-edge);
-  border-radius: var(--radius-card);
-  background: var(--glass-chrome-fallback);
-  box-shadow:
-    0 24px 52px -34px var(--glow-peach),
-    var(--shadow-glass);
+  padding: var(--space-4) var(--notice-close-reserve) var(--space-4) var(--space-4);
+  border: 0;
+  border-radius: var(--radius-notice);
+  background: var(--toast-fill);
+  box-shadow: var(--shadow-glass);
+  color: var(--toast-ink);
+  font-size: var(--text-body);
+  line-height: var(--notice-line);
   pointer-events: auto;
   animation: toast-enter var(--duration-fast) var(--ease-primary) both;
-}
-
-.toast-item::before {
-  position: absolute;
-  z-index: -1;
-  border-radius: var(--radius-feature);
-  background: radial-gradient(120% 120% at 85% 100%, var(--glow-peach), transparent 68%);
-  content: "";
-  /* No top extent: stacked toasts would otherwise lay two glows over the same gap. */
-  inset: 0 calc(var(--space-3) * -1) calc(var(--space-3) * -1);
-  pointer-events: none;
-}
-
-@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .toast-item {
-    background: var(--glass-chrome-fill);
-    -webkit-backdrop-filter: blur(var(--glass-blur-chrome));
-    backdrop-filter: blur(var(--glass-blur-chrome));
-  }
 }
 
 @keyframes toast-enter {
@@ -4195,88 +5825,37 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   }
 }
 
-.toast-item[data-toast-type="success"] {
-  --toast-tint: var(--color-success-surface);
-  --toast-hue: var(--color-success-text);
-  --toast-edge: var(--color-success-border);
-}
-
-.toast-item[data-toast-type="warning"] {
-  --toast-tint: var(--color-warning-surface);
-  --toast-hue: var(--color-warning-text);
-  --toast-edge: var(--color-warning-border);
-}
-
 .toast-item[data-toast-type="error"] {
-  --toast-tint: var(--color-error-surface);
-  --toast-hue: var(--color-error-text);
-  --toast-edge: var(--color-error-border);
+  --toast-fill: var(--tone-attention-notice-fill);
+  --toast-ink: var(--tone-attention-notice-ink);
+  --toast-icon-color: var(--tone-attention-notice-icon);
 }
 
-/* Icon chip: soft type tint on a blob, no outline — the brand book's chip treatment. */
 .toast-icon {
-  display: grid;
-  width: var(--icon-chip);
-  height: var(--icon-chip);
-  place-items: center;
-  border-radius: var(--blob-radius-a);
-  background: var(--toast-tint);
-  color: var(--toast-hue);
-}
-
-.toast-copy {
-  display: grid;
-  gap: var(--space-1);
-}
-
-.toast-label {
-  color: var(--toast-hue);
-  font-family: var(--font-data);
-  font-size: var(--text-micro);
-  font-weight: 600;
-  letter-spacing: var(--tracking-label);
-  line-height: 1;
-  text-transform: uppercase;
+  flex: none;
+  width: var(--notice-icon);
+  height: var(--notice-icon);
+  margin-block-start: var(--border-thin);
+  color: var(--toast-icon-color);
 }
 
 .toast-message {
+  min-width: 0;
   margin: var(--space-0);
   overflow-wrap: anywhere;
-  color: var(--color-ink);
-  font-size: var(--text-body-sm);
-  line-height: var(--leading-body);
 }
 
 .toast-close {
-  color: var(--color-ink-soft);
+  position: absolute;
+  inset-block-start: calc(var(--space-1) + var(--border-thin));
+  inset-inline-end: var(--space-1-5);
+  color: inherit;
 }
 
 /* Theme-aware hover: the shared icon-button hover tint is a fixed light mist. */
 .toast-close:hover:not(:disabled) {
-  background: var(--color-inset);
-  color: var(--color-ink);
-}
-
-.modal-close {
-  display: inline-grid;
-  width: var(--touch-target);
-  min-width: var(--touch-target);
-  min-height: var(--touch-target);
-  /* The 44px target overhangs the header instead of setting its height. A title line is about
-     28px, so letting the button define the row adds blank space above the body that reads as a
-     gap between the dialog's title and what it says. */
-  margin-block: calc(-1 * var(--space-2));
-  place-items: center;
-  border: 0;
-  border-radius: var(--radius-circle);
-  background: transparent;
-  color: var(--color-ink-soft);
-  cursor: pointer;
-}
-
-.modal-close:hover {
-  background: var(--color-inset);
-  color: var(--color-ink);
+  background: color-mix(in srgb, currentcolor 12%, transparent);
+  color: inherit;
 }
 
 /* Candidate actions and identity */
@@ -4332,19 +5911,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   text-align: center;
 }
 
-.candidate-callout {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--space-4);
-}
-
-.record-row[data-unavailable="true"] {
-  border-color: var(--color-disabled-border);
-  background: var(--color-disabled-surface);
-  color: var(--color-disabled-text);
-}
-
 .saved-grid,
 .inbox-list {
   display: grid;
@@ -4373,18 +5939,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   color: var(--color-error-text);
 }
 
-.inbox-unread-count {
-  display: inline-flex;
-  min-height: var(--control-height-sm);
-  align-items: center;
-  padding-inline: var(--space-3);
-  border: var(--border-thin) solid var(--color-accent);
-  border-radius: var(--radius-pill);
-  background: var(--color-accent-bg);
-  color: var(--color-accent);
-  font-size: var(--text-meta);
-}
-
 .inbox-card {
   position: relative;
   display: grid;
@@ -4398,7 +5952,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
 
 .inbox-card[data-unread="true"] {
   border-color: var(--color-info-border);
-  box-shadow: var(--shadow-md);
 }
 
 .inbox-card[data-unread="true"]::before {
@@ -4419,8 +5972,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   font-family: var(--font-data);
   font-size: var(--text-meta);
   font-weight: 700;
-  letter-spacing: var(--tracking-label);
-  text-transform: uppercase;
 }
 
 .inbox-card[data-kind="institution_invite"] .inbox-kind-label {
@@ -4500,7 +6051,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   height: calc(var(--touch-target) * 2);
   overflow: hidden;
   place-items: center;
-  border: var(--border-thin) solid var(--overlay-highlight);
   border-radius: var(--blob-radius-a);
   background: var(--overlay-highlight);
   color: var(--brand-lime);
@@ -4548,8 +6098,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   color: var(--color-ink-faint);
   font-size: var(--text-micro);
   font-weight: 700;
-  letter-spacing: var(--tracking-label);
-  text-transform: uppercase;
 }
 
 .submission-summary dd,
@@ -4685,8 +6233,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   font-family: var(--font-body);
   font-size: var(--text-body-sm);
   font-weight: 700;
-  letter-spacing: var(--tracking-label);
-  text-transform: uppercase;
 }
 
 .team-member-list {
@@ -4733,18 +6279,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
 .team-eligibility-reasons {
   color: var(--color-error-text);
   font-size: var(--text-meta);
-}
-
-.status-badge[data-team-status="forming"] {
-  border-color: var(--color-warning-border);
-  background: var(--color-warning-surface);
-  color: var(--color-warning-text);
-}
-
-.status-badge[data-team-status="submitted"] {
-  border-color: var(--color-success-border);
-  background: var(--color-success-surface);
-  color: var(--color-success-text);
 }
 
 .profile-edit-page {
@@ -4853,7 +6387,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   border-radius: var(--blob-radius-a);
   background: var(--color-inset);
   color: var(--color-ink-faint);
-  box-shadow: var(--shadow-sm);
 }
 
 .pf-avatar img {
@@ -4941,12 +6474,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   margin-block-start: var(--space-1);
 }
 
-.pf-badges .status-badge {
-  min-height: auto;
-  padding-block: var(--space-1-5);
-  font-size: var(--text-meta);
-}
-
 .pf-email {
   margin: var(--space-1) var(--space-0) var(--space-0);
   color: var(--color-ink-faint);
@@ -4987,6 +6514,7 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   margin: var(--space-0);
   font-weight: 600;
   color: var(--color-ink);
+  text-wrap: balance;
 }
 
 .pf-entry-sub {
@@ -5069,14 +6597,14 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
 
 .pf-editor {
   display: grid;
-  gap: var(--space-6);
+  gap: var(--space-10);
 }
 
 .pf-editor-list {
   display: grid;
-  gap: var(--space-2);
-  /* No bottom margin: the parent `.content-section` grid already applies `gap: var(--space-5)`
-     between this list and the add-form below it. A margin here would stack on top of that gap. */
+  gap: var(--space-4);
+  /* No bottom margin: the parent section grid already applies its gap between this list and the
+     add entry below it. A margin here would stack on top of that gap. */
   margin: var(--space-0);
   padding: var(--space-0);
   list-style: none;
@@ -5090,14 +6618,25 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   display: none;
 }
 
-.pf-editor-item {
+/* An entry's Panel: a 44 px header row with the entry's number and its delete, then the entry. */
+.pf-entry-panel {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.pf-entry-panel-header {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-3) var(--space-4);
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-input);
-  background: var(--color-surface);
+  min-height: var(--touch-target);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.pf-entry-panel-heading {
+  margin: var(--space-0);
+  color: var(--color-ink);
+  font-size: var(--text-button-lg);
+  font-weight: 600;
 }
 
 .pf-editor-item-main {
@@ -5145,7 +6684,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   border: var(--space-1) solid var(--color-surface);
   background: var(--color-inset);
   color: var(--color-ink-faint);
-  box-shadow: var(--shadow-sm);
 }
 
 .pf-media-avatar img {
@@ -5193,11 +6731,12 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   font-size: var(--text-meta);
 }
 
-/* Image crop modal — shared by the avatar (1:1) and banner (4:1) croppers. The viewport takes the
-   width it is given and derives its height from the frame ratio, which the editor sets inline. */
+/* Image crop pop-up, shared by the avatar (1:1) and cover (4:1) croppers. The area takes the width
+   of the pop-up and keeps one ratio for both shapes. The image is panned under a guide, and what
+   the guide frames is what gets saved. The editor sets the guide's size inline from the area's
+   measured width. */
 .image-crop {
   display: grid;
-  justify-items: center;
   gap: var(--space-4);
   color: var(--color-ink);
 }
@@ -5205,18 +6744,31 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
 .image-crop-viewport {
   position: relative;
   inline-size: 100%;
-  max-inline-size: 400px;
+  aspect-ratio: var(--crop-area-ratio);
   overflow: hidden;
+  border-radius: var(--crop-area-radius);
   background: var(--color-inset);
   cursor: grab;
   touch-action: none;
 }
 
-.image-crop-viewport-blob {
+/* Everything outside the guide is dimmed by the guide's own spread shadow, clipped by the area. */
+.image-crop-guide {
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-start: 50%;
+  box-sizing: border-box;
+  border: var(--crop-guide-ring-width) solid var(--crop-guide-ring);
+  box-shadow: 0 0 0 100vmax var(--overlay-scrim);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.image-crop-guide-blob {
   border-radius: var(--blob-radius-a);
 }
 
-.image-crop-viewport-rect {
+.image-crop-guide-rect {
   border-radius: var(--radius-card);
 }
 
@@ -5237,26 +6789,198 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   -webkit-user-drag: none;
 }
 
-.image-crop-zoom {
+/* Slider kit. The native range input keeps the keyboard and touch behaviour. The 44px input is the
+   hit area, the track is 6px with the filled part drawn from --slider-progress, and the 24px thumb
+   carries a ring in the pop-up's fill so it reads against the track. */
+.slider {
   display: flex;
-  inline-size: 100%;
-  max-inline-size: 400px;
   align-items: center;
-  gap: var(--space-3);
-  font-size: var(--text-body-sm);
-  color: var(--color-ink-soft);
+  gap: var(--slider-gap);
 }
 
-.image-crop-zoom input[type="range"] {
+.slider-label {
+  flex: none;
+  inline-size: var(--slider-label-width);
+  color: var(--color-ink);
+  font-size: var(--text-body-sm);
+  font-weight: 600;
+}
+
+.slider-input {
+  --slider-progress: 0%;
+  --slider-unfilled: var(--color-field-ring);
+
   flex: 1;
-  accent-color: var(--color-action);
+  min-width: var(--space-0);
+  block-size: var(--touch-target);
+  margin: var(--space-0);
+  background: transparent;
+  cursor: pointer;
+  appearance: none;
+}
+
+.slider-input::-webkit-slider-runnable-track {
+  block-size: var(--slider-track-height);
+  border-radius: var(--radius-pill);
+  background: linear-gradient(
+    to right,
+    var(--color-ink) var(--slider-progress),
+    var(--slider-unfilled) var(--slider-progress)
+  );
+}
+
+.slider-input::-moz-range-track {
+  block-size: var(--slider-track-height);
+  border-radius: var(--radius-pill);
+  background: var(--slider-unfilled);
+}
+
+.slider-input::-moz-range-progress {
+  block-size: var(--slider-track-height);
+  border-radius: var(--radius-pill);
+  background: var(--color-ink);
+}
+
+.slider-input::-webkit-slider-thumb {
+  inline-size: var(--slider-thumb-size);
+  block-size: var(--slider-thumb-size);
+  margin-block-start: calc((var(--slider-track-height) - var(--slider-thumb-size)) / 2);
+  border: var(--slider-thumb-ring) solid var(--modal-fill);
+  border-radius: var(--radius-circle);
+  background: var(--color-ink);
+  box-sizing: border-box;
+  appearance: none;
+}
+
+.slider-input::-moz-range-thumb {
+  inline-size: var(--slider-thumb-size);
+  block-size: var(--slider-thumb-size);
+  border: var(--slider-thumb-ring) solid var(--modal-fill);
+  border-radius: var(--radius-circle);
+  background: var(--color-ink);
+  box-sizing: border-box;
+}
+
+.slider-input:focus-visible {
+  outline: var(--focus-width) solid var(--focus-color);
+  outline-offset: var(--focus-offset);
+}
+
+/* Range slider: two round handles on one track. Each handle is a 44px hit area around a 24px disc
+   with a ring in the surface colour, and the track is inset by half a hit area so a handle at
+   either end stays inside the control. A focused handle rises above the other so two handles on
+   one value can both be reached. */
+.range-slider {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.range-slider-summary {
+  margin: var(--space-0);
+  color: var(--color-ink);
+  font-size: var(--text-body-sm);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.range-slider-track {
+  position: relative;
+  block-size: var(--touch-target);
+  margin-inline: calc(var(--touch-target) / 2);
+  cursor: pointer;
+  touch-action: none;
+}
+
+.range-slider-rail,
+.range-slider-fill {
+  position: absolute;
+  inset-block-start: 50%;
+  block-size: var(--slider-track-height);
+  border-radius: var(--radius-pill);
+  transform: translateY(-50%);
+}
+
+.range-slider-rail {
+  inset-inline: var(--space-0);
+  background: var(--color-field-ring);
+}
+
+.range-slider-fill {
+  background: var(--color-ink);
+}
+
+.range-slider-handle {
+  position: absolute;
+  inset-block-start: var(--space-0);
+  inline-size: var(--touch-target);
+  block-size: var(--touch-target);
+  margin-inline-start: calc(var(--touch-target) / -2);
+  border-radius: var(--radius-circle);
+  outline: none;
+}
+
+.range-slider-handle:focus {
+  z-index: var(--z-content);
+}
+
+.range-slider-handle::before {
+  content: "";
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-start: 50%;
+  inline-size: var(--slider-thumb-size);
+  block-size: var(--slider-thumb-size);
+  border: var(--slider-thumb-ring) solid var(--color-raised);
+  border-radius: var(--radius-circle);
+  background: var(--color-ink);
+  box-sizing: border-box;
+  transform: translate(-50%, -50%);
+}
+
+.range-slider-handle:focus-visible::before {
+  outline: var(--focus-width) solid var(--focus-color);
+  outline-offset: var(--focus-offset);
 }
 
 .image-crop-hint {
   margin: var(--space-0);
-  color: var(--color-ink-faint);
-  font-size: var(--text-meta);
-  text-align: center;
+  color: var(--color-ink-soft);
+  font-size: var(--modal-body-size);
+  line-height: var(--modal-body-leading);
+}
+
+/* The row under a text area: the message at the left, the character counter at the right. It keeps
+   its height so nothing moves when a message appears. */
+.form-message-row {
+  display: flex;
+  min-height: var(--form-message-row-height);
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.form-message-row > :first-child:not(.form-counter) {
+  min-width: var(--space-0);
+}
+
+.form-counter {
+  flex: none;
+  margin-inline-start: auto;
+  color: var(--color-ink-soft);
+  font-size: var(--text-body-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.form-counter[data-at-limit="true"] {
+  color: var(--color-error-text);
+  font-weight: 600;
+}
+
+.form-limit-message {
+  margin: var(--space-0);
+  color: var(--color-error-text);
+  font-size: var(--text-body-sm);
+  font-weight: 500;
 }
 
 .pf-resume {
@@ -5290,10 +7014,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
 .pf-editor-form {
   display: grid;
   gap: var(--space-4);
-  padding: var(--space-5);
-  border: 1px solid var(--color-line-soft);
-  border-radius: var(--radius-card);
-  background: var(--color-inset);
 }
 
 .pf-editor-inline {
@@ -5413,16 +7133,14 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   min-width: var(--control-select-min);
 }
 
+/* The controls of one control cell, 12 px apart. */
 .table-actions {
   display: flex;
   min-width: max-content;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-2);
-}
-
-.institution-members-table td:first-child {
-  font-weight: 600;
+  justify-content: flex-end;
+  gap: var(--space-3);
 }
 
 .verification-documents {
@@ -5465,12 +7183,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   border-color: var(--color-accent);
 }
 
-.verification-history-table td:last-child,
-.audit-summary {
-  max-width: var(--content-narrow);
-  overflow-wrap: anywhere;
-}
-
 .audit-log-page {
   max-width: var(--content-max);
 }
@@ -5494,38 +7206,12 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   gap: var(--space-3);
 }
 
-.competition-list-controls .select-field {
-  width: auto;
-  min-width: var(--control-select-min);
-}
-
 .management-competition-list {
   display: grid;
-  gap: var(--space-3);
+  gap: var(--space-4);
   margin: var(--space-0);
   padding: var(--space-0);
   list-style: none;
-}
-
-.management-competition-card {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: var(--space-4);
-  padding: var(--space-4);
-  border: var(--border-thin) solid var(--color-line-soft);
-  border-radius: var(--radius-input);
-  background: var(--color-inset);
-}
-
-.management-competition-mark {
-  display: inline-grid;
-  width: var(--touch-target);
-  height: var(--touch-target);
-  place-items: center;
-  border-radius: var(--blob-radius-a);
-  background: var(--color-brand-surface);
-  color: var(--brand-lime);
 }
 
 .management-detail-grid {
@@ -5550,14 +7236,50 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   color: var(--color-ink-faint);
   font-size: var(--text-micro);
   font-weight: 700;
-  letter-spacing: var(--tracking-label);
-  text-transform: uppercase;
 }
 
 .management-detail-grid dd {
   margin: var(--space-0);
   color: var(--color-ink);
   overflow-wrap: anywhere;
+}
+
+.management-detail-grid > .management-detail-wide {
+  grid-column: 1 / -1;
+}
+
+.summary-long-value {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+}
+
+/* The button has no visible fill in this cell, so it drops its padding to line up with the text. */
+.summary-long-value > .ui-button {
+  padding-inline: 0;
+}
+
+.summary-long-text {
+  display: -webkit-box;
+  overflow: hidden;
+  white-space: pre-line;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+/* -webkit-line-clamp needs the -webkit-box display, so the open state goes back to block. */
+.summary-long-text[data-expanded="true"] {
+  display: block;
+  overflow: visible;
+  -webkit-line-clamp: unset;
+}
+
+/* The parts sit in one fieldset so a read-only competition, or a save in progress, can disable
+   them all at once; the grid keeps the page's gap between them. */
+.competition-editor-parts {
+  display: grid;
+  gap: var(--space-8);
+  min-inline-size: 0;
 }
 
 /* A key and its value share one line here, so a row is a line of text rather than a block. 8px
@@ -5581,8 +7303,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   color: var(--color-ink-faint);
   font-size: var(--text-micro);
   font-weight: 700;
-  letter-spacing: var(--tracking-label);
-  text-transform: uppercase;
 }
 
 .detail-grid dt::after {
@@ -5613,6 +7333,14 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   gap: var(--space-6);
 }
 
+/* The main fields sit in one fieldset so a save in progress can disable them at once, and nothing
+   typed after the click is lost to the reload; the grid keeps the form's gap. */
+.competition-edit-form-fields {
+  display: grid;
+  gap: var(--space-6);
+  min-inline-size: 0;
+}
+
 .checkbox-field {
   display: flex;
   min-height: var(--touch-target);
@@ -5630,12 +7358,128 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   cursor: default;
 }
 
-/* One box for every checkbox in the app. .pf-editor-check differs only in typography. */
+/* One box for every checkbox in the app. .pf-editor-check differs only in typography. The input is
+   the box, and the check glyph is laid over it, so the browser still owns state and keyboard. */
+.checkbox-field {
+  position: relative;
+  font-size: var(--text-search);
+}
+
 .checkbox-field input {
+  flex: none;
+  width: var(--space-6);
+  height: var(--space-6);
+  margin: 0;
+  border-radius: 6px;
+  background: var(--color-raised);
+  box-shadow: inset 0 0 0 1.5px var(--color-field-ring);
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) var(--ease-primary),
+    box-shadow var(--duration-fast) var(--ease-primary);
+}
+
+.checkbox-field input:hover:not(:disabled) {
+  box-shadow: inset 0 0 0 var(--border-strong) var(--color-ink);
+}
+
+.checkbox-field input:checked {
+  background: var(--color-ink);
+  box-shadow: none;
+}
+
+.checkbox-field input:focus-visible {
+  outline: var(--focus-width) solid var(--focus-color);
+  outline-offset: var(--border-strong);
+}
+
+.checkbox-field input:disabled {
+  background: var(--color-disabled-surface);
+  box-shadow: inset 0 0 0 var(--border-thin) var(--color-disabled-border);
+  cursor: not-allowed;
+}
+
+.checkbox-field-check {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: var(--space-1);
   width: var(--space-4);
   height: var(--space-4);
-  flex-shrink: 0;
-  accent-color: var(--brand-palm);
+  margin-block: auto;
+  color: var(--color-raised);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.checkbox-field input:checked ~ .checkbox-field-check {
+  opacity: 1;
+}
+
+/* The tags section has no card around it, so its spacing groups it. */
+.tag-section .section-title {
+  font-size: 1.5rem;
+}
+
+.tag-choice-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+/* One tag choice, drawn as a pill. The real checkbox lies invisibly over the whole pill. */
+.tag-choice-chip {
+  position: relative;
+  display: inline-flex;
+  min-height: var(--touch-target);
+  align-items: center;
+  gap: var(--space-2);
+  padding-inline: 1.125rem;
+  border-radius: var(--radius-pill);
+  background: var(--color-raised);
+  box-shadow: inset 0 0 0 1.5px var(--color-field-ring);
+  color: var(--color-ink);
+  font-size: var(--text-body);
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) var(--ease-primary),
+    box-shadow var(--duration-fast) var(--ease-primary);
+}
+
+.tag-choice-chip input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.tag-choice-chip:hover {
+  box-shadow: inset 0 0 0 var(--border-strong) var(--color-ink);
+}
+
+.tag-choice-chip:has(input:checked) {
+  background: var(--color-hover-surface);
+  box-shadow: inset 0 0 0 var(--border-strong) var(--color-ink);
+}
+
+.tag-choice-chip:has(input:focus-visible) {
+  outline: var(--focus-width) solid var(--focus-color);
+  outline-offset: var(--border-strong);
+}
+
+.tag-choice-chip-check {
+  display: none;
+  width: var(--space-4);
+  height: var(--space-4);
+}
+
+.tag-choice-chip:has(input:checked) .tag-choice-chip-check {
+  display: block;
 }
 
 .competition-policy-fieldset .checkbox-field {
@@ -5646,6 +7490,45 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
  * by default; a solid danger fill at full width reads as an oversized alert bar. */
 .remove-row-button {
   justify-self: start;
+}
+
+/* Underline tabs for the sections of a published competition. */
+.section-tabs {
+  display: flex;
+  gap: var(--space-7);
+  border-block-end: var(--border-thin) solid var(--color-line);
+}
+
+.section-tab {
+  display: inline-flex;
+  min-height: var(--touch-target);
+  flex: none;
+  align-items: center;
+  margin-block-end: calc(-1 * var(--border-thin));
+  border-block-end: 3px solid transparent;
+  color: #4f6b65;
+  font-family: var(--font-body);
+  font-size: 1rem;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+[data-theme="dark"] .section-tab {
+  color: var(--color-ink-soft);
+}
+
+.section-tab[aria-current="page"] {
+  border-block-end-color: var(--color-action);
+  color: var(--color-ink);
+}
+
+@media (max-width: 640px) {
+  .section-tabs {
+    overflow-x: auto;
+    scrollbar-width: none;
+    mask-image: linear-gradient(to right, #000 calc(100% - var(--space-9)), transparent);
+  }
 }
 
 .competition-edit-actions {
@@ -5678,8 +7561,8 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   border-radius: var(--radius-card);
 }
 
-.participant-filter-toolbar .form-field {
-  min-width: var(--control-select-min);
+.participant-filter-toolbar {
+  align-items: center;
 }
 
 .participant-summary {
@@ -5689,22 +7572,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
 .summary-stat strong {
   color: var(--color-ink);
   font-size: var(--text-data-lg);
-}
-
-.participant-team-details summary {
-  color: var(--color-link);
-  cursor: pointer;
-  font-weight: 600;
-}
-
-.participant-team-details ul {
-  display: grid;
-  gap: var(--space-1);
-  margin: var(--space-2) var(--space-0) var(--space-0);
-  padding: var(--space-0);
-  color: var(--color-ink-soft);
-  font-size: var(--text-meta);
-  list-style: none;
 }
 
 .participant-review-card,
@@ -5805,15 +7672,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   font-size: var(--text-meta);
 }
 
-.admin-audit-row > td {
-  padding: var(--space-4);
-  background: var(--color-inset);
-}
-
-.admin-audit-table {
-  border: var(--border-thin) solid var(--color-line-soft);
-}
-
 .admin-proposed-name {
   margin-inline-start: var(--space-2);
   color: var(--color-link);
@@ -5828,16 +7686,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
 .fee-rule-form {
   display: grid;
   gap: var(--space-4);
-}
-
-/* auto-fit rather than a fixed column count: the form holds nine fields, and at 390px they must
-   stack to one column without a breakpoint list that has to be maintained alongside them. */
-/* Layout comes from `.form-grid`; this class only carries what the fee form needs on top of it.
-   A field whose label and control have no help text beneath them would otherwise distribute the
-   row's spare height between the two, dropping the control below its neighbours and pushing it
-   over their help text. */
-.fee-rule-form-grid .form-field {
-  align-content: start;
 }
 
 /* Grid items default to `min-width: auto`, which resolves to the item's min-content size and
@@ -5937,6 +7785,10 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   background: var(--color-surface);
 }
 
+.moderation-note-row .form-input {
+  border-radius: calc(var(--radius-input) - var(--space-3));
+}
+
 .moderation-note-content {
   display: grid;
   gap: var(--space-2);
@@ -5958,7 +7810,7 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   border-radius: var(--radius-feature);
 }
 
-.system-state-card > p:not(.eyebrow) {
+.system-state-card > p {
   margin: var(--space-0);
   color: var(--brand-mist);
 }
@@ -5968,7 +7820,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   width: calc(var(--touch-target) * 2);
   height: calc(var(--touch-target) * 2);
   place-items: center;
-  border: var(--border-thin) solid var(--overlay-highlight);
   border-radius: var(--blob-radius-b);
   background: var(--overlay-highlight);
   color: var(--brand-lime);
@@ -6088,14 +7939,24 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   border-radius: 0;
 }
 
-.participants-table,
-.audit-log-table,
-.institution-members-table,
-.verification-history-table,
-.admin-featured-table,
-.admin-verification-table,
-.admin-institutions-table {
-  min-width: var(--content-table-wide);
+/* The padding is the quiet zone a scanner needs around a code that may be transparent, so the
+   plate is white in both themes. The image is square-cornered for the same reason as .mfa-qr. */
+.qris-plate {
+  box-sizing: border-box;
+  width: fit-content;
+  max-width: 100%;
+  padding: var(--space-4);
+  border: var(--border-thin) solid var(--color-line-soft);
+  border-radius: var(--radius-input);
+  background: var(--qris-plate);
+}
+
+.qris-plate img {
+  display: block;
+  width: auto;
+  max-width: min(var(--qris-image-max-width), 100%);
+  height: auto;
+  border-radius: 0;
 }
 
 @media (max-width: 940px) {
@@ -6141,25 +8002,51 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   .institution-card-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
 
-  .home-category-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .footer-inner {
-    grid-template-columns: minmax(0, 1fr) minmax(var(--content-footer-column), 1fr);
+/*
+ * The hero art is decorative, and around a centred column it needs the width the column cannot
+ * give up, so below here the column stands alone. The component watches the same breakpoint and
+ * stops its tick so nothing animates off-screen.
+ */
+@media (max-width: 1199px) {
+  .home-memphis {
+    display: none;
   }
 }
 
 @media (max-width: 760px) {
   .desktop-nav,
-  .header-actions .header-auth-action,
-  .header-actions .locale-label {
+  .header-identity {
     display: none;
   }
 
   .ui-icon-button.mobile-nav-toggle {
     display: inline-grid;
+  }
+
+  .header-sheet-scrim[data-open="true"] {
+    position: absolute;
+    inset-block-start: 100%;
+    inset-inline: var(--space-0);
+    display: block;
+    block-size: 100vh;
+    background: var(--overlay-scrim);
+  }
+
+  .header-sheet[data-open="true"] {
+    position: absolute;
+    inset-block-start: 100%;
+    inset-inline: var(--space-0);
+    display: block;
+    max-block-size: calc(100dvh - var(--header-height));
+    overflow-y: auto;
+    padding: var(--space-2) var(--page-padding-mobile) var(--space-5);
+    border: var(--border-thin) solid var(--color-line);
+    border-block-start: 0;
+    border-radius: 0 0 var(--radius-feature) var(--radius-feature);
+    background: var(--color-raised);
+    box-shadow: var(--shadow-glass);
   }
 
   .header-inner {
@@ -6171,7 +8058,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   .footer-inner,
   .primitive-columns,
   .primitive-surface-grid,
-  .detail-information-grid,
   .competition-grid,
   .institution-card-grid,
   .summary-grid,
@@ -6193,16 +8079,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .management-competition-card {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-
-  .management-competition-card > .status-badge,
-  .management-competition-card > .ui-button {
-    grid-column: 2;
-    justify-self: start;
-  }
-
   .admin-nav {
     align-items: flex-start;
     flex-direction: column;
@@ -6214,32 +8090,9 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
     flex-wrap: nowrap;
   }
 
-  .home-section-header,
-  .home-organizer-cta,
-  .filter-toolbar {
+  .home-organizer-cta {
     align-items: flex-start;
     flex-direction: column;
-  }
-
-  /*
-   * The featured card's offset peach block needs room to its right that a phone does not have —
-   * it ends up touching or crossing the viewport edge and reads as a rendering fault. The
-   * tangerine frame alone marks the card as featured at this width, and the "Unggulan" badge
-   * still names it, so dropping the offset costs no signal. Same treatment for the hub action
-   * card, which uses the identical offset-block pattern.
-   */
-  .competition-card:has(.status-badge[data-status="featured"]),
-  .hub-card--action {
-    box-shadow: none;
-  }
-
-  /*
-   * The hero art is decorative and square, so on a phone it costs a screen of height before the
-   * search field, the one thing the hero exists to deliver. Hidden here; the component watches
-   * the same breakpoint and stops its tick so nothing animates off-screen.
-   */
-  .home-memphis {
-    display: none;
   }
 
   /*
@@ -6281,16 +8134,12 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
     flex-basis: 82%;
   }
 
-  .featured-carousel-wrap {
+  .featured-carousel-wrap[data-has-arrows] {
     padding-inline: 0;
   }
 
-  .featured-nav-btn {
+  .ui-icon-button.featured-nav-btn {
     display: none;
-  }
-
-  .filter-toolbar {
-    display: flex;
   }
 
   .filter-sort-field {
@@ -6326,7 +8175,8 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   .filter-dropdown-menu {
     left: 0;
     right: 0;
-    min-width: 0;
+    width: auto;
+    max-width: none;
   }
 
   .admin-nav {
@@ -6343,7 +8193,25 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
     padding: var(--space-8) var(--page-padding-mobile) var(--space-12);
   }
 
-  .page-heading,
+  /* The bar is 16 from each side of the screen and 12 above the safe area. */
+  .form-action-bar {
+    inset-block-end: calc(var(--bar-offset-phone) + env(safe-area-inset-bottom));
+    width: auto;
+    justify-self: stretch;
+    margin-inline: calc(var(--bar-offset) - var(--page-padding-mobile));
+  }
+
+  .form-action-bar[data-variant="register"] {
+    inset-inline: var(--bar-offset);
+    width: auto;
+    margin-inline: var(--space-0);
+  }
+
+  /* A glow reaching past the screen edge would make the page scroll sideways. */
+  .form-action-bar:not([data-variant="register"])::before {
+    inset-inline: calc(-1 * var(--bar-offset));
+  }
+
   .section-heading,
   .record-row {
     align-items: flex-start;
@@ -6360,17 +8228,8 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
     flex-wrap: wrap;
   }
 
-  .page-heading-actions,
   .record-actions {
     width: 100%;
-  }
-
-  .page-heading-actions .ui-button {
-    flex: 1 1 auto;
-  }
-
-  .content-section {
-    padding: var(--space-5);
   }
 
   .system-state-card {
@@ -6381,23 +8240,28 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
     padding-block: var(--space-10);
   }
 
-  .mobile-nav {
-    padding-inline: var(--page-padding-mobile);
-  }
-
-  .footer-inner {
-    gap: var(--space-8);
-    padding: var(--space-10) var(--page-padding-mobile);
-  }
-
+  /* On a phone the pop-up sits at the bottom, within reach of the thumb, 16px from each edge plus
+     the safe area. */
   .modal-backdrop {
     align-items: flex-end;
-    padding: var(--space-2);
+    padding: var(--modal-margin-phone);
+    padding-block-start: calc(var(--modal-margin-phone) + env(safe-area-inset-top));
+    padding-block-end: calc(var(--modal-margin-phone) + env(safe-area-inset-bottom));
+    padding-inline-start: calc(var(--modal-margin-phone) + env(safe-area-inset-left));
+    padding-inline-end: calc(var(--modal-margin-phone) + env(safe-area-inset-right));
   }
 
-  .modal-dialog {
-    max-height: calc(100vh - (var(--space-2) * 2));
-    padding: var(--space-5);
+  .modal-dialog,
+  .modal-dialog[data-width="wide"] {
+    width: 100%;
+    max-height: 100%;
+    padding: var(--modal-padding-phone);
+    border-radius: var(--modal-radius-phone);
+  }
+
+  .modal-title {
+    font-size: var(--modal-title-size-phone);
+    line-height: var(--modal-title-leading-phone);
   }
 
   .modal-actions .ui-button {
@@ -6405,8 +8269,8 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   }
 
   .toast-region {
-    inset-inline: var(--page-padding-mobile);
-    inset-block-end: max(var(--page-padding-mobile), env(safe-area-inset-bottom));
+    inset-inline: var(--space-4);
+    inset-block-end: var(--toast-bar-lift, calc(var(--space-4) + env(safe-area-inset-bottom)));
     width: auto;
   }
 
@@ -6415,18 +8279,8 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
     height: var(--wordmark-header-mobile-height);
   }
 
-  .home-hero {
-    padding-block: var(--space-14) calc(var(--space-14) + var(--wave-height));
-  }
-
   .home-hero-inner {
-    grid-template-columns: minmax(0, 1fr);
-    gap: var(--space-8);
-  }
-
-  .home-memphis {
-    max-width: 30rem;
-    margin-inline: auto;
+    padding-block: var(--space-14);
   }
 
   .home-search-entry,
@@ -6438,10 +8292,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   .listing-search .ui-button {
     grid-column: 1 / -1;
     width: 100%;
-  }
-
-  .home-category-grid {
-    grid-template-columns: minmax(0, 1fr);
   }
 
   .home-organizer-cta {
@@ -6464,10 +8314,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
     text-align: center;
   }
 
-  .detail-information-grid section {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
   .auth-page {
     gap: var(--space-4);
     padding: var(--space-4) var(--page-padding-mobile) var(--space-8);
@@ -6484,18 +8330,12 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
 
   .auth-form-actions,
   .second-role-banner-actions,
-  .candidate-callout,
   .team-member-row,
   .team-roster-header {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .candidate-callout {
-    display: flex;
-  }
-
-  .candidate-callout .ui-button,
   .team-primary-actions .ui-button,
   .team-inline-form .ui-button,
   .page-secondary-actions .ui-button {
@@ -6518,7 +8358,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
     flex-direction: column;
   }
 
-  .participant-filter-toolbar .form-field,
   .export-toolbar .ui-button,
   .competition-edit-actions .ui-button {
     width: 100%;
@@ -6609,9 +8448,16 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   .primary-button:hover,
   .action-chip:hover,
   .competition-card:hover,
-  .home-category-card:hover,
   .hub-card:hover,
   .home-search-entry:hover {
     transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .form-action-bar[data-variant="register"][data-visible] {
+    transform: none;
+    /* The fade is the only cue that the bar appeared, so it is kept while the movement goes. */
+    transition-duration: var(--duration-bar), 0s, 0s !important;
   }
 }

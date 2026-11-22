@@ -2,16 +2,35 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { signIn } from "next-auth/react";
-import { Button, ButtonLink, SelectField, usePageTransition } from "@/components/ui";
+import {
+  Button,
+  ButtonLink,
+  ChoiceCard,
+  Feedback,
+  FormInput,
+  FormLabel,
+  Icon,
+  IconButton,
+  PasswordField,
+  SelectField,
+  StepIndicator,
+  usePageTransition,
+} from "@/components/ui";
 import { AssentNotice } from "@/components/legal/assent-notice";
 import { useToast } from "@/components/ui/primitives";
-import { PENDING_PROMPT_KEY } from "@/components/auth/second-role-prompt-modal";
+import { rememberGoogleReturnPath } from "@/components/auth/google-return-path";
+import {
+  errorMessageFor,
+  ONBOARDING_FIELD_REFUSAL_COPY,
+  refusalCopyKey,
+} from "@/lib/errors/error-copy";
 
 // Method-first single-page auth entry. Replaces the earlier two-page login/register
 // toggle. The user first picks a sign-in method; then:
 //   - Google: full redirect; the signIn callback decides everything server-side (existing →
-//     signed in; new → /auth/login?oauth=<carrier> role picker; suspended → /suspended; unverified
-//     same-email → deny notice).
+//     signed in; new → /auth/login?oauth=<carrier> role picker; new with an address Google has
+//     not verified → email-and-code notice; suspended → /suspended; unverified same-email → deny
+//     notice). The page this tab started from is kept for the role picker (google-return-path.ts).
 //   - Email & password: the user enters email + password. We classify the email server-side
 //     (/api/v1/auth/identify) and branch:
 //       • verified  → attempt the password sign-in (path a). Wrong/absent password → generic
@@ -20,7 +39,7 @@ import { PENDING_PROMPT_KEY } from "@/components/auth/second-role-prompt-modal";
 //                     the one register just refused, and gets a code through the resend
 //                     endpoint; the details sent with the code replace an earlier sign-up's.
 //                     Register is never called here (it refuses an existing address).
-//       • none      → role picker + name; create the account via the existing register endpoint,
+//       • none      → role picker + profile; create the account via the existing register endpoint,
 //                     which sends a verification code (path b). Account usable once the code is
 //                     typed.
 // Suspension is enforced in `authorize` regardless of this shell; we route the
@@ -59,7 +78,7 @@ const SIGNUP_ROLES = [
   },
   {
     role: "recruiter" as const,
-    label: "Daftar sebagai rekruter",
+    label: "Daftar sebagai penyelenggara",
     hint: "Perwakilan institusi yang ingin menerbitkan dan mengelola peluang.",
   },
 ];
@@ -72,6 +91,23 @@ const OCCUPATION_OPTIONS = [
   { value: "professional", label: "Profesional / bekerja" },
   { value: "other", label: "Lainnya" },
 ] as const;
+
+const SIGNUP_ERROR_COPY: Partial<Record<string, string>> = {
+  ...ONBOARDING_FIELD_REFUSAL_COPY,
+  rate_limited: "Terlalu banyak percobaan. Tunggu beberapa saat lalu coba lagi.",
+  invalid_signup_role: "Pilih peran akun Anda lalu coba lagi.",
+  invalid_name: "Isi nama lengkap (minimal 2 karakter) untuk mendaftar.",
+  invalid_email: "Format email tidak valid. Gunakan format seperti nama@kampus.ac.id.",
+  invalid_password: "Password harus 8 sampai 72 karakter.",
+  candidate_profile_invalid_value: "Periksa data kandidat Anda lalu coba lagi.",
+  recruiter_verification_invalid_value: "Periksa data penyelenggara Anda lalu coba lagi.",
+  email_exists: "Akun untuk email ini sudah ada. Silakan masuk, bukan mendaftar.",
+  verification_email_failed:
+    "Akun sudah dibuat, tetapi kode verifikasi belum terkirim. Tekan Selesai sekali lagi, lalu kirim kode verifikasi.",
+  username_generation_failed: "Akun belum dapat dibuat saat ini. Coba lagi beberapa saat.",
+};
+
+const SIGNUP_FALLBACK = "Pendaftaran gagal. Coba lagi beberapa saat.";
 
 const verificationFailureMessage = (status: number, errorCode: string | undefined): string => {
   if (errorCode === "verification_code_invalid") {
@@ -127,10 +163,9 @@ export const AuthEntry = ({
   const [email, setEmail] = useState(initialEmail ?? "");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [name, setName] = useState("");
 
-  // Candidate onboarding fields — collected on the candidateOnboarding stage, right after the
-  // candidate role is chosen, and submitted together with the account creation request.
+  // Onboarding fields, collected on the chosen role's onboarding stage and sent with the account
+  // creation request. fullName serves both roles and is also sent as the account name.
   const [fullName, setFullName] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [occupation, setOccupation] = useState("");
@@ -151,6 +186,7 @@ export const AuthEntry = ({
     body: Record<string, unknown>;
   } | null>(null);
   const [completingUnverified, setCompletingUnverified] = useState(false);
+  const stagePanelRef = useRef<HTMLDivElement>(null);
   const verificationCodeInputRef = useRef<HTMLInputElement>(null);
   const { begin: beginPageTransition } = usePageTransition();
   const { addToast } = useToast();
@@ -174,23 +210,19 @@ export const AuthEntry = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // The form that held focus unmounts at these stages, so focus moves to what replaced it: the
+  // verify notice's message, or the code box.
   useEffect(() => {
-    if (stage === "signup" && !verificationEnabled) {
-      addToast({
-        type: "warning",
-        message: "Pendaftaran email sedang tidak tersedia. Coba lagi nanti.",
-      });
+    if (stage === "verifyNotice") {
+      stagePanelRef.current?.focus();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stage]);
-
-  useEffect(() => {
     if (stage === "verifyCode") {
       verificationCodeInputRef.current?.focus();
     }
   }, [stage]);
 
   const startGoogle = () => {
+    rememberGoogleReturnPath(callbackUrl);
     // Hands off to Google's consent screen. That is a full document navigation, so the blocking
     // screen stays up until the browser leaves this page.
     beginPageTransition("Menghubungkan ke Google…");
@@ -198,13 +230,6 @@ export const AuthEntry = ({
   };
 
   const finishLogin = (url: string) => {
-    // Mark this sign-in as "fresh" so the global second-role-prompt modal opens once on the
-    // destination page (mirrors the prior login form behaviour).
-    try {
-      window.sessionStorage.setItem(PENDING_PROMPT_KEY, "1");
-    } catch {
-      /* sessionStorage unavailable — modal simply will not auto-open this session */
-    }
     beginPageTransition("Menyiapkan akun Anda…");
     window.location.assign(url);
   };
@@ -218,7 +243,7 @@ export const AuthEntry = ({
     });
 
     // Suspended accounts are blocked in `authorize`; route the distinct signal to the
-    // public /suspended page. No second-role flag is set on this branch.
+    // public /suspended page.
     if (result?.error?.toUpperCase().includes("ACCOUNT_SUSPENDED")) {
       beginPageTransition("Mengalihkan…");
       window.location.assign("/suspended");
@@ -389,7 +414,7 @@ export const AuthEntry = ({
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          name: name.trim(),
+          name: fullName.trim(),
           email: email.trim().toLowerCase(),
           password,
           ...roleBody,
@@ -398,36 +423,29 @@ export const AuthEntry = ({
 
       if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as {
-          error?: { code?: string; message?: string };
+          error?: { code?: string; details?: { fields?: string[] } };
         } | null;
-        if (payload?.error?.code === "email_exists") {
-          addToast({
-            type: "error",
-            message: "Akun untuk email ini sudah ada. Silakan masuk, bukan mendaftar.",
-          });
-        } else if (payload?.error?.code === "email_not_verified") {
-          addToast({
-            type: "error",
-            message:
-              "Akun untuk email ini sudah ada tetapi belum diverifikasi. Kirim kode verifikasi untuk melanjutkan.",
-          });
+        const code = payload?.error?.code;
+        const firstField = payload?.error?.details?.fields?.[0];
+
+        if (code === "email_not_verified") {
           setStage("verifyNotice");
-        } else {
-          addToast({
-            type: "error",
-            message:
-              payload?.error?.message ?? "Pendaftaran gagal. Periksa data Anda lalu coba lagi.",
-          });
+          return;
         }
+
+        addToast({
+          type: "error",
+          message: errorMessageFor(
+            refusalCopyKey(code, firstField, SIGNUP_ERROR_COPY),
+            SIGNUP_ERROR_COPY,
+            SIGNUP_FALLBACK,
+          ),
+        });
         return;
       }
 
       setVerificationCode("");
       setStage("verifyCode");
-      addToast({
-        type: "success",
-        message: "Pendaftaran berhasil. Kami sudah mengirim kode verifikasi ke email Anda.",
-      });
     } catch {
       addToast({
         type: "error",
@@ -455,7 +473,7 @@ export const AuthEntry = ({
           email: email.trim().toLowerCase(),
           code: verificationCode.trim(),
           password,
-          name: name.trim(),
+          name: fullName.trim(),
           signupRole: signupDetails.role,
           ...signupDetails.body,
         }),
@@ -472,7 +490,9 @@ export const AuthEntry = ({
             message:
               "Data pendaftaran belum sesuai. Periksa kembali isian Anda, lalu lanjutkan lagi.",
           });
-          if (errorCode === "invalid_name" || errorCode === "invalid_signup_role") {
+          // The name is typed on the profile stage, so only a refused role goes back to the role
+          // choice.
+          if (errorCode === "invalid_signup_role") {
             setStage("signup");
           } else if (signupDetails.role === "candidate") {
             setStage("candidateOnboarding");
@@ -514,21 +534,12 @@ export const AuthEntry = ({
     }
   };
 
-  // Validates the shared signup fields, then either advances the candidate to the onboarding form
-  // or (for recruiters) creates the account immediately.
+  // Checks the password confirmation, then opens the chosen role's onboarding form.
   const onPickSignupRole = (role: "candidate" | "recruiter") => {
     if (!verificationEnabled) {
       addToast({
         type: "error",
-        message:
-          "Pendaftaran tidak tersedia karena konfigurasi email verifikasi (Resend) belum lengkap.",
-      });
-      return;
-    }
-    if (name.trim().length < 2) {
-      addToast({
-        type: "error",
-        message: "Isi nama lengkap (minimal 2 karakter) untuk mendaftar.",
+        message: "Pendaftaran email sedang tidak tersedia. Coba lagi nanti.",
       });
       return;
     }
@@ -541,15 +552,12 @@ export const AuthEntry = ({
     }
 
     if (role === "candidate") {
-      // Prefill the candidate's declared full name from the name already entered; it stays editable.
-      setFullName((current) => current || name.trim());
       setStage("candidateOnboarding");
       return;
     }
 
     // Recruiter also completes an onboarding form (affiliation) before the account is created; the
     // account starts sandboxed until platform ops approve it as a Trusted Recruiter.
-    setFullName((current) => current || name.trim());
     setStage("recruiterOnboarding");
   };
 
@@ -616,7 +624,6 @@ export const AuthEntry = ({
   const clearSignupForm = () => {
     setSignupDetails(null);
     setCompletingUnverified(false);
-    setName("");
     setConfirmPassword("");
     setFullName("");
     setPhoneNumber("");
@@ -645,10 +652,19 @@ export const AuthEntry = ({
   };
 
   return (
-    <div className="auth-entry">
+    <div className="auth-entry" data-has-back={method === "credentials" && stage === "entry"}>
+      {method === "credentials" && stage === "entry" ? (
+        <IconButton
+          icon="arrow-left"
+          variant="plain"
+          size="back"
+          label="Ganti metode"
+          className="auth-entry-back"
+          onClick={backToChoose}
+        />
+      ) : null}
       <header className="auth-entry-header">
         <h1>Masuk atau daftar</h1>
-        <p>Pilih cara Anda ingin melanjutkan.</p>
       </header>
 
       {method === "choose" ? (
@@ -662,6 +678,7 @@ export const AuthEntry = ({
                 <strong>Lanjut dengan Google</strong>
                 <small>Gunakan akun Google yang terhubung dengan email Anda.</small>
               </span>
+              <Icon name="chevron-down" className="auth-method-button-chevron" />
             </button>
           ) : null}
           <button
@@ -678,6 +695,7 @@ export const AuthEntry = ({
               <strong>Lanjut dengan email &amp; password</strong>
               <small>Masuk atau buat akun dengan alamat email Anda.</small>
             </span>
+            <Icon name="chevron-down" className="auth-method-button-chevron" />
           </button>
         </div>
       ) : null}
@@ -685,50 +703,51 @@ export const AuthEntry = ({
       {method === "credentials" && stage === "entry" ? (
         <form onSubmit={onSubmitEntry} className="auth-form">
           <div className="form-field">
-            <label className="form-label form-label-required" htmlFor="auth-email">
+            <FormLabel htmlFor="auth-email" required>
               Email
-            </label>
-            <input
+            </FormLabel>
+            <FormInput
               id="auth-email"
               name="email"
               type="email"
               required
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-              className="form-input"
               placeholder="nama@kampus.ac.id"
             />
           </div>
 
           <div className="form-field">
-            <label className="form-label form-label-required" htmlFor="auth-password">
-              Password
-            </label>
-            <input
+            <div className="auth-label-row">
+              <FormLabel htmlFor="auth-password" required>
+                Password
+              </FormLabel>
+              <ButtonLink
+                variant="link"
+                size="sm"
+                href={`/auth/forgot-password?email=${encodeURIComponent(email.trim().toLowerCase())}`}
+              >
+                Lupa password?
+              </ButtonLink>
+            </div>
+            <PasswordField
               id="auth-password"
               name="password"
-              type="password"
               required
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              className="form-input"
               placeholder="Masukkan password"
+              aria-describedby="auth-password-help"
             />
-            <ButtonLink
-              variant="ghost"
-              size="sm"
-              href={`/auth/forgot-password?email=${encodeURIComponent(email.trim().toLowerCase())}`}
-            >
-              Lupa password?
-            </ButtonLink>
+            <p id="auth-password-help" className="form-help">
+              Password minimal 8 karakter.
+            </p>
           </div>
 
           <div className="auth-form-actions">
-            <Button type="button" onClick={backToChoose} variant="ghost" size="sm">
-              Ganti metode
-            </Button>
-            <Button type="submit" loading={isSubmitting} variant="primary" size="md">
+            <Button type="submit" loading={isSubmitting} variant="primary" size="lg" fullWidth>
               Lanjut
+              <Icon name="arrow-right" size="md" />
             </Button>
           </div>
           <p className="form-help">
@@ -738,13 +757,13 @@ export const AuthEntry = ({
       ) : null}
 
       {method === "credentials" && stage === "verifyNotice" && signupDetails ? (
-        <div className="auth-stage-panel">
+        <div className="auth-stage-panel" ref={stagePanelRef} tabIndex={-1} role="status">
           <p>
             Email <span className="font-medium">{email}</span> belum diverifikasi. Kirim kode
             verifikasi ke email ini, lalu masukkan kodenya di langkah berikutnya.
           </p>
           <div className="auth-form-actions">
-            <Button type="button" onClick={backToEntry} variant="ghost" size="sm">
+            <Button type="button" onClick={backToEntry} variant="outline" size="sm">
               Kembali
             </Button>
             <Button
@@ -764,13 +783,13 @@ export const AuthEntry = ({
       ) : null}
 
       {method === "credentials" && stage === "verifyNotice" && !signupDetails ? (
-        <div className="auth-stage-panel">
+        <div className="auth-stage-panel" ref={stagePanelRef} tabIndex={-1} role="status">
           <p>
             Email <span className="font-medium">{email}</span> belum diverifikasi. Lengkapi data
             pendaftaran Anda, lalu kami kirim kode verifikasi ke email ini.
           </p>
           <div className="auth-form-actions">
-            <Button type="button" onClick={backToEntry} variant="ghost" size="sm">
+            <Button type="button" onClick={backToEntry} variant="outline" size="sm">
               Kembali
             </Button>
             <Button
@@ -791,16 +810,16 @@ export const AuthEntry = ({
 
       {method === "credentials" && stage === "verifyCode" ? (
         <form onSubmit={onSubmitVerificationCode} className="auth-form">
-          <p role="status">
+          <p id="auth-verification-code-status" role="status">
             Kami sudah mengirim kode 6 digit ke <span className="font-medium">{email}</span>.
             Masukkan kode tersebut untuk mengaktifkan akun Anda. Kode berlaku 10 menit.
           </p>
 
           <div className="form-field">
-            <label className="form-label form-label-required" htmlFor="auth-verification-code">
+            <FormLabel htmlFor="auth-verification-code" required>
               Kode verifikasi
-            </label>
-            <input
+            </FormLabel>
+            <FormInput
               ref={verificationCodeInputRef}
               id="auth-verification-code"
               name="code"
@@ -812,12 +831,12 @@ export const AuthEntry = ({
               required
               value={verificationCode}
               onChange={(event) => setVerificationCode(event.target.value.replace(/\D/g, ""))}
-              className="form-input"
+              aria-describedby="auth-verification-code-status"
             />
           </div>
 
           <div className="auth-form-actions">
-            <Button type="button" onClick={backToEntry} variant="ghost" size="sm">
+            <Button type="button" onClick={backToEntry} variant="outline" size="sm">
               Kembali
             </Button>
             <Button
@@ -847,70 +866,56 @@ export const AuthEntry = ({
 
       {method === "credentials" && stage === "signup" ? (
         <div className="auth-stage-panel">
+          <StepIndicator currentStep={2} totalSteps={3} stepName="Peran" />
+          {!verificationEnabled ? (
+            <Feedback tone="warning">
+              Pendaftaran email sedang tidak tersedia. Coba lagi nanti.
+            </Feedback>
+          ) : null}
           {completingUnverified ? (
             <p>
-              Email <span className="font-medium">{email}</span> belum diverifikasi. Lengkapi nama
-              dan pilih peran, lalu kami kirim kode verifikasi ke email ini.
+              Email <span className="font-medium">{email}</span> belum diverifikasi. Ulangi password
+              Anda dan pilih peran. Setelah data Anda lengkap, kami kirim kode verifikasi ke email
+              ini.
             </p>
           ) : (
             <p>
-              Belum ada akun untuk <span className="font-medium">{email}</span>. Lengkapi nama dan
-              pilih peran untuk mendaftar.
+              Belum ada akun untuk <span className="font-medium">{email}</span>. Ulangi password
+              Anda lalu pilih peran untuk mendaftar.
             </p>
           )}
 
           <div className="form-field">
-            <label className="form-label form-label-required" htmlFor="auth-name">
-              Nama lengkap
-            </label>
-            <input
-              id="auth-name"
-              name="name"
-              type="text"
-              autoComplete="name"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              className="form-input"
-              placeholder="Nama Anda"
-            />
-          </div>
-
-          <div className="form-field">
-            <label className="form-label form-label-required" htmlFor="auth-confirm-password">
+            <FormLabel htmlFor="auth-confirm-password" required>
               Konfirmasi password
-            </label>
-            <input
+            </FormLabel>
+            <PasswordField
               id="auth-confirm-password"
               name="confirmPassword"
-              type="password"
               autoComplete="new-password"
               value={confirmPassword}
               onChange={(event) => setConfirmPassword(event.target.value)}
-              className="form-input"
               placeholder="Ulangi password Anda"
             />
           </div>
 
-          <div className="auth-role-list">
+          <div className="auth-role-list" role="radiogroup" aria-label="Peran">
             {SIGNUP_ROLES.map((entry) => (
-              <button
+              <ChoiceCard
                 key={entry.role}
-                type="button"
+                title={entry.label}
+                description={entry.hint}
                 disabled={isSubmitting}
-                onClick={() => {
+                onSelect={() => {
                   void onPickSignupRole(entry.role);
                 }}
-                className="auth-role-option"
-              >
-                <strong>{entry.label}</strong>
-                <span>{entry.hint}</span>
-              </button>
+              />
             ))}
           </div>
 
           <AssentNotice />
 
-          <Button type="button" onClick={backToEntry} variant="ghost" size="sm">
+          <Button type="button" onClick={backToEntry} variant="outline" size="sm">
             Kembali
           </Button>
         </div>
@@ -918,44 +923,48 @@ export const AuthEntry = ({
 
       {method === "credentials" && stage === "candidateOnboarding" ? (
         <form onSubmit={onSubmitCandidateOnboarding} className="auth-form">
+          <StepIndicator currentStep={3} totalSteps={3} stepName="Profil" />
           <p>Lengkapi data kandidat Anda. Data ini bisa diubah nanti di dasbor Anda.</p>
 
           <div className="form-field">
-            <label className="form-label form-label-required" htmlFor="candidate-full-name">
+            <FormLabel htmlFor="candidate-full-name" required>
               Nama lengkap
-            </label>
-            <input
+            </FormLabel>
+            <FormInput
               id="candidate-full-name"
               type="text"
               autoComplete="name"
               value={fullName}
               onChange={(event) => setFullName(event.target.value)}
-              className="form-input"
               placeholder="Nama lengkap sesuai identitas"
+              aria-describedby="candidate-full-name-help"
             />
+            <p className="form-help" id="candidate-full-name-help">
+              Nama ini juga tampil di profil publik Anda dan dapat diubah di halaman profil.
+            </p>
           </div>
 
           <div className="form-field">
-            <label className="form-label form-label-required" htmlFor="candidate-phone">
+            <FormLabel htmlFor="candidate-phone" required>
               Nomor telepon
-            </label>
-            <input
+            </FormLabel>
+            <FormInput
               id="candidate-phone"
               type="tel"
               value={phoneNumber}
               onChange={(event) => setPhoneNumber(event.target.value)}
-              className="form-input"
               placeholder="Contoh: 0812xxxxxxx"
             />
           </div>
 
           <div className="form-field">
-            <label className="form-label form-label-required" htmlFor="candidate-occupation">
+            <FormLabel htmlFor="candidate-occupation" required>
               Status saat ini
-            </label>
+            </FormLabel>
             <SelectField
               id="candidate-occupation"
               label="Status saat ini"
+              required
               value={occupation}
               placeholder="Pilih status Anda"
               options={[...OCCUPATION_OPTIONS]}
@@ -964,20 +973,19 @@ export const AuthEntry = ({
           </div>
 
           <div className="form-field">
-            <label className="form-label form-label-required" htmlFor="candidate-dob">
+            <FormLabel htmlFor="candidate-dob" required>
               Tanggal lahir
-            </label>
-            <input
+            </FormLabel>
+            <FormInput
               id="candidate-dob"
               type="date"
               value={dateOfBirth}
               onChange={(event) => setDateOfBirth(event.target.value)}
-              className="form-input"
             />
           </div>
 
           <div className="auth-form-actions">
-            <Button type="button" onClick={backToSignup} variant="ghost" size="sm">
+            <Button type="button" onClick={backToSignup} variant="outline" size="sm">
               Kembali
             </Button>
             <Button type="submit" loading={isSubmitting || isResending} variant="primary" size="md">
@@ -989,51 +997,53 @@ export const AuthEntry = ({
 
       {method === "credentials" && stage === "recruiterOnboarding" ? (
         <form onSubmit={onSubmitRecruiterOnboarding} className="auth-form">
+          <StepIndicator currentStep={3} totalSteps={3} stepName="Profil" />
           <p>
             Lengkapi data penyelenggara Anda. Setelah mendaftar, akun Anda dapat membuat draf
             kompetisi, tetapi baru bisa mempublikasikannya setelah tim kami menyetujui Anda sebagai{" "}
-            <strong>Rekruter Terpercaya</strong>.
+            <strong>penyelenggara terverifikasi</strong>.
           </p>
 
           <div className="form-field">
-            <label className="form-label form-label-required" htmlFor="recruiter-full-name">
+            <FormLabel htmlFor="recruiter-full-name" required>
               Nama lengkap
-            </label>
-            <input
+            </FormLabel>
+            <FormInput
               id="recruiter-full-name"
               type="text"
               autoComplete="name"
               value={fullName}
               onChange={(event) => setFullName(event.target.value)}
-              className="form-input"
               placeholder="Nama lengkap sesuai identitas"
+              aria-describedby="recruiter-full-name-help"
             />
+            <p className="form-help" id="recruiter-full-name-help">
+              Nama ini juga tampil di profil publik Anda dan dapat diubah di halaman profil.
+            </p>
           </div>
 
           <div className="form-field">
-            <label className="form-label form-label-required" htmlFor="recruiter-mobile">
+            <FormLabel htmlFor="recruiter-mobile" required>
               Nomor ponsel
-            </label>
-            <input
+            </FormLabel>
+            <FormInput
               id="recruiter-mobile"
               type="tel"
               value={recruiterMobile}
               onChange={(event) => setRecruiterMobile(event.target.value)}
-              className="form-input"
               placeholder="Contoh: 0812xxxxxxx"
             />
           </div>
 
           <div className="form-field">
-            <label className="form-label" htmlFor="recruiter-corporate-email">
-              Email korporat / institusi (Opsional)
-            </label>
-            <input
+            <FormLabel htmlFor="recruiter-corporate-email" optional>
+              Email korporat / institusi
+            </FormLabel>
+            <FormInput
               id="recruiter-corporate-email"
               type="email"
               value={recruiterCorporateEmail}
               onChange={(event) => setRecruiterCorporateEmail(event.target.value)}
-              className="form-input"
               placeholder="nama@perusahaan.co.id"
             />
             <p className="form-help">
@@ -1042,7 +1052,7 @@ export const AuthEntry = ({
           </div>
 
           <div className="auth-form-actions">
-            <Button type="button" onClick={backToSignup} variant="ghost" size="sm">
+            <Button type="button" onClick={backToSignup} variant="outline" size="sm">
               Kembali
             </Button>
             <Button type="submit" loading={isSubmitting || isResending} variant="primary" size="md">

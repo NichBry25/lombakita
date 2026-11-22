@@ -57,12 +57,12 @@ describe("the .status-badge tone vocabulary", () => {
     expect(tonesDefinedForStatusBadge().has("ineligible")).toBe(false);
   });
 
-  it("gives every tone but `featured` the leading dot its siblings have", () => {
-    // `featured` is deliberately outside the dot group. It is a promotional marker rather than a
-    // lifecycle state. Everything else must be in it, or one badge in a row renders visibly
-    // lighter than the others for no reason a reader can see.
+  it("gives every tone but `verified` the leading dot its siblings have", () => {
+    // `verified` is deliberately outside the dot group: it carries a check icon as its only mark.
+    // Everything else must be in it, or one badge in a row renders visibly lighter than the others
+    // for no reason a reader can see.
     const dotted = tonesWithDot();
-    const expected = STATUS_BADGE_TONES.filter((tone) => tone !== "featured");
+    const expected = STATUS_BADGE_TONES.filter((tone) => tone !== "verified");
 
     expect([...dotted].sort()).toEqual([...expected].sort());
   });
@@ -104,15 +104,15 @@ describe("document request tone map", () => {
   });
 });
 
+const ruleBody = (selector: string): string | null => {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = new RegExp(`(?:^|\\n)${escaped}\\s*\\{([^}]*)\\}`).exec(CSS);
+  return match ? match[1]! : null;
+};
+
 // `ol` and `ul` carry no list style under the global reset, so a numbered list shows no numerals
 // unless a class restores them. The reset itself must stay as it is; the class is the repair.
 describe("the .prose-list class", () => {
-  const ruleBody = (selector: string): string | null => {
-    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const match = new RegExp(`(?:^|\\n)${escaped}\\s*\\{([^}]*)\\}`).exec(CSS);
-    return match ? match[1]! : null;
-  };
-
   it("restores decimal numerals", () => {
     const body = ruleBody(".prose-list");
 
@@ -152,5 +152,17 @@ describe("the participant summary tablet layout", () => {
     expect(block).toMatch(
       /\.participant-summary\s*>\s*:last-child\s*\{[^}]*grid-column:\s*1\s*\/\s*-1\s*;[^}]*\}/,
     );
+  });
+});
+
+// A field in a grid row is stretched to the row's height. Without this declaration its label and
+// control share the spare height, so a field with no line beneath it drops its control below its
+// neighbour's.
+describe("the .form-field rule", () => {
+  it("packs a field's label and control at the top of its row", () => {
+    const body = ruleBody(".form-field");
+
+    expect(body, ".form-field has no rule in globals.css").not.toBeNull();
+    expect(body).toMatch(/align-content:\s*start\s*;/);
   });
 });

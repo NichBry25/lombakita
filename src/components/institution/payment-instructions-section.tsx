@@ -1,11 +1,40 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button, Feedback, Icon, Skeleton } from "@/components/ui";
+import {
+  Button,
+  ButtonLink,
+  Feedback,
+  FormInput,
+  FormLabel,
+  FormLabelText,
+  FormTextarea,
+  Icon,
+  Skeleton,
+} from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
-import { sessionFetch } from "@/lib/session/session-fetch";
+import { errorMessageFor } from "@/lib/errors/error-copy";
+import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
 import { QRIS_FORMAT_HINT, QRIS_MAX_BYTES, qrisMimeTypeForFileName } from "@/lib/finance/qris-file";
 import { formatFileSize } from "@/lib/text/format-file-size";
+
+type RefusalAction = "grant" | "save";
+
+const PAYMENT_INSTRUCTIONS_ERROR_COPY: Partial<Record<string, string>> = {
+  rate_limited: "Terlalu banyak permintaan unggah. Coba lagi dalam beberapa menit.",
+  forbidden: "Hanya pemilik institusi yang dapat mengatur informasi pembayaran.",
+  payment_instructions_qris_format_unsupported: `Format tidak didukung. Gunakan ${QRIS_FORMAT_HINT}.`,
+  payment_instructions_upload_unavailable:
+    "Unggahan berkas sedang tidak tersedia. Coba lagi nanti.",
+  payment_instructions_incomplete:
+    "Isi nama bank, nomor rekening, dan nama pemilik rekening, atau unggah QRIS.",
+  payment_instructions_qris_key_invalid: "Berkas QRIS tidak valid. Unggah ulang QRIS lalu simpan.",
+};
+
+const REFUSAL_FALLBACK: Record<RefusalAction, string> = {
+  grant: "QRIS gagal diunggah. Coba lagi.",
+  save: "Informasi pembayaran gagal disimpan. Coba lagi.",
+};
 
 type Instructions = {
   bankName: string | null;
@@ -52,13 +81,6 @@ export function PaymentInstructionsSection({
   const [isUploading, setIsUploading] = useState(false);
 
   const base = `/api/v1/institutions/${encodeURIComponent(institutionSlug)}/payment-instructions`;
-
-  const refusalMessage = async (response: Response, fallback: string): Promise<string> => {
-    const payload = (await response.json().catch(() => null)) as {
-      error?: { message?: string };
-    } | null;
-    return payload?.error?.message ?? fallback;
-  };
 
   const load = useCallback(async () => {
     try {
@@ -113,9 +135,10 @@ export function PaymentInstructionsSection({
       });
 
       if (!grantResponse.ok) {
+        const code = await readErrorCode(grantResponse);
         addToast({
           type: "error",
-          message: await refusalMessage(grantResponse, "QRIS gagal diunggah."),
+          message: errorMessageFor(code, PAYMENT_INSTRUCTIONS_ERROR_COPY, REFUSAL_FALLBACK.grant),
         });
         return;
       }
@@ -162,9 +185,10 @@ export function PaymentInstructionsSection({
       });
 
       if (!response.ok) {
+        const code = await readErrorCode(response);
         addToast({
           type: "error",
-          message: await refusalMessage(response, "Informasi pembayaran gagal disimpan."),
+          message: errorMessageFor(code, PAYMENT_INSTRUCTIONS_ERROR_COPY, REFUSAL_FALLBACK.save),
         });
         return;
       }
@@ -191,6 +215,9 @@ export function PaymentInstructionsSection({
     );
   }
 
+  // The server refuses missing bank details only when no QRIS is on file.
+  const bankDetailsRequired = form.qrisR2Key === null;
+
   return (
     <section className="content-section">
       <div className="section-heading">
@@ -199,10 +226,14 @@ export function PaymentInstructionsSection({
         </div>
       </div>
 
-      <Feedback tone="warning">
-        Dana peserta masuk langsung ke rekening lembaga Anda. Lombakita tidak menampung dana.
-        Periksa setiap digit: nomor rekening yang keliru mengirim transfer peserta ke rekening yang
-        salah, dan platform tidak dapat menariknya kembali.
+      <Feedback tone="warning" lead="Periksa nomor rekening sebelum menyimpan.">
+        Dana peserta masuk langsung ke rekening ini, dan transfer ke rekening yang salah tidak dapat
+        ditarik kembali.
+        <div>
+          <ButtonLink variant="link" size="sm" href="/syarat-ketentuan#biaya-pendaftaran">
+            Baca ketentuan pembayaran
+          </ButtonLink>
+        </div>
       </Feedback>
 
       <p className="muted-copy">
@@ -212,12 +243,15 @@ export function PaymentInstructionsSection({
 
       <form className="stack-md" onSubmit={save}>
         <div className="form-field">
-          <label className="form-label" htmlFor="pi-bank-name">
+          <FormLabel
+            htmlFor="pi-bank-name"
+            required={bankDetailsRequired}
+            optional={!bankDetailsRequired}
+          >
             Nama bank
-          </label>
-          <input
+          </FormLabel>
+          <FormInput
             id="pi-bank-name"
-            className="form-input"
             value={form.bankName ?? ""}
             maxLength={120}
             placeholder="Bank Mandiri"
@@ -226,12 +260,15 @@ export function PaymentInstructionsSection({
         </div>
 
         <div className="form-field">
-          <label className="form-label" htmlFor="pi-account-number">
+          <FormLabel
+            htmlFor="pi-account-number"
+            required={bankDetailsRequired}
+            optional={!bankDetailsRequired}
+          >
             Nomor rekening
-          </label>
-          <input
+          </FormLabel>
+          <FormInput
             id="pi-account-number"
-            className="form-input"
             // `inputMode` rather than `type="number"`: an account number is a digit STRING, and a
             // numeric input drops leading zeros and offers a spinner that can silently change it.
             inputMode="numeric"
@@ -244,12 +281,15 @@ export function PaymentInstructionsSection({
         </div>
 
         <div className="form-field">
-          <label className="form-label" htmlFor="pi-account-holder">
+          <FormLabel
+            htmlFor="pi-account-holder"
+            required={bankDetailsRequired}
+            optional={!bankDetailsRequired}
+          >
             Nama pemilik rekening
-          </label>
-          <input
+          </FormLabel>
+          <FormInput
             id="pi-account-holder"
-            className="form-input"
             value={form.accountHolderName ?? ""}
             maxLength={160}
             placeholder="Yayasan Seed Academy"
@@ -265,9 +305,9 @@ export function PaymentInstructionsSection({
             `<input type="file">` wearing `.form-input` renders the browser's own control, which is
             the one thing no other control on this page does. */}
         <div className="form-field">
-          <span className="form-label" id="pi-qris-label">
+          <FormLabelText id="pi-qris-label" optional>
             QRIS
-          </span>
+          </FormLabelText>
           <div className="pf-media-actions">
             <Button
               type="button"
@@ -304,12 +344,11 @@ export function PaymentInstructionsSection({
         </div>
 
         <div className="form-field">
-          <label className="form-label" htmlFor="pi-note">
+          <FormLabel htmlFor="pi-note" optional>
             Catatan untuk peserta
-          </label>
-          <textarea
+          </FormLabel>
+          <FormTextarea
             id="pi-note"
-            className="form-textarea"
             rows={3}
             value={form.instructionsNote ?? ""}
             maxLength={500}

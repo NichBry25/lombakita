@@ -2,7 +2,16 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, FormActionBar, Icon, IconButton, SelectField } from "@/components/ui";
+import {
+  BarNote,
+  Button,
+  FormActionBar,
+  FormInput,
+  FormLabel,
+  Icon,
+  IconButton,
+  SelectField,
+} from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import {
   readErrorCode,
@@ -10,6 +19,7 @@ import {
   SESSION_MISMATCH_CODE,
   SESSION_MISMATCH_MESSAGE,
 } from "@/lib/session/session-fetch";
+import { hasUnsavedFields } from "@/lib/ui/unsaved-fields";
 
 const OCCUPATION_OPTIONS = [
   { value: "school_student", label: "Pelajar (SMA/SMK/sederajat)" },
@@ -40,10 +50,16 @@ export const CandidateProfileEditor = ({ expectedUserId, initial }: Props) => {
   const [occupation, setOccupation] = useState(initial.occupation);
   const [dateOfBirth, setDateOfBirth] = useState(initial.dateOfBirth);
   const [isSaving, setIsSaving] = useState(false);
+  const [savedValues, setSavedValues] = useState<CandidateProfileFormValues>(initial);
+  const hasUnsavedChanges = hasUnsavedFields(
+    { fullName, phoneNumber, occupation, dateOfBirth },
+    savedValues,
+  );
 
   const onSubmit = async (event?: FormEvent<HTMLFormElement>) => {
     event?.preventDefault();
     setIsSaving(true);
+    const sentValues = { fullName, phoneNumber, occupation, dateOfBirth };
 
     try {
       const res = await sessionFetch(expectedUserId, "/api/v1/candidate/me/profile", {
@@ -67,6 +83,7 @@ export const CandidateProfileEditor = ({ expectedUserId, initial }: Props) => {
         return;
       }
 
+      setSavedValues(sentValues);
       addToast({ type: "success", message: "Data kandidat berhasil disimpan." });
       router.refresh();
     } catch {
@@ -80,39 +97,38 @@ export const CandidateProfileEditor = ({ expectedUserId, initial }: Props) => {
     <>
       <form onSubmit={onSubmit} className="auth-form">
         <div className="form-field">
-          <label className="form-label form-label-required" htmlFor="candidate-full-name">
+          <FormLabel htmlFor="candidate-full-name" required>
             Nama lengkap
-          </label>
-          <input
+          </FormLabel>
+          <FormInput
             id="candidate-full-name"
             type="text"
             autoComplete="name"
             value={fullName}
             onChange={(event) => setFullName(event.target.value)}
-            className="form-input"
           />
         </div>
 
         <div className="form-field">
-          <label className="form-label form-label-required" htmlFor="candidate-phone">
+          <FormLabel htmlFor="candidate-phone" required>
             Nomor telepon
-          </label>
-          <input
+          </FormLabel>
+          <FormInput
             id="candidate-phone"
             type="tel"
             value={phoneNumber}
             onChange={(event) => setPhoneNumber(event.target.value)}
-            className="form-input"
           />
         </div>
 
         <div className="form-field">
-          <label className="form-label form-label-required" htmlFor="candidate-occupation">
+          <FormLabel htmlFor="candidate-occupation" required>
             Status saat ini
-          </label>
+          </FormLabel>
           <SelectField
             id="candidate-occupation"
             label="Status saat ini"
+            required
             value={occupation}
             placeholder="Pilih status Anda"
             options={[...OCCUPATION_OPTIONS]}
@@ -121,26 +137,28 @@ export const CandidateProfileEditor = ({ expectedUserId, initial }: Props) => {
         </div>
 
         <div className="form-field">
-          <label className="form-label form-label-required" htmlFor="candidate-dob">
+          <FormLabel htmlFor="candidate-dob" required>
             Tanggal lahir
-          </label>
-          <input
+          </FormLabel>
+          <FormInput
             id="candidate-dob"
             type="date"
             value={dateOfBirth}
             onChange={(event) => setDateOfBirth(event.target.value)}
-            className="form-input"
           />
         </div>
       </form>
 
       <FormActionBar>
         <IconButton
+          variant="plain"
+          size="back"
           icon="arrow-left"
-          label="Kembali ke dasbor"
+          label="Kembali ke Dasbor kandidat"
           onClick={() => router.push("/candidate-dashboard")}
         />
         <div className="form-action-bar-end">
+          {hasUnsavedChanges ? <BarNote>Belum disimpan</BarNote> : null}
           <Button
             type="button"
             onClick={() => onSubmit()}

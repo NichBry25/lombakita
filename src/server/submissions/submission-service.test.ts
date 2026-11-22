@@ -257,6 +257,23 @@ describe("createOrReplaceSubmission", () => {
     );
   });
 
+  it("does not carry the storage prefix in the file key refusal", async () => {
+    const { db } = createDbMock([[individualRegRow]]);
+    const refusal = createOrReplaceSubmission(
+      "comp_1",
+      "reg_1",
+      "stud_1",
+      { ...validMetadata, fileKey: "submissions/comp_1/reg_OTHER/abc" },
+      db,
+      NOW_IN_WINDOW,
+    );
+
+    await expect(refusal).rejects.toMatchObject({ code: "submission_invalid_file_key" });
+    const error = (await refusal.catch((caught: unknown) => caught)) as SubmissionError;
+    expect(error.details).toBeUndefined();
+    expect(error.message).not.toContain("submissions/comp_1/reg_1");
+  });
+
   it("blocks a cancelled registration (409)", async () => {
     const { db } = createDbMock([[cancelledRegRow]]);
     await expectCode(

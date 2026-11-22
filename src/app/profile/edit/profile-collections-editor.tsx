@@ -1,15 +1,12 @@
 "use client";
 
-import { useId, useRef, useState } from "react";
-import { Button, CheckboxField, IconButton } from "@/components/ui";
+import { useCallback, useId, useRef, useState } from "react";
+import { Button, CheckboxField, IconButton, PageSection, Panel } from "@/components/ui";
 import { FormField, FormInput, FormLabel, FormTextarea, SelectField } from "@/components/ui";
-import { useToast } from "@/components/ui/primitives";
-import { ownerFetch, uploadProfileFile } from "./profile-file-upload";
-import {
-  SESSION_MISMATCH_CODE,
-  SESSION_MISMATCH_MESSAGE,
-  sessionFetch,
-} from "@/lib/session/session-fetch";
+import { useModal, useToast, type ModalOutcome } from "@/components/ui/primitives";
+import { ownerFetch, PROFILE_FILE_REMOVE_FALLBACK, uploadProfileFile } from "./profile-file-upload";
+import { errorMessageFor } from "@/lib/errors/error-copy";
+import { sessionFetch } from "@/lib/session/session-fetch";
 import {
   SOCIAL_PLATFORMS,
   type CertificationEntry,
@@ -35,8 +32,33 @@ const BASE = "/api/v1/users/me/profile";
 const toMonthInput = (value: string | null): string => (value ? value.slice(0, 7) : "");
 const fromMonthInput = (value: string): string | null => (value ? `${value}-01` : null);
 
+// A key "<code>.<field>" holds the sentence for a refusal about one field.
+const COLLECTION_ERROR_COPY: Partial<Record<string, string>> = {
+  profile_collection_invalid_value: "Gagal menyimpan data. Periksa kembali isian Anda.",
+  profile_collection_not_found: "Entri ini sudah tidak ada. Muat ulang halaman.",
+  "profile_collection_duplicate.name": "Keahlian ini sudah ditambahkan.",
+  "profile_collection_duplicate.platform": "Tautan untuk platform ini sudah ditambahkan.",
+  profile_collection_limit_reached: "Satu bagian paling banyak berisi 50 entri.",
+};
+
+type MutationMethod = "POST" | "PATCH" | "DELETE";
+
+const COLLECTION_FALLBACK: Record<MutationMethod, string> = {
+  POST: "Gagal menambahkan entri. Coba lagi.",
+  PATCH: "Gagal menyimpan perubahan. Coba lagi.",
+  DELETE: "Gagal menghapus entri. Coba lagi.",
+};
+
+const refusalCopyKey = (
+  code: string | undefined,
+  field: string | undefined,
+): string | undefined => {
+  const fieldKey = `${code}.${field}`;
+  return field && COLLECTION_ERROR_COPY[fieldKey] ? fieldKey : code;
+};
+
 type MutationResult = { ok: boolean; entry?: unknown; code: string | null; message: string };
-type Mutate = (method: string, path: string, body?: unknown) => Promise<MutationResult>;
+type Mutate = (method: MutationMethod, path: string, body?: unknown) => Promise<MutationResult>;
 type AddToast = (t: { type: "success" | "error"; message: string }) => void;
 
 type FormProps<D> = {
@@ -44,7 +66,7 @@ type FormProps<D> = {
   submitLabel: string;
   busy: boolean;
   onSubmit: (payload: unknown) => void;
-  onCancel?: () => void;
+  onCancel: () => void;
 };
 
 // --------------------------------------------------------------------------- shared plumbing
@@ -58,10 +80,15 @@ function useEditableCollection<T extends { id: string }>(
   addToast: AddToast,
   labels: { added: string; updated: string },
 ) {
+  const { openModal } = useModal();
   const [items, setItems] = useState<T[]>(initialItems);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [addResetKey, setAddResetKey] = useState(0);
+  const [isAdding, setIsAdding] = useState(false);
+
+  const openAddForm = () => setIsAdding(true);
+  const closeAddForm = () => setIsAdding(false);
 
   const add = async (payload: unknown): Promise<boolean> => {
     setBusy(true);
@@ -73,6 +100,7 @@ function useEditableCollection<T extends { id: string }>(
     }
     setItems((prev) => [result.entry as T, ...prev]);
     setAddResetKey((k) => k + 1);
+    setIsAdding(false);
     addToast({ type: "success", message: labels.added });
     return true;
   };
@@ -90,61 +118,130 @@ function useEditableCollection<T extends { id: string }>(
     addToast({ type: "success", message: labels.updated });
   };
 
-  const remove = async (id: string): Promise<void> => {
+  // The entry leaves the page only after the server has confirmed the delete.
+  const requestRemove = async (id: string): Promise<ModalOutcome> => {
     const result = await mutate("DELETE", `/${collection}/${id}`);
-    if (!result.ok) {
-      addToast({ type: "error", message: result.message });
-      return;
-    }
+    if (!result.ok) return { ok: false, message: result.message };
     setItems((prev) => prev.filter((item) => item.id !== id));
     if (editingId === id) setEditingId(null);
     addToast({ type: "success", message: "Entri dihapus." });
+    return { ok: true };
   };
 
-  return { items, editingId, setEditingId, busy, addResetKey, add, update, remove };
+  const remove = async (id: string): Promise<void> => {
+    const outcome = await requestRemove(id);
+    if (!outcome.ok) addToast({ type: "error", message: outcome.message });
+  };
+
+  // Deleting a saved entry is immediate and permanent, so it asks first. The noun names the section
+  // ("pendidikan", "pengalaman") in the title and on the button.
+  const confirmRemove = (id: string, entryName: string, noun: string) => {
+    openModal({
+      title: `Hapus ${noun} ini?`,
+      body: `“${entryName}” akan dihapus dari profil Anda.`,
+      alert: true,
+      actions: [
+        { label: "Batal" },
+        { label: `Hapus ${noun}`, variant: "primary", onClick: () => requestRemove(id) },
+      ],
+    });
+  };
+
+  return {
+    items,
+    editingId,
+    setEditingId,
+    busy,
+    addResetKey,
+    isAdding,
+    openAddForm,
+    closeAddForm,
+    add,
+    update,
+    remove,
+    confirmRemove,
+  };
 }
 
+// Wraps a freshly opened add form and puts focus on its first field when it mounts. The callback
+// ref has a stable identity, so it runs once per mount and not on every render.
+function FocusFirstFieldOnMount({ children }: { children: React.ReactNode }) {
+  const focusFirstField = useCallback((wrapper: HTMLDivElement | null) => {
+    wrapper?.querySelector<HTMLElement>("input, textarea, select")?.focus();
+  }, []);
+
+  return <div ref={focusFirstField}>{children}</div>;
+}
+
+// The "+" at the right end of the heading row is how a repeating section gets a new entry.
 function SectionShell({
-  eyebrow,
   title,
+  addLabel,
+  onAdd,
   children,
 }: {
-  eyebrow: string;
   title: string;
+  addLabel?: string;
+  onAdd?: () => void;
   children: React.ReactNode;
 }) {
   return (
-    <section className="content-section">
-      <div className="section-heading">
-        <div>
-          <p className="eyebrow">{eyebrow}</p>
-          <h2>{title}</h2>
-        </div>
-      </div>
+    <PageSection
+      title={title}
+      action={
+        addLabel && onAdd ? (
+          <IconButton icon="plus" variant="outline" label={addLabel} onClick={onAdd} />
+        ) : null
+      }
+    >
       {children}
-    </section>
+    </PageSection>
   );
 }
 
-// A summary row with Edit + Delete controls, shown when an entry is not being edited. An optional
-// `footer` renders below the row (used by certifications for their file control).
-function EntryRow({
+// One entry of a repeating section: a Panel on the page, with the entry's number and its delete in
+// the header row. The number counts from 1 in the order the entries are shown.
+function EntryPanel({
+  heading,
+  onDelete,
+  deleteLabel,
+  children,
+}: {
+  heading: string;
+  onDelete?: () => void;
+  deleteLabel?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Panel as="li" className="pf-entry-panel">
+      <div className="pf-entry-panel-header">
+        <p className="pf-entry-panel-heading">{heading}</p>
+        {onDelete && deleteLabel ? (
+          <IconButton icon="trash" label={deleteLabel} variant="outline" onClick={onDelete} />
+        ) : null}
+      </div>
+      {children}
+    </Panel>
+  );
+}
+
+// A summary of an entry that is not being edited, with its Edit control. An optional `footer`
+// renders below it (used by certifications for their file control).
+function EntrySummary({
   title,
   subtitle,
   onEdit,
-  onDelete,
   entityLabel,
   footer,
 }: {
   title: string;
   subtitle?: string | null;
   onEdit: () => void;
-  onDelete: () => void;
   entityLabel: string;
   footer?: React.ReactNode;
 }) {
   return (
-    <li className="pf-editor-item">
+    <>
       <div className="pf-editor-item-main">
         <div>
           <p className="pf-entry-title">{title}</p>
@@ -154,28 +251,28 @@ function EntryRow({
           <IconButton
             icon="edit"
             label={`Ubah ${entityLabel}`}
-            variant="ghost"
-            size="sm"
+            variant="outline"
             onClick={onEdit}
-          />
-          <IconButton
-            icon="trash"
-            label={`Hapus ${entityLabel}`}
-            variant="danger"
-            size="sm"
-            onClick={onDelete}
           />
         </div>
       </div>
       {footer}
-    </li>
+    </>
   );
 }
 
-// `onCancel` is only ever passed for an in-place edit form (Simpan/Batal); the persistent add
-// form at the bottom of each section never passes it, so its absence is the add-vs-edit signal.
-// Add forms render as an icon-only "+" (submitLabel becomes the accessible name); edit forms keep
-// full text buttons.
+// The empty entry that the section's "+" opens. It has no delete: Batal in its form closes it.
+function NewEntryPanel({ heading, children }: { heading: string; children: React.ReactNode }) {
+  return (
+    <Panel className="pf-entry-panel">
+      <div className="pf-entry-panel-header">
+        <p className="pf-entry-panel-heading">{heading}</p>
+      </div>
+      <FocusFirstFieldOnMount>{children}</FocusFirstFieldOnMount>
+    </Panel>
+  );
+}
+
 function FormActions({
   submitLabel,
   busy,
@@ -185,29 +282,14 @@ function FormActions({
   submitLabel: string;
   busy: boolean;
   onSubmit: () => void;
-  onCancel?: () => void;
+  onCancel: () => void;
 }) {
-  if (!onCancel) {
-    return (
-      <div className="pf-editor-form-actions">
-        <IconButton
-          icon="plus"
-          label={submitLabel}
-          variant="outline"
-          size="sm"
-          disabled={busy}
-          onClick={onSubmit}
-        />
-      </div>
-    );
-  }
-
   return (
     <div className="pf-editor-form-actions">
       <Button type="button" variant="outline" size="sm" loading={busy} onClick={onSubmit}>
         {submitLabel}
       </Button>
-      <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+      <Button type="button" variant="outline" size="sm" onClick={onCancel}>
         Batal
       </Button>
     </div>
@@ -290,7 +372,9 @@ function ExperienceForm({
         />
       </FormField>
       <FormField>
-        <FormLabel htmlFor={`${uid}-loc`}>Lokasi</FormLabel>
+        <FormLabel htmlFor={`${uid}-loc`} optional>
+          Lokasi
+        </FormLabel>
         <FormInput
           id={`${uid}-loc`}
           value={d.location}
@@ -298,7 +382,9 @@ function ExperienceForm({
         />
       </FormField>
       <FormField>
-        <FormLabel htmlFor={`${uid}-start`}>Mulai</FormLabel>
+        <FormLabel htmlFor={`${uid}-start`} optional>
+          Mulai
+        </FormLabel>
         <FormInput
           id={`${uid}-start`}
           type="month"
@@ -307,7 +393,9 @@ function ExperienceForm({
         />
       </FormField>
       <FormField>
-        <FormLabel htmlFor={`${uid}-end`}>Selesai</FormLabel>
+        <FormLabel htmlFor={`${uid}-end`} optional>
+          Selesai
+        </FormLabel>
         <FormInput
           id={`${uid}-end`}
           type="month"
@@ -324,7 +412,9 @@ function ExperienceForm({
         Masih berjalan
       </CheckboxField>
       <FormField>
-        <FormLabel htmlFor={`${uid}-desc`}>Deskripsi</FormLabel>
+        <FormLabel htmlFor={`${uid}-desc`} optional>
+          Deskripsi
+        </FormLabel>
         <FormTextarea
           id={`${uid}-desc`}
           value={d.description}
@@ -356,11 +446,16 @@ function ExperienceEditor({
   });
 
   return (
-    <SectionShell eyebrow="Karier" title="Pengalaman">
+    <SectionShell title="Pengalaman" addLabel="Tambah pengalaman" onAdd={c.openAddForm}>
       <ul className="pf-editor-list">
-        {c.items.map((entry) =>
-          c.editingId === entry.id ? (
-            <li key={entry.id}>
+        {c.items.map((entry, index) => (
+          <EntryPanel
+            key={entry.id}
+            heading={`Pengalaman ${index + 1}`}
+            onDelete={() => c.confirmRemove(entry.id, entry.title, "pengalaman")}
+            deleteLabel={`Hapus pengalaman ${entry.title}`}
+          >
+            {c.editingId === entry.id ? (
               <ExperienceForm
                 initial={experienceDraftFrom(entry)}
                 submitLabel="Simpan"
@@ -368,26 +463,29 @@ function ExperienceEditor({
                 onSubmit={(p) => c.update(entry.id, p)}
                 onCancel={() => c.setEditingId(null)}
               />
-            </li>
-          ) : (
-            <EntryRow
-              key={entry.id}
-              title={entry.title}
-              subtitle={entry.organizationName}
-              onEdit={() => c.setEditingId(entry.id)}
-              onDelete={() => c.remove(entry.id)}
-              entityLabel={`pengalaman ${entry.title}`}
-            />
-          ),
-        )}
+            ) : (
+              <EntrySummary
+                title={entry.title}
+                subtitle={entry.organizationName}
+                onEdit={() => c.setEditingId(entry.id)}
+                entityLabel={`pengalaman ${entry.title}`}
+              />
+            )}
+          </EntryPanel>
+        ))}
       </ul>
-      <ExperienceForm
-        key={c.addResetKey}
-        initial={emptyExperienceDraft()}
-        submitLabel="Tambah pengalaman"
-        busy={c.busy}
-        onSubmit={(p) => c.add(p)}
-      />
+      {c.isAdding ? (
+        <NewEntryPanel heading={`Pengalaman ${c.items.length + 1}`}>
+          <ExperienceForm
+            key={c.addResetKey}
+            initial={emptyExperienceDraft()}
+            submitLabel="Simpan"
+            busy={c.busy}
+            onSubmit={(p) => c.add(p)}
+            onCancel={c.closeAddForm}
+          />
+        </NewEntryPanel>
+      ) : null}
     </SectionShell>
   );
 }
@@ -455,7 +553,9 @@ function EducationForm({
         />
       </FormField>
       <FormField>
-        <FormLabel htmlFor={`${uid}-degree`}>Gelar</FormLabel>
+        <FormLabel htmlFor={`${uid}-degree`} optional>
+          Gelar
+        </FormLabel>
         <FormInput
           id={`${uid}-degree`}
           value={d.degree}
@@ -463,7 +563,9 @@ function EducationForm({
         />
       </FormField>
       <FormField>
-        <FormLabel htmlFor={`${uid}-field`}>Jurusan</FormLabel>
+        <FormLabel htmlFor={`${uid}-field`} optional>
+          Jurusan
+        </FormLabel>
         <FormInput
           id={`${uid}-field`}
           value={d.fieldOfStudy}
@@ -471,7 +573,9 @@ function EducationForm({
         />
       </FormField>
       <FormField>
-        <FormLabel htmlFor={`${uid}-start`}>Tahun mulai</FormLabel>
+        <FormLabel htmlFor={`${uid}-start`} optional>
+          Tahun mulai
+        </FormLabel>
         <FormInput
           id={`${uid}-start`}
           type="number"
@@ -480,7 +584,9 @@ function EducationForm({
         />
       </FormField>
       <FormField>
-        <FormLabel htmlFor={`${uid}-end`}>Tahun lulus</FormLabel>
+        <FormLabel htmlFor={`${uid}-end`} optional>
+          Tahun lulus
+        </FormLabel>
         <FormInput
           id={`${uid}-end`}
           type="number"
@@ -513,11 +619,16 @@ function EducationEditor({
   });
 
   return (
-    <SectionShell eyebrow="Pendidikan" title="Riwayat pendidikan">
+    <SectionShell title="Riwayat pendidikan" addLabel="Tambah pendidikan" onAdd={c.openAddForm}>
       <ul className="pf-editor-list">
-        {c.items.map((entry) =>
-          c.editingId === entry.id ? (
-            <li key={entry.id}>
+        {c.items.map((entry, index) => (
+          <EntryPanel
+            key={entry.id}
+            heading={`Pendidikan ${index + 1}`}
+            onDelete={() => c.confirmRemove(entry.id, entry.school, "pendidikan")}
+            deleteLabel={`Hapus pendidikan ${entry.school}`}
+          >
+            {c.editingId === entry.id ? (
               <EducationForm
                 initial={educationDraftFrom(entry)}
                 submitLabel="Simpan"
@@ -525,26 +636,29 @@ function EducationEditor({
                 onSubmit={(p) => c.update(entry.id, p)}
                 onCancel={() => c.setEditingId(null)}
               />
-            </li>
-          ) : (
-            <EntryRow
-              key={entry.id}
-              title={entry.school}
-              subtitle={entry.fieldOfStudy ?? entry.degree}
-              onEdit={() => c.setEditingId(entry.id)}
-              onDelete={() => c.remove(entry.id)}
-              entityLabel={`pendidikan ${entry.school}`}
-            />
-          ),
-        )}
+            ) : (
+              <EntrySummary
+                title={entry.school}
+                subtitle={entry.fieldOfStudy ?? entry.degree}
+                onEdit={() => c.setEditingId(entry.id)}
+                entityLabel={`pendidikan ${entry.school}`}
+              />
+            )}
+          </EntryPanel>
+        ))}
       </ul>
-      <EducationForm
-        key={c.addResetKey}
-        initial={emptyEducationDraft()}
-        submitLabel="Tambah pendidikan"
-        busy={c.busy}
-        onSubmit={(p) => c.add(p)}
-      />
+      {c.isAdding ? (
+        <NewEntryPanel heading={`Pendidikan ${c.items.length + 1}`}>
+          <EducationForm
+            key={c.addResetKey}
+            initial={emptyEducationDraft()}
+            submitLabel="Simpan"
+            busy={c.busy}
+            onSubmit={(p) => c.add(p)}
+            onCancel={c.closeAddForm}
+          />
+        </NewEntryPanel>
+      ) : null}
     </SectionShell>
   );
 }
@@ -573,7 +687,7 @@ function SkillEditor({
   };
 
   return (
-    <SectionShell eyebrow="Keahlian" title="Keahlian">
+    <SectionShell title="Keahlian">
       <ul className="pf-tags pf-tags-editable">
         {c.items.map((entry) => (
           <li key={entry.id} className="pf-tag">
@@ -600,7 +714,6 @@ function SkillEditor({
           icon="plus"
           label="Tambah keahlian"
           variant="outline"
-          size="sm"
           disabled={c.busy}
           onClick={add}
         />
@@ -681,7 +794,9 @@ function CertificationForm({
         />
       </FormField>
       <FormField>
-        <FormLabel htmlFor={`${uid}-issued`}>Tanggal terbit</FormLabel>
+        <FormLabel htmlFor={`${uid}-issued`} optional>
+          Tanggal terbit
+        </FormLabel>
         <FormInput
           id={`${uid}-issued`}
           type="month"
@@ -690,7 +805,9 @@ function CertificationForm({
         />
       </FormField>
       <FormField>
-        <FormLabel htmlFor={`${uid}-expiry`}>Berlaku sampai</FormLabel>
+        <FormLabel htmlFor={`${uid}-expiry`} optional>
+          Berlaku sampai
+        </FormLabel>
         <FormInput
           id={`${uid}-expiry`}
           type="month"
@@ -699,7 +816,9 @@ function CertificationForm({
         />
       </FormField>
       <FormField>
-        <FormLabel htmlFor={`${uid}-cred-id`}>ID kredensial</FormLabel>
+        <FormLabel htmlFor={`${uid}-cred-id`} optional>
+          ID kredensial
+        </FormLabel>
         <FormInput
           id={`${uid}-cred-id`}
           value={d.credentialId}
@@ -707,7 +826,9 @@ function CertificationForm({
         />
       </FormField>
       <FormField>
-        <FormLabel htmlFor={`${uid}-cred-url`}>URL kredensial</FormLabel>
+        <FormLabel htmlFor={`${uid}-cred-url`} optional>
+          URL kredensial
+        </FormLabel>
         <FormInput
           id={`${uid}-cred-url`}
           value={d.credentialUrl}
@@ -770,9 +891,12 @@ function CertFileControl({
 
   const onRemove = async () => {
     setBusy(true);
-    const result = await ownerFetch(expectedUserId, `/uploads/certifications/${certId}`, {
-      method: "DELETE",
-    });
+    const result = await ownerFetch(
+      expectedUserId,
+      `/uploads/certifications/${certId}`,
+      { method: "DELETE" },
+      PROFILE_FILE_REMOVE_FALLBACK,
+    );
     setBusy(false);
     if (!result.ok) {
       addToast({ type: "error", message: result.message });
@@ -842,11 +966,16 @@ function CertificationEditor({
   });
 
   return (
-    <SectionShell eyebrow="Sertifikasi" title="Sertifikasi & lisensi">
+    <SectionShell title="Sertifikasi & lisensi" addLabel="Tambah sertifikasi" onAdd={c.openAddForm}>
       <ul className="pf-editor-list">
-        {c.items.map((entry) =>
-          c.editingId === entry.id ? (
-            <li key={entry.id}>
+        {c.items.map((entry, index) => (
+          <EntryPanel
+            key={entry.id}
+            heading={`Sertifikasi ${index + 1}`}
+            onDelete={() => c.confirmRemove(entry.id, entry.name, "sertifikasi")}
+            deleteLabel={`Hapus sertifikasi ${entry.name}`}
+          >
+            {c.editingId === entry.id ? (
               <CertificationForm
                 initial={certificationDraftFrom(entry)}
                 submitLabel="Simpan"
@@ -854,35 +983,38 @@ function CertificationEditor({
                 onSubmit={(p) => c.update(entry.id, p)}
                 onCancel={() => c.setEditingId(null)}
               />
-            </li>
-          ) : (
-            <EntryRow
-              key={entry.id}
-              title={entry.name}
-              subtitle={entry.issuer}
-              onEdit={() => c.setEditingId(entry.id)}
-              onDelete={() => c.remove(entry.id)}
-              entityLabel={`sertifikasi ${entry.name}`}
-              footer={
-                <CertFileControl
-                  expectedUserId={expectedUserId}
-                  certId={entry.id}
-                  initialFileName={entry.fileName}
-                  initialFileUrl={entry.fileUrl}
-                  addToast={addToast}
-                />
-              }
-            />
-          ),
-        )}
+            ) : (
+              <EntrySummary
+                title={entry.name}
+                subtitle={entry.issuer}
+                onEdit={() => c.setEditingId(entry.id)}
+                entityLabel={`sertifikasi ${entry.name}`}
+                footer={
+                  <CertFileControl
+                    expectedUserId={expectedUserId}
+                    certId={entry.id}
+                    initialFileName={entry.fileName}
+                    initialFileUrl={entry.fileUrl}
+                    addToast={addToast}
+                  />
+                }
+              />
+            )}
+          </EntryPanel>
+        ))}
       </ul>
-      <CertificationForm
-        key={c.addResetKey}
-        initial={emptyCertificationDraft()}
-        submitLabel="Tambah sertifikasi"
-        busy={c.busy}
-        onSubmit={(p) => c.add(p)}
-      />
+      {c.isAdding ? (
+        <NewEntryPanel heading={`Sertifikasi ${c.items.length + 1}`}>
+          <CertificationForm
+            key={c.addResetKey}
+            initial={emptyCertificationDraft()}
+            submitLabel="Simpan"
+            busy={c.busy}
+            onSubmit={(p) => c.add(p)}
+            onCancel={c.closeAddForm}
+          />
+        </NewEntryPanel>
+      ) : null}
     </SectionShell>
   );
 }
@@ -912,10 +1044,13 @@ function SocialLinkForm({
   return (
     <div className="pf-editor-form">
       <FormField>
-        <FormLabel htmlFor={`${uid}-platform`}>Platform</FormLabel>
+        <FormLabel htmlFor={`${uid}-platform`} required>
+          Platform
+        </FormLabel>
         <SelectField
           id={`${uid}-platform`}
           label="Platform"
+          required
           value={d.platform}
           onChange={(value) => set({ platform: value as SocialPlatform })}
           options={SOCIAL_PLATFORMS.map((p) => ({ value: p, label: PLATFORM_LABELS[p] }))}
@@ -957,11 +1092,16 @@ function SocialLinkEditor({
   });
 
   return (
-    <SectionShell eyebrow="Tautan" title="Tautan sosial">
+    <SectionShell title="Tautan sosial" addLabel="Tambah tautan" onAdd={c.openAddForm}>
       <ul className="pf-editor-list">
-        {c.items.map((entry) =>
-          c.editingId === entry.id ? (
-            <li key={entry.id}>
+        {c.items.map((entry, index) => (
+          <EntryPanel
+            key={entry.id}
+            heading={`Tautan ${index + 1}`}
+            onDelete={() => c.confirmRemove(entry.id, PLATFORM_LABELS[entry.platform], "tautan")}
+            deleteLabel={`Hapus tautan ${PLATFORM_LABELS[entry.platform]}`}
+          >
+            {c.editingId === entry.id ? (
               <SocialLinkForm
                 initial={socialLinkDraftFrom(entry)}
                 submitLabel="Simpan"
@@ -969,26 +1109,29 @@ function SocialLinkEditor({
                 onSubmit={(p) => c.update(entry.id, p)}
                 onCancel={() => c.setEditingId(null)}
               />
-            </li>
-          ) : (
-            <EntryRow
-              key={entry.id}
-              title={PLATFORM_LABELS[entry.platform]}
-              subtitle={entry.url}
-              onEdit={() => c.setEditingId(entry.id)}
-              onDelete={() => c.remove(entry.id)}
-              entityLabel={`tautan ${PLATFORM_LABELS[entry.platform]}`}
-            />
-          ),
-        )}
+            ) : (
+              <EntrySummary
+                title={PLATFORM_LABELS[entry.platform]}
+                subtitle={entry.url}
+                onEdit={() => c.setEditingId(entry.id)}
+                entityLabel={`tautan ${PLATFORM_LABELS[entry.platform]}`}
+              />
+            )}
+          </EntryPanel>
+        ))}
       </ul>
-      <SocialLinkForm
-        key={c.addResetKey}
-        initial={emptySocialLinkDraft()}
-        submitLabel="Tambah tautan"
-        busy={c.busy}
-        onSubmit={(p) => c.add(p)}
-      />
+      {c.isAdding ? (
+        <NewEntryPanel heading={`Tautan ${c.items.length + 1}`}>
+          <SocialLinkForm
+            key={c.addResetKey}
+            initial={emptySocialLinkDraft()}
+            submitLabel="Simpan"
+            busy={c.busy}
+            onSubmit={(p) => c.add(p)}
+            onCancel={c.closeAddForm}
+          />
+        </NewEntryPanel>
+      ) : null}
     </SectionShell>
   );
 }
@@ -1012,7 +1155,10 @@ export function ProfileCollectionsEditor({
         headers: body ? { "Content-Type": "application/json" } : undefined,
         body: body ? JSON.stringify(body) : undefined,
       });
-      let data: { entry?: unknown; error?: { code?: string; message?: string } } = {};
+      let data: {
+        entry?: unknown;
+        error?: { code?: string; details?: { fields?: string[] } };
+      } = {};
       try {
         data = await res.json();
       } catch {
@@ -1020,10 +1166,12 @@ export function ProfileCollectionsEditor({
       }
       if (!res.ok) {
         const code = data.error?.code ?? null;
-        const message =
-          code === SESSION_MISMATCH_CODE
-            ? SESSION_MISMATCH_MESSAGE
-            : (data.error?.message ?? "Terjadi kesalahan. Coba lagi.");
+        const copyKey = refusalCopyKey(data.error?.code, data.error?.details?.fields?.[0]);
+        const message = errorMessageFor(
+          copyKey,
+          COLLECTION_ERROR_COPY,
+          COLLECTION_FALLBACK[method],
+        );
         return { ok: false, code, message };
       }
       return { ok: true, entry: data.entry, code: null, message: "" };

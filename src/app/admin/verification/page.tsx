@@ -2,7 +2,19 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useModal, useToast } from "@/components/ui/primitives";
-import { Button, EmptyState, PageHeader, Skeleton } from "@/components/ui";
+import {
+  Button,
+  EmptyState,
+  FormLabel,
+  FormLabelText,
+  FormTextarea,
+  PageHeader,
+  Skeleton,
+  Table,
+  type TableColumn,
+  type TableRowData,
+} from "@/components/ui";
+import { LocalDate } from "@/components/ui/local-date";
 import { DOCUMENT_TYPE_LABELS } from "@/server/institution-verification/verification-requirements";
 import { INSTITUTION_TYPE_LABELS } from "@/lib/institutions/type-labels";
 import type { InstitutionType } from "@/server/db/schema";
@@ -11,6 +23,44 @@ import { emailDeliveryWarning, type EmailDeliveryPayload } from "@/lib/email/del
 import { resolveVerificationRefusalMessage } from "@/lib/institutions/verification-refusal-copy";
 
 type SubmissionStatus = "pending_review" | "approved" | "rejected";
+
+const DECISION_FALLBACK: Record<"approved" | "rejected", string> = {
+  approved: "Pengajuan gagal disetujui. Coba lagi.",
+  rejected: "Pengajuan gagal ditolak. Coba lagi.",
+};
+
+const DOCUMENT_COLUMNS: readonly TableColumn[] = [
+  { key: "type", header: "Tipe", kind: "name" },
+  { key: "fileName", header: "Nama file", kind: "text" },
+  { key: "format", header: "Format", kind: "text" },
+];
+
+const QUEUE_COLUMNS: readonly TableColumn[] = [
+  { key: "institution", header: "Institusi", kind: "name" },
+  { key: "submitter", header: "Submitter", kind: "text" },
+  { key: "target", header: "Tipe tujuan", kind: "text" },
+  { key: "proposedName", header: "Nama diusulkan", kind: "text" },
+  { key: "domain", header: "Domain email", kind: "pill" },
+  { key: "documents", header: "Dokumen", kind: "number" },
+  { key: "submittedAt", header: "Dikirim", kind: "date" },
+  { key: "actions", header: "Tindakan", kind: "control", hideHeader: true },
+];
+
+function EmailDomainPill({ flag }: { flag: boolean | null }) {
+  if (flag === null) return <span className="status-badge">N/A</span>;
+  if (flag) {
+    return (
+      <span className="status-badge" data-status="open">
+        Institusional
+      </span>
+    );
+  }
+  return (
+    <span className="status-badge" data-status="closed">
+      Personal
+    </span>
+  );
+}
 
 type PendingItem = {
   id: string;
@@ -61,6 +111,15 @@ function ReviewPanelBody({
   const [pendingDecision, setPendingDecision] = useState<"approved" | "rejected" | null>(null);
   const { addToast } = useToast();
 
+  const documentRows: TableRowData[] = detail.documents.map((doc) => ({
+    key: doc.id,
+    cells: {
+      type: DOCUMENT_TYPE_LABELS[doc.documentType] ?? formatDisplayToken(doc.documentType),
+      fileName: doc.originalFileName,
+      format: doc.contentType,
+    },
+  }));
+
   const submitDecision = async (decision: "approved" | "rejected") => {
     setPendingDecision(decision);
     try {
@@ -76,7 +135,7 @@ function ReviewPanelBody({
       if (!res.ok) {
         addToast({
           type: "error",
-          message: resolveVerificationRefusalMessage(data.error, `Error ${res.status}`),
+          message: resolveVerificationRefusalMessage(data.error, DECISION_FALLBACK[decision]),
         });
         return;
       }
@@ -85,7 +144,7 @@ function ReviewPanelBody({
       // an error that would suggest the review did not land.
       const deliveryWarning = emailDeliveryWarning(data.emailDelivery);
       if (deliveryWarning) {
-        addToast({ type: "warning", message: deliveryWarning, duration: 0 });
+        addToast({ type: "error", message: deliveryWarning });
       }
 
       closeModal();
@@ -110,41 +169,19 @@ function ReviewPanelBody({
       </p>
 
       <div className="stack-sm">
-        <p className="form-label">Dokumen</p>
-        <div className="table-scroll">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Tipe</th>
-                <th>Nama file</th>
-                <th>Format</th>
-              </tr>
-            </thead>
-            <tbody>
-              {detail.documents.map((doc) => (
-                <tr key={doc.id}>
-                  <td>
-                    {DOCUMENT_TYPE_LABELS[doc.documentType] ?? formatDisplayToken(doc.documentType)}
-                  </td>
-                  <td>{doc.originalFileName}</td>
-                  <td className="data-text">{doc.contentType}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <FormLabelText as="p">Dokumen</FormLabelText>
+        <Table label="Dokumen" columns={DOCUMENT_COLUMNS} rows={documentRows} />
       </div>
 
       <div className="form-field">
-        <label htmlFor="reviewer-notes-textarea" className="form-label">
-          Catatan reviewer (Opsional)
-        </label>
-        <textarea
+        <FormLabel htmlFor="reviewer-notes-textarea" optional>
+          Catatan reviewer
+        </FormLabel>
+        <FormTextarea
           id="reviewer-notes-textarea"
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           rows={3}
-          className="form-textarea"
           placeholder="Catatan untuk pemilik institusi..."
         />
       </div>
@@ -154,7 +191,7 @@ function ReviewPanelBody({
           Batal
         </Button>
         <Button
-          variant="danger"
+          variant="primary"
           onClick={() => void submitDecision("rejected")}
           loading={pendingDecision === "rejected"}
           disabled={pendingDecision !== null}
@@ -219,8 +256,8 @@ export default function AdminVerificationPage() {
             onReviewed={() => void fetchPending()}
           />
         ),
+        wide: true,
         actions: [],
-        closeable: true,
       });
     } catch {
       addToast({ type: "error", message: "Terjadi kesalahan saat memuat detail." });
@@ -229,12 +266,43 @@ export default function AdminVerificationPage() {
     }
   };
 
+  const queueRows: TableRowData[] = items.map((item) => ({
+    key: item.id,
+    cells: {
+      institution: (
+        <>
+          {item.institutionDisplayName}
+          <span className="ui-table-sub data-text">{item.institutionSlug}</span>
+        </>
+      ),
+      submitter: item.submitterEmail,
+      target: INSTITUTION_TYPE_LABELS[item.targetInstitutionType],
+      proposedName: item.proposedDisplayName,
+      domain: <EmailDomainPill flag={item.emailDomainFlag} />,
+      documents: item.documentCount,
+      submittedAt: <LocalDate value={item.submittedAt} format="shortDate" />,
+      actions: (
+        <Button
+          onClick={() => void openReview(item.id)}
+          loading={openingReviewId === item.id}
+          size="sm"
+        >
+          Tinjau
+        </Button>
+      ),
+    },
+  }));
+
   return (
     <main className="page-shell app-page admin-page">
       <PageHeader
         title="Antrean verifikasi dokumen"
         description="Tinjau bukti institusi yang masih menunggu keputusan Platform Operations."
-        actions={<span className="status-badge data-text">{items.length} menunggu</span>}
+        titleMark={
+          items.length > 0 ? (
+            <span className="status-badge data-text">{items.length} menunggu</span>
+          ) : null
+        }
       />
 
       {loading && (
@@ -247,69 +315,14 @@ export default function AdminVerificationPage() {
 
       {!loading && items.length === 0 && (
         <EmptyState
-          icon="check"
-          title="Antrean sudah bersih."
+          kind="queue-clear"
+          title="Antrean sudah bersih"
           description="Tidak ada pengajuan dokumen yang menunggu tinjauan."
         />
       )}
 
       {!loading && items.length > 0 && (
-        <div className="table-scroll">
-          <table className="data-table admin-verification-table">
-            <thead>
-              <tr>
-                <th>Institusi</th>
-                <th>Submitter</th>
-                <th>Tipe tujuan</th>
-                <th>Nama diusulkan</th>
-                <th>Domain email</th>
-                <th>Dokumen</th>
-                <th>Dikirim</th>
-                <th>Aksi</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((item) => (
-                <tr key={item.id}>
-                  <td>
-                    <strong>{item.institutionDisplayName}</strong>
-                    <br />
-                    <span className="record-meta data-text">{item.institutionSlug}</span>
-                  </td>
-                  <td>{item.submitterEmail ?? "–"}</td>
-                  <td>{INSTITUTION_TYPE_LABELS[item.targetInstitutionType]}</td>
-                  <td>{item.proposedDisplayName ?? "–"}</td>
-                  <td>
-                    {item.emailDomainFlag === null ? (
-                      <span className="status-badge">N/A</span>
-                    ) : item.emailDomainFlag ? (
-                      <span className="status-badge" data-status="open">
-                        Institusional
-                      </span>
-                    ) : (
-                      <span className="status-badge" data-status="closing">
-                        Personal
-                      </span>
-                    )}
-                  </td>
-                  <td className="data-text">{item.documentCount}</td>
-                  <td className="data-text">
-                    {new Date(item.submittedAt).toLocaleDateString("id-ID")}
-                  </td>
-                  <td>
-                    <Button
-                      onClick={() => void openReview(item.id)}
-                      loading={openingReviewId === item.id}
-                      size="sm"
-                    >
-                      Tinjau
-                    </Button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <Table label="Antrean verifikasi" columns={QUEUE_COLUMNS} rows={queueRows} stacked />
       )}
     </main>
   );

@@ -2,13 +2,29 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, SelectField } from "@/components/ui";
+import { Button, FormLabel, FormTextarea, SelectField } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
-import {
-  SESSION_MISMATCH_CODE,
-  SESSION_MISMATCH_MESSAGE,
-  sessionFetch,
-} from "@/lib/session/session-fetch";
+import { errorMessageFor } from "@/lib/errors/error-copy";
+import { sessionFetch } from "@/lib/session/session-fetch";
+
+// A key "<code>.<field>" holds the sentence for a refusal about one field.
+const REVIEW_ERROR_COPY: Partial<Record<string, string>> = {
+  forbidden: "Akun Anda bukan akun kandidat. Masuk dengan akun kandidat untuk melanjutkan.",
+  "review_invalid_value.rating": "Pilih penilaian 1 sampai 5.",
+  "review_invalid_value.body": "Ulasan maksimal 2000 karakter.",
+  review_invalid_value: "Periksa penilaian dan ulasan Anda lalu coba lagi.",
+  review_not_eligible: "Hanya peserta dengan pendaftaran terkonfirmasi yang dapat memberi ulasan.",
+};
+
+const REVIEW_SAVE_FALLBACK = "Gagal menyimpan ulasan. Coba lagi.";
+
+const refusalCopyKey = (
+  code: string | undefined,
+  field: string | undefined,
+): string | undefined => {
+  const fieldKey = `${code}.${field}`;
+  return field && REVIEW_ERROR_COPY[fieldKey] ? fieldKey : code;
+};
 
 type Props = {
   competitionId: string;
@@ -39,14 +55,12 @@ export function CompetitionReviewForm({ competitionId, expectedUserId, initialRe
       );
       if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as {
-          error?: { code?: string; message?: string };
+          error?: { code?: string; details?: { fields?: string[] } };
         } | null;
+        const copyKey = refusalCopyKey(payload?.error?.code, payload?.error?.details?.fields?.[0]);
         addToast({
           type: "error",
-          message:
-            payload?.error?.code === SESSION_MISMATCH_CODE
-              ? SESSION_MISMATCH_MESSAGE
-              : (payload?.error?.message ?? "Gagal menyimpan ulasan. Coba lagi."),
+          message: errorMessageFor(copyKey, REVIEW_ERROR_COPY, REVIEW_SAVE_FALLBACK),
         });
         return;
       }
@@ -65,12 +79,13 @@ export function CompetitionReviewForm({ competitionId, expectedUserId, initialRe
   return (
     <form className="stack-sm" onSubmit={onSubmit}>
       <div className="form-field">
-        <label className="form-label" htmlFor="review-rating">
+        <FormLabel htmlFor="review-rating" required>
           Penilaian
-        </label>
+        </FormLabel>
         <SelectField
           id="review-rating"
           label="Penilaian"
+          required
           value={String(rating)}
           onChange={(value) => setRating(Number(value))}
           options={[5, 4, 3, 2, 1].map((value) => ({
@@ -80,12 +95,11 @@ export function CompetitionReviewForm({ competitionId, expectedUserId, initialRe
         />
       </div>
       <div className="form-field">
-        <label className="form-label" htmlFor="review-body">
-          Ulasan (Opsional)
-        </label>
-        <textarea
+        <FormLabel htmlFor="review-body" optional>
+          Ulasan
+        </FormLabel>
+        <FormTextarea
           id="review-body"
-          className="form-textarea"
           rows={3}
           value={body}
           maxLength={2000}

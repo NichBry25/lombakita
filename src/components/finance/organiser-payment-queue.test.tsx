@@ -9,7 +9,7 @@
 // withholding is observable.
 
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 
 // The router only, and deliberately nothing else. A sibling component test in this repo also mocks
 // `@/components/ui`; doing that here would replace the very buttons whose presence and absence this
@@ -52,7 +52,7 @@ describe("OrganiserPaymentQueue", () => {
     renderQueue([proof()]);
 
     expect(screen.getByRole("button", { name: "Verifikasi" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Tolak" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Tolak pembayaran" })).toBeTruthy();
   });
 
   it("WITHHOLDS both verdicts on a verified proof", () => {
@@ -62,7 +62,7 @@ describe("OrganiserPaymentQueue", () => {
     renderQueue([proof({ status: "verified" })]);
 
     expect(screen.queryByRole("button", { name: "Verifikasi" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Tolak" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Tolak pembayaran" })).toBeNull();
   });
 
   it("WITHHOLDS both verdicts on a rejected proof", () => {
@@ -71,14 +71,14 @@ describe("OrganiserPaymentQueue", () => {
     renderQueue([proof({ status: "rejected", rejectionReason: "Nominal tidak sesuai" })]);
 
     expect(screen.queryByRole("button", { name: "Verifikasi" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Tolak" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Tolak pembayaran" })).toBeNull();
   });
 
   it("WITHHOLDS both verdicts on a proof the platform voided", () => {
     renderQueue([proof({ status: "voided" })]);
 
     expect(screen.queryByRole("button", { name: "Verifikasi" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Tolak" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Tolak pembayaran" })).toBeNull();
   });
 
   it("keeps the file open control on every state, including the settled ones", () => {
@@ -87,6 +87,7 @@ describe("OrganiserPaymentQueue", () => {
     renderQueue([proof({ status: "verified" })]);
 
     expect(screen.getByRole("button", { name: "Lihat bukti" })).toBeTruthy();
+    expect(screen.getByText(/bukti\.jpg/)).toBeTruthy();
   });
 
   it("offers verdicts on the pending row only when a settled row sits beside it", () => {
@@ -137,19 +138,54 @@ describe("OrganiserPaymentQueue", () => {
 // the only thing asserting it survives at all. It is the one sentence that stops an organiser
 // verifying on the strength of a screenshot: the platform never sees this money and cannot check.
 describe("what the verify confirmation tells the reviewer", () => {
-  it("says the money must be visible in the institution's own account first", () => {
+  it("says the money must be visible in the institution's own account before verifying", () => {
     renderQueue([proof()]);
     fireEvent.click(screen.getByRole("button", { name: "Verifikasi" }));
 
-    expect(screen.getByText(/mutasi rekening lembaga Anda/)).toBeTruthy();
-    expect(screen.getByText(/Lombakita tidak dapat memeriksanya/)).toBeTruthy();
+    expect(screen.getByText(/mutasi rekening institusi Anda sebelum memverifikasi/)).toBeTruthy();
   });
 
-  it("says the verdict cannot be undone by the organiser who made it", () => {
+  it("says only the Lombakita team can correct the verdict afterwards", () => {
     renderQueue([proof()]);
     fireEvent.click(screen.getByRole("button", { name: "Verifikasi" }));
 
-    expect(screen.getByText(/tidak dapat Anda batalkan sendiri/)).toBeTruthy();
+    expect(screen.getByText(/koreksi hanya dapat dilakukan oleh tim Lombakita/)).toBeTruthy();
+  });
+
+  it("links the payment terms from the pop-up and starts focus on the safe choice", () => {
+    renderQueue([proof()]);
+    fireEvent.click(screen.getByRole("button", { name: "Verifikasi" }));
+
+    const dialog = screen.getByRole("dialog");
+    const termsLink = within(dialog).getByRole("link", { name: "Baca ketentuan pembayaran" });
+    expect(termsLink.getAttribute("href")).toBe("/syarat-ketentuan#biaya-pendaftaran");
+    expect(document.activeElement?.textContent).toBe("Batal");
+  });
+});
+
+describe("the reject pop-up", () => {
+  it("is always enabled: an empty reason shows the field error on press and sends nothing", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    renderQueue([proof()]);
+    fireEvent.click(screen.getByRole("button", { name: "Tolak pembayaran" }));
+
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByRole("heading", { name: "Tolak bukti transfer?" })).toBeTruthy();
+    const mainButton = within(dialog).getByRole("button", {
+      name: "Tolak pembayaran",
+    }) as HTMLButtonElement;
+    expect(mainButton.disabled).toBe(false);
+
+    fireEvent.click(mainButton);
+
+    expect(
+      await within(dialog).findByText(
+        "Penolakan harus menyertakan alasan agar peserta tahu apa yang perlu diperbaiki.",
+      ),
+    ).toBeTruthy();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
   });
 });
 
@@ -166,7 +202,7 @@ describe("what tone the queue notes carry", () => {
     return note ? note.getAttribute("data-tone") : null;
   };
 
-  it("prints a rejection in the refusing tone, never the one success uses", () => {
+  it("prints a rejection reason as a neutral note, never in the tone success uses", () => {
     renderQueue([
       proof({
         status: "rejected",
@@ -175,7 +211,7 @@ describe("what tone the queue notes carry", () => {
       }),
     ]);
 
-    expect(toneOf(/Ditolak dengan alasan/)).toBe("error");
+    expect(toneOf(/Nominal tidak sesuai/)).toBe("neutral");
   });
 
   it("prints the count of prior attempts as a neutral fact, not as a warning", () => {

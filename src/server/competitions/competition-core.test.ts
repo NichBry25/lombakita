@@ -7,6 +7,7 @@ import {
   CompetitionError,
   COMPETITION_STATUS_VALUES,
   TEAM_MODE_MIN_SIZE,
+  findMissingPublishFields,
   isAllowedStatusTransition,
   normalizeCompetitionSlug,
   parseCompetitionCreateInput,
@@ -256,7 +257,7 @@ describe("parseCompetitionPatchInput", () => {
         registrationStartAt: "2027-06-01T00:00:00Z",
         registrationEndAt: "2027-05-01T00:00:00Z",
       }),
-    ).toThrow(/Pendaftaran berakhir harus setelah pendaftaran mulai/);
+    ).toThrow(/Harus setelah pendaftaran mulai/);
   });
   it("rejects registrationEndAt in the past", () => {
     expect(() =>
@@ -294,6 +295,7 @@ describe("validatePublishChecklist", () => {
     description: "Deskripsi yang panjang",
     category: "hackathon" as const,
     mode: "individual" as const,
+    location: "online" as const,
     registrationStartAt: inFuture(7),
     registrationEndAt: inFuture(30),
     eventStartAt: inFuture(40),
@@ -344,6 +346,19 @@ describe("validatePublishChecklist", () => {
     expect(result.failures).toContainEqual(
       expect.objectContaining({ field: "description", code: "missing" }),
     );
+  });
+
+  it("flags a missing location with code 'missing'", () => {
+    const result = validatePublishChecklist({ ...passing(), location: null });
+    expect(result.passed).toBe(false);
+    expect(result.failures).toContainEqual(
+      expect.objectContaining({ field: "location", code: "missing" }),
+    );
+  });
+
+  it("leaves a location out of the checks a published edit runs", () => {
+    const emptyLocation = { ...passing(), location: null };
+    expect(findMissingPublishFields(emptyLocation)).toEqual([]);
   });
 
   it("flags missing mode and category", () => {
@@ -473,6 +488,7 @@ describe("validatePublishChecklist", () => {
       description: "",
       category: null,
       mode: null,
+      location: null,
       registrationStartAt: null,
       registrationEndAt: null,
       eventStartAt: null,
@@ -545,6 +561,7 @@ describe("F5 — mode floor at publish time (validatePublishChecklist)", () => {
     title: "Lomba",
     description: "Desc",
     category: "hackathon" as const,
+    location: "online" as const,
     registrationStartAt: inFuture(7),
     registrationEndAt: inFuture(30),
     eventStartAt: inFuture(40),

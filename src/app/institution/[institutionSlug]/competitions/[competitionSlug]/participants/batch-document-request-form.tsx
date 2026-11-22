@@ -2,8 +2,16 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, CheckboxField } from "@/components/ui";
+import {
+  Button,
+  CheckboxField,
+  FormInput,
+  FormLabel,
+  FormLabelText,
+  FormTextarea,
+} from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
+import { resolveDocumentRequestErrorMessage } from "@/lib/registration-documents/document-request-error-copy";
 
 export type BatchTarget = {
   registrationId: string;
@@ -124,11 +132,14 @@ export function BatchDocumentRequestForm({
 
       if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as {
-          error?: { message?: string };
+          error?: { code?: string };
         } | null;
         addToast({
           type: "error",
-          message: payload?.error?.message ?? "Gagal mengirim permintaan. Coba lagi.",
+          message: resolveDocumentRequestErrorMessage(
+            payload?.error?.code,
+            "Gagal mengirim permintaan. Coba lagi.",
+          ),
         });
         return;
       }
@@ -184,9 +195,9 @@ export function BatchDocumentRequestForm({
       {expanded ? (
         <form id="batch-document-request" className="auth-form" onSubmit={submit}>
           <fieldset className="form-field">
-            <legend className="form-label form-label-required">
+            <FormLabelText as="legend" required>
               Peserta ({selected.size} dipilih)
-            </legend>
+            </FormLabelText>
             <div className="record-actions">
               {allEligibleIds.length > 0 ? (
                 <Button type="button" variant="outline" size="sm" onClick={selectAllEligible}>
@@ -194,14 +205,14 @@ export function BatchDocumentRequestForm({
                 </Button>
               ) : null}
               {selectable.length > 0 ? (
-                <Button type="button" variant="ghost" size="sm" onClick={selectPage}>
+                <Button type="button" variant="outline" size="sm" onClick={selectPage}>
                   Pilih halaman ini ({selectable.length})
                 </Button>
               ) : null}
               {selected.size > 0 ? (
                 <Button
                   type="button"
-                  variant="ghost"
+                  variant="outline"
                   size="sm"
                   onClick={() => setSelected(new Set())}
                 >
@@ -234,12 +245,11 @@ export function BatchDocumentRequestForm({
           </fieldset>
 
           <div className="form-field">
-            <label className="form-label form-label-required" htmlFor="batch-title">
+            <FormLabel htmlFor="batch-title" required>
               Dokumen yang diminta
-            </label>
-            <input
+            </FormLabel>
+            <FormInput
               id="batch-title"
-              className="form-input"
               value={title}
               onChange={(event) => setTitle(event.target.value)}
               maxLength={160}
@@ -249,12 +259,11 @@ export function BatchDocumentRequestForm({
           </div>
 
           <div className="form-field">
-            <label className="form-label" htmlFor="batch-instructions">
+            <FormLabel htmlFor="batch-instructions" optional>
               Petunjuk
-            </label>
-            <textarea
+            </FormLabel>
+            <FormTextarea
               id="batch-instructions"
-              className="form-textarea"
               rows={3}
               value={instructions}
               onChange={(event) => setInstructions(event.target.value)}
@@ -264,12 +273,11 @@ export function BatchDocumentRequestForm({
           </div>
 
           <div className="form-field">
-            <label className="form-label form-label-required" htmlFor="batch-due">
+            <FormLabel htmlFor="batch-due" required>
               Tenggat
-            </label>
-            <input
+            </FormLabel>
+            <FormInput
               id="batch-due"
-              className="form-input"
               type="datetime-local"
               value={dueAt}
               onChange={(event) => setDueAt(event.target.value)}

@@ -51,7 +51,6 @@ export default async function ProtectedPage() {
       <section className="content-section">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Konteks autentikasi</p>
             <h2>Session</h2>
           </div>
         </div>
@@ -74,7 +73,6 @@ export default async function ProtectedPage() {
       <section className="content-section">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Status akun</p>
             <h2>Verifikasi per peran</h2>
           </div>
         </div>
@@ -99,7 +97,7 @@ export default async function ProtectedPage() {
 
       <div className="page-secondary-actions">
         <SignOutButton />
-        <ButtonLink href="/" variant="ghost" size="sm">
+        <ButtonLink href="/" variant="link" size="sm">
           Kembali ke beranda
         </ButtonLink>
       </div>

@@ -4,7 +4,10 @@ assertServerOnly("server/recruiter-verification/recruiter-verification-service")
 
 import { and, desc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { logger } from "@/lib/logger";
-import { enqueueRecruiterVerificationRejected } from "@/server/async/enqueue";
+import {
+  enqueueRecruiterVerificationApproved,
+  enqueueRecruiterVerificationRejected,
+} from "@/server/async/enqueue";
 import { getDb, type Database } from "@/server/db/client";
 import {
   recruiterVerificationDocuments,
@@ -836,6 +839,7 @@ export const reviewRecruiterVerification = async (
 
   const targetStatus = decision === "approve" ? ("approved" as const) : ("rejected" as const);
 
+  let accountElevated = false;
   const result = await db.transaction(async (tx) => {
     const actor = await resolvePlatformOpsActor(tx, reviewerUserId);
     const submissionOwnerId = await requireSubmissionOwnerId(tx, submissionId);
@@ -896,11 +900,14 @@ export const reviewRecruiterVerification = async (
     }
 
     if (decision === "approve") {
-      // Idempotent elevation: no-op when a parallel path already elevated the account.
-      await tx
+      // Idempotent elevation: no row comes back when the account was already elevated, by the tier
+      // setting or another review, and then it did not just become penyelenggara terverifikasi.
+      const elevatedRows = await tx
         .update(users)
         .set({ recruiterVerificationTier: "elevated", updatedAt: sql`now()` })
-        .where(and(eq(users.id, flipped.userId), ne(users.recruiterVerificationTier, "elevated")));
+        .where(and(eq(users.id, flipped.userId), ne(users.recruiterVerificationTier, "elevated")))
+        .returning({ id: users.id });
+      accountElevated = elevatedRows.length > 0;
     }
 
     await recordOperatorAuditEntry(tx, actor, {
@@ -928,9 +935,20 @@ export const reviewRecruiterVerification = async (
     decision,
   });
 
-  // Dual-channel rejection notice (email + inbox), fire-and-forget: an enqueue failure must not
-  // fail a review that already committed. Approval needs no notification — the recruiter's next
-  // page load shows them Trusted.
+  // Dual-channel notices (email + inbox), fire-and-forget: an enqueue failure must not fail a review
+  // that already committed. An approval that elevated the account tells the host they can now
+  // publish; rejection carries the reason.
+  if (accountElevated) {
+    try {
+      await enqueueRecruiterVerificationApproved({ userId: result.userId, epoch: Date.now() });
+    } catch (error) {
+      logger.warn("recruiter_verification.approval_notice_enqueue_failed", {
+        submissionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   if (decision === "reject" && cleanReason) {
     try {
       await enqueueRecruiterVerificationRejected({

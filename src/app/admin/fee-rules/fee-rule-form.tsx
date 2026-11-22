@@ -15,6 +15,7 @@ import {
   SelectField,
 } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
+import { errorMessageFor } from "@/lib/errors/error-copy";
 import { computePlatformFee, findFeeRuleRejection, type FeeRuleTerms } from "@/lib/finance/fee";
 import { SUPPORTED_CURRENCIES } from "@/lib/finance/money";
 import type { FeeRuleErrorCode } from "@/server/finance/fee-rule-service";
@@ -47,8 +48,20 @@ const ERROR_MESSAGES: Record<string, string> = {
   fee_rule_institution_not_found: "Institusi tidak ditemukan. Periksa kembali ID institusi.",
 } satisfies Partial<Record<FeeRuleErrorCode, string>>;
 
-const messageFor = (code: string | undefined, status: number): string =>
-  (code && ERROR_MESSAGES[code]) ?? `Aturan gagal disimpan (${status}).`;
+// Raised by the operator check in front of the service, so they are not FeeRuleErrorCode values.
+const OPERATOR_ERROR_MESSAGES: Partial<Record<string, string>> = {
+  operator_actor_not_found: "Akun Anda tidak ditemukan. Masuk lagi untuk melanjutkan.",
+  operator_actor_not_platform_ops:
+    "Akun Anda tidak lagi memiliki peran yang diperlukan untuk tindakan ini.",
+  operator_actor_suspended: "Akun Anda sedang ditangguhkan oleh tim Lombakita.",
+  operator_actor_conflicted:
+    "Anda tidak dapat mengambil tindakan atas institusi ini karena akun Anda pernah mengajukan verifikasi, diundang, atau menjadi anggota institusi tersebut.",
+};
+
+const SAVE_FALLBACK = "Aturan gagal disimpan. Coba lagi.";
+
+const messageFor = (code: string | undefined): string =>
+  errorMessageFor(code, { ...ERROR_MESSAGES, ...OPERATOR_ERROR_MESSAGES }, SAVE_FALLBACK);
 
 // A blank optional amount is null, not zero: "no maximum" and "a maximum of nothing" are different
 // rules, and coercing the first into the second would cap every fee at zero.
@@ -136,7 +149,7 @@ export function FeeRuleForm() {
       if (!response.ok) {
         addToast({
           type: "error",
-          message: messageFor(data?.error?.code, response.status),
+          message: messageFor(data?.error?.code),
         });
         return;
       }
@@ -161,6 +174,7 @@ export function FeeRuleForm() {
           <SelectField
             id="fee-rule-scope"
             label="Cakupan aturan biaya"
+            required
             options={SCOPE_OPTIONS}
             value={scope}
             onChange={setScope}
@@ -190,6 +204,7 @@ export function FeeRuleForm() {
           <SelectField
             id="fee-rule-currency"
             label="Mata uang aturan biaya"
+            required
             options={CURRENCY_OPTIONS}
             value={currency}
             onChange={setCurrency}
@@ -217,7 +232,9 @@ export function FeeRuleForm() {
         </FormField>
 
         <FormField>
-          <FormLabel htmlFor="fee-rule-flat">Biaya tetap</FormLabel>
+          <FormLabel htmlFor="fee-rule-flat" optional>
+            Biaya tetap
+          </FormLabel>
           <FormInput
             id="fee-rule-flat"
             type="number"
@@ -231,7 +248,9 @@ export function FeeRuleForm() {
         </FormField>
 
         <FormField>
-          <FormLabel htmlFor="fee-rule-minimum">Biaya minimum</FormLabel>
+          <FormLabel htmlFor="fee-rule-minimum" optional>
+            Biaya minimum
+          </FormLabel>
           <FormInput
             id="fee-rule-minimum"
             type="number"
@@ -245,7 +264,9 @@ export function FeeRuleForm() {
         </FormField>
 
         <FormField>
-          <FormLabel htmlFor="fee-rule-maximum">Biaya maksimum</FormLabel>
+          <FormLabel htmlFor="fee-rule-maximum" optional>
+            Biaya maksimum
+          </FormLabel>
           <FormInput
             id="fee-rule-maximum"
             type="number"
@@ -272,7 +293,9 @@ export function FeeRuleForm() {
         </FormField>
 
         <FormField>
-          <FormLabel htmlFor="fee-rule-effective-to">Berlaku sampai</FormLabel>
+          <FormLabel htmlFor="fee-rule-effective-to" optional>
+            Berlaku sampai
+          </FormLabel>
           <FormInput
             id="fee-rule-effective-to"
             type="datetime-local"
@@ -300,8 +323,10 @@ export function FeeRuleForm() {
 
       <FormActionBar>
         <IconButton
+          variant="plain"
+          size="back"
           icon="arrow-left"
-          label="Kembali ke Platform Operations"
+          label="Kembali ke Panel Platform Operations"
           onClick={() => router.push("/admin")}
         />
         <div className="form-action-bar-end">

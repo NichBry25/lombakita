@@ -6,16 +6,22 @@ export type IconName =
   | "alert-triangle"
   | "arrow-left"
   | "arrow-right"
+  | "arrow-up-down"
   | "bookmark"
   | "building"
   | "calendar"
   | "check"
+  | "check-circle"
   | "chevron-down"
+  | "chevron-right"
   | "close"
+  | "compass"
   | "copy"
+  | "door-open"
   | "download"
   | "edit"
   | "eye"
+  | "eye-off"
   | "inbox"
   | "info"
   | "link"
@@ -27,8 +33,11 @@ export type IconName =
   | "plus"
   | "save"
   | "search"
+  | "search-x"
   | "settings"
   | "share"
+  | "sliders"
+  | "sprout"
   | "sun"
   | "trash"
   | "trophy"
@@ -73,6 +82,15 @@ function IconPaths({ name }: { name: IconName }) {
           <path d="m13 6 6 6-6 6" />
         </>
       );
+    case "arrow-up-down":
+      return (
+        <>
+          <path d="M8 20V4" />
+          <path d="m4 8 4-4 4 4" />
+          <path d="M16 4v16" />
+          <path d="m12 16 4 4 4-4" />
+        </>
+      );
     case "bookmark":
       return (
         <path d="M6 4.75A1.75 1.75 0 0 1 7.75 3h8.5A1.75 1.75 0 0 1 18 4.75V21l-6-3.75L6 21Z" />
@@ -93,13 +111,29 @@ function IconPaths({ name }: { name: IconName }) {
       );
     case "check":
       return <path d="m5 12 4 4L19 6" />;
+    case "check-circle":
+      return (
+        <>
+          <circle cx="12" cy="12" r="9" />
+          <path d="m8.25 12.25 2.5 2.5 5-5.5" />
+        </>
+      );
     case "chevron-down":
       return <path d="m6 9 6 6 6-6" />;
+    case "chevron-right":
+      return <path d="m9 18 6-6-6-6" />;
     case "close":
       return (
         <>
           <path d="m6 6 12 12" />
           <path d="m18 6-12 12" />
+        </>
+      );
+    case "compass":
+      return (
+        <>
+          <circle cx="12" cy="12" r="10" />
+          <path d="m16.24 7.76-1.804 5.411a2 2 0 0 1-1.265 1.265L7.76 16.24l1.804-5.411a2 2 0 0 1 1.265-1.265z" />
         </>
       );
     // The two-offset-sheets glyph every platform uses for copy. `share` was standing in for it and
@@ -109,6 +143,16 @@ function IconPaths({ name }: { name: IconName }) {
         <>
           <rect x="9" y="9" width="12" height="12" rx="2.5" />
           <path d="M6.5 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1.5" />
+        </>
+      );
+    case "door-open":
+      return (
+        <>
+          <path d="M11 20H2" />
+          <path d="M11 4.562v16.157a1 1 0 0 0 1.242.97L19 20V5.562a2 2 0 0 0-1.515-1.94l-4-1A2 2 0 0 0 11 4.561z" />
+          <path d="M11 4H8a2 2 0 0 0-2 2v14" />
+          <path d="M14 12h.01" />
+          <path d="M22 20h-3" />
         </>
       );
     case "download":
@@ -126,6 +170,15 @@ function IconPaths({ name }: { name: IconName }) {
         <>
           <path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12Z" />
           <circle cx="12" cy="12" r="3" />
+        </>
+      );
+    case "eye-off":
+      return (
+        <>
+          <path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49" />
+          <path d="M14.084 14.158a3 3 0 0 1-4.242-4.242" />
+          <path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143" />
+          <path d="m2 2 20 20" />
         </>
       );
     case "inbox":
@@ -201,6 +254,33 @@ function IconPaths({ name }: { name: IconName }) {
         <>
           <circle cx="11" cy="11" r="7" />
           <path d="m20 20-4-4" />
+        </>
+      );
+    case "search-x":
+      return (
+        <>
+          <path d="m13.5 8.5-5 5" />
+          <path d="m8.5 8.5 5 5" />
+          <circle cx="11" cy="11" r="8" />
+          <path d="m21 21-4.3-4.3" />
+        </>
+      );
+    case "sliders":
+      return (
+        <>
+          <path d="M4 7h9M17 7h3" />
+          <path d="M4 17h3M11 17h9" />
+          <circle cx="15" cy="7" r="2" />
+          <circle cx="9" cy="17" r="2" />
+        </>
+      );
+    case "sprout":
+      return (
+        <>
+          <path d="M7 20h10" />
+          <path d="M10 20c5.5-2.5.8-6.4 3-10" />
+          <path d="M9.5 9.4c1.1.8 1.8 2.2 2.3 3.7-2 .4-3.5.4-4.8-.3-1.2-.6-2.3-1.9-3-4.2 2.8-.5 4.4 0 5.5.8z" />
+          <path d="M14.1 6a7 7 0 0 0-1.1 4c1.9-.1 3.3-.6 4.3-1.4 1-1 1.6-2.3 1.7-4.6-2.7.1-4 1-4.9 2z" />
         </>
       );
     case "settings":

@@ -1618,16 +1618,14 @@ describe.skipIf(skipWithoutDatabase)("the lane's write precondition", () => {
   /**
    * A CANCELLED REGISTRATION CANNOT BECOME PAID. The second hole, independent of the first.
    *
-   * The DEC-0132 hatch cancels every registration and DELIBERATELY leaves proofs in flight, so a
-   * pending proof against a cancelled registration is a state the product reaches on purpose. The
-   * verdict on that proof is the write that turns it into money, and it was ungated.
+   * The verdict on a proof is the write that turns it into money, so it is refused on a cancelled
+   * registration however the proof came to be waiting there.
    */
-  it("refuses a verdict on a registration the ops hatch cancelled", async () => {
+  it("refuses a verdict on a cancelled registration", async () => {
     await inRollback(async (tx) => {
       const fixture = await seedFixture(tx);
       const { verifyManualPaymentProof } =
         await import("@/server/finance/manual-payment-proof-service");
-      const { cancelCompetitionAsOps } = await import("@/server/finance/ops-payment-service");
 
       await tx.insert(institutionMemberships).values({
         institutionId: fixture.institutionId,
@@ -1642,32 +1640,10 @@ describe.skipIf(skipWithoutDatabase)("the lane's write precondition", () => {
 
       const paymentId = await seedManualPayment(tx, fixture);
       const proofId = await seedProof(tx, fixture, paymentId);
-      const operatorSuffix = uniqueSuffix();
-      const [operator] = await tx
-        .insert(users)
-        .values({
-          email: `ops_${operatorSuffix}@example.test`,
-          username: `ops_${operatorSuffix}`,
-          role: "platform_ops",
-          candidateVerifiedAt: NOW,
-        })
-        .returning({ id: users.id });
-      const operatorId = operator!.id;
-
-      await cancelCompetitionAsOps(
-        operatorId,
-        fixture.competitionId,
-        "organiser cannot run the event",
-        tx as never,
-        NOW,
-      );
-
-      // The hatch leaves the proof in flight on purpose, which is what makes the verdict reachable.
-      const [stillPending] = await tx
-        .select({ status: financeManualPaymentProofs.status })
-        .from(financeManualPaymentProofs)
-        .where(eq(financeManualPaymentProofs.id, proofId));
-      expect(stillPending!.status).toBe("pending_review");
+      await tx
+        .update(competitionRegistrations)
+        .set({ status: "cancelled", cancellationReason: "competition_cancelled_by_institution" })
+        .where(eq(competitionRegistrations.id, fixture.registrationId));
 
       await expect(
         verifyManualPaymentProof(fixture.institutionId, fixture.userId, proofId, tx as never, NOW),
@@ -2746,9 +2722,7 @@ describe.skipIf(skipWithoutDatabase)(
         await expect(priceIt(tx, tenant)).rejects.toMatchObject({ code: "forbidden" });
         expect((await readFee(tx, tenant.competitionId)).feeAmount).toBeNull();
 
-        // The paired positive, so the refusal above cannot be passing for an unrelated reason. The
-        // seeded registration is withdrawn first: pricing a competition that already took free
-        // entrants is refused on its own grounds, and that refusal would mask the role result.
+        // The paired positive, so the refusal above cannot be passing for an unrelated reason.
         await tx
           .update(competitionRegistrations)
           .set({ status: "cancelled", cancellationReason: "withdrew" })
@@ -2795,7 +2769,7 @@ describe.skipIf(skipWithoutDatabase)(
       );
     };
 
-    /** The fixture registers a candidate for free; pricing is blocked while one exists. */
+    /** Withdraws the free registration the fixture seeds. */
     const clearFreeRegistrant = async (tx: Tx, tenant: Tenant): Promise<void> => {
       await tx
         .update(competitionRegistrations)
@@ -2984,21 +2958,20 @@ describe.skipIf(skipWithoutDatabase)(
       });
     });
 
-    it("REFUSES to price a competition that already took a free registration", async () => {
-      // Candidate self-cancellation is refused on a priced competition, so pricing one retroactively
-      // strips the right to leave from somebody who was never asked to pay and has nothing to
-      // withdraw. They would be locked into an event they joined for free.
+    it("REFUSES to price a published competition that already took a free registration, and writes nothing", async () => {
+      // A candidate who registered for free would owe a price they never agreed to.
       await inRollback(async (tx) => {
         const fixture = await seedFixture(tx);
         await grantOwnership(tx, fixture);
+        await tx
+          .update(competitions)
+          .set({ status: "published" })
+          .where(eq(competitions.id, fixture.competitionId));
 
         await expect(priceIt(tx, fixture)).rejects.toMatchObject({
-          code: "competition_fee_blocked_free_registrations",
+          code: "competition_fee_locked_after_publish",
         });
 
-        // Refused AND nothing written, the assertion that makes this order-sensitive rather than
-        // merely present. Moving the guard below the write would leave the refusal intact and this
-        // expectation failing.
         expect(await readFee(tx, fixture.competitionId)).toEqual({
           feeAmount: null,
           feeCurrency: null,
@@ -3007,11 +2980,11 @@ describe.skipIf(skipWithoutDatabase)(
     });
 
     it("still allows a price CHANGE on an already-priced competition", async () => {
-      // The block is scoped to the free → paid transition, which is the whole of the harm. An
-      // already-priced competition changing its price moves nobody across that boundary.
+      // A draft with no registrant takes any price, a new one over an old one included.
       await inRollback(async (tx) => {
         const fixture = await seedFixture(tx);
         await grantOwnership(tx, fixture);
+        await clearFreeRegistrant(tx, fixture);
         await tx
           .update(competitions)
           .set({ feeAmount: 50_000, feeCurrency: "IDR" })
@@ -3056,6 +3029,7 @@ describe.skipIf(skipWithoutDatabase)(
       await inRollback(async (tx) => {
         const fixture = await seedFixture(tx);
         await grantOwnership(tx, fixture);
+        await clearFreeRegistrant(tx, fixture);
         await tx
           .update(competitions)
           .set({ feeAmount: 50_000, feeCurrency: "IDR" })
@@ -3074,54 +3048,43 @@ describe.skipIf(skipWithoutDatabase)(
       });
     });
 
-    it("REFUSES a price change while a bukti transfer is outstanding, and writes nothing", async () => {
+    it("REFUSES a price change on a published competition while a bukti transfer is outstanding, and writes nothing", async () => {
       await inRollback(async (tx) => {
         const fixture = await seedFixture(tx);
         await grantOwnership(tx, fixture);
         await tx
           .update(competitions)
-          .set({ feeAmount: 50_000, feeCurrency: "IDR" })
+          .set({ feeAmount: 50_000, feeCurrency: "IDR", status: "published" })
           .where(eq(competitions.id, fixture.competitionId));
 
         const paymentId = await seedManualPayment(tx, fixture);
         await seedProof(tx, fixture, paymentId);
 
         await expect(priceIt(tx, fixture, 90_000)).rejects.toMatchObject({
-          code: "competition_fee_change_blocked_payment_in_flight",
+          code: "competition_fee_locked_after_publish",
         });
 
         expect((await readFee(tx, fixture.competitionId)).feeAmount).toBe(50_000);
       });
     });
 
-    it("REFUSES to CLEAR a fee while a bukti transfer is outstanding, and writes nothing", async () => {
-      // THE UNPROTECTED DIRECTION, and the one place the classifier's POSITION is load-bearing rather
-      // than merely correct.
-      //
-      // The matrix blocks a feeAmount change whenever money is in flight, whatever the direction,
-      // so paid→free is blocked too. But the clear path writes OUTSIDE any transaction, unlike the
-      // priced path. Move the classifier below the write there and the fee is genuinely gone, with no
-      // rollback to undo it: a candidate has transferred real rupiah against a price the competition
-      // no longer has, and the organiser has no record of what they were charged.
-      //
-      // Class B, so post-state is the correct detector here, which is exactly why the priced path
-      // needed a different one. Same guard, two call paths, two classes.
+    it("REFUSES to CLEAR the fee of a published competition while a bukti transfer is outstanding, and writes nothing", async () => {
+      // A candidate has transferred real rupiah against this price, so it must stay on record.
       await inRollback(async (tx) => {
         const fixture = await seedFixture(tx);
         await grantOwnership(tx, fixture);
         await tx
           .update(competitions)
-          .set({ feeAmount: 50_000, feeCurrency: "IDR" })
+          .set({ feeAmount: 50_000, feeCurrency: "IDR", status: "published" })
           .where(eq(competitions.id, fixture.competitionId));
 
         const paymentId = await seedManualPayment(tx, fixture);
         await seedProof(tx, fixture, paymentId);
 
         await expect(priceIt(tx, fixture, 0)).rejects.toMatchObject({
-          code: "competition_fee_change_blocked_payment_in_flight",
+          code: "competition_fee_locked_after_publish",
         });
 
-        // The fee is still there. Under a moved classifier this reads null.
         expect(await readFee(tx, fixture.competitionId)).toEqual({
           feeAmount: 50_000,
           feeCurrency: "IDR",
@@ -3129,34 +3092,19 @@ describe.skipIf(skipWithoutDatabase)(
       });
     });
 
-    it("tells a MATRIX-BLOCKED organiser nothing about the platform's pricing configuration", async () => {
-      // THE CLASS A DETECTOR for the classifier's position, and the reason a post-state green on the
-      // priced path is uninformative rather than reassuring.
-      //
-      // The transaction makes a moved WRITE harmless. It does not make the moved REFUSAL harmless.
-      // The gate order exists, in the service's own words, "so nothing about the platform's pricing
-      // configuration leaks to someone who is not allowed to charge at all". Move the classifier
-      // below the write and gates 3 through 6 run first, so an organiser who is blocked outright
-      // learns whether Lombakita has a fee rule configured, whether their institution is verified for
-      // charging, and whether their instructions are published. None of that is answerable to someone
-      // the matrix has already refused.
-      //
-      // The fixture is blocked AND unpriceable at once, so the two orderings give different answers.
+    it("tells a PUBLISH-LOCKED organiser nothing about the platform's pricing configuration", async () => {
+      // The publish lock is read before the charging gates, so an organiser it refuses never learns
+      // whether a fee rule is configured. The fixture is locked AND unpriceable at once, so the two
+      // orders give different answers.
       await inRollback(async (tx) => {
         const fixture = await seedFixture(tx);
         await grantOwnership(tx, fixture);
         await tx
           .update(competitions)
-          .set({ feeAmount: 50_000, feeCurrency: "IDR" })
+          .set({ feeAmount: 50_000, feeCurrency: "IDR", status: "published" })
           .where(eq(competitions.id, fixture.competitionId));
 
-        // Blocked by the matrix: a bukti transfer is outstanding.
-        const paymentId = await seedManualPayment(tx, fixture);
-        await seedProof(tx, fixture, paymentId);
-
-        // AND unpriceable: the only fee rule is retired out of force. Retired rather than deleted
-        // because `finance_payments.fee_rule_id` references it, the payment that blocks the matrix
-        // is itself what makes the row undeletable.
+        // Unpriceable: the only fee rule is retired out of force.
         await tx
           .update(financeFeeRules)
           .set({
@@ -3166,9 +3114,7 @@ describe.skipIf(skipWithoutDatabase)(
           .where(eq(financeFeeRules.id, fixture.feeRuleId));
 
         await expect(priceIt(tx, fixture, 90_000)).rejects.toMatchObject({
-          // The matrix refusal, not `fee_rule_not_in_force`. Under a moved classifier this is the
-          // latter, which answers a question the caller was never entitled to ask.
-          code: "competition_fee_change_blocked_payment_in_flight",
+          code: "competition_fee_locked_after_publish",
         });
       });
     });
@@ -3229,6 +3175,9 @@ describe.skipIf(skipWithoutDatabase)("the charging gate at PUBLISH (real databas
         description: "Deskripsi kompetisi yang cukup panjang untuk lolos validasi publikasi.",
         category: "hackathon",
         mode: "individual",
+        // Publishing needs a location and an audience.
+        location: "online",
+        audience: ["umum"],
         // Anchored to REAL time, not to the frozen `NOW` the payment assertions use. Publish
         // validation compares `registrationEndAt` against the wall clock and takes no injectable
         // instant, so a fixture dated from `NOW` is a timer: it passes when written and starts
@@ -3240,6 +3189,9 @@ describe.skipIf(skipWithoutDatabase)("the charging gate at PUBLISH (real databas
         eventEndAt: new Date(Date.now() + 21 * 86_400_000),
         resultAnnouncementAt: new Date(Date.now() + 25 * 86_400_000),
         minimumParticipantEntries: 1,
+        // Publishing needs a contact for participants.
+        organizerContactKind: "whatsapp",
+        organizerContactValue: "6281234567890",
       })
       .where(eq(competitions.id, tenant.competitionId));
   };
@@ -3324,8 +3276,8 @@ describe.skipIf(skipWithoutDatabase)("cancelCompetitionAsOps: the DEC-0132 escap
     return operator!.id;
   };
 
-  /** A published, priced competition with one registrant whose transfer is outstanding. */
-  const seedBlockedCompetition = async (tx: Tx, fixture: Fixture): Promise<string> => {
+  /** A published, priced competition whose owner is the fixture's user. */
+  const seedPublishedPricedCompetition = async (tx: Tx, fixture: Fixture): Promise<void> => {
     await tx.insert(institutionMemberships).values({
       institutionId: fixture.institutionId,
       userId: fixture.userId,
@@ -3336,10 +3288,13 @@ describe.skipIf(skipWithoutDatabase)("cancelCompetitionAsOps: the DEC-0132 escap
       .update(competitions)
       .set({ status: "published", feeAmount: 75_000, feeCurrency: "IDR" })
       .where(eq(competitions.id, fixture.competitionId));
+  };
 
+  /** The same, with one registrant whose transfer is outstanding. Returns the proof's id. */
+  const seedBlockedCompetition = async (tx: Tx, fixture: Fixture): Promise<string> => {
+    await seedPublishedPricedCompetition(tx, fixture);
     const paymentId = await seedManualPayment(tx, fixture);
-    await seedProof(tx, fixture, paymentId);
-    return paymentId;
+    return seedProof(tx, fixture, paymentId);
   };
 
   const readCompetition = async (tx: Tx, competitionId: string) => {
@@ -3356,16 +3311,28 @@ describe.skipIf(skipWithoutDatabase)("cancelCompetitionAsOps: the DEC-0132 escap
     // could join minutes after it had been cancelled out from under its own entrants.
     await inRollback(async (tx) => {
       const fixture = await seedFixture(tx);
-      const { cancelCompetitionAsOps } = await import("@/server/finance/ops-payment-service");
+      const { cancelCompetitionAsOps, voidPaymentProofAsOps } =
+        await import("@/server/finance/ops-payment-service");
       const { unpublishCompetition } = await import("@/server/competitions/competition-service");
       const operatorId = await seedOperator(tx);
-      await seedBlockedCompetition(tx, fixture);
+      const proofId = await seedBlockedCompetition(tx, fixture);
 
-      // The organiser is blocked, which is the reason this hatch exists at all.
+      // The organiser and the operator are both refused while the transfer is outstanding.
       await expect(
         unpublishCompetition(fixture.userId, fixture.competitionId, tx as never, NOW),
       ).rejects.toMatchObject({ code: "competition_unpublish_blocked_payment_in_flight" });
+      await expect(
+        cancelCompetitionAsOps(
+          operatorId,
+          fixture.competitionId,
+          "organiser cannot run the event",
+          tx as never,
+          NOW,
+        ),
+      ).rejects.toMatchObject({ code: "ops_competition_payment_in_flight", status: 409 });
+      expect((await readCompetition(tx, fixture.competitionId)).status).toBe("published");
 
+      await voidPaymentProofAsOps(operatorId, proofId, "refunded by bank", tx as never, NOW);
       const result = await cancelCompetitionAsOps(
         operatorId,
         fixture.competitionId,
@@ -3375,7 +3342,6 @@ describe.skipIf(skipWithoutDatabase)("cancelCompetitionAsOps: the DEC-0132 escap
       );
 
       expect(result.cancelledRegistrationCount).toBe(1);
-      // The state the organiser was blocked from reaching has now been reached.
       expect((await readCompetition(tx, fixture.competitionId)).status).toBe("draft");
 
       const [registration] = await tx
@@ -3392,7 +3358,7 @@ describe.skipIf(skipWithoutDatabase)("cancelCompetitionAsOps: the DEC-0132 escap
       const { cancelCompetitionAsOps } = await import("@/server/finance/ops-payment-service");
       const { platformOpsAuditLogs } = await import("@/server/db/schema");
       const operatorId = await seedOperator(tx);
-      await seedBlockedCompetition(tx, fixture);
+      await seedPublishedPricedCompetition(tx, fixture);
 
       await cancelCompetitionAsOps(
         operatorId,
@@ -3439,7 +3405,7 @@ describe.skipIf(skipWithoutDatabase)("cancelCompetitionAsOps: the DEC-0132 escap
     });
   });
 
-  it("leaves the outstanding proof alone, because voiding it is its own audited decision", async () => {
+  it("refuses while a transfer is outstanding and leaves the proof alone, because voiding it is its own audited decision", async () => {
     // Bundling the two would let one click both cancel a competition and silently discard the
     // evidence that somebody paid for it.
     await inRollback(async (tx) => {
@@ -3448,19 +3414,21 @@ describe.skipIf(skipWithoutDatabase)("cancelCompetitionAsOps: the DEC-0132 escap
         await import("@/server/finance/ops-payment-service");
       const { hasCompetitionPaymentInFlight } = await import("@/server/finance/paid-registration");
       const operatorId = await seedOperator(tx);
-      await seedBlockedCompetition(tx, fixture);
+      const proofId = await seedBlockedCompetition(tx, fixture);
 
-      await cancelCompetitionAsOps(operatorId, fixture.competitionId, "reason", tx as never, NOW);
+      await expect(
+        cancelCompetitionAsOps(operatorId, fixture.competitionId, "reason", tx as never, NOW),
+      ).rejects.toMatchObject({ code: "ops_competition_payment_in_flight", status: 409 });
 
       const [proof] = await tx
-        .select({ id: financeManualPaymentProofs.id, status: financeManualPaymentProofs.status })
+        .select({ status: financeManualPaymentProofs.status })
         .from(financeManualPaymentProofs)
-        .where(eq(financeManualPaymentProofs.competitionId, fixture.competitionId));
+        .where(eq(financeManualPaymentProofs.id, proofId));
       expect(proof!.status).toBe("pending_review");
       expect(await hasCompetitionPaymentInFlight(fixture.competitionId, tx as never)).toBe(true);
 
       // The second, separately audited decision is what clears it.
-      await voidPaymentProofAsOps(operatorId, proof!.id, "refunded by bank", tx as never, NOW);
+      await voidPaymentProofAsOps(operatorId, proofId, "refunded by bank", tx as never, NOW);
 
       expect(await hasCompetitionPaymentInFlight(fixture.competitionId, tx as never)).toBe(false);
     });
@@ -4315,6 +4283,29 @@ describe.skipIf(skipWithoutDatabase)("what a candidate is told about money they 
       expect(result!.canSubmitProof).toBe(false);
     });
   });
+
+  it("counts a proof only on the person's own individual registrations", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      await seedTeamOf(tx, fixture);
+      const paymentId = await seedManualPayment(tx, fixture, { dueAt: DUE });
+      await seedProof(tx, fixture, paymentId);
+      await tx
+        .update(competitionRegistrations)
+        .set({ status: "cancelled", cancelledAt: NOW, cancellationReason: "withdrew" })
+        .where(eq(competitionRegistrations.id, fixture.registrationId));
+
+      const { hasPaymentProofOnCancelledIndividualRegistrations } =
+        await import("@/server/registrations/registration-service");
+      expect(
+        await hasPaymentProofOnCancelledIndividualRegistrations(
+          fixture.userId,
+          fixture.competitionId,
+          tx as never,
+        ),
+      ).toBe(false);
+    });
+  });
 });
 
 // THE ORGANISER REVIEW SURFACE, from both sides of the tenant boundary.
@@ -4888,7 +4879,7 @@ describe.skipIf(skipWithoutDatabase)(
     const resolve = async (
       tx: Tx,
       input: {
-        individualRegistration?: { id: string; status: string } | null;
+        individualRegistration?: { id: string; status: string; registrationType: string } | null;
         team?: { id: string; status: string } | null;
       },
     ) => {
@@ -4962,10 +4953,45 @@ describe.skipIf(skipWithoutDatabase)(
         // anything: the candidate owes money and has sent none, so leaving costs nobody anything.
         expect(
           await resolve(tx, {
-            individualRegistration: { id: fixture.registrationId, status: "confirmed" },
+            individualRegistration: {
+              id: fixture.registrationId,
+              status: "confirmed",
+              registrationType: "individual",
+            },
             team: { id: teamId, status: "submitted" },
           }),
-        ).toEqual({ individualCancellationClosed: false, teamCancellationClosed: false });
+        ).toEqual({
+          individualCancellationClosed: false,
+          teamRowCancellationClosed: false,
+          teamCancellationClosed: false,
+        });
+      });
+    });
+
+    it("WITHHOLDS the individual control on a team row, read from the stored row, with no proof sent", async () => {
+      await inRollback(async (tx) => {
+        const fixture = await seedFixture(tx);
+        const { teamId } = await seedSubmittedTeam(tx, fixture);
+        await seedManualPayment(tx, fixture);
+        const [storedRow] = await tx
+          .select({ registrationType: competitionRegistrations.registrationType })
+          .from(competitionRegistrations)
+          .where(eq(competitionRegistrations.id, fixture.registrationId));
+
+        expect(
+          await resolve(tx, {
+            individualRegistration: {
+              id: fixture.registrationId,
+              status: "confirmed",
+              registrationType: storedRow!.registrationType,
+            },
+            team: { id: teamId, status: "submitted" },
+          }),
+        ).toEqual({
+          individualCancellationClosed: false,
+          teamRowCancellationClosed: true,
+          teamCancellationClosed: false,
+        });
       });
     });
 
@@ -4976,7 +5002,11 @@ describe.skipIf(skipWithoutDatabase)(
         await submitProofFor(tx, fixture, paymentId);
 
         const state = await resolve(tx, {
-          individualRegistration: { id: fixture.registrationId, status: "confirmed" },
+          individualRegistration: {
+            id: fixture.registrationId,
+            status: "confirmed",
+            registrationType: "individual",
+          },
         });
 
         expect(state.individualCancellationClosed).toBe(true);
@@ -5009,7 +5039,11 @@ describe.skipIf(skipWithoutDatabase)(
         expect(
           (
             await resolve(tx, {
-              individualRegistration: { id: fixture.registrationId, status: "confirmed" },
+              individualRegistration: {
+                id: fixture.registrationId,
+                status: "confirmed",
+                registrationType: "individual",
+              },
             })
           ).individualCancellationClosed,
         ).toBe(true);
@@ -5068,10 +5102,18 @@ describe.skipIf(skipWithoutDatabase)(
 
         expect(
           await resolve(tx, {
-            individualRegistration: { id: fixture.registrationId, status: "confirmed" },
+            individualRegistration: {
+              id: fixture.registrationId,
+              status: "confirmed",
+              registrationType: "individual",
+            },
             team: { id: team!.id, status: "submitted" },
           }),
-        ).toEqual({ individualCancellationClosed: true, teamCancellationClosed: false });
+        ).toEqual({
+          individualCancellationClosed: true,
+          teamRowCancellationClosed: false,
+          teamCancellationClosed: false,
+        });
       });
     });
 
@@ -5086,10 +5128,18 @@ describe.skipIf(skipWithoutDatabase)(
         // asked, because neither state renders a cancel control to withhold.
         expect(
           await resolve(tx, {
-            individualRegistration: { id: fixture.registrationId, status: "cancelled" },
+            individualRegistration: {
+              id: fixture.registrationId,
+              status: "cancelled",
+              registrationType: "individual",
+            },
             team: { id: teamId, status: "forming" },
           }),
-        ).toEqual({ individualCancellationClosed: false, teamCancellationClosed: false });
+        ).toEqual({
+          individualCancellationClosed: false,
+          teamRowCancellationClosed: false,
+          teamCancellationClosed: false,
+        });
       });
     });
 
@@ -5108,7 +5158,11 @@ describe.skipIf(skipWithoutDatabase)(
         expect(
           (
             await resolve(tx, {
-              individualRegistration: { id: fixture.registrationId, status: "confirmed" },
+              individualRegistration: {
+                id: fixture.registrationId,
+                status: "confirmed",
+                registrationType: "individual",
+              },
             })
           ).individualCancellationClosed,
         ).toBe(false);
@@ -5125,6 +5179,8 @@ describe.skipIf(skipWithoutDatabase)(
     // Both cancel guards sit before their write and outside its transaction, so the natural way to
     // get them wrong (running them after the transaction commits) is detectable by post-state: the
     // registration is already cancelled when the refusal is thrown. That is the assertion here.
+    // Each cancel also reads the proof again inside its transaction, under the payment's row lock,
+    // so its guard shows here only when both reads run after the commit.
     //
     // The existing service tests cannot make it. They run against a queued fake, so moving the guard
     // past the transaction fails them with `team_state_conflict`, a fake's response ordering, not
@@ -5454,11 +5510,17 @@ describe.skipIf(skipWithoutDatabase)("what the deadline means to the payer (real
       // "nobody paid", and a human-written sentence cannot be filtered on.
       expect(row!.reason).toBe(PAYMENT_EXPIRY_CANCELLATION_REASON);
       expect(row!.reason).not.toBe("withdrew");
+    });
+  });
 
-      // R6 has no capacity dimension: nothing is freed, and the copy must not suggest a seat was.
-      // What actually holds is the opposite: the cancelled row still blocks re-registration.
-      // Registration is opened first so the refusal below is the DUPLICATE guard rather than the
-      // window guard, which fires earlier and would make this assertion pass for the wrong reason.
+  it("lets an expired registrant who sent no proof register again, and keeps the cancelled row", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      await seedManualPayment(tx, fixture, { dueAt: DUE });
+
+      const { sweepExpiredPayments } = await import("@/server/finance/payment-expiry-service");
+      await sweepExpiredPayments(new Date(DUE.getTime() + 86_400_000), tx as never);
+
       await tx
         .update(competitions)
         .set({
@@ -5466,6 +5528,78 @@ describe.skipIf(skipWithoutDatabase)("what the deadline means to the payer (real
           mode: "individual",
           registrationStartAt: new Date(Date.now() - 86_400_000),
           registrationEndAt: new Date(Date.now() + 30 * 86_400_000),
+          feeAmount: null,
+          feeCurrency: null,
+        })
+        .where(eq(competitions.id, fixture.competitionId));
+
+      const [keptBefore] = await tx
+        .select({
+          cancelledAt: competitionRegistrations.cancelledAt,
+          cancellationReason: competitionRegistrations.cancellationReason,
+        })
+        .from(competitionRegistrations)
+        .where(eq(competitionRegistrations.id, fixture.registrationId))
+        .limit(1);
+
+      const { createIndividualRegistration } =
+        await import("@/server/registrations/registration-service");
+      const reRegistered = await createIndividualRegistration(
+        fixture.userId,
+        fixture.competitionId,
+        tx as never,
+      );
+      expect(reRegistered.status).toBe("confirmed");
+
+      const [keptAfter] = await tx
+        .select({
+          cancelledAt: competitionRegistrations.cancelledAt,
+          cancellationReason: competitionRegistrations.cancellationReason,
+        })
+        .from(competitionRegistrations)
+        .where(eq(competitionRegistrations.id, fixture.registrationId))
+        .limit(1);
+      expect(keptAfter).toEqual(keptBefore);
+
+      const rows = await tx
+        .select({ id: competitionRegistrations.id, status: competitionRegistrations.status })
+        .from(competitionRegistrations)
+        .where(
+          and(
+            eq(competitionRegistrations.studentId, fixture.userId),
+            eq(competitionRegistrations.competitionId, fixture.competitionId),
+          ),
+        );
+      expect(rows).toHaveLength(2);
+      expect(rows).toEqual(
+        expect.arrayContaining([
+          { id: fixture.registrationId, status: "cancelled" },
+          { id: reRegistered.id, status: "confirmed" },
+        ]),
+      );
+    });
+  });
+
+  it("REFUSES a cancelled registrant who sent a payment proof, whatever the competition's fee", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const paymentId = await seedManualPayment(tx, fixture, { dueAt: DUE });
+      await seedProof(tx, fixture, paymentId);
+
+      await tx
+        .update(competitionRegistrations)
+        .set({ status: "cancelled", cancelledAt: new Date(), cancellationReason: "withdrew" })
+        .where(eq(competitionRegistrations.id, fixture.registrationId));
+
+      await tx
+        .update(competitions)
+        .set({
+          status: "published",
+          mode: "individual",
+          registrationStartAt: new Date(Date.now() - 86_400_000),
+          registrationEndAt: new Date(Date.now() + 30 * 86_400_000),
+          feeAmount: null,
+          feeCurrency: null,
         })
         .where(eq(competitions.id, fixture.competitionId));
 
@@ -5473,7 +5607,155 @@ describe.skipIf(skipWithoutDatabase)("what the deadline means to the payer (real
         await import("@/server/registrations/registration-service");
       await expect(
         createIndividualRegistration(fixture.userId, fixture.competitionId, tx as never),
-      ).rejects.toMatchObject({ code: "registration_already_exists" });
+      ).rejects.toMatchObject({
+        code: "registration_already_exists",
+        details: { existingStatus: "cancelled" },
+      });
+
+      const rows = await tx
+        .select({ id: competitionRegistrations.id, status: competitionRegistrations.status })
+        .from(competitionRegistrations)
+        .where(
+          and(
+            eq(competitionRegistrations.studentId, fixture.userId),
+            eq(competitionRegistrations.competitionId, fixture.competitionId),
+          ),
+        );
+      expect(rows).toEqual([{ id: fixture.registrationId, status: "cancelled" }]);
+    });
+  });
+
+  it("REFUSES a registrant whose proof was rejected and whose payment then expired", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const paymentId = await seedManualPayment(tx, fixture, { dueAt: DUE });
+      await tx
+        .update(competitionRegistrations)
+        .set({ status: "confirmed" })
+        .where(eq(competitionRegistrations.id, fixture.registrationId));
+      await submitProofFor(tx, fixture, paymentId);
+
+      const { rejectManualPaymentProof } =
+        await import("@/server/finance/manual-payment-proof-service");
+      const [proofRow] = await tx
+        .select({ id: financeManualPaymentProofs.id })
+        .from(financeManualPaymentProofs)
+        .where(eq(financeManualPaymentProofs.paymentId, paymentId))
+        .limit(1);
+      await rejectManualPaymentProof(
+        fixture.institutionId,
+        fixture.userId,
+        proofRow!.id,
+        "nominal tidak sesuai",
+        true,
+        tx as never,
+        NOW,
+      );
+
+      const { sweepExpiredPayments } = await import("@/server/finance/payment-expiry-service");
+      await sweepExpiredPayments(new Date(DUE.getTime() + 86_400_000), tx as never);
+
+      const [swept] = await tx
+        .select({ status: competitionRegistrations.status })
+        .from(competitionRegistrations)
+        .where(eq(competitionRegistrations.id, fixture.registrationId))
+        .limit(1);
+      expect(swept!.status).toBe("cancelled");
+
+      await tx
+        .update(competitions)
+        .set({
+          status: "published",
+          mode: "individual",
+          registrationStartAt: new Date(Date.now() - 86_400_000),
+          registrationEndAt: new Date(Date.now() + 30 * 86_400_000),
+          feeAmount: null,
+          feeCurrency: null,
+        })
+        .where(eq(competitions.id, fixture.competitionId));
+
+      const { createIndividualRegistration, hasPaymentProofOnCancelledIndividualRegistrations } =
+        await import("@/server/registrations/registration-service");
+      await expect(
+        createIndividualRegistration(fixture.userId, fixture.competitionId, tx as never),
+      ).rejects.toMatchObject({
+        code: "registration_already_exists",
+        details: { existingStatus: "cancelled" },
+      });
+      expect(
+        await hasPaymentProofOnCancelledIndividualRegistrations(
+          fixture.userId,
+          fixture.competitionId,
+          tx as never,
+        ),
+      ).toBe(true);
+    });
+  });
+
+  it("lets an expired priced registrant register again with a payment of its own", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      await seedManualPayment(tx, fixture, { dueAt: DUE });
+      await tx
+        .update(competitionRegistrations)
+        .set({ status: "confirmed" })
+        .where(eq(competitionRegistrations.id, fixture.registrationId));
+
+      const { sweepExpiredPayments } = await import("@/server/finance/payment-expiry-service");
+      await sweepExpiredPayments(new Date(DUE.getTime() + 86_400_000), tx as never);
+
+      const { createIndividualRegistration, hasPaymentProofOnCancelledIndividualRegistrations } =
+        await import("@/server/registrations/registration-service");
+      expect(
+        await hasPaymentProofOnCancelledIndividualRegistrations(
+          fixture.userId,
+          fixture.competitionId,
+          tx as never,
+        ),
+      ).toBe(false);
+
+      await tx
+        .update(competitions)
+        .set({
+          status: "published",
+          mode: "individual",
+          registrationStartAt: new Date(Date.now() - 86_400_000),
+          registrationEndAt: new Date(Date.now() + 30 * 86_400_000),
+          feeAmount: 1_000_000,
+          feeCurrency: "IDR",
+        })
+        .where(eq(competitions.id, fixture.competitionId));
+
+      const reRegistered = await createIndividualRegistration(
+        fixture.userId,
+        fixture.competitionId,
+        tx as never,
+      );
+      expect(reRegistered.status).toBe("confirmed");
+
+      const payments = await tx
+        .select({ id: financePayments.id, dueAt: financePayments.dueAt })
+        .from(financePayments)
+        .where(eq(financePayments.competitionRegistrationId, reRegistered.id));
+      expect(payments).toHaveLength(1);
+      expect(payments[0]!.dueAt?.getTime()).not.toBe(DUE.getTime());
+    });
+  });
+
+  it("tells a person nothing when the expired payment's registration was already cancelled", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      await seedManualPayment(tx, fixture, { dueAt: DUE });
+      await tx
+        .update(competitionRegistrations)
+        .set({ status: "cancelled", cancelledAt: NOW, cancellationReason: "withdrew" })
+        .where(eq(competitionRegistrations.id, fixture.registrationId));
+      mockEnqueuePaymentOutcome.mockClear();
+
+      const { sweepExpiredPayments } = await import("@/server/finance/payment-expiry-service");
+      await sweepExpiredPayments(new Date(DUE.getTime() + 86_400_000), tx as never);
+
+      expect(mockEnqueuePaymentOutcome).not.toHaveBeenCalled();
     });
   });
 
@@ -5511,7 +5793,11 @@ describe.skipIf(skipWithoutDatabase)("what the deadline means to the payer (real
         (
           await resolveCancelAffordanceState(
             {
-              individualRegistration: { id: fixture.registrationId, status: "confirmed" },
+              individualRegistration: {
+                id: fixture.registrationId,
+                status: "confirmed",
+                registrationType: "individual",
+              },
               team: null,
             },
             tx as never,
@@ -5527,12 +5813,20 @@ describe.skipIf(skipWithoutDatabase)("what the deadline means to the payer (real
       expect(
         await resolveCancelAffordanceState(
           {
-            individualRegistration: { id: fixture.registrationId, status: "cancelled" },
+            individualRegistration: {
+              id: fixture.registrationId,
+              status: "cancelled",
+              registrationType: "individual",
+            },
             team: null,
           },
           tx as never,
         ),
-      ).toEqual({ individualCancellationClosed: false, teamCancellationClosed: false });
+      ).toEqual({
+        individualCancellationClosed: false,
+        teamRowCancellationClosed: false,
+        teamCancellationClosed: false,
+      });
     });
   });
 });
@@ -6241,8 +6535,9 @@ describe.skipIf(skipWithoutDatabase)("what the manual lane announces (real datab
 
       const payload = mockEnqueuePaymentOutcome.mock.calls[0]![0] as { registrationId: string };
       // R13's second half, and the reason the payload carries a registration rather than a list:
-      // the worker resolves recipients at delivery from this id, through the same helper the expiry
-      // sweep cancels by. The set told and the set affected are one set by construction.
+      // the worker resolves recipients at delivery from this id. A verdict goes to the whole
+      // payment group, read by this helper. An expiry goes to the members whose rows carry its
+      // reason.
       const recipients = await resolvePaymentGroupMemberUserIds(
         payload.registrationId,
         tx as never,
@@ -6737,6 +7032,24 @@ describe.skipIf(skipWithoutDatabase)("the DEC-0132 escape hatch (real database)"
       await expect(
         voidPaymentProofAsOps(fixture.platformOpsUserId, proof.id, "   ", tx as never, NOW),
       ).rejects.toMatchObject({ code: "ops_reason_required" });
+
+      // Post-state, because the reason check sits before any write: an override with no recorded
+      // justification must leave the proof in flight.
+      const [row] = await tx
+        .select({ status: financeManualPaymentProofs.status })
+        .from(financeManualPaymentProofs)
+        .where(eq(financeManualPaymentProofs.id, proof.id));
+      expect(row!.status).toBe("pending_review");
+
+      // A transfer in flight refuses the cancellation on its own, so the cancellation's reason check
+      // is measured once the transfer is resolved.
+      await voidPaymentProofAsOps(
+        fixture.platformOpsUserId,
+        proof.id,
+        "Bukti milik peserta lain",
+        tx as never,
+        NOW,
+      );
       await expect(
         cancelCompetitionAsOps(
           fixture.platformOpsUserId,
@@ -6746,14 +7059,6 @@ describe.skipIf(skipWithoutDatabase)("the DEC-0132 escape hatch (real database)"
           NOW,
         ),
       ).rejects.toMatchObject({ code: "ops_reason_required" });
-
-      // Post-state, because the reason check sits before any write: an override with no recorded
-      // justification must leave the proof in flight and the competition published.
-      const [row] = await tx
-        .select({ status: financeManualPaymentProofs.status })
-        .from(financeManualPaymentProofs)
-        .where(eq(financeManualPaymentProofs.id, proof.id));
-      expect(row!.status).toBe("pending_review");
 
       const [competition] = await tx
         .select({ status: competitions.status })
@@ -6769,7 +7074,6 @@ describe.skipIf(skipWithoutDatabase)("the DEC-0132 escape hatch (real database)"
       const { cancelCompetitionAsOps } = await import("@/server/finance/ops-payment-service");
 
       const paymentId = await seedManualPayment(tx, fixture);
-      await submitProof(tx, fixture, paymentId);
       await publish(tx, fixture.competitionId);
       await tx
         .update(competitionRegistrations)
@@ -6808,10 +7112,9 @@ describe.skipIf(skipWithoutDatabase)("the DEC-0132 escape hatch (real database)"
     });
   });
 
-  it("leaves the accrued platform fee standing when the competition is cancelled", async () => {
-    // R8. The fee accrued when the organiser verified a real transfer; cancelling the competition
-    // afterwards does not un-happen that, and this step writes no reversal. The operator copy says
-    // so outright because nothing in the product will undo it for them.
+  it("refuses to cancel a competition whose transfer was verified, and leaves its accrued platform fee standing", async () => {
+    // R8. The fee accrued when the organiser verified a real transfer. A verified transfer refuses
+    // the cancellation, so the competition stays published and the accrual stands.
     await inRollback(async (tx) => {
       const fixture = await seedFixture(tx);
       const { verifyManualPaymentProof } =
@@ -6829,13 +7132,21 @@ describe.skipIf(skipWithoutDatabase)("the DEC-0132 escape hatch (real database)"
       );
       await publish(tx, fixture.competitionId);
 
-      await cancelCompetitionAsOps(
-        fixture.platformOpsUserId,
-        fixture.competitionId,
-        "Acara dibatalkan",
-        tx as never,
-        NOW,
-      );
+      await expect(
+        cancelCompetitionAsOps(
+          fixture.platformOpsUserId,
+          fixture.competitionId,
+          "Acara dibatalkan",
+          tx as never,
+          NOW,
+        ),
+      ).rejects.toMatchObject({ code: "ops_competition_payment_in_flight", status: 409 });
+
+      const [competition] = await tx
+        .select({ status: competitions.status })
+        .from(competitions)
+        .where(eq(competitions.id, fixture.competitionId));
+      expect(competition!.status).toBe("published");
 
       const accruals = await tx
         .select({ entryType: financeFeeAccruals.entryType })

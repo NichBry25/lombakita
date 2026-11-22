@@ -125,7 +125,7 @@ export const toFeeRuleTerms = (rule: FinanceFeeRuleRecord): FeeRuleTerms => {
   if (!isSupportedCurrency(rule.currency)) {
     throw new FeeRuleError(
       "fee_rule_currency_unsupported",
-      `Fee rule ${rule.id} is denominated in unsupported currency ${rule.currency}`,
+      `Fee rule is denominated in unsupported currency ${rule.currency}`,
     );
   }
 

@@ -3,9 +3,10 @@
 import { useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Icon, IconButton } from "@/components/ui";
-import { useModal, useToast } from "@/components/ui/primitives";
+import { useModal, useToast, type ModalOutcome } from "@/components/ui/primitives";
 import { IMAGE_UPLOAD_MIME_TYPES, type ImageFrame } from "@/lib/media/image-frames";
 import {
+  UPLOAD_FALLBACK,
   deleteUploadedImage,
   uploadCroppedImage,
   type UploadRules,
@@ -46,22 +47,21 @@ export function CroppedImageUpload({
 }) {
   const router = useRouter();
   const { addToast } = useToast();
-  const { openModal, closeModal } = useModal();
+  const { openModal } = useModal();
   const inputRef = useRef<HTMLInputElement>(null);
   const cropApiRef = useRef<ImageCropApi | null>(null);
-  // Which action is running, not a shared boolean — otherwise both controls would spin at once.
-  const [pending, setPending] = useState<"upload" | "remove" | null>(null);
+  const [isRemoving, setIsRemoving] = useState(false);
 
-  const runUpload = async (file: File) => {
-    setPending("upload");
-    const result = await uploadCroppedImage(expectedUserId, copy.basePath, copy.rules, file);
-    setPending(null);
-    if (!result.ok) {
-      addToast({ type: "error", message: result.message });
-      return;
-    }
+  // The crop pop-up owns the waiting and failure states, so a failed upload leaves it open with the
+  // image still in place for another try.
+  const uploadCroppedFrame = async (): Promise<ModalOutcome> => {
+    const cropped = await cropApiRef.current?.getCropped();
+    if (!cropped) return { ok: false, message: UPLOAD_FALLBACK };
+    const result = await uploadCroppedImage(expectedUserId, copy.basePath, copy.rules, cropped);
+    if (!result.ok) return result;
     addToast({ type: "success", message: copy.uploadedMessage });
     router.refresh();
+    return { ok: true };
   };
 
   // Picking a file opens the crop modal; the cropped frame is what actually uploads.
@@ -75,6 +75,8 @@ export function CroppedImageUpload({
     const objectUrl = URL.createObjectURL(file);
     openModal({
       title: copy.modalTitle,
+      wide: true,
+      initialFocus: "field",
       body: (
         <ImageCropEditor
           src={objectUrl}
@@ -86,25 +88,16 @@ export function CroppedImageUpload({
       ),
       onClose: () => URL.revokeObjectURL(objectUrl),
       actions: [
-        { label: "Batal", variant: "secondary", onClick: () => {} },
-        {
-          label: copy.saveLabel,
-          variant: "primary",
-          autoClose: false,
-          onClick: async () => {
-            const cropped = await cropApiRef.current?.getCropped();
-            closeModal();
-            if (cropped) await runUpload(cropped);
-          },
-        },
+        { label: "Batal" },
+        { label: copy.saveLabel, variant: "primary", onClick: uploadCroppedFrame },
       ],
     });
   };
 
   const onRemove = async () => {
-    setPending("remove");
+    setIsRemoving(true);
     const result = await deleteUploadedImage(expectedUserId, copy.basePath);
-    setPending(null);
+    setIsRemoving(false);
     if (!result.ok) {
       addToast({ type: "error", message: result.message });
       return;
@@ -132,8 +125,7 @@ export function CroppedImageUpload({
           type="button"
           variant="outline"
           size="sm"
-          loading={pending === "upload"}
-          disabled={pending === "remove"}
+          disabled={isRemoving}
           onClick={() => inputRef.current?.click()}
           leadingIcon={<Icon name="upload" size="sm" aria-hidden="true" />}
         >
@@ -143,10 +135,8 @@ export function CroppedImageUpload({
           <IconButton
             icon="trash"
             label={copy.removeLabel}
-            variant="danger"
-            size="sm"
-            loading={pending === "remove"}
-            disabled={pending === "upload"}
+            variant="outline"
+            loading={isRemoving}
             onClick={onRemove}
           />
         )}

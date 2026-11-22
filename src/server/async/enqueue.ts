@@ -9,6 +9,7 @@ import {
   type AsyncJobPayloadByName,
   type PaymentOutcomePayload,
   type PaymentProofSubmittedPayload,
+  type TeamCancelledBelowMinimumPayload,
 } from "@/server/async/contracts";
 import { buildAsyncJobId, sanitizeIdempotencyKey } from "@/server/async/idempotency";
 import { logEnqueueAccepted, logEnqueueRequested } from "@/server/async/observability";
@@ -282,6 +283,21 @@ export const enqueueRecruiterVerificationRejected = async (input: {
   });
 };
 
+// Fire-and-forget from the approval paths; callers must catch errors.
+export const enqueueRecruiterVerificationApproved = async (input: {
+  userId: string;
+  epoch: number;
+}): Promise<EnqueueAsyncJobResult<typeof ASYNC_JOB_NAMES.recruiterVerificationApproved>> => {
+  return enqueueAsyncJob({
+    jobName: ASYNC_JOB_NAMES.recruiterVerificationApproved,
+    idempotencyKey: `${input.userId}__${input.epoch}`,
+    payload: {
+      userId: input.userId,
+      epoch: input.epoch,
+    },
+  });
+};
+
 // Participant document verification — a named participant is asked for a named document. Keyed by
 // request id plus the request timestamp, so raising a fresh request against the same participant
 // months later notifies again while a true double-enqueue of one request dedups. Fire-and-forget
@@ -361,7 +377,8 @@ export const enqueuePaymentProofSubmitted = async (
 };
 
 /**
- * What became of the money, to every member of the payment group (R13).
+ * What became of the money (R13): a verdict to the members of the payment group who were active
+ * when it was given, an expiry to the members whose registrations this expiry cancelled.
  *
  * Idempotent on payment + outcome + attempt. A payment produces more than one outcome over its
  * life, and it can produce the SAME outcome twice: rejected, resubmitted, rejected again. Keying on
@@ -374,6 +391,37 @@ export const enqueuePaymentOutcome = async (
   return enqueueAsyncJob({
     jobName: ASYNC_JOB_NAMES.paymentOutcome,
     idempotencyKey: `${input.paymentId}__${input.outcome}__${input.attempt}`,
+    payload: { ...input },
+  });
+};
+
+// Idempotency key: the team and the close the reminder serves, so a reminder re-armed by a moved
+// close is a new job. Fire-and-forget, callers must catch errors.
+export const enqueueTeamJoinReminder = async (input: {
+  teamId: string;
+  competitionId: string;
+  closesAt: Date;
+  markedClose: string;
+}): Promise<EnqueueAsyncJobResult<typeof ASYNC_JOB_NAMES.teamJoinReminder>> => {
+  return enqueueAsyncJob({
+    jobName: ASYNC_JOB_NAMES.teamJoinReminder,
+    idempotencyKey: `${input.teamId}__${input.closesAt.getTime()}`,
+    payload: {
+      teamId: input.teamId,
+      competitionId: input.competitionId,
+      markedClose: input.markedClose,
+    },
+  });
+};
+
+// Idempotency key: registrationId, one notice per cancelled registration row.
+// Fire-and-forget, callers must catch errors.
+export const enqueueTeamCancelledBelowMinimum = async (
+  input: TeamCancelledBelowMinimumPayload,
+): Promise<EnqueueAsyncJobResult<typeof ASYNC_JOB_NAMES.teamCancelledBelowMinimum>> => {
+  return enqueueAsyncJob({
+    jobName: ASYNC_JOB_NAMES.teamCancelledBelowMinimum,
+    idempotencyKey: input.registrationId,
     payload: { ...input },
   });
 };

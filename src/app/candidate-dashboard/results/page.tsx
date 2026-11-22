@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { EmptyState, PageHeader } from "@/components/ui";
+import { LocalDate } from "@/components/ui/local-date";
 import { requireRolePage } from "@/server/auth/page-guard";
 import { listCandidatePublishedResults } from "@/server/participants/result-service";
 
@@ -15,15 +16,14 @@ export default async function CandidateResultsPage() {
     <main className="page-shell app-page candidate-results-page">
       <PageHeader
         title="Hasil kompetisi"
-        description="Hasil yang telah dipublikasikan untuk pendaftaranmu."
         backHref="/candidate-dashboard"
-        backLabel="Dasbor"
+        backName="Dasbor kandidat"
       />
 
       {results.length === 0 ? (
         <EmptyState
-          icon="trophy"
-          title="Belum ada hasil yang dipublikasikan."
+          kind="nothing-yet"
+          title="Belum ada hasil yang dipublikasikan"
           description="Keputusan final akan terlihat setelah penyelenggara mempublikasikannya."
         />
       ) : (
@@ -41,11 +41,7 @@ export default async function CandidateResultsPage() {
                   {result.competitionTitle}
                 </Link>
                 <span className="record-meta data-text">
-                  {result.publishedAt.toLocaleDateString("id-ID", {
-                    day: "numeric",
-                    month: "long",
-                    year: "numeric",
-                  })}
+                  <LocalDate value={result.publishedAt} format="longDate" />
                 </span>
               </div>
               <span className="result-label">{result.resultLabel}</span>

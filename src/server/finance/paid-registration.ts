@@ -2,7 +2,7 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/finance/paid-registration");
 
-import { and, eq, gt, inArray, ne } from "drizzle-orm";
+import { and, eq, gt, inArray, ne, sql } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
 import {
   competitionRegistrations,
@@ -13,7 +13,9 @@ import {
 import { IN_FLIGHT_PROOF_STATUSES } from "@/lib/finance/payment-model";
 import { foldPaymentEvents } from "@/lib/finance/payment-state";
 
-// THE THREE PAID PREDICATES. They are different questions with different answers, and they are
+type TransactionClient = Parameters<Parameters<Database["transaction"]>[0]>[0];
+
+// THE PAID PREDICATES. They are different questions with different answers, and they are
 // kept apart here because the rules they drive are kept apart:
 //
 //   CONFIRMED PAID:      money is known to have arrived. Drives the non-refundable-on-candidate-
@@ -25,9 +27,13 @@ import { foldPaymentEvents } from "@/lib/finance/payment-state";
 //                        has not verified it yet is exactly the window in which unpublishing would
 //                        strand them.
 //   PROOF SUBMITTED:     the candidate has asserted they sent money, whatever came of it. Drives
-//                        whether the cancel affordance is OFFERED. Fires earliest of the three and,
-//                        unlike the other two, NEVER GOES BACK TO FALSE. A rejected or voided proof
+//                        whether the cancel affordance is OFFERED. Fires earliest and, unlike the
+//                        others, NEVER GOES BACK TO FALSE. A rejected or voided proof
 //                        still counts, because the platform cannot establish that no money moved.
+//   AWAITING REVIEW:     a proof is sent and the organiser has not decided it yet. Drives only
+//                        the hold on extending a published close (the close-date path in
+//                        competition-service.ts). Narrower than
+//                        in flight: a verified transfer is settled and holds nothing back.
 //
 // Collapsing any pair into one "is this paid" helper would pick one of those moments and get the
 // others wrong. In flight but not confirmed is the common case, not an edge case; submitted but not
@@ -75,16 +81,11 @@ export const resolvePaymentGroupRegistrationIds = async (
 };
 
 /**
- * A registration id belonging to this team, or null when the team holds none.
- *
- * ANY member's row identifies the group. `hasSubmittedPaymentProof` resolves the whole payment
- * group from whichever row it is handed, so singling out the captain's would add a way to get the
- * wrong answer for no benefit. The caller needs an anchor, not a particular person's row.
- *
- * Shared by the team cancel guard and the surface that decides whether to offer the cancel control,
- * so the page cannot answer a question the service would answer differently.
+ * Any registration row of the team, a cancelled row of an earlier registration included. It is not
+ * the payment anchor: lockPaymentGroupAnchorRow returns the confirmed row that carries the current
+ * payment.
  */
-export const findTeamPaymentGroupAnchor = async (
+export const findAnyTeamRegistrationRow = async (
   teamId: string,
   db: Database = getDb(),
 ): Promise<string | null> => {
@@ -95,6 +96,67 @@ export const findTeamPaymentGroupAnchor = async (
     .limit(1);
 
   return row?.id ?? null;
+};
+
+/**
+ * Locks one registration row FOR UPDATE inside the caller's transaction and returns its status, or
+ * null when no such row exists. A payment's writers serialize on the row the payment is anchored
+ * on, and this takes that lock.
+ */
+export const lockRegistrationRow = async (
+  registrationId: string,
+  tx: TransactionClient,
+): Promise<{ status: string } | null> => {
+  const rows = await tx.execute(
+    sql`select status from competition_registrations where id = ${registrationId} for update`,
+  );
+  const [row] = [...rows] as { status: string }[];
+  return row ?? null;
+};
+
+/**
+ * Locks the registration row that the current payment of this registration's payment group is
+ * anchored on, and returns its id, or null when no confirmed row of the group carries a payment. A
+ * proof cannot land on a payment whose anchor row is cancelled, because the upload refuses it, so
+ * null needs no lock.
+ *
+ * The proof upload and the payment's expiry lock this same row before they read or write. A cancel
+ * that takes it first and reads the proof after it sees every proof committed before it, and an
+ * upload that waits behind it reads the row as the cancel left it. The caller's proof read takes
+ * the id returned here, so it cannot run before the lock.
+ *
+ * A group's confirmed rows carry one payment at most: a team registers again only after every
+ * earlier row was cancelled, and a teammate who joins later pays nothing.
+ *
+ * A caller that takes both locks takes the competition participation lock first and this row lock
+ * second, because a writer that takes the anchor first can deadlock the cancels (FINANCE-D50).
+ */
+export const lockPaymentGroupAnchorRow = async (
+  registrationId: string,
+  tx: TransactionClient,
+): Promise<string | null> => {
+  const groupIds = await resolvePaymentGroupRegistrationIds(registrationId, tx);
+  if (groupIds.length === 0) return null;
+
+  const [anchor] = await tx
+    .select({ id: competitionRegistrations.id })
+    .from(competitionRegistrations)
+    .innerJoin(
+      financePayments,
+      eq(financePayments.competitionRegistrationId, competitionRegistrations.id),
+    )
+    .where(
+      and(
+        inArray(competitionRegistrations.id, groupIds),
+        eq(competitionRegistrations.status, "confirmed"),
+      ),
+    )
+    .limit(1);
+
+  if (!anchor) return null;
+
+  await lockRegistrationRow(anchor.id, tx);
+  return anchor.id;
 };
 
 /**
@@ -138,8 +200,7 @@ export const loadCompetitionPayerUserIds = async (
  * on that payment ends or confirms the participation of every member. Notifying the captain alone
  * leaves three people to discover from the competition page that their team is no longer entered.
  *
- * Built on `resolvePaymentGroupRegistrationIds` rather than re-deriving the group, so the set that
- * is NOTIFIED and the set that is CANCELLED by an expiry are the same set by construction.
+ * Built on `resolvePaymentGroupRegistrationIds` rather than re-deriving the group.
  */
 export const resolvePaymentGroupMemberUserIds = async (
   registrationId: string,
@@ -156,6 +217,70 @@ export const resolvePaymentGroupMemberUserIds = async (
   // Deduplicated: nothing stops one account holding two rows in a group, and a duplicate here is a
   // duplicate email.
   return [...new Set(rows.map((row) => row.studentId))];
+};
+
+/**
+ * Every candidate a verdict on this payment is true for: the single payer, or the team's rows that
+ * are not cancelled at the moment of the call.
+ *
+ * Meant to be called inside the verdict's own transaction. Rows can be cancelled between the
+ * verdict and the delivery of its notice, by the organiser's unpublish, an ops cancellation, the
+ * expiry sweep or an insufficient-participation decision, so "active at the verdict" can only be
+ * read at the verdict. A member whose row was cancelled earlier is not told a verdict or a
+ * rejection reason that was never theirs.
+ *
+ * An individual payment keeps its single payer whatever the row's status, so an individual's
+ * notice never changes. The team's rows need no registration-time bound: a team that ever sent a
+ * proof cannot register again, so every row of the team that is not cancelled belongs to this
+ * payment.
+ */
+export const resolveActivePaymentGroupMemberUserIds = async (
+  registrationId: string,
+  tx: TransactionClient,
+): Promise<string[]> => {
+  const [self] = await tx
+    .select({
+      teamId: competitionRegistrations.teamId,
+      studentId: competitionRegistrations.studentId,
+    })
+    .from(competitionRegistrations)
+    .where(eq(competitionRegistrations.id, registrationId))
+    .limit(1);
+
+  if (!self) return [];
+  if (self.teamId === null) return [self.studentId];
+
+  const rows = await tx
+    .select({ studentId: competitionRegistrations.studentId })
+    .from(competitionRegistrations)
+    .where(
+      and(
+        eq(competitionRegistrations.teamId, self.teamId),
+        ne(competitionRegistrations.status, "cancelled"),
+      ),
+    );
+
+  return [...new Set(rows.map((row) => row.studentId))];
+};
+
+/**
+ * The same read as `resolveActivePaymentGroupMemberUserIds`, started from a payment: the verdict
+ * transactions hold a payment id and not its registration. A payment with no registration has no
+ * recipients.
+ */
+export const resolveActivePaymentGroupMemberUserIdsByPaymentId = async (
+  paymentId: string,
+  tx: TransactionClient,
+): Promise<string[]> => {
+  const [payment] = await tx
+    .select({ registrationId: financePayments.competitionRegistrationId })
+    .from(financePayments)
+    .where(eq(financePayments.id, paymentId))
+    .limit(1);
+
+  if (!payment?.registrationId) return [];
+
+  return resolveActivePaymentGroupMemberUserIds(payment.registrationId, tx);
 };
 
 /** The priced payments anchored anywhere on this registration's payment group. */
@@ -291,8 +416,8 @@ export const hasSubmittedPaymentProof = async (
  * it.
  *
  * THE PRICED JOIN IS THE PREDICATE, not the proof row's existence. A proof attached to a zero-gross
- * payment is a receipt for nothing, and counting it would let one stray row block an unpublish and
- * a fee change on a free competition forever, with no surface anywhere to clear it.
+ * payment is a receipt for nothing, and counting it would let one stray row block the unpublish of
+ * a free competition forever, with no surface anywhere to clear it.
  */
 export const hasCompetitionPaymentInFlight = async (
   competitionId: string,
@@ -315,11 +440,33 @@ export const hasCompetitionPaymentInFlight = async (
 };
 
 /**
- * Whether anyone holds a non-cancelled registration on this competition that carries no price.
+ * Whether a bukti transfer awaits the organiser's verification anywhere on this competition.
  *
- * The question a free→paid transition has to ask: pricing a competition that already took free
- * registrations would retroactively attach a fee to people who agreed to none, and the rule that
- * refuses candidate self-cancellation on a priced competition would then strip their right to leave.
+ * Narrower than `hasCompetitionPaymentInFlight`: a verified transfer is settled and holds nothing
+ * back, so only `pending_review` counts. Priced and scoped by `competition_id` for the same reasons.
+ */
+export const hasCompetitionTransferAwaitingReview = async (
+  competitionId: string,
+  db: Database = getDb(),
+): Promise<boolean> => {
+  const [row] = await db
+    .select({ id: financeManualPaymentProofs.id })
+    .from(financeManualPaymentProofs)
+    .innerJoin(financePayments, eq(financePayments.id, financeManualPaymentProofs.paymentId))
+    .where(
+      and(
+        eq(financeManualPaymentProofs.competitionId, competitionId),
+        eq(financeManualPaymentProofs.status, "pending_review"),
+        gt(financePayments.grossAmount, 0),
+      ),
+    )
+    .limit(1);
+
+  return row !== undefined;
+};
+
+/**
+ * Whether anyone holds a non-cancelled registration on this competition that carries no price.
  *
  * DERIVED PER PAYMENT GROUP, not per row, for the reason `resolvePaymentGroupRegistrationIds`
  * exists: a four-member team holds four rows and pays once, so three of them carry no payment of

@@ -2,7 +2,16 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useSession } from "next-auth/react";
-import { Button, CheckboxField, Icon, IconButton, usePageTransition } from "@/components/ui";
+import {
+  Button,
+  CheckboxField,
+  FormInput,
+  FormLabel,
+  Icon,
+  IconButton,
+  StepIndicator,
+  usePageTransition,
+} from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import {
   describeMfaLockout,
@@ -151,17 +160,17 @@ export function MfaEnrollForm({
   if (stage === "recovery-codes") {
     return (
       <div className="stack-md">
+        <StepIndicator currentStep={2} totalSteps={2} stepName="Simpan kode pemulihan" />
         {/* The QR is scanned and gone by this point, so the heading belongs to this stage rather
             than the page. A page-level "Pindai kode QR" would sit above a screen asking the
             operator to save ten recovery codes. */}
         <header className="auth-entry-header">
-          <p className="eyebrow">Verifikasi dua langkah</p>
           <h1>Simpan kode pemulihan Anda</h1>
         </header>
         <div className="feedback" data-tone="warning" role="status">
           <p>
-            <strong>Simpan 10 kode pemulihan ini sekarang.</strong> Setiap kode hanya bisa dipakai
-            satu kali dan tidak akan ditampilkan lagi setelah Anda melanjutkan.
+            Setiap kode hanya bisa dipakai satu kali dan tidak akan ditampilkan lagi setelah Anda
+            melanjutkan.
           </p>
         </div>
         <pre className="diagnostic-code stack-xs" aria-label="Kode pemulihan">
@@ -198,8 +207,8 @@ export function MfaEnrollForm({
 
   return (
     <form onSubmit={onSubmitCode} className="auth-form stack-md">
+      <StepIndicator currentStep={1} totalSteps={2} stepName="Hubungkan aplikasi" />
       <header className="auth-entry-header">
-        <p className="eyebrow">Verifikasi dua langkah</p>
         <h1>Aktifkan 2FA</h1>
       </header>
       <p>
@@ -244,17 +253,17 @@ export function MfaEnrollForm({
           <code className="mfa-key-value" aria-labelledby="mfa-secret-label">
             {secretBase32}
           </code>
-          <IconButton icon="copy" label="Salin kunci" onClick={copySecret} />
+          <IconButton icon="copy" variant="outline" label="Salin kunci" onClick={copySecret} />
         </div>
       </section>
 
       <hr className="form-separator" />
 
       <div className="form-field">
-        <label className="form-label form-label-required" htmlFor="mfa-enroll-code">
+        <FormLabel htmlFor="mfa-enroll-code" required>
           Kode verifikasi
-        </label>
-        <input
+        </FormLabel>
+        <FormInput
           id="mfa-enroll-code"
           type="text"
           inputMode="numeric"
@@ -262,7 +271,6 @@ export function MfaEnrollForm({
           maxLength={6}
           value={code}
           onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))}
-          className="form-input"
           placeholder="123456"
           aria-describedby="mfa-enroll-code-hint"
         />

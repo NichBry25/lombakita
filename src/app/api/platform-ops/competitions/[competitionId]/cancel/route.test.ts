@@ -124,6 +124,21 @@ describe("POST /api/platform-ops/competitions/[competitionId]/cancel", () => {
     expect(data.error.code).toBe("ops_competition_not_published");
   });
 
+  it("passes a payment-in-flight refusal through with its code, message and status", async () => {
+    cancelCompetitionAsOps.mockRejectedValue(
+      new OpsPaymentError("ops_competition_payment_in_flight", "masih ada bukti transfer", 409),
+    );
+
+    const response = await POST(postBody({ reason: "x" }), { params });
+
+    expect({ status: response.status, body: await response.json() }).toEqual({
+      status: 409,
+      body: {
+        error: { code: "ops_competition_payment_in_flight", message: "masih ada bukti transfer" },
+      },
+    });
+  });
+
   it("passes a not-found through as 404", async () => {
     cancelCompetitionAsOps.mockRejectedValue(
       new OpsPaymentError("ops_competition_not_found", "no such competition", 404),

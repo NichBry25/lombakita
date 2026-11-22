@@ -134,21 +134,37 @@ export const notifyPaymentProofSubmitted = async (
   }
 };
 
+type VerdictOutcome = "verified" | "rejected" | "voided";
+
+type VerdictNotifyOptions = {
+  recipientUserIds: string[];
+  rejectionReason?: string | null;
+  resubmissionAllowed?: boolean | null;
+};
+
+type ExpiryNotifyOptions = Record<string, never>;
+
 /**
- * Tells every member of the payment group what became of the money. Per R13, the whole group.
+ * Tells what became of the money (R13): a verdict to the members of the payment group who were
+ * active when it was given, an expiry to the members whose registrations this expiry cancelled. The
+ * verdict's caller reads its recipients inside its own transaction and must pass them in
+ * `recipientUserIds`, which the type enforces; the job resolves an expiry's at delivery.
  *
  * `expired` carries no reason and no resubmission flag because there is no organiser decision to
  * describe, and the copy downstream says so outright.
  */
-export const notifyPaymentOutcome = async (
+export const notifyPaymentOutcome = async <O extends VerdictOutcome | "expired">(
   paymentId: string,
-  outcome: "verified" | "rejected" | "expired" | "voided",
-  options: { rejectionReason?: string | null; resubmissionAllowed?: boolean | null } = {},
+  outcome: O,
+  options: O extends "expired" ? ExpiryNotifyOptions : VerdictNotifyOptions,
   db: Database = getDb(),
 ): Promise<void> => {
   try {
     const facts = await loadPaymentFacts(paymentId, db);
     if (!facts) return;
+
+    // The conditional type already guarantees the shape for every outcome but expired.
+    const verdictOptions = (outcome === "expired" ? null : options) as VerdictNotifyOptions | null;
 
     await enqueuePaymentOutcome({
       paymentId,
@@ -160,10 +176,14 @@ export const notifyPaymentOutcome = async (
       // lets the voided arm through regardless of the organiser's earlier setting (R9/R20), so
       // sending a bar here would print a restriction the write path does not apply.
       rejectionReason:
-        outcome === "rejected" || outcome === "voided" ? (options.rejectionReason ?? null) : null,
-      resubmissionAllowed: outcome === "rejected" ? (options.resubmissionAllowed ?? null) : null,
+        outcome === "rejected" || outcome === "voided"
+          ? (verdictOptions?.rejectionReason ?? null)
+          : null,
+      resubmissionAllowed:
+        outcome === "rejected" ? (verdictOptions?.resubmissionAllowed ?? null) : null,
       grossAmount: facts.grossAmount,
       currency: facts.currency,
+      recipientUserIds: verdictOptions?.recipientUserIds,
     });
   } catch (error) {
     warnDispatchFailed("payment.outcome", paymentId, error);

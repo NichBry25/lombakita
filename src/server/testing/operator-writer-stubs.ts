@@ -15,7 +15,7 @@ export const makeSequencedSelect = (reads: SelectRows[]) => {
   return vi.fn(() => {
     const rows = reads[call++] ?? [];
     const chain: Record<string, unknown> = {};
-    for (const step of ["from", "innerJoin", "leftJoin", "where"]) {
+    for (const step of ["from", "innerJoin", "leftJoin", "where", "orderBy"]) {
       chain[step] = vi.fn(() => chain);
     }
     chain.limit = vi.fn().mockResolvedValue(rows);

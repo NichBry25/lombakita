@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
-import type { CompetitionCategory, CompetitionMode, CompetitionStatus } from "@/server/db/schema";
+import type {
+  CompetitionCategory,
+  CompetitionLocation,
+  CompetitionMode,
+  CompetitionStatus,
+} from "@/server/db/schema";
 import { COMPETITION_CATEGORY_VALUES } from "@/lib/competitions/categories";
+import { COMPETITION_LOCATION_VALUES, isCompetitionLocation } from "@/lib/competitions/locations";
 import {
   validateCompetitionTimeline,
   type CompetitionTimelineInput,
@@ -57,6 +63,10 @@ type CompetitionErrorCode =
   | "competition_not_draft"
   | "competition_invalid_transition"
   | "competition_publish_validation_failed"
+  | "competition_organizer_contact_missing"
+  | "competition_audience_missing"
+  | "competition_organizer_contact_invalid"
+  | "competition_organizer_contact_not_indonesian"
   | "competition_institution_not_verified"
   | "competition_recruiter_not_trusted"
   | "institution_suspended"
@@ -68,16 +78,24 @@ type CompetitionErrorCode =
   | "competition_unpublish_blocked_after_start"
   | "competition_unpublish_blocked_after_participation_confirmation"
   // DEC-0132: money is in flight, so withdrawing would cancel a registration someone has already
-  // paid for. Escape hatch is the platform_ops cancellation route.
+  // paid for. Rejecting or voiding a transfer releases it. A verified transfer keeps the block for
+  // good.
   | "competition_unpublish_blocked_payment_in_flight"
-  // DEC-0132's sibling at the write: a price cannot move while a transfer against it is unresolved.
-  | "competition_fee_change_blocked_payment_in_flight"
-  // A competition that already took registrations for free cannot acquire a price: pricing it would
-  // retroactively remove the right to self-cancel from candidates who never paid anything.
-  | "competition_fee_blocked_free_registrations"
+  // Publishing fixes the price: its amount and currency change only while the competition is a draft.
+  | "competition_fee_locked_after_publish"
+  // A draft still holding a non-cancelled registration keeps its price.
+  | "competition_fee_blocked_active_registrations"
+  // A transfer awaits the host's decision: a published close waits for it.
+  | "competition_close_waits_for_transfer_review"
+  // The row changed between the read a change was judged on and its write.
+  | "competition_changed_during_edit"
+  // A set audience stays set once the competition is published.
+  | "competition_audience_cannot_be_emptied"
   // The organiser must be shown, and confirm, what the platform charges before a price goes live.
   // The confirmation is recorded; this refusal is what makes it unskippable.
   | "competition_fee_disclosure_required"
+  // A window-only change needs a fee that is already on. Only the owner turns a fee on (DEC-0179).
+  | "competition_fee_not_enabled"
   | "competition_already_cancelled"
   | "competition_participation_not_configured"
   | "competition_participation_decision_unavailable"
@@ -97,8 +115,8 @@ export type PublishValidationFailure = {
 export type CompetitionErrorDetails = {
   fields?: string[];
   failures?: PublishValidationFailure[];
-  // The post-publish edit fields whose change would invalidate existing
-  // registrations. Surfaced so the editor can name the offending field(s) in a modal.
+  // The fields a post-publish edit may not change in the requested direction. Surfaced so
+  // the editor can name the offending field(s) in a modal.
   blockedFields?: string[];
 };
 
@@ -155,6 +173,7 @@ export type CompetitionDraftFields = {
   slug?: string;
   category?: CompetitionCategory | null;
   mode?: CompetitionMode | null;
+  location?: CompetitionLocation | null;
   minTeamSize?: number | null;
   maxTeamSize?: number | null;
   registrationStartAt?: Date | null;
@@ -356,6 +375,19 @@ const parseOptionalMode = (value: unknown): CompetitionMode | null => {
   return value;
 };
 
+const parseOptionalLocation = (value: unknown): CompetitionLocation | null => {
+  if (value === null) return null;
+  if (!isCompetitionLocation(value)) {
+    throw new CompetitionError(
+      "competition_invalid_value",
+      400,
+      `location must be one of: ${COMPETITION_LOCATION_VALUES.join(", ")}`,
+      { fields: ["location"] },
+    );
+  }
+  return value;
+};
+
 // Minimum team size by mode. team requires ≥ 2; individual and both require ≥ 1 (already
 // enforced by parseOptionalInt). The floor for team is stricter than the general positive-int
 // check, so it needs an explicit rule.
@@ -520,6 +552,7 @@ export const PATCH_FIELDS: readonly string[] = [
   "slug",
   "category",
   "mode",
+  "location",
   "minTeamSize",
   "maxTeamSize",
   "registrationStartAt",
@@ -597,6 +630,9 @@ const parseDraftFields = (
   }
   if ("mode" in filtered) {
     fields.mode = parseOptionalMode(filtered.mode);
+  }
+  if ("location" in filtered) {
+    fields.location = parseOptionalLocation(filtered.location);
   }
   if ("minTeamSize" in filtered) {
     fields.minTeamSize = parseOptionalInt(filtered.minTeamSize, "minTeamSize");
@@ -735,22 +771,11 @@ export const parseCompetitionPatchInput = (
   return fields;
 };
 
-// Hard-immutable fields on a published competition.
-//
-// A published competition is editable in place (the update service routes it through the
-// data-aware edit classifier, which decides per field whether a change is refused, notifies
-// participants, or is silent). These three fields sit OUTSIDE that classifier: they are the
-// participant contract participants registered under and can never change while published.
-// The update service enforces this as the outer layer (422 competition_field_immutable) before
-// the classifier runs. Draft competitions edit all fields freely.
-//
-//   mode             (registrations are anchored to the mode contract)
-//   minTeamSize      (team registration sizing locked in at publish)
-//   maxTeamSize      (team registration sizing locked in at publish)
+// Fields a published competition never changes, refused (422 competition_field_immutable) before
+// the edit classifier runs. The classifier decides every other published edit field by field and
+// direction, and blocks mode as well. Draft competitions edit all fields freely.
 export const IMMUTABLE_AFTER_PUBLISH: readonly string[] = [
   "mode",
-  "minTeamSize",
-  "maxTeamSize",
   "minimumParticipantEntries",
   "participantConfirmationAt",
 ];
@@ -773,6 +798,7 @@ export type PublishValidationCandidate = {
   description: string;
   category: CompetitionCategory | null;
   mode: CompetitionMode | null;
+  location: CompetitionLocation | null;
   minTeamSize?: number | null;
   maxTeamSize?: number | null;
   registrationStartAt: Date | null;
@@ -783,6 +809,10 @@ export type PublishValidationCandidate = {
   minimumParticipantEntries?: number | null;
   participantConfirmationAt?: Date | null;
 };
+
+// What the published-edit path can check. It has no location: a legacy published competition has
+// none, and an edit of it must not be refused for that. Location is judged at publish time only.
+export type PublishedEditCandidate = Omit<PublishValidationCandidate, "location">;
 
 export type PublishValidationResult = {
   passed: boolean;
@@ -806,7 +836,7 @@ const isNonEmpty = (value: string | null | undefined): boolean =>
 // edit — a finished competition's registration deadline is necessarily in the past, and
 // re-checking it would make every finished competition uneditable.
 export const findMissingPublishFields = (
-  candidate: PublishValidationCandidate,
+  candidate: PublishedEditCandidate,
 ): PublishValidationFailure[] => {
   const failures: PublishValidationFailure[] = [];
 
@@ -850,6 +880,14 @@ export const validatePublishChecklist = (
   candidate: PublishValidationCandidate,
 ): PublishValidationResult => {
   const failures: PublishValidationFailure[] = findMissingPublishFields(candidate);
+
+  if (!candidate.location) {
+    failures.push({
+      field: "location",
+      code: "missing",
+      message: "location is required to publish",
+    });
+  }
 
   // Mode-aware size floor validation at publish time.
   if (candidate.mode === "team" && (candidate.minTeamSize ?? 0) < TEAM_MODE_MIN_SIZE) {

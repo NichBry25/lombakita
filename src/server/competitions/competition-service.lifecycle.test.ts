@@ -14,17 +14,24 @@ const {
   enqueueCompetitionEdited,
   enqueueCompetitionCancelled,
   enqueueCompetitionSearchSync,
+  moveOpenTeamInvitationsToClose,
 } = vi.hoisted(() => ({
   assertCompetitionAccess: vi.fn(),
   hasActiveRegistrationsForCompetition: vi.fn(),
   enqueueCompetitionEdited: vi.fn(),
   enqueueCompetitionCancelled: vi.fn(),
   enqueueCompetitionSearchSync: vi.fn(),
+  moveOpenTeamInvitationsToClose: vi.fn(),
 }));
 
-const { hasCompetitionPaymentInFlightMock, hasActiveFreeRegistrationsMock } = vi.hoisted(() => ({
+const {
+  hasCompetitionPaymentInFlightMock,
+  hasActiveFreeRegistrationsMock,
+  hasCompetitionTransferAwaitingReviewMock,
+} = vi.hoisted(() => ({
   hasCompetitionPaymentInFlightMock: vi.fn().mockResolvedValue(false),
   hasActiveFreeRegistrationsMock: vi.fn().mockResolvedValue(false),
+  hasCompetitionTransferAwaitingReviewMock: vi.fn().mockResolvedValue(false),
 }));
 
 vi.mock("@/server/competitions/competition-access", async () => {
@@ -42,14 +49,26 @@ vi.mock("@/server/async/enqueue", () => ({
 vi.mock("@/server/competitions/competition-participation-lock", () => ({
   acquireCompetitionParticipationLock: vi.fn(),
 }));
+vi.mock("@/server/teams/team-invitation-expiry", () => ({ moveOpenTeamInvitationsToClose }));
+const { disbandEveryTeamOfCompetition, markCompetitionRegistrationsPublicationClosed } = vi.hoisted(
+  () => ({
+    disbandEveryTeamOfCompetition: vi.fn().mockResolvedValue(undefined),
+    markCompetitionRegistrationsPublicationClosed: vi.fn().mockResolvedValue(undefined),
+  }),
+);
+vi.mock("@/server/teams/team-service", () => ({ disbandEveryTeamOfCompetition }));
+vi.mock("@/server/registrations/registration-service", () => ({
+  markCompetitionRegistrationsPublicationClosed,
+}));
 
-// The DEC-0132 in-flight guard, which unpublishCompetition and the edit classifier both consult.
-// Defaulted to "nothing in flight" so the pre-existing lifecycle assertions keep testing what they
-// were written to test; the guard's own behaviour, that it blocks and that the classifier blocks
-// a fee edit behind it, is proven separately against a live Postgres.
+// The DEC-0132 in-flight guard, which unpublishCompetition consults, and the awaiting-review
+// predicate behind the edit classifier's snapshot. Both default to "nothing pending" so the lifecycle
+// assertions keep testing what they were written to test; the refusals behind them are proven
+// against a live Postgres.
 vi.mock("@/server/finance/paid-registration", () => ({
   hasCompetitionPaymentInFlight: hasCompetitionPaymentInFlightMock,
   hasActiveFreeRegistrations: hasActiveFreeRegistrationsMock,
+  hasCompetitionTransferAwaitingReview: hasCompetitionTransferAwaitingReviewMock,
 }));
 
 // A pass-through spy on the classifier, so the tests below can read the input the SERVICE built and
@@ -74,6 +93,7 @@ vi.mock("@/server/competitions/edit-classification", async () => {
 });
 
 import type { Database } from "@/server/db/client";
+import { acquireCompetitionParticipationLock } from "@/server/competitions/competition-participation-lock";
 import {
   classifyCompetitionEdit,
   type ClassifiableCompetition,
@@ -95,6 +115,7 @@ const baseCompetition = (overrides: Partial<CompetitionRow> = {}): CompetitionRo
   status: "published",
   category: "hackathon",
   mode: "both",
+  location: null,
   minTeamSize: 1,
   maxTeamSize: 4,
   registrationStartAt: new Date(Date.now() + 5 * DAY),
@@ -191,6 +212,7 @@ beforeEach(() => {
   hasActiveRegistrationsForCompetition.mockResolvedValue(false);
   hasCompetitionPaymentInFlightMock.mockResolvedValue(false);
   hasActiveFreeRegistrationsMock.mockResolvedValue(false);
+  hasCompetitionTransferAwaitingReviewMock.mockResolvedValue(false);
 });
 
 afterEach(() => vi.clearAllMocks());
@@ -231,7 +253,12 @@ describe("updateCompetitionDraft — published edit (F6/F17)", () => {
       };
       const setSpy = vi.fn();
       const updateSpy = vi.fn(() => updateChain([updated], setSpy));
-      const db = { select: publishedEditSelect([]), update: updateSpy } as unknown as Database;
+      const editDb: Record<string, unknown> = {
+        select: makeSelectQueue([[FREE_PRICING], [], [FREE_PRICING]]),
+        update: updateSpy,
+      };
+      editDb.transaction = (callback: (transaction: unknown) => unknown) => callback(editDb);
+      const db = editDb as unknown as Database;
       assertCompetitionAccess.mockResolvedValue({
         competition,
         membershipRole: "institution_owner",
@@ -348,8 +375,6 @@ describe("updateCompetitionDraft — published edit (F6/F17)", () => {
     { field: "participantConfirmationAt", stored: null, changed: "2027-01-01T12:00:00.000Z" },
     { field: "participantConfirmationAt", stored: "2027-01-01T12:00:00.000Z", changed: null },
     { field: "mode", stored: "both", changed: "individual" },
-    { field: "minTeamSize", stored: 1, changed: 2 },
-    { field: "maxTeamSize", stored: 4, changed: 5 },
     { field: "minimumParticipantEntries", stored: 0, changed: 1 },
   ])(
     "refuses immutable $field from $stored to $changed before writing",
@@ -494,7 +519,7 @@ describe("updateCompetitionDraft — published edit (F6/F17)", () => {
     );
   });
 
-  it("persists a trivial-only edit and does NOT enqueue", async () => {
+  it("persists a description edit and announces it", async () => {
     const updated = baseCompetition({ status: "published", description: "Deskripsi baru" });
     assertCompetitionAccess.mockResolvedValue({
       competition: baseCompetition({ status: "published" }),
@@ -506,7 +531,10 @@ describe("updateCompetitionDraft — published edit (F6/F17)", () => {
     } as unknown as Database;
 
     await updateCompetitionDraft("u_1", "comp_1", { description: "Deskripsi baru" }, db);
-    expect(enqueueCompetitionEdited).not.toHaveBeenCalled();
+    expect(enqueueCompetitionEdited).toHaveBeenCalledOnce();
+    expect(enqueueCompetitionEdited).toHaveBeenCalledWith(
+      expect.objectContaining({ competitionId: "comp_1", changedFields: ["description"] }),
+    );
   });
 
   it("returns 422 competition_field_immutable when an immutable field changes (outer layer)", async () => {
@@ -538,6 +566,160 @@ describe("updateCompetitionDraft — published edit (F6/F17)", () => {
       code: "competition_field_immutable",
       details: { fields: ["minimumParticipantEntries"] },
     });
+  });
+
+  it("refuses raising the team minimum of a published team competition before writing", async () => {
+    const competition = baseCompetition({ mode: "team", minTeamSize: 3, maxTeamSize: 4 });
+    assertCompetitionAccess.mockResolvedValue({ competition, membershipRole: "institution_owner" });
+    const setSpy = vi.fn();
+    const db = {
+      select: publishedEditSelect([]),
+      update: () => updateChain([competition], setSpy),
+    } as unknown as Database;
+    const patch = parseCompetitionPatchInput({ minTeamSize: 4 });
+
+    await expect(updateCompetitionDraft("u_1", "comp_1", patch, db)).rejects.toMatchObject({
+      code: "competition_post_publish_blocked",
+      httpStatus: 422,
+      details: { blockedFields: ["minTeamSize"] },
+    });
+    expect(setSpy).not.toHaveBeenCalled();
+  });
+
+  it("saves and announces a raised team maximum of a published competition", async () => {
+    const competition = baseCompetition();
+    const returned = { ...competition, maxTeamSize: 6 };
+    assertCompetitionAccess.mockResolvedValue({ competition, membershipRole: "institution_owner" });
+    const setSpy = vi.fn();
+    const db = {
+      select: publishedEditSelect([]),
+      update: () => updateChain([returned], setSpy),
+    } as unknown as Database;
+    const patch = parseCompetitionPatchInput({ maxTeamSize: 6 });
+
+    await expect(updateCompetitionDraft("u_1", "comp_1", patch, db)).resolves.toEqual(returned);
+    expect(setSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ minTeamSize: 1, maxTeamSize: 6 }),
+    );
+    expect(enqueueCompetitionEdited).toHaveBeenCalledWith(
+      expect.objectContaining({ competitionId: "comp_1", changedFields: ["maxTeamSize"] }),
+    );
+  });
+
+  it("refuses a team minimum below the team floor on a published competition", async () => {
+    const competition = baseCompetition({ mode: "team", minTeamSize: 3, maxTeamSize: 4 });
+    assertCompetitionAccess.mockResolvedValue({ competition, membershipRole: "institution_owner" });
+    const setSpy = vi.fn();
+    const db = {
+      select: publishedEditSelect([]),
+      update: () => updateChain([competition], setSpy),
+    } as unknown as Database;
+    const patch = parseCompetitionPatchInput({ minTeamSize: 1 });
+
+    await expect(updateCompetitionDraft("u_1", "comp_1", patch, db)).rejects.toMatchObject({
+      code: "competition_invalid_value",
+      httpStatus: 400,
+      details: { fields: ["minTeamSize"] },
+    });
+    expect(setSpy).not.toHaveBeenCalled();
+  });
+
+  it("refuses a later close while a transfer awaits verification, with its own code", async () => {
+    hasCompetitionTransferAwaitingReviewMock.mockResolvedValue(true);
+    const competition = baseCompetition();
+    assertCompetitionAccess.mockResolvedValue({ competition, membershipRole: "institution_owner" });
+    const setSpy = vi.fn();
+    const db = {
+      select: publishedEditSelect([]),
+      update: () => updateChain([competition], setSpy),
+    } as unknown as Database;
+    const patch = parseCompetitionPatchInput({
+      registrationEndAt: new Date(Date.now() + 25 * DAY).toISOString(),
+    });
+
+    await expect(updateCompetitionDraft("u_1", "comp_1", patch, db)).rejects.toMatchObject({
+      code: "competition_close_waits_for_transfer_review",
+      httpStatus: 409,
+      details: { fields: ["registrationEndAt"] },
+    });
+    expect(setSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("updateCompetitionDraft — every open team invite follows a moved close", () => {
+  const PAID_PRICING = { feeAmount: 150_000, feeCurrency: "IDR", paymentWindowDays: 3 };
+
+  const closeMovedBy25Days = () =>
+    parseCompetitionPatchInput({
+      registrationEndAt: new Date(Date.now() + 25 * DAY).toISOString(),
+    });
+
+  it("moves the open team invites to a free competition's new close inside the edit's transaction", async () => {
+    const competition = baseCompetition();
+    const patch = closeMovedBy25Days();
+    const updated = { ...competition, registrationEndAt: patch.registrationEndAt as Date };
+    const tx = {
+      update: () => updateChain([updated]),
+      select: makeSelectQueue([[FREE_PRICING]]),
+    };
+    const transaction = vi.fn((callback: (transaction: unknown) => unknown) => callback(tx));
+    const db = { select: publishedEditSelect([]), transaction } as unknown as Database;
+    assertCompetitionAccess.mockResolvedValue({ competition, membershipRole: "institution_owner" });
+
+    await expect(updateCompetitionDraft("u_1", "comp_1", patch, db)).resolves.toEqual(updated);
+
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(moveOpenTeamInvitationsToClose).toHaveBeenCalledTimes(1);
+    expect(moveOpenTeamInvitationsToClose).toHaveBeenCalledWith(
+      tx,
+      "comp_1",
+      patch.registrationEndAt,
+      expect.any(Date),
+    );
+    expect(acquireCompetitionParticipationLock).toHaveBeenCalledWith(tx, "comp_1");
+  });
+
+  it("moves the open team invites when a paid competition's close moves too", async () => {
+    const competition = baseCompetition();
+    const patch = closeMovedBy25Days();
+    const updated = { ...competition, registrationEndAt: patch.registrationEndAt as Date };
+    const tx = {
+      update: () => updateChain([updated]),
+      select: makeSelectQueue([[PAID_PRICING]]),
+    };
+    const transaction = vi.fn((callback: (transaction: unknown) => unknown) => callback(tx));
+    const db = {
+      select: publishedEditSelect([], PAID_PRICING),
+      update: () => updateChain([updated]),
+      transaction,
+    } as unknown as Database;
+    assertCompetitionAccess.mockResolvedValue({ competition, membershipRole: "institution_owner" });
+
+    await expect(updateCompetitionDraft("u_1", "comp_1", patch, db)).resolves.toEqual(updated);
+
+    expect(moveOpenTeamInvitationsToClose).toHaveBeenCalledTimes(1);
+    expect(moveOpenTeamInvitationsToClose).toHaveBeenCalledWith(
+      tx,
+      "comp_1",
+      patch.registrationEndAt,
+      expect.any(Date),
+    );
+    expect(transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not touch team invites when an edit keeps the close", async () => {
+    const competition = baseCompetition();
+    const patch = parseCompetitionPatchInput({ description: "Deskripsi baru" });
+    const updated = { ...competition, description: "Deskripsi baru" };
+    const db = {
+      select: publishedEditSelect([]),
+      update: () => updateChain([updated]),
+    } as unknown as Database;
+    assertCompetitionAccess.mockResolvedValue({ competition, membershipRole: "institution_owner" });
+
+    await expect(updateCompetitionDraft("u_1", "comp_1", patch, db)).resolves.toEqual(updated);
+
+    expect(moveOpenTeamInvitationsToClose).not.toHaveBeenCalled();
   });
 });
 
@@ -597,7 +779,7 @@ describe("the classifier's fee rules are reachable from the service", () => {
         hasActiveTeam: false,
         activeTeamSizes: [],
         hasActiveFree: true,
-        hasPaymentInFlight: false,
+        hasTransferAwaitingReview: false,
       },
     );
 
@@ -612,7 +794,7 @@ describe("the classifier's fee rules are reachable from the service", () => {
       hasActiveTeam: false,
       activeTeamSizes: [],
       hasActiveFree: false,
-      hasPaymentInFlight: true,
+      hasTransferAwaitingReview: true,
     };
 
     expect(
@@ -639,7 +821,7 @@ describe("the classifier's fee rules are reachable from the service", () => {
         hasActiveTeam: false,
         activeTeamSizes: [],
         hasActiveFree: false,
-        hasPaymentInFlight: true,
+        hasTransferAwaitingReview: true,
       },
     );
 
@@ -680,6 +862,16 @@ describe("unpublishCompetition — cascade", () => {
     );
     expect(enqueueCompetitionSearchSync).toHaveBeenCalledWith(
       expect.objectContaining({ competitionId: "comp_1", action: "remove" }),
+    );
+    expect(markCompetitionRegistrationsPublicationClosed).toHaveBeenCalledWith(
+      "comp_1",
+      expect.any(Date),
+      expect.anything(),
+    );
+    expect(disbandEveryTeamOfCompetition).toHaveBeenCalledWith(
+      "comp_1",
+      expect.any(Date),
+      expect.anything(),
     );
   });
 
@@ -757,6 +949,8 @@ describe("unpublishCompetition — cascade", () => {
     });
     // The transaction rolls back before either mutation.
     expect(enqueueCompetitionCancelled).not.toHaveBeenCalled();
+    expect(markCompetitionRegistrationsPublicationClosed).not.toHaveBeenCalled();
+    expect(disbandEveryTeamOfCompetition).not.toHaveBeenCalled();
   });
 
   // Inverted deliberately: an earlier cut of this rule reopened withdrawal once the event was

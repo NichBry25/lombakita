@@ -26,7 +26,8 @@
  * exactly why they make a usable fingerprint. The build-freshness layer covers the declaration case.
  */
 import { readFileSync, statSync, readdirSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 /** Exit code meaning "refused to measure": distinct from 1 (findings) and 2 (crash). */
 export const STALE_STYLESHEET_EXIT = 3;
@@ -38,7 +39,12 @@ export class StaleStylesheetError extends Error {
   }
 }
 
-const REPO_ROOT = resolve(new URL("../..", import.meta.url).pathname);
+// Plain node gives a `file:` URL. Vite gives a bare path prefixed with `/@fs`, which a test imports.
+const moduleDirectory = import.meta.url.startsWith("file:")
+  ? dirname(fileURLToPath(import.meta.url))
+  : dirname(import.meta.url.replace(/^\/@fs/, "").split("?")[0]);
+
+const REPO_ROOT = resolve(moduleDirectory, "../..");
 
 /** Every stylesheet the app compiles from. Explicit, so an added file is a deliberate edit here. */
 export const STYLESHEET_SOURCES = ["src/app/globals.css", "src/styles/brand-tokens.css"].map((p) =>
@@ -53,13 +59,26 @@ const stripComments = (css) => css.replace(/\/\*[\s\S]*?\*\//g, "");
  * Whitespace, the quotes inside an attribute selector, and the second colon of a pseudo-element
  * are all formatting the compiler is free to change. A leading universal `*` before a pseudo is
  * dropped outright (`*::before` is emitted as `:before`), so the bare form is accepted too.
+ * Chromium serialises `odd` and `even` inside an `:nth-*` pseudo-class as `2n+1` and `2n`.
  */
 export const canonicalSelector = (selector) => {
   let s = selector.replace(/\s+/g, "").toLowerCase();
   s = s.replace(/\[([-a-z0-9_]+)([~^|$*]?=)["']([^"']*)["']\]/g, "[$1$2$3]");
   s = s.replace(/::/g, ":");
+  s = s.replace(
+    /(:nth-(?:last-)?(?:child|of-type)\()(odd|even)\)/g,
+    (_match, opening, keyword) => `${opening}${keyword === "odd" ? "2n+1" : "2n"})`,
+  );
   return s;
 };
+
+/**
+ * Pseudo-element prefixes, in canonical form, that the audit browser never serves.
+ *
+ * Chromium drops every rule with a `::-moz-` pseudo-element, so such a selector can never be in the
+ * served CSS.
+ */
+export const BROWSER_DROPPED_PSEUDO_PREFIXES = [":-moz-"];
 
 /**
  * Splits a selector list on the commas that separate selectors.
@@ -101,8 +120,25 @@ export const sourceSelectors = (sources) => {
   return selectors;
 };
 
+/** Canonical selectors of a block that declares tokens on the document root. */
+const THEME_ROOT_SELECTORS = new Set([
+  ":root",
+  "[data-theme=light]",
+  "[data-theme=dark]",
+  ":root[data-theme=light]",
+  ":root[data-theme=dark]",
+]);
+
+const isThemeRootSelectorList = (selectorList) =>
+  splitSelectorList(selectorList)
+    .map(canonicalSelector)
+    .every((one) => THEME_ROOT_SELECTORS.has(one));
+
 /**
- * Every design token declared under `:root` or a `[data-theme=…]` block, split by theme.
+ * Every design token declared in a theme root block, split by theme.
+ *
+ * A token is read only from a theme root block: a custom property declared on a component under a
+ * theme selector is not on the root, so the root never resolves it.
  *
  * A token declared in both is recorded under both: the dark block deliberately re-declares a
  * subset of the light one, and the audit reads each theme against its own values.
@@ -112,6 +148,7 @@ export const sourceTokens = (sources) => {
   for (const { text } of sources) {
     const css = stripComments(text);
     for (const block of css.matchAll(/(?:^|[;{}])\s*([^{}@;]+?)\s*\{([^{}]*)\}/gm)) {
+      if (!isThemeRootSelectorList(block[1])) continue;
       const selector = canonicalSelector(block[1]);
       const isDark = selector.includes("[data-theme=dark]");
       const isLight = selector.includes(":root") || selector.includes("[data-theme=light]");
@@ -314,6 +351,7 @@ export const assertServedCssMatchesSource = async (page) => {
 
   const missingSelectors = [];
   for (const selector of sourceSelectors(sources)) {
+    if (BROWSER_DROPPED_PSEUDO_PREFIXES.some((prefix) => selector.includes(prefix))) continue;
     if (servedCanon.includes(selector)) continue;
     // `*::before` is emitted as a bare `:before`; the universal is implied.
     if (selector.startsWith("*") && servedCanon.includes(selector.slice(1))) continue;

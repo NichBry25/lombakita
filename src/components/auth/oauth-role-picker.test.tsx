@@ -9,13 +9,15 @@
 // Both directions are asserted because an implementation that prefills nothing at all would satisfy
 // the absent-name case on its own.
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
+import { signIn } from "next-auth/react";
 import { UIPrimitivesProvider } from "@/components/ui/primitives";
 import { PageTransitionProvider } from "@/components/ui/page-transition";
+import { GOOGLE_RETURN_PATH_KEY } from "./google-return-path";
 import { OAuthRolePicker } from "./oauth-role-picker";
 
-// The finalize call posts to the oauth-finalize credentials provider; nothing here reaches it.
+// signIn is a mock, so a finalize call made here sends no request. Tests read its arguments.
 vi.mock("next-auth/react", () => ({ signIn: vi.fn() }));
 
 // PageTransitionProvider reads the pathname.
@@ -36,7 +38,7 @@ const renderPicker = (name: string | null) =>
   );
 
 const chooseRole = (label: string) => {
-  fireEvent.click(screen.getByRole("button", { name: new RegExp(label) }));
+  fireEvent.click(screen.getByRole("radio", { name: new RegExp(label) }));
 };
 
 const nameField = () => screen.getByLabelText(/Nama lengkap/) as HTMLInputElement;
@@ -55,7 +57,7 @@ describe("the name the Google role picker prefills", () => {
   it("carries the identity's name into the recruiter form", () => {
     renderPicker("Andi Saputra");
 
-    chooseRole("Daftar sebagai rekruter");
+    chooseRole("Daftar sebagai penyelenggara");
 
     expect(nameFieldValue()).toBe("Andi Saputra");
   });
@@ -72,7 +74,7 @@ describe("the name the Google role picker prefills", () => {
   it("leaves the recruiter field empty when the identity carried an empty name", () => {
     renderPicker("");
 
-    chooseRole("Daftar sebagai rekruter");
+    chooseRole("Daftar sebagai penyelenggara");
 
     expect(nameFieldValue()).toBe("");
     expect(nameFieldValue()).not.toBe(EMAIL);
@@ -91,7 +93,7 @@ describe("the autofill token on the Google role picker's name field", () => {
   it("carries autoComplete=name on the recruiter form's field", () => {
     renderPicker("Andi Saputra");
 
-    chooseRole("Daftar sebagai rekruter");
+    chooseRole("Daftar sebagai penyelenggara");
 
     expect(nameField().getAttribute("autocomplete")).toBe("name");
   });
@@ -107,8 +109,74 @@ describe("the autofill token on the Google role picker's name field", () => {
   it("does not carry autoComplete=off on the recruiter form's field", () => {
     renderPicker("Andi Saputra");
 
-    chooseRole("Daftar sebagai rekruter");
+    chooseRole("Daftar sebagai penyelenggara");
 
     expect(nameField().getAttribute("autocomplete")).not.toBe("off");
+  });
+});
+
+describe("where a Google sign-up returns", () => {
+  afterEach(() => {
+    window.sessionStorage.clear();
+    vi.clearAllMocks();
+  });
+
+  const finishCandidateSignUp = () => {
+    renderPicker("Andi Saputra");
+    chooseRole("Daftar sebagai kandidat");
+    fireEvent.change(screen.getByLabelText(/^Nomor telepon(?: \* \(wajib\)| \(opsional\))?$/), {
+      target: { value: "081234567890" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Status saat ini (wajib)" }));
+    fireEvent.click(screen.getByRole("option", { name: "Mahasiswa" }));
+    fireEvent.change(screen.getByLabelText(/^Tanggal lahir(?: \* \(wajib\)| \(opsional\))?$/), {
+      target: { value: "2000-01-31" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Selesai" }));
+  };
+
+  const finalizeCallbackUrl = async () => {
+    await vi.waitFor(() => expect(signIn).toHaveBeenCalledOnce());
+    const options = vi.mocked(signIn).mock.calls[0]?.[1] as Record<string, unknown> | undefined;
+    return options?.callbackUrl;
+  };
+
+  it("returns home when the stored return address leads to another site", async () => {
+    window.sessionStorage.setItem(GOOGLE_RETURN_PATH_KEY, "//example.com");
+
+    finishCandidateSignUp();
+
+    expect(await finalizeCallbackUrl()).toBe("/");
+  });
+
+  it("returns home when the stored return address is longer than 512 characters", async () => {
+    window.sessionStorage.setItem(GOOGLE_RETURN_PATH_KEY, "/" + "a".repeat(512));
+
+    finishCandidateSignUp();
+
+    expect(await finalizeCallbackUrl()).toBe("/");
+  });
+
+  it("returns home when no return address is stored", async () => {
+    finishCandidateSignUp();
+
+    expect(await finalizeCallbackUrl()).toBe("/");
+  });
+
+  it("says to sign up by email and code when Google has not verified the address", async () => {
+    vi.mocked(signIn).mockResolvedValueOnce({
+      ok: false,
+      error: "email_unverified",
+      status: 401,
+      url: null,
+    });
+
+    finishCandidateSignUp();
+
+    expect(
+      await screen.findByText(
+        "Google belum memverifikasi email ini, sehingga akun tidak dapat dibuat dengan Google. Daftar dengan email dan password, lalu masukkan kode verifikasi yang kami kirim ke email Anda.",
+      ),
+    ).toBeTruthy();
   });
 });

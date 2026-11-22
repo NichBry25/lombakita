@@ -21,7 +21,12 @@ const PLATFORM_LABELS: Record<SocialPlatform, string> = {
   website: "Website",
 };
 
-const MONTH_YEAR = new Intl.DateTimeFormat("id-ID", { month: "short", year: "numeric" });
+// Education and experience dates are stored as calendar days at UTC midnight, so they are read in UTC.
+const MONTH_YEAR = new Intl.DateTimeFormat("id-ID", {
+  month: "short",
+  year: "numeric",
+  timeZone: "UTC",
+});
 
 // Formats a stored "YYYY-MM-DD" string as "Mmm YYYY" (month granularity in the UI).
 function formatMonthYear(value: string | null): string | null {
@@ -62,20 +67,11 @@ function linkHost(url: string): string {
   }
 }
 
-function Section({
-  eyebrow,
-  title,
-  children,
-}: {
-  eyebrow: string;
-  title: string;
-  children: React.ReactNode;
-}) {
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="content-section">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">{eyebrow}</p>
           <h2>{title}</h2>
         </div>
       </div>
@@ -213,7 +209,7 @@ export function ProfileDetailSections({
   return (
     <>
       {(experiences.length > 0 || isOwner) && (
-        <Section eyebrow="Karier" title="Pengalaman">
+        <Section title="Pengalaman">
           {experiences.length > 0 ? (
             <ExperienceList items={experiences} />
           ) : (
@@ -223,7 +219,7 @@ export function ProfileDetailSections({
       )}
 
       {(educations.length > 0 || isOwner) && (
-        <Section eyebrow="Pendidikan" title="Riwayat pendidikan">
+        <Section title="Riwayat pendidikan">
           {educations.length > 0 ? (
             <EducationList items={educations} />
           ) : (
@@ -233,13 +229,13 @@ export function ProfileDetailSections({
       )}
 
       {(skills.length > 0 || isOwner) && (
-        <Section eyebrow="Keahlian" title="Keahlian">
+        <Section title="Keahlian">
           {skills.length > 0 ? <SkillList items={skills} /> : <EmptyHint label="keahlian" />}
         </Section>
       )}
 
       {(certifications.length > 0 || isOwner) && (
-        <Section eyebrow="Sertifikasi" title="Sertifikasi & lisensi">
+        <Section title="Sertifikasi & lisensi">
           {certifications.length > 0 ? (
             <CertificationList items={certifications} />
           ) : (
@@ -249,7 +245,7 @@ export function ProfileDetailSections({
       )}
 
       {(socialLinks.length > 0 || isOwner) && (
-        <Section eyebrow="Tautan" title="Tautan sosial">
+        <Section title="Tautan sosial">
           {socialLinks.length > 0 ? (
             <SocialLinkList items={socialLinks} />
           ) : (

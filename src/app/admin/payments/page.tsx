@@ -14,9 +14,9 @@ export const metadata = {
 /**
  * The DEC-0132 escape hatch, made findable.
  *
- * This is the only route by which a paid competition can be withdrawn, so a guard stricter than
- * platform_ops would not harden the product, it would remove the hatch and leave the organiser
- * permanently stuck behind the block that exists to protect their candidates.
+ * The void here is the only way to release a transfer no organiser will rule on, so a guard stricter
+ * than platform_ops would not harden the product, it would leave the organiser permanently stuck
+ * behind the block that exists to protect their candidates.
  *
  * The lists are the affected sets themselves, not a search box. An operator answering a support
  * request knows the competition by name, not by id, and a hatch that requires knowing an id is a
@@ -40,14 +40,17 @@ export default async function AdminBlockedPaymentsPage() {
     <main className="page-shell app-page admin-page">
       <PageHeader
         title="Pembayaran tertahan"
-        description="Kompetisi yang tidak dapat ditarik penyelenggaranya karena masih ada bukti transfer berjalan, dan peserta yang tidak dapat mengirim bukti baru."
-        actions={
-          <>
-            <span className="status-badge data-text">{`${proofCount} bukti transfer`}</span>
-            {barredProofs.length > 0 ? (
-              <span className="status-badge data-text">{`${barredProofs.length} peserta terhalang`}</span>
-            ) : null}
-          </>
+        titleMark={
+          proofCount > 0 || barredProofs.length > 0 ? (
+            <>
+              {proofCount > 0 ? (
+                <span className="status-badge data-text">{`${proofCount} bukti transfer`}</span>
+              ) : null}
+              {barredProofs.length > 0 ? (
+                <span className="status-badge data-text">{`${barredProofs.length} peserta terhalang`}</span>
+              ) : null}
+            </>
+          ) : null
         }
       />
 
@@ -66,8 +69,9 @@ export default async function AdminBlockedPaymentsPage() {
           institutionSlug: competition.institutionSlug,
           slug: competition.slug,
           status: competition.status,
-          // The hatch's CAS refuses anything but `published`, so the control is withheld rather
-          // than offered and then refused.
+          // The hatch's CAS refuses anything but `published`, so the control is withheld there. A
+          // published competition on this list still holds a transfer in flight, so the service
+          // refuses its cancellation and the refusal is shown in a toast.
           cancellable: competition.status === "published",
           proofs: competition.proofs.map((proof) => ({
             proofId: proof.proofId,

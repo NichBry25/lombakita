@@ -1,22 +1,55 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import {
   Button,
+  ButtonLink,
   Card,
   CheckboxField,
+  DetailList,
   EmptyState,
   Feedback,
+  FormError,
   FormField,
   FormLabel,
   FormTextarea,
+  Icon,
+  IconButton,
 } from "@/components/ui";
-import { useModal, useToast } from "@/components/ui/primitives";
-import { asSentence, formatFinanceDateTime, formatRupiah } from "@/lib/finance/payment-display";
+import { useModal, useModalTask, useToast, type ModalOutcome } from "@/components/ui/primitives";
+import { LocalDate } from "@/components/ui/local-date";
+import { asSentence, formatRupiah } from "@/lib/finance/payment-display";
 import { PROOF_STATUS_LABELS, PROOF_STATUS_TONES } from "@/lib/finance/proof-display";
 import { formatFileSize } from "@/lib/text/format-file-size";
 import type { ManualPaymentProofStatus } from "@/lib/finance/payment-model";
+import { errorMessageFor } from "@/lib/errors/error-copy";
+import { readErrorCode } from "@/lib/session/session-fetch";
+
+type RefusalAction = "open" | "decision";
+
+const PROOF_ERROR_COPY: Partial<Record<string, string>> = {
+  forbidden: "Hanya pemilik atau staf institusi yang dapat meninjau bukti transfer.",
+  manual_proof_not_found: "Bukti transfer tidak ditemukan.",
+  manual_proof_upload_unavailable:
+    "Penyimpanan berkas tidak tersedia, jadi bukti transfer belum dapat dibuka. Coba lagi nanti.",
+  manual_proof_action_unrecognised:
+    "Permintaan tidak dapat diproses. Muat ulang halaman lalu coba lagi.",
+  manual_proof_not_pending:
+    "Bukti transfer ini tidak sedang menunggu tinjauan, mungkin sudah ditinjau.",
+  manual_proof_payment_not_found: "Pembayaran tidak ditemukan.",
+  manual_proof_registration_cancelled:
+    "Pendaftaran ini sudah dibatalkan, sehingga bukti transfer tidak dapat diproses.",
+  manual_proof_lane_closed:
+    "Pembayaran ini sudah selesai, sehingga bukti transfer tidak dapat diproses.",
+  manual_proof_reason_required:
+    "Penolakan harus menyertakan alasan agar peserta tahu apa yang perlu diperbaiki.",
+};
+
+const REFUSAL_FALLBACK: Record<RefusalAction, string> = {
+  open: "Bukti transfer tidak dapat dibuka. Coba lagi.",
+  decision: "Keputusan gagal disimpan. Coba lagi.",
+};
 
 export type OrganiserProofView = {
   proofId: string;
@@ -51,19 +84,12 @@ type Props = {
 export function OrganiserPaymentQueue({ institutionSlug, competitionId, proofs }: Props) {
   const router = useRouter();
   const { addToast } = useToast();
-  const { openModal, closeModal } = useModal();
+  const { openModal } = useModal();
   // Keyed by proof id and action, so the spinner sits on the control that was pressed. A shared
   // boolean would spin every row's buttons at once.
   const [pendingAction, setPendingAction] = useState<string | null>(null);
 
   const base = `/api/v1/institutions/${institutionSlug}/competitions/${competitionId}/payment-proofs`;
-
-  const refusalMessage = async (response: Response, fallback: string): Promise<string> => {
-    const payload = (await response.json().catch(() => null)) as {
-      error?: { message?: string };
-    } | null;
-    return payload?.error?.message ?? fallback;
-  };
 
   const openProofFile = async (proofId: string) => {
     setPendingAction(`view:${proofId}`);
@@ -71,9 +97,10 @@ export function OrganiserPaymentQueue({ institutionSlug, competitionId, proofs }
       const response = await fetch(`${base}/${proofId}/view`, { method: "POST" });
 
       if (!response.ok) {
+        const code = await readErrorCode(response);
         addToast({
           type: "error",
-          message: await refusalMessage(response, "Bukti transfer tidak dapat dibuka."),
+          message: errorMessageFor(code, PROOF_ERROR_COPY, REFUSAL_FALLBACK.open),
         });
         return;
       }
@@ -87,12 +114,13 @@ export function OrganiserPaymentQueue({ institutionSlug, competitionId, proofs }
     }
   };
 
+  // Both verdict pop-ups show the waiting and the failure themselves, so this reports an outcome
+  // and leaves the toast for the success only.
   const sendVerdict = async (
     proofId: string,
     body: Record<string, unknown>,
     successMessage: string,
-  ) => {
-    setPendingAction(`verdict:${proofId}`);
+  ): Promise<ModalOutcome> => {
     try {
       const response = await fetch(`${base}/${proofId}`, {
         method: "PATCH",
@@ -101,19 +129,18 @@ export function OrganiserPaymentQueue({ institutionSlug, competitionId, proofs }
       });
 
       if (!response.ok) {
-        addToast({
-          type: "error",
-          message: await refusalMessage(response, "Keputusan gagal disimpan."),
-        });
-        return;
+        const code = await readErrorCode(response);
+        return {
+          ok: false,
+          message: errorMessageFor(code, PROOF_ERROR_COPY, REFUSAL_FALLBACK.decision),
+        };
       }
 
       addToast({ type: "success", message: successMessage });
       router.refresh();
+      return { ok: true };
     } catch {
-      addToast({ type: "error", message: "Keputusan gagal disimpan karena gangguan koneksi." });
-    } finally {
-      setPendingAction(null);
+      return { ok: false, message: "Keputusan gagal disimpan karena gangguan koneksi." };
     }
   };
 
@@ -126,43 +153,59 @@ export function OrganiserPaymentQueue({ institutionSlug, competitionId, proofs }
     // as context, and the dialog repeats it at the moment the reviewer commits, because the
     // transfer lands in the institution's own account and their bank statement is the only record
     // that can confirm it.
+    //
+    // Verifying cannot be undone here, so focus starts on the safe choice and an Enter on open
+    // cancels.
     openModal({
       title: "Verifikasi bukti transfer?",
       body: (
-        <p>
-          {`Anda menyatakan telah menerima ${formatRupiah(proof.grossAmount, proof.currency)} dari ` +
-            `${proof.payerDisplayName}. Pastikan dana sudah terlihat pada mutasi rekening lembaga ` +
-            `Anda, karena Lombakita tidak dapat memeriksanya. Keputusan ini tidak dapat Anda ` +
-            `batalkan sendiri, koreksi hanya dapat dilakukan oleh tim Lombakita.`}
-        </p>
+        <>
+          <p>
+            {`Anda menyatakan telah menerima ${formatRupiah(proof.grossAmount, proof.currency)} dari ` +
+              `${proof.payerDisplayName}. Pastikan dana sudah terlihat pada mutasi rekening ` +
+              `institusi Anda sebelum memverifikasi. Setelah diverifikasi, koreksi hanya dapat ` +
+              `dilakukan oleh tim Lombakita.`}
+          </p>
+          <ButtonLink
+            variant="link"
+            size="sm"
+            href="/syarat-ketentuan#biaya-pendaftaran"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Baca ketentuan pembayaran
+          </ButtonLink>
+        </>
       ),
+      initialFocus: "safe",
       actions: [
-        { label: "Batal", variant: "secondary", onClick: () => undefined },
+        { label: "Batal" },
         {
           label: "Verifikasi",
           variant: "primary",
           onClick: () =>
-            void sendVerdict(proof.proofId, { action: "verify" }, "Pembayaran diverifikasi."),
+            sendVerdict(proof.proofId, { action: "verify" }, "Pembayaran diverifikasi."),
         },
       ],
     });
   };
 
+  // The reject decision carries a reason and a resubmission choice that live in form state, so the
+  // form owns its fields and the footer submits it.
   const openRejectForm = (proof: OrganiserProofView) => {
-    // No modal `actions` here. The reject decision carries a reason and a resubmission choice that
-    // live in form state, and a modal action closes over the config captured at open time, so it
-    // would submit the empty reason the form started with.
     openModal({
-      title: "Tolak bukti transfer",
-      body: <RejectForm proof={proof} onSubmit={sendVerdict} onDone={closeModal} />,
-      actions: [],
+      title: "Tolak bukti transfer?",
+      wide: true,
+      formId: rejectFormId(proof.proofId),
+      body: <RejectForm proof={proof} onSubmit={sendVerdict} />,
+      actions: [{ label: "Batal" }, { label: "Tolak pembayaran", variant: "primary" }],
     });
   };
 
   if (proofs.length === 0) {
     return (
       <EmptyState
-        icon="inbox"
+        kind="nothing-yet"
         title="Belum ada bukti transfer"
         description="Bukti transfer akan muncul di sini setelah peserta mengunggahnya."
       />
@@ -174,14 +217,12 @@ export function OrganiserPaymentQueue({ institutionSlug, competitionId, proofs }
       {proofs.map((proof) => {
         const reviewable = proof.status === "pending_review";
         const viewing = pendingAction === `view:${proof.proofId}`;
-        const deciding = pendingAction === `verdict:${proof.proofId}`;
 
         return (
           <li key={proof.proofId}>
-            <Card variant="surface" className="stack-md">
+            <Card className="stack-md">
               <div className="section-heading">
                 <div>
-                  <p className="eyebrow">Bukti transfer</p>
                   <h2>{proof.payerDisplayName}</h2>
                 </div>
                 <span className="status-badge" data-status={PROOF_STATUS_TONES[proof.status]}>
@@ -189,34 +230,47 @@ export function OrganiserPaymentQueue({ institutionSlug, competitionId, proofs }
                 </span>
               </div>
 
-              <dl className="detail-grid">
-                <div>
-                  <dt>Jumlah</dt>
-                  <dd className="data-text">{formatRupiah(proof.grossAmount, proof.currency)}</dd>
-                </div>
-                <div>
-                  <dt>Dikirim</dt>
-                  <dd>
-                    <time dateTime={proof.submittedAt}>
-                      {formatFinanceDateTime(proof.submittedAt)}
-                    </time>
-                  </dd>
-                </div>
-                {proof.dueAt ? (
-                  <div>
-                    <dt>Batas waktu</dt>
-                    <dd>
-                      <time dateTime={proof.dueAt}>{formatFinanceDateTime(proof.dueAt)}</time>
-                    </dd>
-                  </div>
-                ) : null}
-                <div>
-                  <dt>Berkas</dt>
-                  <dd>
-                    {proof.originalFileName} · {formatFileSize(proof.fileSizeBytes)}
-                  </dd>
-                </div>
-              </dl>
+              <DetailList
+                rows={[
+                  {
+                    label: "Jumlah",
+                    value: (
+                      <span className="data-text">
+                        {formatRupiah(proof.grossAmount, proof.currency)}
+                      </span>
+                    ),
+                  },
+                  {
+                    label: "Dikirim",
+                    value: <LocalDate value={proof.submittedAt} format="financeDateTime" />,
+                  },
+                  ...(proof.dueAt
+                    ? [
+                        {
+                          label: "Batas waktu",
+                          value: <LocalDate value={proof.dueAt} format="financeDateTime" />,
+                        },
+                      ]
+                    : []),
+                  {
+                    label: "Berkas",
+                    value: `${proof.originalFileName} · ${formatFileSize(proof.fileSizeBytes)}`,
+                  },
+                ]}
+              />
+
+              <div className="record-actions">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  leadingIcon={<Icon name="eye" size="sm" aria-hidden="true" />}
+                  loading={viewing}
+                  onClick={() => void openProofFile(proof.proofId)}
+                >
+                  Lihat bukti
+                </Button>
+              </div>
 
               {proof.priorAttempts > 0 ? (
                 <Feedback tone="neutral">
@@ -225,47 +279,29 @@ export function OrganiserPaymentQueue({ institutionSlug, competitionId, proofs }
               ) : null}
 
               {proof.status === "rejected" && proof.rejectionReason ? (
-                <Feedback tone="error">
-                  {`Ditolak dengan alasan: ${asSentence(proof.rejectionReason)}`}
+                <Feedback tone="neutral">
+                  {asSentence(proof.rejectionReason)}
                   {proof.resubmissionAllowed
                     ? " Peserta masih dapat mengirim bukti baru."
                     : " Peserta tidak dapat mengirim ulang."}
                 </Feedback>
               ) : null}
 
-              <div className="record-actions">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  loading={viewing}
-                  onClick={() => void openProofFile(proof.proofId)}
-                >
-                  Lihat bukti
-                </Button>
-
-                {reviewable ? (
-                  <>
-                    <Button
-                      type="button"
-                      size="sm"
-                      loading={deciding}
-                      onClick={() => confirmVerify(proof)}
-                    >
-                      Verifikasi
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="danger"
-                      size="sm"
-                      loading={deciding}
-                      onClick={() => openRejectForm(proof)}
-                    >
-                      Tolak
-                    </Button>
-                  </>
-                ) : null}
-              </div>
+              {reviewable ? (
+                <div className="record-actions record-actions-end">
+                  <IconButton
+                    type="button"
+                    icon="close"
+                    variant="outline"
+                    label="Tolak pembayaran"
+                    tooltip="Tolak"
+                    onClick={() => openRejectForm(proof)}
+                  />
+                  <Button type="button" size="sm" onClick={() => confirmVerify(proof)}>
+                    Verifikasi
+                  </Button>
+                </div>
+              ) : null}
             </Card>
           </li>
         );
@@ -274,54 +310,78 @@ export function OrganiserPaymentQueue({ institutionSlug, competitionId, proofs }
   );
 }
 
+const rejectFormId = (proofId: string) => `reject-form-${proofId}`;
+
 /**
  * The rejection reason, and the organiser's decision about whether the candidate may try again.
  *
  * Resubmission defaults to ALLOWED. Barring it strands the payer until platform_ops intervenes, so
  * it is opt-in: a reviewer who simply wants a clearer photograph must not have to notice a checkbox
  * in order to avoid ending someone's registration.
+ *
+ * The pop-up footer submits this form. An empty reason shows the field error and sends nothing.
  */
 function RejectForm({
   proof,
   onSubmit,
-  onDone,
 }: {
   proof: OrganiserProofView;
-  onSubmit: (proofId: string, body: Record<string, unknown>, message: string) => Promise<void>;
-  onDone: () => void;
+  onSubmit: (
+    proofId: string,
+    body: Record<string, unknown>,
+    message: string,
+  ) => Promise<ModalOutcome>;
 }) {
+  const runModalTask = useModalTask();
   const [reason, setReason] = useState("");
   const [barred, setBarred] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  const [hasTriedToSubmit, setHasTriedToSubmit] = useState(false);
 
   const reasonId = `reject-reason-${proof.proofId}`;
+  const reasonErrorId = `reject-reason-error-${proof.proofId}`;
   const barredId = `reject-barred-${proof.proofId}`;
-  const canSubmit = reason.trim().length > 0;
+  const trimmedReason = reason.trim();
+  const showsReasonError = hasTriedToSubmit && trimmedReason.length === 0;
 
-  const submit = async () => {
-    setSubmitting(true);
-    await onSubmit(
-      proof.proofId,
-      { action: "reject", reason: reason.trim(), resubmissionAllowed: !barred },
-      "Bukti transfer ditolak.",
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setHasTriedToSubmit(true);
+    if (trimmedReason.length === 0) return;
+    void runModalTask(() =>
+      onSubmit(
+        proof.proofId,
+        { action: "reject", reason: trimmedReason, resubmissionAllowed: !barred },
+        "Bukti transfer ditolak.",
+      ),
     );
-    setSubmitting(false);
-    onDone();
   };
 
   return (
-    <div className="stack-md">
-      <p>{`Peserta: ${proof.payerDisplayName}. Alasan akan ditampilkan kepada peserta.`}</p>
+    <form id={rejectFormId(proof.proofId)} noValidate onSubmit={submit} className="stack-md">
+      <DetailList rows={[{ label: "Peserta", value: proof.payerDisplayName }]} />
+      <p>Alasan akan ditampilkan kepada peserta.</p>
 
       <FormField>
-        <FormLabel htmlFor={reasonId}>Alasan penolakan</FormLabel>
+        <FormLabel htmlFor={reasonId} required>
+          Alasan penolakan
+        </FormLabel>
         <FormTextarea
           id={reasonId}
           value={reason}
           rows={3}
           onChange={(event) => setReason(event.target.value)}
           placeholder="Contoh: nominal transfer tidak sesuai dengan biaya pendaftaran."
+          aria-invalid={showsReasonError ? true : undefined}
+          aria-describedby={showsReasonError ? reasonErrorId : undefined}
         />
+        {/* No limit and so no counter, but the row keeps its height for the error. */}
+        <div className="form-message-row">
+          {showsReasonError ? (
+            <FormError id={reasonErrorId}>
+              {PROOF_ERROR_COPY.manual_proof_reason_required}
+            </FormError>
+          ) : null}
+        </div>
       </FormField>
 
       <CheckboxField
@@ -331,24 +391,6 @@ function RejectForm({
       >
         Peserta tidak boleh mengirim bukti baru
       </CheckboxField>
-
-      <div className="record-actions">
-        <Button type="button" variant="outline" size="sm" onClick={onDone}>
-          Batal
-        </Button>
-        <Button
-          type="button"
-          variant="danger"
-          size="sm"
-          // `disabled` and `loading` are different conditions, so both appear: an empty reason is
-          // refused by the server, and a reviewer should not have to discover that by submitting.
-          disabled={!canSubmit}
-          loading={submitting}
-          onClick={() => void submit()}
-        >
-          Tolak bukti transfer
-        </Button>
-      </div>
-    </div>
+    </form>
   );
 }

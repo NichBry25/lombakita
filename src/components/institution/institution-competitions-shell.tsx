@@ -1,15 +1,16 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Button,
   ButtonLink,
+  CountPill,
   EmptyState,
+  FilterDropdown,
   Icon,
   IconButtonLink,
+  LinkCard,
   PageHeader,
-  SelectField,
+  PageSection,
   Skeleton,
 } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
@@ -51,10 +52,16 @@ const applyCompetitionFilter = (
   return competitions.filter((c) => c.status === filter && !hasFinished(c, now));
 };
 
+const COMPETITION_LIST_ERROR_MESSAGES: Record<string, string> = {
+  forbidden: "Anda tidak memiliki akses ke kompetisi institusi ini.",
+};
+
 const extractErrorMessage = async (response: Response): Promise<string> => {
   try {
-    const payload = (await response.json()) as { error?: { message?: string } };
-    return payload.error?.message ?? "Permintaan gagal diproses.";
+    const payload = (await response.json()) as { error?: { code?: string } };
+    const code = payload.error?.code;
+    const message = code ? COMPETITION_LIST_ERROR_MESSAGES[code] : undefined;
+    return message ?? "Permintaan gagal diproses.";
   } catch {
     return "Permintaan gagal diproses.";
   }
@@ -76,10 +83,17 @@ export const InstitutionCompetitionsShell = ({ institutionSlug }: { institutionS
 
   const load = useCallback(async () => {
     setIsLoading(true);
-    const response = await fetch(
-      `/api/v1/institutions/${encodeURIComponent(institutionSlug)}/competitions`,
-      { cache: "no-store", credentials: "include" },
-    );
+    let response: Response;
+    try {
+      response = await fetch(
+        `/api/v1/institutions/${encodeURIComponent(institutionSlug)}/competitions`,
+        { cache: "no-store", credentials: "include" },
+      );
+    } catch {
+      addToast({ type: "error", message: "Gagal mengirim permintaan karena gangguan koneksi." });
+      setIsLoading(false);
+      return;
+    }
     if (!response.ok) {
       const message = await extractErrorMessage(response);
       addToast({ type: "error", message });
@@ -105,34 +119,33 @@ export const InstitutionCompetitionsShell = ({ institutionSlug }: { institutionS
         title="Kompetisi"
         description={`Kelola seluruh kompetisi yang diterbitkan melalui ${institutionSlug}.`}
         backHref={`/institution/${institutionSlug}`}
-        backLabel="Kembali"
-        actions={
-          <IconButtonLink
-            href={`/institution/${institutionSlug}/competitions/new`}
-            icon="plus"
-            label="Buat kompetisi"
-            variant="primary"
-            size="sm"
-          />
-        }
+        action={{
+          kind: "icon",
+          control: (
+            <IconButtonLink
+              href={`/institution/${institutionSlug}/competitions/new`}
+              icon="plus"
+              label="Buat kompetisi"
+              variant="fill"
+            />
+          ),
+        }}
       />
 
-      <section className="content-section">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">Daftar workspace</p>
-            <h2>Kompetisi tersimpan</h2>
-          </div>
+      <PageSection
+        title="Kompetisi tersimpan"
+        action={
           <div className="competition-list-controls">
-            <SelectField
-              label="Saring kompetisi"
+            <FilterDropdown
+              label="Status"
               options={FILTER_OPTIONS}
               value={filter}
               onChange={(value) => setFilter(value as CompetitionListFilter)}
             />
-            <span className="status-badge data-text">{visibleItems.length}</span>
+            <CountPill count={visibleItems.length} />
           </div>
-        </div>
+        }
+      >
         {isLoading ? (
           <div className="stack-sm" aria-label="Memuat kompetisi">
             <Skeleton variant="media" />
@@ -141,70 +154,73 @@ export const InstitutionCompetitionsShell = ({ institutionSlug }: { institutionS
         ) : visibleItems.length === 0 ? (
           items.length === 0 ? (
             <EmptyState
-              icon="trophy"
-              title="Belum ada kompetisi."
-              description="Mulai dari draf baru, lalu lengkapi seluruh informasi sebelum diterbitkan."
-              action={
-                <ButtonLink
-                  href={`/institution/${institutionSlug}/competitions/new`}
-                  variant="primary"
-                >
-                  Buat draf pertama
-                </ButtonLink>
-              }
+              kind="nothing-yet"
+              size="compact"
+              title="Belum ada kompetisi"
+              description="Draf kompetisi yang kamu buat akan muncul di sini."
+              action={{
+                label: "Buat draf pertama",
+                href: `/institution/${institutionSlug}/competitions/new`,
+              }}
             />
           ) : (
             <EmptyState
-              icon="trophy"
-              title="Tidak ada kompetisi pada saringan ini."
-              description="Kompetisi lain masih tersimpan. Ubah saringan untuk melihatnya."
-              action={
-                <Button variant="outline" onClick={() => setFilter("all")}>
-                  Tampilkan semua
-                </Button>
-              }
+              kind="no-match"
+              size="compact"
+              title="Belum ada kompetisi yang cocok"
+              description="Coba pilih status lain."
+              action={{ label: "Tampilkan semua", onSelect: () => setFilter("all") }}
             />
           )
         ) : (
           <ul className="management-competition-list">
             {visibleItems.map((c) => (
-              <li key={c.id} className="management-competition-card">
-                <span className="management-competition-mark" aria-hidden="true">
-                  <Icon name="trophy" size="md" />
-                </span>
-                <div className="record-row-main">
-                  <Link
-                    href={`/institution/${institutionSlug}/competitions/${c.slug}`}
-                    className="record-row-title"
-                  >
-                    {c.title}
-                  </Link>
-                  <span className="record-meta data-text">/{c.slug}</span>
-                </div>
-                <span
-                  className="status-badge"
-                  data-status={
-                    hasFinished(c, loadedAt)
-                      ? "closed"
-                      : c.status === "published"
-                        ? "open"
-                        : "closing"
-                  }
-                >
-                  {hasFinished(c, loadedAt) ? "Selesai" : getCompetitionStatusLabel(c.status)}
-                </span>
-                <ButtonLink
-                  href={`/institution/${institutionSlug}/competitions/${c.slug}/participants`}
-                  variant="outline"
-                  size="sm"
-                >
-                  Peserta
-                </ButtonLink>
-              </li>
+              <LinkCard
+                key={c.id}
+                as="li"
+                href={`/institution/${institutionSlug}/competitions/${c.slug}`}
+                title={c.title}
+                trailing={
+                  <>
+                    <span
+                      className="status-badge"
+                      data-status={
+                        hasFinished(c, loadedAt)
+                          ? "closed"
+                          : c.status === "published"
+                            ? "open"
+                            : "awaiting"
+                      }
+                    >
+                      {hasFinished(c, loadedAt) ? "Selesai" : getCompetitionStatusLabel(c.status)}
+                    </span>
+                    {c.status === "draft" ? (
+                      <ButtonLink
+                        href={`/institution/${institutionSlug}/competitions/${c.slug}/edit`}
+                        variant="outline"
+                        size="sm"
+                      >
+                        Lanjutkan
+                      </ButtonLink>
+                    ) : (
+                      <ButtonLink
+                        href={`/institution/${institutionSlug}/competitions/${c.slug}/participants`}
+                        variant="link"
+                        size="sm"
+                        leadingIcon={<Icon name="users" size="sm" />}
+                      >
+                        Peserta
+                      </ButtonLink>
+                    )}
+                  </>
+                }
+              >
+                <span className="record-meta data-text">/{c.slug}</span>
+              </LinkCard>
             ))}
           </ul>
         )}
-      </section>
+      </PageSection>
     </main>
   );
 };

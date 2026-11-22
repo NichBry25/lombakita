@@ -7,9 +7,9 @@ export default function NotFoundPage() {
         <span className="system-state-icon" aria-hidden="true">
           <Icon name="search" size="xl" />
         </span>
-        <h1>Halaman tidak ditemukan.</h1>
+        <h1>Halaman tidak ditemukan</h1>
         <p>Alamat yang Anda buka tidak tersedia atau sudah dipindahkan.</p>
-        <ButtonLink href="/competitions" variant="secondary">
+        <ButtonLink href="/competitions" variant="primary">
           Jelajahi kompetisi
         </ButtonLink>
       </section>

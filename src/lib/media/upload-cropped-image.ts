@@ -1,8 +1,5 @@
-import {
-  SESSION_MISMATCH_CODE,
-  SESSION_MISMATCH_MESSAGE,
-  sessionFetch,
-} from "@/lib/session/session-fetch";
+import { errorMessageFor } from "@/lib/errors/error-copy";
+import { sessionFetch } from "@/lib/session/session-fetch";
 
 // The browser half of the presign → PUT → record upload, shared by profile and institution imagery.
 // The endpoints differ only in their base path, so this takes one and derives both calls from it:
@@ -17,30 +14,30 @@ export type UploadRules = { maxBytes: number; mimeTypes: readonly string[] };
 
 export type UploadOutcome = { ok: true } | { ok: false; message: string };
 
-const GENERIC_ERROR = "Terjadi kesalahan. Coba lagi.";
 const TYPE_NOT_ALLOWED = "Tipe berkas tidak didukung.";
 const TOO_LARGE = "Ukuran berkas melebihi batas.";
+export const UPLOAD_FALLBACK = "Gagal mengunggah gambar. Coba lagi.";
+const DELETE_FALLBACK = "Gagal menghapus gambar. Coba lagi.";
 
-const MESSAGES: Record<string, string> = {
+const MESSAGES: Partial<Record<string, string>> = {
   profile_file_type_not_allowed: TYPE_NOT_ALLOWED,
   profile_file_too_large: TOO_LARGE,
-  profile_file_unavailable: "Penyimpanan berkas belum dikonfigurasi. Coba lagi nanti.",
+  profile_file_invalid_key: "Unggahan tidak cocok dengan akun ini. Unggah ulang berkas Anda.",
+  profile_file_unavailable: "Unggahan berkas sedang tidak tersedia. Coba lagi nanti.",
   institution_profile_invalid_value: "Berkas tidak valid.",
   institution_profile_not_editable: "Institusi ini tidak dapat mengunggah gambar sendiri.",
   institution_profile_storage_unavailable:
-    "Penyimpanan berkas belum dikonfigurasi. Coba lagi nanti.",
-  [SESSION_MISMATCH_CODE]: SESSION_MISMATCH_MESSAGE,
+    "Unggahan berkas sedang tidak tersedia. Coba lagi nanti.",
+  forbidden: "Hanya pemilik institusi yang dapat mengubah gambar institusi.",
+  rate_limited: "Terlalu banyak permintaan unggah. Coba lagi dalam beberapa menit.",
 };
 
-const messageFor = (data: { error?: { code?: string; message?: string } }): string => {
-  const code = data.error?.code;
-  const mapped = code ? MESSAGES[code] : undefined;
-  return mapped ?? data.error?.message ?? GENERIC_ERROR;
-};
+const messageFor = (data: { error?: { code?: string } }, fallback: string): string =>
+  errorMessageFor(data.error?.code, MESSAGES, fallback);
 
 const readJson = async (
   res: Response,
-): Promise<{ error?: { code?: string; message?: string } } & Record<string, unknown>> => {
+): Promise<{ error?: { code?: string } } & Record<string, unknown>> => {
   try {
     return await res.json();
   } catch {
@@ -72,7 +69,7 @@ export async function uploadCroppedImage(
   }).catch(() => null);
   if (!urlRes) return { ok: false, message: "Gagal terhubung ke server." };
   const urlData = await readJson(urlRes);
-  if (!urlRes.ok) return { ok: false, message: messageFor(urlData) };
+  if (!urlRes.ok) return { ok: false, message: messageFor(urlData, UPLOAD_FALLBACK) };
 
   const uploadUrl = urlData.uploadUrl as string | undefined;
   const fileKey = urlData.fileKey as string | undefined;
@@ -99,7 +96,9 @@ export async function uploadCroppedImage(
     }),
   }).catch(() => null);
   if (!recordRes) return { ok: false, message: "Gagal terhubung ke server." };
-  if (!recordRes.ok) return { ok: false, message: messageFor(await readJson(recordRes)) };
+  if (!recordRes.ok) {
+    return { ok: false, message: messageFor(await readJson(recordRes), UPLOAD_FALLBACK) };
+  }
 
   return { ok: true };
 }
@@ -110,6 +109,6 @@ export async function deleteUploadedImage(
 ): Promise<UploadOutcome> {
   const res = await sessionFetch(expectedUserId, basePath, { method: "DELETE" }).catch(() => null);
   if (!res) return { ok: false, message: "Gagal terhubung ke server." };
-  if (!res.ok) return { ok: false, message: messageFor(await readJson(res)) };
+  if (!res.ok) return { ok: false, message: messageFor(await readJson(res), DELETE_FALLBACK) };
   return { ok: true };
 }

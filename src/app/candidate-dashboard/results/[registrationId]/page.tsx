@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { notFound } from "next/navigation";
-import { ButtonLink, Icon, PageHeader } from "@/components/ui";
+import { Icon, PageHeader } from "@/components/ui";
 import { requireRolePage } from "@/server/auth/page-guard";
 import { getDb } from "@/server/db/client";
 import { competitionRegistrations, competitions, institutions } from "@/server/db/schema";
@@ -55,19 +55,15 @@ export default async function CandidateResultDetailPage({ params }: Props) {
   return (
     <main className="page-shell app-page candidate-result-detail">
       <PageHeader
-        eyebrow="Hasil kompetisi"
         title={registration.competitionTitle}
         backHref="/candidate-dashboard/results"
-        backLabel="Semua"
-        actions={
-          <ButtonLink
-            href={`/competitions/${registration.institutionSlug}/${registration.competitionSlug}`}
-            variant="outline"
-            size="sm"
-          >
-            Lihat kompetisi
-          </ButtonLink>
-        }
+        backName="Hasil kompetisi"
+        action={{
+          kind: "text",
+          href: `/competitions/${registration.institutionSlug}/${registration.competitionSlug}`,
+          label: "Lihat kompetisi",
+          icon: "eye",
+        }}
       />
 
       <section className="result-hero brand-band">
@@ -75,14 +71,14 @@ export default async function CandidateResultDetailPage({ params }: Props) {
           <Icon name="trophy" size="xl" />
         </span>
         <div className="stack-xs">
-          <p className="eyebrow">Hasil</p>
+          <p>Hasil</p>
           <p className="result-hero-label">{result.resultLabel}</p>
         </div>
       </section>
 
       {result.resultNotes ? (
-        <section className="surface-card card-padding-lg stack-sm">
-          <p className="eyebrow">Catatan penyelenggara</p>
+        <section className="stack-sm">
+          <p>Catatan penyelenggara</p>
           <p className="result-notes">{result.resultNotes}</p>
         </section>
       ) : null}

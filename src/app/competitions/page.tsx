@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { ButtonLink, Icon, Pagination } from "@/components/ui";
+import { EmptyState, Pagination } from "@/components/ui";
 import { CompetitionCard } from "@/components/competitions/competition-card";
 import { INDEXABLE_ROBOTS } from "@/config/indexable-routes";
 import { listPublicCompetitions } from "@/server/competitions/competition-public-service";
@@ -13,7 +13,7 @@ import {
 
 const TITLE = "Kompetisi · Lombakita";
 const DESCRIPTION =
-  "Jelajahi kompetisi yang sedang dibuka di Indonesia. Saring berdasarkan kategori, mode, status, dan ukuran tim.";
+  "Jelajahi kompetisi yang sedang dibuka di Indonesia. Saring berdasarkan kategori, status, dan ukuran tim.";
 
 export const metadata: Metadata = {
   title: TITLE,
@@ -59,6 +59,12 @@ export default async function PublicCompetitionsPage({
     mode: params.mode,
     status: params.status,
     teamSize: params.teamSize,
+    teamMin: params.teamMin,
+    teamMax: params.teamMax,
+    feeMin: params.feeMin,
+    feeMax: params.feeMax,
+    location: params.location,
+    audience: params.audience,
     sort: params.sort,
     page,
   });
@@ -67,44 +73,34 @@ export default async function PublicCompetitionsPage({
 
   return (
     <main>
+      <h1 className="sr-only">Kompetisi</h1>
+
       <section className="brand-band listing-hero">
         <div className="content-shell listing-hero-inner">
-          <div className="stack-sm listing-heading">
-            <h1>Temukan kompetisi yang layak kamu kejar.</h1>
-            <p>
-              Cari berdasarkan judul, lalu saring arena yang paling sesuai dengan minat dan waktumu.
-            </p>
-          </div>
-
           <CompetitionSearchForm params={params} />
         </div>
       </section>
 
       <div className="page-shell discovery-page">
         <section className="stack-lg" aria-labelledby="competition-results-title">
-          <div className="glass-chrome filter-toolbar">
-            <div>
-              <p className="eyebrow">Hasil pencarian</p>
+          <CompetitionFilterBar
+            params={params}
+            resultCount={
               <h2 id="competition-results-title" className="filter-result-title">
-                {meta.total} kompetisi ditemukan
+                <span role="status">{meta.total} kompetisi ditemukan</span>
               </h2>
-            </div>
-            <CompetitionFilterBar params={params} />
-          </div>
+            }
+          />
 
           {competitions.length === 0 ? (
-            <div className="empty-state">
-              <span className="empty-state-icon" aria-hidden="true">
-                <Icon name="search" size="xl" />
-              </span>
-              <h2>Belum ada hasil yang cocok.</h2>
-              <p>Coba kata kunci yang lebih luas atau kembalikan kategori ke semua kompetisi.</p>
-              <ButtonLink href="/competitions" variant="outline">
-                Bersihkan filter
-              </ButtonLink>
-            </div>
+            <EmptyState
+              kind="no-match"
+              title="Belum ada hasil yang cocok"
+              description="Coba kata kunci yang lebih luas atau kembalikan kategori ke semua kompetisi."
+              action={{ label: "Bersihkan filter", href: "/competitions" }}
+            />
           ) : (
-            <div className="competition-grid">
+            <div className="competition-grid competition-grid--four">
               {competitions.map((competition) => (
                 <CompetitionCard key={competition.id} competition={competition} />
               ))}

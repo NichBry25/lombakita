@@ -5,7 +5,7 @@ import { getPublicProfile } from "@/server/user-profile/profile-service";
 // Public endpoint — no auth required.
 // Returns the profile for the given username. Scope-gated fields are omitted entirely
 // (not emitted as null or with an indicator) — the public response is always clean.
-// Returns 404 if no user with that username exists.
+// Returns 404 if no user with that username exists or the account's email is not verified.
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ username: string }> },

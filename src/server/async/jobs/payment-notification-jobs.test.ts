@@ -18,6 +18,7 @@ const {
   mockSendPaymentOutcomeEmail,
   mockListInstitutionAdminUserIds,
   mockResolvePaymentGroupMemberUserIds,
+  mockResolveMemberUserIdsCancelledByExpiry,
 } = vi.hoisted(() => ({
   mockGetDb: vi.fn(),
   mockWriteNotification: vi.fn(),
@@ -25,6 +26,7 @@ const {
   mockSendPaymentOutcomeEmail: vi.fn(),
   mockListInstitutionAdminUserIds: vi.fn(),
   mockResolvePaymentGroupMemberUserIds: vi.fn(),
+  mockResolveMemberUserIdsCancelledByExpiry: vi.fn(),
 }));
 
 vi.mock("@/server/db/client", () => ({ getDb: mockGetDb }));
@@ -43,6 +45,9 @@ vi.mock("@/server/institution-members/member-service", () => ({
 }));
 vi.mock("@/server/finance/paid-registration", () => ({
   resolvePaymentGroupMemberUserIds: mockResolvePaymentGroupMemberUserIds,
+}));
+vi.mock("@/server/finance/payment-expiry-service", () => ({
+  resolveMemberUserIdsCancelledByExpiry: mockResolveMemberUserIdsCancelledByExpiry,
 }));
 
 import {
@@ -262,7 +267,7 @@ describe("the payment verdict notice", () => {
   });
 
   it("attributes an expiry to the deadline and to nobody else", async () => {
-    mockResolvePaymentGroupMemberUserIds.mockResolvedValue(["u_1"]);
+    mockResolveMemberUserIdsCancelledByExpiry.mockResolvedValue(["u_1"]);
     mockGetDb.mockReturnValue(makeDb([[{ id: "u_1", email: "a@test.com" }]]));
 
     await processPaymentOutcomeJob(outcomeJob({ outcome: "expired" }));
@@ -274,6 +279,34 @@ describe("the payment verdict notice", () => {
     // The words that would make a deadline read as a verdict.
     expect(body).not.toContain("ditolak");
     expect(body).not.toContain("Penyelenggara menolak");
+  });
+
+  it("tells an expiry only to the members whose registration it cancelled", async () => {
+    mockResolvePaymentGroupMemberUserIds.mockResolvedValue(["u_captain", "u_2", "u_3", "u_4"]);
+    mockResolveMemberUserIdsCancelledByExpiry.mockResolvedValue(["u_captain", "u_2"]);
+    const db = makeDb([
+      [
+        { id: "u_captain", email: "captain@example.test" },
+        { id: "u_2", email: "m2@example.test" },
+      ],
+    ]);
+    mockGetDb.mockReturnValue(db);
+
+    await processPaymentOutcomeJob(outcomeJob({ outcome: "expired" }));
+
+    expect({
+      asked: paramsOf(db.capturedConditions[0]),
+      expiryResolver: mockResolveMemberUserIdsCancelledByExpiry.mock.calls.map(([id]) => id),
+      groupResolverCalls: mockResolvePaymentGroupMemberUserIds.mock.calls.length,
+      inbox: mockWriteNotification.mock.calls.length,
+      sends: mockSendPaymentOutcomeEmail.mock.calls.length,
+    }).toEqual({
+      asked: ["u_captain", "u_2"],
+      expiryResolver: ["reg_1"],
+      groupResolverCalls: 0,
+      inbox: 2,
+      sends: 2,
+    });
   });
 
   it("names Lombakita as the actor on a void, and never the organiser", async () => {

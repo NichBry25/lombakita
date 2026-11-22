@@ -23,6 +23,7 @@ export const ASYNC_JOB_NAMES = {
   institutionInvitationDispatch: "institution.invitation.dispatch",
   teamInvitationDispatch: "team.invitation.dispatch",
   recruiterVerificationRejected: "recruiter.verification.rejected",
+  recruiterVerificationApproved: "recruiter.verification.approved",
   registrationDocumentRequested: "registration.document.requested",
   registrationDocumentReviewed: "registration.document.reviewed",
   retentionPurge: "retention.purge",
@@ -30,6 +31,9 @@ export const ASYNC_JOB_NAMES = {
   emailEgressProbe: "email.egress.probe",
   paymentProofSubmitted: "payment.proof.submitted",
   paymentOutcome: "payment.outcome",
+  teamCloseCheck: "team.close.check",
+  teamJoinReminder: "team.join.reminder",
+  teamCancelledBelowMinimum: "team.cancelled.below_minimum",
 } as const;
 
 export type AsyncJobName = (typeof ASYNC_JOB_NAMES)[keyof typeof ASYNC_JOB_NAMES];
@@ -120,6 +124,10 @@ export type RecruiterVerificationRejectedPayload = {
   epoch: number;
 };
 
+// Account-level approval to publish, from a review or the manual tier setting. epoch makes each
+// enqueue unique; the callers send one only when the account's tier really changed.
+export type RecruiterVerificationApprovedPayload = { userId: string; epoch: number };
+
 // Participant document verification. Both payloads carry their content rather than a pointer, for
 // the same reason the recruiter rejection does: by the time the worker runs the request may have
 // been answered, extended, or reopened, and re-reading the row would announce the wrong thing.
@@ -158,8 +166,11 @@ export type PaymentProofSubmittedPayload = {
   currency: string;
 };
 
-// What became of the money, told to EVERY member of the payment group (R13). A team pays once and
-// a verdict on that payment decides whether the whole team is still entered.
+// What became of the money (R13). A verdict goes to the members of the payment group who were
+// active when it was given, because a team pays once and a verdict on that payment decides whether
+// the team is still entered. An expiry goes to the members whose registrations this expiry
+// cancelled. A verdict's recipients are carried on this payload (`recipientUserIds`); an expiry's
+// are resolved at delivery.
 //
 // FOUR OUTCOMES, THREE DIFFERENT ACTORS, and the copy has to name the right one each time.
 // `verified` and `rejected` are the organiser's decisions. `expired` has NO human behind it, only
@@ -185,6 +196,10 @@ export type PaymentOutcomePayload = {
   resubmissionAllowed: boolean | null;
   grossAmount: number;
   currency: string;
+  // The members the verdict is true for, read inside the verdict's own transaction. When the field
+  // is absent the job resolves the whole payment group at delivery; `expired` never carries it. An
+  // empty list is a recipient list and means nobody is told.
+  recipientUserIds?: string[];
 };
 
 export type RegistrationDocumentReviewedPayload = {
@@ -225,6 +240,31 @@ export type EmailEgressProbePayload = {
   scheduledFor: string;
 };
 
+// No request triggers this one either. It fires on a timer (see `team-close-check-scheduler.ts`), and the
+// payload carries the fire time only for log correlation. The check reads the due teams itself.
+export type TeamCloseCheckPayload = {
+  scheduledFor: string;
+};
+
+// The reminder's words are read at delivery. The payload carries the team and the close the check
+// marked, as exact UTC text with microseconds, which delivery compares with the columns in SQL.
+export type TeamJoinReminderPayload = {
+  teamId: string;
+  competitionId: string;
+  markedClose: string;
+};
+
+// Carries the member count and the minimum that decided the cancellation, so an edit to the minimum
+// after the close cannot change what the member is told.
+export type TeamCancelledBelowMinimumPayload = {
+  registrationId: string;
+  studentId: string;
+  competitionId: string;
+  teamId: string;
+  memberCount: number;
+  minTeamSize: number;
+};
+
 export type AsyncJobPayloadByName = {
   [ASYNC_JOB_NAMES.probePing]: AsyncProbeJobPayload;
   [ASYNC_JOB_NAMES.competitionSearchSync]: CompetitionSearchSyncPayload;
@@ -237,6 +277,7 @@ export type AsyncJobPayloadByName = {
   [ASYNC_JOB_NAMES.institutionInvitationDispatch]: InstitutionInvitationDispatchPayload;
   [ASYNC_JOB_NAMES.teamInvitationDispatch]: TeamInvitationDispatchPayload;
   [ASYNC_JOB_NAMES.recruiterVerificationRejected]: RecruiterVerificationRejectedPayload;
+  [ASYNC_JOB_NAMES.recruiterVerificationApproved]: RecruiterVerificationApprovedPayload;
   [ASYNC_JOB_NAMES.registrationDocumentRequested]: RegistrationDocumentRequestedPayload;
   [ASYNC_JOB_NAMES.registrationDocumentReviewed]: RegistrationDocumentReviewedPayload;
   [ASYNC_JOB_NAMES.retentionPurge]: RetentionPurgePayload;
@@ -244,6 +285,9 @@ export type AsyncJobPayloadByName = {
   [ASYNC_JOB_NAMES.emailEgressProbe]: EmailEgressProbePayload;
   [ASYNC_JOB_NAMES.paymentProofSubmitted]: PaymentProofSubmittedPayload;
   [ASYNC_JOB_NAMES.paymentOutcome]: PaymentOutcomePayload;
+  [ASYNC_JOB_NAMES.teamCloseCheck]: TeamCloseCheckPayload;
+  [ASYNC_JOB_NAMES.teamJoinReminder]: TeamJoinReminderPayload;
+  [ASYNC_JOB_NAMES.teamCancelledBelowMinimum]: TeamCancelledBelowMinimumPayload;
 };
 
 export const ASYNC_JOB_QUEUE_BY_NAME = {
@@ -258,6 +302,7 @@ export const ASYNC_JOB_QUEUE_BY_NAME = {
   [ASYNC_JOB_NAMES.institutionInvitationDispatch]: ASYNC_QUEUE_NAMES.notifications,
   [ASYNC_JOB_NAMES.teamInvitationDispatch]: ASYNC_QUEUE_NAMES.notifications,
   [ASYNC_JOB_NAMES.recruiterVerificationRejected]: ASYNC_QUEUE_NAMES.notifications,
+  [ASYNC_JOB_NAMES.recruiterVerificationApproved]: ASYNC_QUEUE_NAMES.notifications,
   [ASYNC_JOB_NAMES.registrationDocumentRequested]: ASYNC_QUEUE_NAMES.notifications,
   [ASYNC_JOB_NAMES.registrationDocumentReviewed]: ASYNC_QUEUE_NAMES.notifications,
   // Platform maintenance, not a participant-facing event — so it sits on `infrastructure`, away
@@ -274,4 +319,9 @@ export const ASYNC_JOB_QUEUE_BY_NAME = {
   // sweep causes, which is exactly what the note above means by "enqueued separately".
   [ASYNC_JOB_NAMES.paymentProofSubmitted]: ASYNC_QUEUE_NAMES.notifications,
   [ASYNC_JOB_NAMES.paymentOutcome]: ASYNC_QUEUE_NAMES.notifications,
+  // Platform maintenance on the reasoning of the payment expiry sweep. The two notices it causes are
+  // participant events, so they sit on the notifications queue.
+  [ASYNC_JOB_NAMES.teamCloseCheck]: ASYNC_QUEUE_NAMES.infrastructure,
+  [ASYNC_JOB_NAMES.teamJoinReminder]: ASYNC_QUEUE_NAMES.notifications,
+  [ASYNC_JOB_NAMES.teamCancelledBelowMinimum]: ASYNC_QUEUE_NAMES.notifications,
 } as const satisfies Record<AsyncJobName, AsyncQueueName>;

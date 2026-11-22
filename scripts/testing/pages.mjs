@@ -105,7 +105,6 @@ export const PAGES = [
     path: "/auth/verify-request",
     label: "Verification email sent notice",
   },
-  { id: "21-auth-activated", as: null, path: "/auth/activated", label: "Account activated notice" },
   {
     id: "22-auth-verify-email-bad",
     as: null,
@@ -358,8 +357,50 @@ export const PAGES = [
   {
     id: "57b-competition-edit-paid",
     as: "recElev",
-    path: "/institution/seed-academy/competitions/seed-paid/edit",
+    path: "/institution/seed-academy/competitions/seed-paid/edit?langkah=4",
     label: "Competition editor — paid, with fee disclosure",
+  },
+  {
+    id: "57c-competition-edit-draft-basics",
+    as: "recElev",
+    path: "/institution/seed-academy/competitions/seed-draft/edit?langkah=1",
+    label: "Competition editor (draft, step 1 Informasi dasar)",
+  },
+  {
+    id: "57d-competition-edit-draft-participants",
+    as: "recElev",
+    path: "/institution/seed-academy/competitions/seed-draft/edit?langkah=2",
+    label: "Competition editor (draft, step 2 Peserta)",
+  },
+  {
+    id: "57e-competition-edit-draft-schedule",
+    as: "recElev",
+    path: "/institution/seed-academy/competitions/seed-draft/edit?langkah=3",
+    label: "Competition editor (draft, step 3 Jadwal)",
+  },
+  {
+    id: "57f-competition-edit-draft-prizes-fee",
+    as: "recElev",
+    path: "/institution/seed-academy/competitions/seed-draft/edit?langkah=4",
+    label: "Competition editor (draft, step 4 Hadiah dan biaya)",
+  },
+  {
+    id: "57g-competition-edit-draft-review",
+    as: "recElev",
+    path: "/institution/seed-academy/competitions/seed-draft/edit?langkah=5",
+    label: "Competition editor (draft, step 5 Tinjau dan terbitkan)",
+  },
+  {
+    id: "57h-competition-edit-published-participants",
+    as: "recElev",
+    path: "/institution/seed-academy/competitions/seed-open/edit?langkah=2",
+    label: "Competition editor (published, section Peserta, minimum locked)",
+  },
+  {
+    id: "57i-competition-edit-published-schedule",
+    as: "recElev",
+    path: "/institution/seed-academy/competitions/seed-open/edit?langkah=3",
+    label: "Competition editor (published, section Jadwal, confirmation locked)",
   },
   {
     id: "58-participants",

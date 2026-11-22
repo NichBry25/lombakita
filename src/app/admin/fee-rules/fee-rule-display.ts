@@ -23,6 +23,3 @@ export const formatMinorUnits = (amount: number, currency: string): string => {
     maximumFractionDigits: exponent,
   })}`;
 };
-
-export const formatEffectiveDate = (at: Date | string): string =>
-  new Date(at).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" });

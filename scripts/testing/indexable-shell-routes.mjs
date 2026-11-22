@@ -12,24 +12,23 @@
  *
  *   Not chrome. The site header and footer are in the shell of even a fully streaming page — that
  *   is exactly what a broken page serves — so a needle taken from them passes on the pages this
- *   check exists to catch. `KARYA TALENTA NUSANTARA` is in the footer of all seven and would have
- *   been a natural, useless choice.
+ *   check exists to catch. `Informasi`, the footer heading, is in the footer of all seven and would
+ *   have been a natural, useless choice.
  *
  *   Not the `<title>`. It is in the head, so it is in the shell for the same reason. The
  *   competition detail needle WAS the competition's title, and it stayed green while that route
  *   served its entire body from a hidden container. The Rule 36 probe found it.
  *
  *   Contiguous in the markup. React separates an interpolated value from adjacent literal text
- *   with a `<!-- -->` marker, and the brand marker wraps a word of the landing hero in a `<span>`,
+ *   with a `<!-- -->` marker, and the brand marker wraps words of the landing hero in a `<span>`,
  *   so neither of those headings matches as a substring however correct the page is.
  */
 export const INDEXABLE_SHELL_ROUTES = [
   {
     path: "/",
-    // The hero LEAD rather than the heading: the `<h1>` wraps one word in a `<span>` for the brand
-    // marker, so its text is not contiguous and no substring of it would match.
-    needle: "Jelajahi kompetisi dari penyelenggara yang bisa kamu percaya.",
-    label: "the landing page hero lead",
+    // The organiser call to action heading rather than the hero: the `<h1>` wraps two words in a `<span>` for the brand marker, so its text is not contiguous, and this section renders for every visitor.
+    needle: "Buat ruang kerja institusi untuk menerbitkan kompetisi",
+    label: "the organiser call to action heading",
   },
   {
     path: "/competitions",
@@ -50,8 +49,8 @@ export const INDEXABLE_SHELL_ROUTES = [
   },
   {
     path: "/kontak",
-    needle: "Identitas penyelenggara sistem",
-    label: "the operator identity heading",
+    needle: "Hal yang diurus penyelenggara kompetisi",
+    label: "the organiser responsibilities heading",
   },
   {
     path: "/syarat-ketentuan",

@@ -5,7 +5,21 @@ import { useRouter } from "next/navigation";
 import type { CompetitionRegistrationReviewStatus } from "@/server/db/schema";
 import { REVIEW_STATUS_LABELS, REVIEW_STATUS_ORDER } from "../review-status-labels";
 import { useToast } from "@/components/ui/primitives";
-import { Button, SelectField } from "@/components/ui";
+import { Button, FormLabelText, FormTextarea, SelectField } from "@/components/ui";
+import type { ReviewErrorCode } from "@/server/participants/review-service";
+
+const REVIEW_ERROR_MESSAGES: Partial<Record<ReviewErrorCode, string>> = {
+  review_registration_not_found: "Pendaftaran tidak ditemukan.",
+  review_invalid_payload:
+    "Tinjauan tidak dapat disimpan. Catatan internal paling banyak 5.000 karakter.",
+};
+
+async function readReviewErrorMessage(res: Response, fallback: string): Promise<string> {
+  const body: { error?: { code?: ReviewErrorCode } } | null = await res.json().catch(() => null);
+  const code = body?.error?.code;
+  if (!code) return fallback;
+  return REVIEW_ERROR_MESSAGES[code] ?? fallback;
+}
 
 type Props = {
   apiPath: string;
@@ -44,14 +58,10 @@ export function ReviewForm({
         }),
       });
       if (!res.ok) {
-        let code = `HTTP ${res.status}`;
-        try {
-          const body = await res.json();
-          if (body?.error?.code) code = body.error.code;
-        } catch {
-          // non-JSON error body — keep the status code
-        }
-        addToast({ type: "error", message: `Gagal menyimpan: ${code}` });
+        addToast({
+          type: "error",
+          message: await readReviewErrorMessage(res, "Gagal menyimpan. Coba lagi."),
+        });
         return;
       }
       addToast({ type: "success", message: "Tersimpan." });
@@ -67,10 +77,8 @@ export function ReviewForm({
     <section className="content-section participant-review-card">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">Penilaian internal</p>
           <h2>Tinjauan peserta</h2>
         </div>
-        <span className="status-badge">{REVIEW_STATUS_LABELS[status]}</span>
       </div>
       {registrationType === "team" && teamName && (
         <p className="participant-team-context">
@@ -81,9 +89,10 @@ export function ReviewForm({
         </p>
       )}
       <div className="form-field">
-        <span className="form-label">Status tinjauan</span>
+        <FormLabelText required>Status tinjauan</FormLabelText>
         <SelectField
           label="Status tinjauan"
+          required
           value={status}
           onChange={(value) => setStatus(value as CompetitionRegistrationReviewStatus)}
           options={REVIEW_STATUS_ORDER.map((value) => ({
@@ -94,12 +103,12 @@ export function ReviewForm({
       </div>
 
       <label className="form-field">
-        <span className="form-label">Catatan internal</span>
-        <textarea
+        <FormLabelText optional>Catatan internal</FormLabelText>
+        <FormTextarea
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           rows={5}
-          className="form-textarea"
+          maxLength={5000}
         />
       </label>
 

@@ -33,9 +33,9 @@ export default function ErrorPage({ error, reset }: ErrorPageProps) {
         <span className="system-state-icon" aria-hidden="true">
           <Icon name="close" size="xl" />
         </span>
-        <h1>Terjadi kesalahan.</h1>
+        <h1>Terjadi kesalahan</h1>
         <p>Coba muat ulang halaman. Jika masalah berlanjut, hubungi dukungan Lombakita.</p>
-        <Button type="button" onClick={retry} variant="secondary">
+        <Button type="button" onClick={retry} variant="primary">
           Coba lagi
         </Button>
       </section>

@@ -3,15 +3,22 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useModal, useToast } from "@/components/ui/primitives";
+import { LocalDate } from "@/components/ui/local-date";
 import {
   Button,
+  CountPill,
   EmptyState,
   Feedback,
   FormActionBar,
+  FormLabel,
+  FormLabelText,
   Icon,
   IconButton,
   PageHeader,
   Skeleton,
+  Table,
+  type TableColumn,
+  type TableRowData,
 } from "@/components/ui";
 import {
   DOCUMENT_TYPE_LABELS,
@@ -24,12 +31,8 @@ import type { InstitutionType } from "@/server/db/schema";
 import type { FullInstitutionType } from "@/server/institution-workspace/institution-type";
 import { INSTITUTION_TYPE_LABELS } from "@/lib/institutions/type-labels";
 import { formatDisplayToken } from "@/lib/text/capitalize";
-import {
-  readErrorCode,
-  SESSION_MISMATCH_CODE,
-  SESSION_MISMATCH_MESSAGE,
-  sessionFetch,
-} from "@/lib/session/session-fetch";
+import { errorMessageFor, NETWORK_ERROR_MESSAGE } from "@/lib/errors/error-copy";
+import { sessionFetch } from "@/lib/session/session-fetch";
 
 type SubmissionItem = {
   id: string;
@@ -47,6 +50,35 @@ const STATUS_LABELS: Record<SubmissionItem["status"], string> = {
   approved: "Disetujui",
   rejected: "Ditolak",
 };
+
+const HISTORY_COLUMNS: readonly TableColumn[] = [
+  { key: "target", header: "Tipe tujuan", kind: "name" },
+  { key: "status", header: "Status", kind: "pill" },
+  { key: "documents", header: "Dokumen", kind: "number" },
+  { key: "submittedAt", header: "Dikirim", kind: "date" },
+  { key: "notes", header: "Catatan", kind: "wrap" },
+];
+
+const submissionStatusTone = (status: SubmissionItem["status"]): string => {
+  if (status === "approved") return "open";
+  if (status === "rejected") return "closing";
+  return "awaiting";
+};
+
+const buildHistoryRow = (submission: SubmissionItem): TableRowData => ({
+  key: submission.id,
+  cells: {
+    target: INSTITUTION_TYPE_LABELS[submission.targetInstitutionType],
+    status: (
+      <span className="status-badge" data-status={submissionStatusTone(submission.status)}>
+        {STATUS_LABELS[submission.status]}
+      </span>
+    ),
+    documents: submission.documentCount,
+    submittedAt: <LocalDate value={submission.submittedAt} format="shortDate" />,
+    notes: submission.reviewerNotes,
+  },
+});
 
 type DocField = {
   documentType: string;
@@ -71,12 +103,23 @@ type InstitutionVerificationShellProps = {
   rejectionReason: string | null;
 };
 
-const formatLongDate = (isoDate: string): string =>
-  new Date(isoDate).toLocaleDateString("id-ID", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
+const SUBMIT_ERROR_COPY: Partial<Record<string, string>> = {
+  forbidden: "Hanya akun penyelenggara yang dapat mengajukan verifikasi institusi.",
+  rate_limited: "Terlalu banyak permintaan unggah. Coba lagi dalam beberapa menit.",
+  invalid_payload: "Permintaan tidak dapat diproses. Muat ulang halaman lalu coba lagi.",
+  verification_storage_unavailable: "Unggahan berkas sedang tidak tersedia. Coba lagi nanti.",
+  institution_not_found: "Institusi tidak ditemukan, atau Anda bukan pemiliknya.",
+  institution_verification_not_applicable:
+    "Institusi personal tidak memerlukan verifikasi dokumen. Tingkatkan institusi terlebih dahulu.",
+  institution_already_verified: "Institusi ini sudah terverifikasi.",
+  missing_required_documents: "Lengkapi semua dokumen yang dibutuhkan lalu kirim lagi.",
+  verification_submission_already_pending:
+    "Pengajuan verifikasi untuk institusi ini masih menunggu tinjauan.",
+};
+
+const SUBMIT_FALLBACK = "Pengajuan gagal dikirim. Coba lagi.";
+
+const UNLABELLED_DOCUMENT_LABEL = "Dokumen lainnya";
 
 export const InstitutionVerificationShell = ({
   institutionSlug,
@@ -140,7 +183,7 @@ export const InstitutionVerificationShell = ({
         openModal({
           title: "Dokumen belum lengkap",
           body: `Unggah dokumen ${DOCUMENT_TYPE_LABELS[field.documentType] ?? formatDisplayToken(field.documentType)} sebelum melanjutkan.`,
-          actions: [{ label: "OK", onClick: () => {} }],
+          actions: [{ label: "Mengerti", variant: "primary" }],
         });
         return;
       }
@@ -165,22 +208,19 @@ export const InstitutionVerificationShell = ({
         },
       );
 
-      const data = (await res.json()) as {
-        submissionId?: string;
-        documents?: Array<{ documentType: string; uploadUrl: string; r2Key: string }>;
-        error?: { code: string; message: string; details?: Record<string, unknown> };
-      };
-
       if (!res.ok) {
-        const errorCode = await readErrorCode(res.clone());
-        const errMsg =
-          errorCode === SESSION_MISMATCH_CODE
-            ? SESSION_MISMATCH_MESSAGE
-            : (data.error?.message ?? `Error ${res.status}`);
+        let errorCode: string | null = null;
+        try {
+          const data = (await res.json()) as { error?: { code?: string } };
+          errorCode = data.error?.code ?? null;
+        } catch {
+          // A body that is not JSON carries no code, so the modal shows the fallback.
+        }
         openModal({
           title: "Pengajuan gagal",
-          body: errMsg,
-          actions: [{ label: "OK", onClick: () => {} }],
+          body: errorMessageFor(errorCode, SUBMIT_ERROR_COPY, SUBMIT_FALLBACK),
+          alert: true,
+          actions: [{ label: "Mengerti", variant: "primary" }],
         });
         // This page was rendered before the institution reached a state that closes submissions —
         // a verdict landed, or another owner filed first. Pull the current state back in so it
@@ -195,6 +235,12 @@ export const InstitutionVerificationShell = ({
         return;
       }
 
+      const data = (await res.json()) as {
+        submissionId?: string;
+        documents?: Array<{ documentType: string; uploadUrl: string; r2Key: string }>;
+        error?: { code: string; message: string; details?: Record<string, unknown> };
+      };
+
       // Upload each document file to its presigned R2 URL.
       const uploadErrors: string[] = [];
       for (const uploadTarget of data.documents ?? []) {
@@ -208,14 +254,12 @@ export const InstitutionVerificationShell = ({
           });
           if (!uploadRes.ok) {
             uploadErrors.push(
-              DOCUMENT_TYPE_LABELS[uploadTarget.documentType] ??
-                formatDisplayToken(uploadTarget.documentType),
+              DOCUMENT_TYPE_LABELS[uploadTarget.documentType] ?? UNLABELLED_DOCUMENT_LABEL,
             );
           }
         } catch {
           uploadErrors.push(
-            DOCUMENT_TYPE_LABELS[uploadTarget.documentType] ??
-              formatDisplayToken(uploadTarget.documentType),
+            DOCUMENT_TYPE_LABELS[uploadTarget.documentType] ?? UNLABELLED_DOCUMENT_LABEL,
           );
         }
       }
@@ -223,16 +267,23 @@ export const InstitutionVerificationShell = ({
       if (uploadErrors.length > 0) {
         addToast({
           type: "error",
-          message: `Pengajuan dibuat, tetapi upload gagal untuk: ${uploadErrors.join(", ")}. Hubungi dukungan.`,
+          message: `Pengajuan dibuat, tetapi dokumen berikut gagal diunggah: ${uploadErrors.join(", ")}. Hubungi dukungan Lombakita.`,
         });
       } else {
         addToast({
           type: "success",
-          message: "Dokumen berhasil dikirim. Kami akan meninjau dalam 1–3 hari kerja.",
+          message: "Dokumen berhasil dikirim. Kami akan meninjau dalam 1 sampai 3 hari kerja.",
         });
       }
 
       await fetchHistory();
+    } catch {
+      openModal({
+        title: "Pengajuan gagal",
+        body: NETWORK_ERROR_MESSAGE,
+        alert: true,
+        actions: [{ label: "Mengerti", variant: "primary" }],
+      });
     } finally {
       setSubmitting(false);
     }
@@ -253,26 +304,23 @@ export const InstitutionVerificationShell = ({
         <section className="content-section verification-status-card">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">Status verifikasi</p>
               <h2>Institusi terverifikasi</h2>
             </div>
-            <span className="status-badge" data-status="open">
-              Terverifikasi
-            </span>
           </div>
-          <Feedback tone="success">
-            <p>
-              <strong>Dokumen institusi Anda telah disetujui</strong>
-              {verifiedAt ? ` pada ${formatLongDate(verifiedAt)}` : ""}.
-            </p>
-          </Feedback>
           {approvedSubmission?.reviewerNotes ? (
             <p className="muted-copy">
               <strong>Catatan peninjau:</strong> {approvedSubmission.reviewerNotes}
             </p>
           ) : null}
           <p className="muted-copy">
-            Verifikasi ini berlaku seterusnya, jadi tidak ada dokumen baru yang perlu Anda kirim.
+            Disetujui
+            {verifiedAt ? (
+              <>
+                {" "}
+                pada <LocalDate value={verifiedAt} format="longDate" />
+              </>
+            ) : null}
+            . Verifikasi ini berlaku seterusnya, jadi tidak ada dokumen baru yang perlu Anda kirim.
             Hubungi tim dukungan jika data institusi Anda berubah.
           </p>
         </section>
@@ -282,10 +330,9 @@ export const InstitutionVerificationShell = ({
         <section className="content-section verification-status-card">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">Status verifikasi</p>
               <h2>Verifikasi tidak berlaku</h2>
             </div>
-            <span className="status-badge" data-status="closed">
+            <span className="status-badge" data-status="closing">
               Ditolak
             </span>
           </div>
@@ -311,16 +358,13 @@ export const InstitutionVerificationShell = ({
         <section className="content-section verification-status-card">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">Status verifikasi</p>
               <h2>Menunggu peninjauan</h2>
             </div>
-            <span className="status-badge" data-status="closing">
-              Diproses
-            </span>
           </div>
           <p className="muted-copy">
-            Dokumen yang Anda kirim pada {formatLongDate(pendingSubmission.submittedAt)} sedang
-            ditinjau tim kami. Kami mengabari begitu ada keputusan.
+            Dokumen yang Anda kirim pada{" "}
+            <LocalDate value={pendingSubmission.submittedAt} format="longDate" /> sedang ditinjau
+            tim kami. Kami mengabari begitu ada keputusan.
           </p>
           <p className="muted-copy">
             Selama peninjauan berlangsung, Anda belum dapat mengirim pengajuan baru, karena peninjau
@@ -334,7 +378,6 @@ export const InstitutionVerificationShell = ({
         <section className="content-section verification-submit-card">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">Pengajuan baru</p>
               <h2>Dokumen verifikasi</h2>
             </div>
           </div>
@@ -349,16 +392,13 @@ export const InstitutionVerificationShell = ({
           </dl>
 
           <div className="verification-documents">
-            <p className="form-label">Dokumen yang dibutuhkan</p>
+            <FormLabelText as="p">Dokumen yang dibutuhkan</FormLabelText>
             {docFields.map((field, i) => (
               <div key={field.documentType} className="form-field verification-document-field">
-                <label
-                  htmlFor={`doc-${field.documentType}`}
-                  className="form-label form-label-required"
-                >
+                <FormLabel htmlFor={`doc-${field.documentType}`} required>
                   {DOCUMENT_TYPE_LABELS[field.documentType] ??
                     formatDisplayToken(field.documentType)}
-                </label>
+                </FormLabel>
                 <input
                   id={`doc-${field.documentType}`}
                   type="file"
@@ -383,10 +423,9 @@ export const InstitutionVerificationShell = ({
       <section className="content-section verification-history-card">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Jejak pengajuan</p>
             <h2>Riwayat verifikasi</h2>
           </div>
-          <span className="status-badge data-text">{submissions.length}</span>
+          <CountPill count={submissions.length} />
         </div>
         {loadingHistory && (
           <div className="stack-sm" aria-label="Memuat riwayat verifikasi">
@@ -396,8 +435,9 @@ export const InstitutionVerificationShell = ({
         )}
         {!loadingHistory && submissions.length === 0 && (
           <EmptyState
-            icon="check"
-            title="Belum ada pengajuan."
+            kind="nothing-yet"
+            size="compact"
+            title="Belum ada pengajuan"
             description={
               // A verified institution with no submission was verified directly by the platform
               // team, so "history will appear here" would be a promise nothing will keep.
@@ -408,52 +448,20 @@ export const InstitutionVerificationShell = ({
           />
         )}
         {!loadingHistory && submissions.length > 0 && (
-          <div className="table-scroll">
-            <table className="data-table verification-history-table">
-              <thead>
-                <tr>
-                  <th>Tipe tujuan</th>
-                  <th>Status</th>
-                  <th>Dokumen</th>
-                  <th>Dikirim</th>
-                  <th>Catatan</th>
-                </tr>
-              </thead>
-              <tbody>
-                {submissions.map((s) => (
-                  <tr key={s.id}>
-                    <td>{INSTITUTION_TYPE_LABELS[s.targetInstitutionType]}</td>
-                    <td>
-                      <span
-                        className="status-badge"
-                        data-status={
-                          s.status === "approved"
-                            ? "open"
-                            : s.status === "rejected"
-                              ? "closed"
-                              : "closing"
-                        }
-                      >
-                        {STATUS_LABELS[s.status]}
-                      </span>
-                    </td>
-                    <td className="data-text">{s.documentCount}</td>
-                    <td className="data-text">
-                      {new Date(s.submittedAt).toLocaleDateString("id-ID")}
-                    </td>
-                    <td>{s.reviewerNotes ?? "–"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <Table
+            label="Riwayat verifikasi"
+            columns={HISTORY_COLUMNS}
+            rows={submissions.map(buildHistoryRow)}
+          />
         )}
       </section>
 
       <FormActionBar>
         <IconButton
+          variant="plain"
+          size="back"
           icon="arrow-left"
-          label="Panel institusi"
+          label="Kembali"
           onClick={() => router.push(`/institution/${institutionSlug}`)}
         />
         {canSubmit && !loadingHistory ? (

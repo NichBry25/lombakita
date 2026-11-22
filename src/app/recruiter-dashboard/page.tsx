@@ -3,7 +3,11 @@ import { SecondRoleBanner } from "@/components/auth/second-role-banner";
 import { Icon, PageHeader } from "@/components/ui";
 import { requireRolePage } from "@/server/auth/page-guard";
 import { getUnverifiedRoles } from "@/server/auth/role-verification";
-import { getRecruiterTierForAccount } from "@/server/auth/recruiter-tier";
+import {
+  FULL_INSTITUTION_CREATION_MIN_TIER,
+  getRecruiterTierForAccount,
+  meetsRecruiterTier,
+} from "@/server/auth/recruiter-tier";
 import { getLatestRecruiterVerificationForUser } from "@/server/recruiter-verification/recruiter-verification-service";
 import {
   findOwnedPersonalInstitution,
@@ -32,14 +36,17 @@ export default async function RecruiterDashboardPage() {
     findOwnedPersonalInstitution(session.user.id),
   ]);
   const isTrusted = tierState?.recruiterVerificationTier === "elevated";
-  // Only one personal institution is allowed per account, so the create-personal entry point is
-  // shown only while the account has none.
-  const canCreatePersonalInstitution = personalInstitution === null;
+  const canCreateFullInstitution = tierState
+    ? meetsRecruiterTier(tierState.recruiterVerificationTier, FULL_INSTITUTION_CREATION_MIN_TIER)
+    : false;
+  const startHostingHref = personalInstitution
+    ? `/institution/${personalInstitution.slug}/competitions/new`
+    : "/institution/personal";
 
   return (
     <main className="page-shell app-page recruiter-dashboard">
       <PageHeader
-        title="Dasbor rekruter"
+        title="Dasbor penyelenggara"
         description="Kelola identitas penyelenggara dan buka ruang kerja institusi Anda."
       />
 
@@ -47,39 +54,36 @@ export default async function RecruiterDashboardPage() {
         <SecondRoleBanner unverifiedRole="candidate" userId={session.user.id} />
       ) : null}
 
-      <section className="hub-grid" aria-label="Akses rekruter">
-        <Link className="hub-card hub-card--action" href="/institution/create">
+      <section className="hub-grid" aria-label="Akses penyelenggara">
+        <Link className="hub-card hub-card--action" href={startHostingHref}>
           <span className="hub-card-icon">
-            <Icon name="building" size="lg" />
+            <Icon name="plus" size="lg" />
           </span>
           <div className="stack-xs">
-            <h2>Buat institusi</h2>
-            <p>Buat ruang penyelenggara baru untuk memublikasikan kompetisi.</p>
+            <h2>Mulai menyelenggarakan</h2>
+            <p>Buat draf kompetisi di ruang kerja personal Anda.</p>
           </div>
         </Link>
+        {canCreateFullInstitution ? (
+          <Link className="hub-card" href="/institution/create">
+            <span className="hub-card-icon">
+              <Icon name="building" size="lg" />
+            </span>
+            <div className="stack-xs">
+              <h2>Buat institusi</h2>
+              <p>Buat ruang penyelenggara baru untuk memublikasikan kompetisi.</p>
+            </div>
+          </Link>
+        ) : null}
         <Link className="hub-card" href="/profile">
           <span className="hub-card-icon">
             <Icon name="user" size="lg" />
           </span>
           <div className="stack-xs">
             <h2>Profil saya</h2>
-            <p>Pastikan identitas publik dan kredensial rekruter tetap mutakhir.</p>
+            <p>Pastikan identitas publik dan kredensial penyelenggara tetap mutakhir.</p>
           </div>
         </Link>
-        {canCreatePersonalInstitution ? (
-          <Link className="hub-card" href="/institution/personal">
-            <span className="hub-card-icon">
-              <Icon name="plus" size="lg" />
-            </span>
-            <div className="stack-xs">
-              <h2>Buat institusi personal</h2>
-              <p>
-                Tampil sebagai perorangan untuk mulai memublikasikan kompetisi tanpa institusi
-                resmi.
-              </p>
-            </div>
-          </Link>
-        ) : null}
       </section>
 
       <section className="content-section" aria-label="Institusi Anda">

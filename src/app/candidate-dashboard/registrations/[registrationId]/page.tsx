@@ -41,7 +41,7 @@ export default async function SubmissionPage({
         title={`Submission ${view.competitionTitle}`}
         description="Siapkan metadata berkas, simpan versi kerja, lalu finalisasi ketika seluruh detail sudah benar."
         backHref="/candidate-dashboard"
-        backLabel="Dasbor"
+        backName="Dasbor kandidat"
       />
 
       {/* PAYMENT LEADS. All three panels below are time-bound, but this is the only one whose
@@ -58,6 +58,8 @@ export default async function SubmissionPage({
             dueAt: payment.dueAt ? payment.dueAt.toISOString() : null,
             deadlineSuspended: payment.deadlineSuspended,
             status: payment.status,
+            registrationStatus: payment.registrationStatus,
+            registrationCancellationReason: payment.registrationCancellationReason,
             instructions: payment.instructions,
             proof: payment.proof
               ? {

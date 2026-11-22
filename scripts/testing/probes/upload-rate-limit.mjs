@@ -56,7 +56,8 @@ const MEDIA_WRAPPER = "src/server/institution-workspace/institution-media-http.t
 const SUBMISSION_TEST =
   "src/app/api/v1/competitions/[competitionId]/registrations/[registrationId]/submission/upload-url/route.test.ts";
 const AVATAR_TEST = "src/app/api/v1/users/me/profile/uploads/avatar/upload-url/route.test.ts";
-const LOGO_TEST = "src/app/api/v1/institutions/[institutionSlug]/profile/logo/route.test.ts";
+const LOGO_TEST =
+  "src/app/api/v1/institutions/[institutionSlug]/profile/logo/upload-url/route.test.ts";
 
 /** The guard block as each of the six direct routes writes it. */
 const GUARD = `    const limited = await assertUploadUrlAllowed(session.user.id);

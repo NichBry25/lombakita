@@ -1,24 +1,39 @@
 export { Button, ButtonLink, IconButton, IconButtonLink } from "./button";
-export type { ButtonSize, ButtonVariant } from "./button";
+export type { ButtonSize, ButtonVariant, IconButtonSize, IconButtonVariant } from "./button";
 export { FormActionBar } from "./form-action-bar";
+export { useToastLiftAbove } from "./use-toast-lift-above";
+export { BarNote } from "./bar-note";
+export { findInvalidFields, focusFirstInvalidField } from "./invalid-fields";
 export { SelectField } from "./select-field";
 export type { SelectFieldOption } from "./select-field";
-export { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./card";
+export { Card, DetailList, Fact, LinkCard, PageSection, Panel } from "./card";
+export { CountPill } from "./count-pill";
 export { Feedback } from "./feedback";
 export type { FeedbackTone } from "./feedback";
 export {
   CheckboxField,
+  ChoiceCard,
+  FormError,
   FormField,
   FormHelp,
   FormInput,
   FormLabel,
+  FormLabelText,
   FormSelect,
   FormTextarea,
+  FormTextareaWithLimit,
+  PasswordField,
+  Slider,
+  TagChoiceChip,
 } from "./form-controls";
+export { MenuButton } from "./menu-button";
+export type { MenuButtonItem } from "./menu-button";
 export { Icon } from "./icon";
 export type { IconName } from "./icon";
 export { Skeleton, SkeletonCard } from "./skeleton";
 export type { SkeletonVariant, SkeletonWidth } from "./skeleton";
+export { Table, TableClamp, TableDataList, TableExpandToggle, TableNameLink } from "./table";
+export type { TableColumn, TableColumnKind, TableRowData } from "./table";
 export { Spinner } from "./spinner";
 export type { SpinnerSize } from "./spinner";
 // Exported because §14's "page change only" signal is the route skeleton, and an indexable route
@@ -28,6 +43,7 @@ export type { SpinnerSize } from "./spinner";
 // no use to the plain `<Link>`s that navigate into those routes.
 export { LinkPendingSlot } from "./link-pending";
 export {
+  AuthPageSkeleton,
   DashboardPageSkeleton,
   DetailPageSkeleton,
   FormPageSkeleton,
@@ -36,8 +52,11 @@ export {
   TablePageSkeleton,
 } from "./page-skeletons";
 export { PageTransitionProvider, usePageTransition } from "./page-transition";
-export { FilterDropdown } from "./filter-dropdown";
+export { FilterDropdown, optionMatchesQuery } from "./filter-dropdown";
 export type { FilterOption } from "./filter-dropdown";
+export { RangeSlider } from "./range-slider";
+export type { RangeSliderValue } from "./range-slider";
 export { EmptyState } from "./empty-state";
 export { Pagination } from "./pagination";
 export { PageHeader } from "./page-header";
+export { StepIndicator } from "./step-indicator";
