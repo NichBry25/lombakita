@@ -66,8 +66,8 @@ describe("PrivacyPage", () => {
     const html = renderPage();
 
     expect(html).toContain("<span>Versi 1.2</span>");
-    expect(html).toContain("<span>Berlaku sejak 4 September 2026</span>");
-    expect(html).toContain("<span>Diperbarui 30 September 2026</span>");
+    expect(html).toContain("<span>Berlaku sejak 22 November 2026</span>");
+    expect(html).toContain("<span>Diperbarui 22 November 2026</span>");
   });
 
   it("never renders an NPWP, by name or by shape", () => {
