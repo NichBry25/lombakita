@@ -254,24 +254,23 @@ export function OrganiserPaymentQueue({ institutionSlug, competitionId, proofs }
                     : []),
                   {
                     label: "Berkas",
-                    value: (
-                      <>
-                        <Button
-                          type="button"
-                          variant="link"
-                          size="sm"
-                          leadingIcon={<Icon name="eye" size="sm" />}
-                          loading={viewing}
-                          onClick={() => void openProofFile(proof.proofId)}
-                        >
-                          {proof.originalFileName}
-                        </Button>{" "}
-                        · {formatFileSize(proof.fileSizeBytes)}
-                      </>
-                    ),
+                    value: `${proof.originalFileName} · ${formatFileSize(proof.fileSizeBytes)}`,
                   },
                 ]}
               />
+
+              <div className="record-actions">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  leadingIcon={<Icon name="eye" size="sm" aria-hidden="true" />}
+                  loading={viewing}
+                  onClick={() => void openProofFile(proof.proofId)}
+                >
+                  Lihat bukti
+                </Button>
+              </div>
 
               {proof.priorAttempts > 0 ? (
                 <Feedback tone="neutral">

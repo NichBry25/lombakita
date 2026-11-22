@@ -86,7 +86,8 @@ describe("OrganiserPaymentQueue", () => {
     // and an organiser who can no longer open it cannot answer it.
     renderQueue([proof({ status: "verified" })]);
 
-    expect(screen.getByRole("button", { name: "bukti.jpg" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Lihat bukti" })).toBeTruthy();
+    expect(screen.getByText(/bukti\.jpg/)).toBeTruthy();
   });
 
   it("offers verdicts on the pending row only when a settled row sits beside it", () => {
@@ -97,7 +98,7 @@ describe("OrganiserPaymentQueue", () => {
     ]);
 
     expect(screen.getAllByRole("button", { name: "Verifikasi" })).toHaveLength(1);
-    expect(screen.getAllByRole("button", { name: "bukti.jpg" })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: "Lihat bukti" })).toHaveLength(2);
   });
 
   it("tells the reviewer a rejected payer may still try again, or may not", () => {

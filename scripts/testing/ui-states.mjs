@@ -14,6 +14,9 @@
  *              back, which is the failure that cannot be seen in a screenshot of the state where
  *              it is CORRECTLY absent.
  *
+ * presentButtons and absentButtons do the same for a button's accessible name, which page text
+ * cannot see on an icon button.
+ *
  * An `absent` assertion is only meaningful next to a `present` one on another case: "candB has no
  * upload button" passes trivially on a blank page. Every absent case here is paired.
  *
@@ -47,7 +50,9 @@ import { BASE, COMP, INST, USERS } from "./seeds.mjs";
  * @property {string} path     path under BASE
  * @property {string[]} present  text that MUST appear in <main>
  * @property {string[]} absent   text that must NOT appear in <main>
- * @property {string} why      one line: what breaking this would mean
+ * @property {string[]} [presentButtons] accessible names of buttons that MUST be inside <main>
+ * @property {string[]} [absentButtons]  accessible names of buttons that must NOT be inside <main>
+ * @property {string} why     one line: what breaking this would mean
  * @property {string[]} [fixtures] seeded row ids that must exist for an absent-only case to mean
  *                                 anything. Required whenever `present` is empty.
  */
@@ -113,16 +118,12 @@ export const CASES = [
     path: `/institution/${INST.a.slug}/competitions/${COMP.paid.slug}/payments`,
     present: [
       "Verifikasi pembayaran",
-      // THE VERDICT ROW AS ONE STRING, because these needles are substrings and a short one can be
-      // satisfied by furniture elsewhere on the page. `"Verifikasi"` alone was satisfied by the
-      // heading above it, so deleting the Verifikasi button left this case green. Measured, not
-      // reasoned. The row's own innerText is the needle that nothing else on the page produces.
-      // It subsumes a standalone `"Lihat bukti"`, which is why that one is not also listed.
-      "Lihat bukti\nVerifikasi\nTolak",
       // The custody instruction is NOT asserted here any more. It moved out of a standing banner
       // and into the verify confirmation, where the decision is actually made, so no page-text
       // harness can reach it. `organiser-payment-queue.test.tsx` opens that dialog and asserts it.
     ],
+    // Exact button names, because the page heading also says Verifikasi and a text needle is met by it.
+    presentButtons: ["Lihat bukti", "Verifikasi", "Tolak pembayaran"],
     absent: [],
     why: "the reviewer must be able to act, and must be told the platform is not holding this money",
   },
@@ -171,6 +172,7 @@ export const CASES = [
     // absent rather than asserting a 403: the failure that matters is a verdict control reachable
     // by someone outside the tenant, whatever the status code says.
     absent: ["Verifikasi pembayaran", "Verifikasi", "Tolak", "Lihat bukti"],
+    absentButtons: ["Lihat bukti", "Verifikasi", "Tolak pembayaran"],
     why: "a recruiter at another institution must not reach D's queue, let alone act on it",
   },
   {
@@ -184,6 +186,7 @@ export const CASES = [
     present: [],
     fixtures: [COMP.paid.id, "seed-proof-b"],
     absent: ["Verifikasi pembayaran", "Verifikasi", "Tolak", "Lihat bukti"],
+    absentButtons: ["Lihat bukti", "Verifikasi", "Tolak pembayaran"],
     why: "administering one institution's paid competition grants nothing at another's",
   },
   {
@@ -193,7 +196,8 @@ export const CASES = [
     // pass against a page that renders nothing for anyone.
     as: "recMin",
     path: `/institution/${INST.d.slug}/competitions/${COMP.dPaid.slug}/payments`,
-    present: ["Verifikasi pembayaran", "Verifikasi", "Tolak", "Lihat bukti"],
+    present: ["Verifikasi pembayaran"],
+    presentButtons: ["Lihat bukti", "Verifikasi", "Tolak pembayaran"],
     absent: [],
     why: "proves the outsider assertions are about the tenant boundary and not about a blank page",
   },
@@ -209,7 +213,7 @@ export const CASES = [
       "Nama pemilik rekening",
       // DEC-0130 stated to the person entering the digits, which is the only place it changes
       // anyone's behaviour.
-      "Lombakita tidak menampung dana",
+      "Dana peserta masuk langsung ke rekening ini",
     ],
     absent: [],
     why: "the owner must be able to publish an account, and be told the platform never holds the money",
@@ -339,23 +343,36 @@ export const CASES = [
   {
     id: "fee-disclosure-on-paid-competition",
     as: "recElev",
-    path: `/institution/${INST.a.slug}/competitions/${COMP.paid.slug}/edit?langkah=4`,
+    path: `/institution/${INST.a.slug}/competitions/${COMP.paidDraft.slug}/edit?langkah=4`,
     present: [
       "Biaya pendaftaran",
       "Rincian per pendaftaran",
       "Dibayar peserta",
       "Biaya layanan Lombakita",
       "Diterima lembaga Anda",
-      // The FIGURES, not just the labels. 250 bps on Rp 150.000 is Rp 3.750, leaving Rp 146.250,
+      // The FIGURES, not just the labels. 250 bps on Rp 200.000 is Rp 5.000, leaving Rp 195.000,
       // asserting the arithmetic reached the screen, since a disclosure showing the wrong number
       // is worse than one showing none.
-      "Rp\u00a0150.000",
-      "Rp\u00a03.750",
-      "Rp\u00a0146.250",
+      "Rp\u00a0200.000",
+      "Rp\u00a05.000",
+      "Rp\u00a0195.000",
       "Saya menyetujui rincian biaya layanan di atas.",
     ],
     absent: [],
     why: "consent to a bill is worthless unless the amount being consented to is on the screen",
+  },
+  {
+    id: "fee-price-fixed-after-publish",
+    as: "recElev",
+    path: `/institution/${INST.a.slug}/competitions/${COMP.paid.slug}/edit?langkah=4`,
+    present: [
+      "Biaya pendaftaran",
+      "Biaya per pendaftaran",
+      "Rp\u00a0150.000",
+      "Biaya pendaftaran tidak dapat diubah setelah kompetisi terbit.",
+    ],
+    absent: ["Rincian per pendaftaran", "Saya menyetujui rincian biaya layanan di atas."],
+    why: "a published price is fixed, so the organiser must see it fixed and must not be asked to agree to a new one",
   },
   {
     id: "fee-disclosure-withheld-on-free-competition",
@@ -437,6 +454,7 @@ export const CASES = [
     // DEC-0162: no verdict power. The controls are ABSENT, not disabled. A disabled Verifikasi
     // still tells the operator they are the person who decides.
     absent: ["Verifikasi", "Tolak", "Batalkan bukti transfer"],
+    absentButtons: ["Verifikasi", "Tolak pembayaran"],
     why: "a dispute is almost always about the attempt the live row overwrote",
   },
   {
@@ -452,6 +470,7 @@ export const CASES = [
       "seed-kolektif",
     ],
     absent: ["Verifikasi", "Tolak"],
+    absentButtons: ["Verifikasi", "Tolak pembayaran"],
     why: "a dispute arrives naming a person and a competition, never an institution",
   },
   {
@@ -469,7 +488,7 @@ export const CASES = [
       "Rp\u00a03.750",
       "Rp\u00a07.500",
       // DEC-0163's direction, stated where an organiser cannot miss it.
-      "tagihan Lombakita kepada lembaga Anda",
+      "Biaya layanan tidak dipotong dari transfer peserta.",
       "bukan saldo yang kami simpan",
       // R2: what was agreed, and when.
       "Persetujuan tarif",
@@ -483,7 +502,8 @@ export const CASES = [
       //   ... the line itself renders, carrying the reason a reversal may not be written without ...
       "(koreksi) \u00b7 Dana ditarik kembali oleh bank setelah verifikasi",
       //   ... and its amount prints ONE minus, against a row that is already stored negative.
-      "2,5%\t\u2212Rp\u00a03.750",
+      // Each table cell wraps its value in a block, so the browser puts a line break on each side of the tab.
+      "2,5%\n\t\n\u2212Rp\u00a03.750",
     ],
     // R8: it records, it does not bill. Anything that reads as a demand for payment has left scope.
     absent: ["Bayar sekarang", "Jatuh tempo", "Tagih sekarang"],
@@ -614,6 +634,20 @@ for (const testCase of targets) {
     for (const needle of testCase.absent) {
       if (text.includes(needle)) {
         misses.push(`${testCase.id}: OFFERED "${needle}" but it must be WITHHELD. ${testCase.why}`);
+      }
+    }
+    for (const name of testCase.presentButtons ?? []) {
+      const count = await page.locator("main").getByRole("button", { name, exact: true }).count();
+      if (count === 0) {
+        misses.push(`${testCase.id}: MISSING button "${name}". ${testCase.why}`);
+      }
+    }
+    for (const name of testCase.absentButtons ?? []) {
+      const count = await page.locator("main").getByRole("button", { name, exact: true }).count();
+      if (count > 0) {
+        misses.push(
+          `${testCase.id}: OFFERED button "${name}" but it must be WITHHELD. ${testCase.why}`,
+        );
       }
     }
   } catch (error) {

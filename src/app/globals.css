@@ -1450,6 +1450,12 @@ svg {
   font-weight: 600;
 }
 
+/* A notice keeps its own fill in both themes, so text inside it takes the notice ink rather than the page's link and muted colours. */
+.feedback a:not(.ui-button),
+.feedback .muted-copy {
+  color: inherit;
+}
+
 /* Pills. A pill is a label and never presses: a pressable one is a chip, a button or a link. */
 .status-badge {
   --pill-pad-start: var(--space-3);
