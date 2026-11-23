@@ -408,6 +408,7 @@ describe("InstitutionCompetitionEditShell after publish", () => {
     fireEvent.change(screen.getByLabelText(/^Min\. anggota tim/), { target: { value: "4" } });
     fireEvent.submit(document.querySelector(".competition-edit-form")!);
     await waitFor(() => expect(screen.getAllByText(MIN_REASON)).toHaveLength(2));
+    await waitFor(() => expect(saveButton().hasAttribute("disabled")).toBe(false));
 
     expect({
       line: document.getElementById("min-team-size-lock")?.getAttribute("role"),
