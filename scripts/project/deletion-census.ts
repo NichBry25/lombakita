@@ -190,6 +190,10 @@ export const PERSONAL_COLUMNS: readonly string[] = Object.freeze([
   "competition_prizes.description",
   // competition_registrations
   "competition_registrations.internal_notes",
+  // competition_reports
+  "competition_reports.note",
+  "competition_reports.handling_note",
+  "competition_reports.guideline_item",
   // competition_results
   "competition_results.result_label",
   "competition_results.result_notes",
@@ -210,6 +214,7 @@ export const PERSONAL_COLUMNS: readonly string[] = Object.freeze([
   "competitions.description",
   "competitions.eligibility_note",
   "competitions.organizer_contact_value",
+  "competitions.frozen_reason",
   // finance_fee_accruals
   "finance_fee_accruals.reason",
   // finance_manual_payment_proof_attempts
@@ -229,6 +234,9 @@ export const PERSONAL_COLUMNS: readonly string[] = Object.freeze([
   "finance_payment_instruction_snapshots.account_holder_name",
   "finance_payment_instruction_snapshots.instructions_note",
   "finance_payment_instruction_snapshots.qris_r2_key",
+  // host_organization_emails
+  "host_organization_emails.email",
+  "host_organization_emails.domain",
   // institution_audit_logs
   "institution_audit_logs.metadata",
   // institution_invitations
@@ -264,9 +272,13 @@ export const PERSONAL_COLUMNS: readonly string[] = Object.freeze([
   "institutions.website_url",
   "institutions.logo_r2_key",
   "institutions.banner_r2_key",
+  "institutions.tick_domain",
   // notifications
   "notifications.title",
   "notifications.body",
+  // organization_email_challenges
+  "organization_email_challenges.email",
+  "organization_email_challenges.code_hash",
   // platform_ops_audit_logs
   "platform_ops_audit_logs.reason",
   "platform_ops_audit_logs.metadata",
@@ -301,6 +313,7 @@ export const PERSONAL_COLUMNS: readonly string[] = Object.freeze([
   "recruiter_verification_submissions.mobile_number",
   "recruiter_verification_submissions.corporate_email",
   "recruiter_verification_submissions.rejection_reason",
+  "recruiter_verification_submissions.guideline_item",
   // sessions
   "sessions.session_token",
   // team_invitations
@@ -401,6 +414,27 @@ export const NOT_PERSONAL_COLUMNS: readonly NotPersonalColumn[] = Object.freeze(
     column: "competition_registrations.cancellation_reason",
     reason: "the machine-readable cancellation token (`institution_cancelled`)",
   },
+  // competition_reports
+  {
+    column: "competition_reports.id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "competition_reports.competition_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "competition_reports.reporter_user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "competition_reports.reason",
+    reason: "the report reason token, one of four values pinned by competition_reports_reason_chk",
+  },
+  {
+    column: "competition_reports.handled_by_user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
   // competition_results
   {
     column: "competition_results.id",
@@ -480,7 +514,11 @@ export const NOT_PERSONAL_COLUMNS: readonly NotPersonalColumn[] = Object.freeze(
   {
     column: "competitions.cancellation_reason",
     reason:
-      "the machine-readable cancellation token (`insufficient_participants`, pinned by competitions_cancellation_state_chk)",
+      "the machine-readable cancellation token (`insufficient_participants` or `fraud`, pinned by competitions_cancellation_state_chk)",
+  },
+  {
+    column: "competitions.frozen_by_user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
   },
   { column: "competitions.fee_currency", reason: "a currency code from the fixed ISO set" },
   // finance_fee_accruals
@@ -631,6 +669,11 @@ export const NOT_PERSONAL_COLUMNS: readonly NotPersonalColumn[] = Object.freeze(
   { column: "finance_payments.currency", reason: "a currency code from the fixed ISO set" },
   {
     column: "finance_payments.fee_rule_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  // host_organization_emails
+  {
+    column: "host_organization_emails.user_id",
     reason: "an app-minted id; nothing a person typed reaches it",
   },
   // infrastructure_probe
@@ -785,6 +828,15 @@ export const NOT_PERSONAL_COLUMNS: readonly NotPersonalColumn[] = Object.freeze(
     reason: "an app-minted id; nothing a person typed reaches it",
   },
   { column: "notifications.type", reason: "the machine-readable notification type" },
+  // organization_email_challenges
+  {
+    column: "organization_email_challenges.id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "organization_email_challenges.user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
   // platform_ops_audit_logs
   {
     column: "platform_ops_audit_logs.id",
@@ -890,6 +942,10 @@ export const NOT_PERSONAL_COLUMNS: readonly NotPersonalColumn[] = Object.freeze(
   },
   {
     column: "recruiter_verification_submissions.reviewer_user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "recruiter_verification_submissions.competition_id",
     reason: "an app-minted id; nothing a person typed reaches it",
   },
   // sessions
@@ -1646,9 +1702,11 @@ export const TABLE_RULINGS: readonly StoreRuling[] = Object.freeze([
     "competition_reviews",
     "competition_saves",
     "competition_submissions",
+    "host_organization_emails",
     "mfa_factors",
     "mfa_recovery_codes",
     "notifications",
+    "organization_email_challenges",
     "profile_certifications",
     "profile_educations",
     "profile_experiences",
@@ -1691,6 +1749,14 @@ export const TABLE_RULINGS: readonly StoreRuling[] = Object.freeze([
     reason:
       "child of `competitions`, which survives the deletion; nothing reaches it. Its `title`, " +
       "`description` and `rank_label` are the organiser's own words and stay on the row",
+  },
+  {
+    store: "competition_reports",
+    survival: "detached",
+    reason:
+      "a report about a competition stays for staff when the reporter is deleted, because " +
+      "`reporter_user_id` and `handled_by_user_id` are SET NULL; `note` and `handling_note` are " +
+      "what survive",
   },
   {
     store: "competition_rounds",

@@ -189,9 +189,9 @@ const probe = (keys: string[], plant: (sql: Sql, fx: Fixture) => Promise<Planted
 type IdentityFn = (id: string, row: Record<string, unknown>) => Record<string, string>;
 
 /**
- * A probe on a table whose only edge into the population is a plain `user_id` column. Sixteen
+ * A probe on a table whose only edge into the population is a plain `user_id` column. Nineteen
  * tables have exactly that shape and the same expected outcome, so they share one builder rather
- * than sixteen near-identical plant functions.
+ * than nineteen near-identical plant functions.
  */
 const userColumnProbe = (
   table: string,
@@ -232,6 +232,16 @@ const userOwnedProbes: Probe[] = [
     (fx) => ({ user_id: fx.subject, competition_id: fx.competition }),
     (_id, row) => ({ user_id: String(row.user_id), competition_id: String(row.competition_id) }),
   ),
+  userColumnProbe(
+    "host_organization_emails",
+    (fx, id) => ({
+      user_id: fx.subject,
+      email: `oracle-host-${id}@example.test`,
+      domain: "example.test",
+      confirmed_at: EXPIRES_AT,
+    }),
+    (_id, row) => ({ user_id: String(row.user_id) }),
+  ),
   userColumnProbe("mfa_factors", (fx) => ({
     user_id: fx.subject,
     encrypted_secret: "oracle-secret",
@@ -247,6 +257,12 @@ const userOwnedProbes: Probe[] = [
     type: "oracle_notification",
     title: "Oracle Fixture Notification",
     body: "Created by the deletion census oracle and rolled back with it.",
+  })),
+  userColumnProbe("organization_email_challenges", (fx) => ({
+    user_id: fx.subject,
+    email: "oracle-challenge@example.test",
+    code_hash: "oracle-code-hash",
+    expires_at: EXPIRES_AT,
   })),
   userColumnProbe("profile_certifications", (fx) => ({
     user_id: fx.subject,
@@ -403,6 +419,18 @@ const graphProbes: Probe[] = [
       values (${id}, ${fx.competition}, ${fx.subject}, 3, 'visible')`;
     return { table: "competition_reviews", identity: { id } };
   }),
+  probe(["competition_reports.reporter_user_id"], async (sql, fx) => {
+    const id = randomUUID();
+    await sql`insert into competition_reports (id, competition_id, reporter_user_id, reason)
+      values (${id}, ${fx.competition}, ${fx.subject}, 'penipuan')`;
+    return { table: "competition_reports", identity: { id } };
+  }),
+  probe(["competition_reports.handled_by_user_id"], async (sql, fx) => {
+    const id = randomUUID();
+    await sql`insert into competition_reports (id, competition_id, reporter_user_id, reason, status, handled_by_user_id, handled_at)
+      values (${id}, ${fx.competition}, ${fx.bystander}, 'penipuan', 'closed', ${fx.subject}, now())`;
+    return { table: "competition_reports", identity: { id } };
+  }),
   probe(["competition_submissions.registration_id"], async (sql, fx) => {
     const id = randomUUID();
     await sql`insert into competition_submissions (id, registration_id, submitted_by_id, file_key, file_name)
@@ -419,6 +447,12 @@ const graphProbes: Probe[] = [
     const id = randomUUID();
     await sql`insert into competitions (id, institution_id, slug, title, status, created_by_user_id)
       values (${id}, ${fx.institution}, ${`oracle-created-${id.slice(0, 8)}`}, 'Oracle Created Competition', 'draft', ${fx.subject})`;
+    return { table: "competitions", identity: { id } };
+  }),
+  probe(["competitions.frozen_by_user_id"], async (sql, fx) => {
+    const id = randomUUID();
+    await sql`insert into competitions (id, institution_id, slug, title, status, frozen_at, frozen_reason, frozen_by_user_id)
+      values (${id}, ${fx.institution}, ${`oracle-frozen-${id.slice(0, 8)}`}, 'Oracle Frozen Competition', 'draft', now(), 'Oracle fixture freeze.', ${fx.subject})`;
     return { table: "competitions", identity: { id } };
   }),
 ];

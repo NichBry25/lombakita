@@ -12,9 +12,9 @@ assertServerOnly("server/auth/recruiter-tier");
 
 // Recruiter tier state.
 //
-// Tier order at launch: unverified < minimal < elevated. Tier is monotonically increasing — no
-// downgrade or revocation path exists in any service, and since migration 0061 the database
-// refuses one as well. The recruiter mode must already be verified
+// Tier order at launch: unverified < minimal < elevated. The tier only rises: no service lowers
+// it, and the database refuses a lower tier except elevated to minimal inside a transaction that
+// set lombakita.trust_removal to on. The recruiter mode must already be verified
 // (recruiterVerifiedAt IS NOT NULL) for any tier above `unverified` to be meaningful; the
 // assertion helper enforces both conditions in lockstep.
 //

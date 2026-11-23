@@ -106,9 +106,10 @@ export type TierElevationResult = {
 // docs/project/archive/reviews/step-7.7-C2-phase-1-review.md, re-review finding 1). A `platform_ops`
 // account that also holds a recruiter role is a target this endpoint can name, and the audit row it
 // would write names the same id on both sides — a self-grant that reads exactly like a reviewed one.
-// Migration 0061 makes the tier column a one-way ratchet, so an operator who elevated itself could
-// not be walked back by this path. The refusal sits with the other three, before the target row is
-// read.
+// The database lowers the tier only from elevated to minimal and only inside a transaction that
+// set lombakita.trust_removal to on, which this path never does, so an operator who elevated
+// itself could not be walked back by it. The refusal sits with the other three, before the target
+// row is read.
 export const elevateRecruiterTier = async (
   actorUserId: string,
   accountId: string,

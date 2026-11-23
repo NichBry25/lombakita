@@ -69,6 +69,13 @@ export const institutionVerificationStatusEnum = pgEnum("institution_verificatio
   "rejected",
 ]);
 
+export const institutionTickPathEnum = pgEnum("institution_tick_path", [
+  "domain",
+  "instagram",
+  "documents",
+  "staff",
+]);
+
 export const institutionMembershipRoleEnum = pgEnum("institution_membership_role", [
   "institution_owner",
   "institution_staff",
@@ -115,8 +122,9 @@ export const institutionInvitationStatusEnum = pgEnum("institution_invitation_st
 // Recruiter verification tier.
 // Per-account tier dimension that refines the recruiter role's capability surface. Auto-granted
 // to `minimal` at recruiter signup; only `platform_ops` can lift an account to `elevated` (manual
-// review at launch — there is no mechanical verification flow). Tier is monotonically
-// increasing at launch — no downgrade path.
+// review at launch — there is no mechanical verification flow). The tier only rises, except
+// that the database allows elevated to minimal inside a transaction that set
+// lombakita.trust_removal to on.
 //   unverified — schema default for backfilled rows + non-recruiter accounts. Not reachable
 //                naturally for recruiter signups (signup auto-grants `minimal` atomically).
 //   minimal    — auto-granted on `?as=recruiter` signup. Satisfies the opportunity-creation gate.
@@ -272,6 +280,7 @@ export const users = pgTable(
       mode: "date",
       withTimezone: true,
     }),
+    hostTrustRemovedAt: timestamp("host_trust_removed_at", { mode: "date", withTimezone: true }),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
   },
@@ -580,6 +589,10 @@ export const institutions = pgTable(
     contactEmail: text("contact_email"),
     contactPhone: text("contact_phone"),
     websiteUrl: text("website_url"),
+    tickPath: institutionTickPathEnum("tick_path"),
+    tickDomain: text("tick_domain"),
+    nameProofDueAt: timestamp("name_proof_due_at", { mode: "date", withTimezone: true }),
+    nameProofRemindedAt: timestamp("name_proof_reminded_at", { mode: "date", withTimezone: true }),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
   },
@@ -939,6 +952,12 @@ export const competitions = pgTable(
     featuredOrder: integer("featured_order"),
     publishedAt: timestamp("published_at", { mode: "date", withTimezone: true }),
     deletedAt: timestamp("deleted_at", { mode: "date", withTimezone: true }),
+    frozenAt: timestamp("frozen_at", { mode: "date", withTimezone: true }),
+    frozenReason: text("frozen_reason"),
+    frozenByUserId: text("frozen_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    dateCheckRequiredAt: timestamp("date_check_required_at", { mode: "date", withTimezone: true }),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
   },
@@ -986,7 +1005,7 @@ export const competitions = pgTable(
     ),
     check(
       "competitions_cancellation_state_chk",
-      sql`(${table.cancelledAt} IS NULL AND ${table.cancellationReason} IS NULL) OR (${table.cancelledAt} IS NOT NULL AND ${table.cancellationReason} = 'insufficient_participants' AND ${table.status} = 'published' AND ${table.minimumParticipantEntries} >= 1 AND ${table.participantConfirmationAt} IS NOT NULL AND ${table.eventStartAt} IS NOT NULL AND ${table.cancelledAt} >= ${table.participantConfirmationAt} AND ${table.cancelledAt} < ${table.eventStartAt})`,
+      sql`(${table.cancelledAt} IS NULL AND ${table.cancellationReason} IS NULL) OR (${table.cancelledAt} IS NOT NULL AND ${table.cancellationReason} = 'insufficient_participants' AND ${table.status} = 'published' AND ${table.minimumParticipantEntries} >= 1 AND ${table.participantConfirmationAt} IS NOT NULL AND ${table.eventStartAt} IS NOT NULL AND ${table.cancelledAt} >= ${table.participantConfirmationAt} AND ${table.cancelledAt} < ${table.eventStartAt}) OR (${table.cancelledAt} IS NOT NULL AND ${table.cancellationReason} = 'fraud')`,
     ),
     check(
       "competitions_participation_confirmation_state_chk",
@@ -999,6 +1018,59 @@ export const competitions = pgTable(
     check(
       "competitions_organizer_contact_pair_chk",
       sql`(${table.organizerContactKind} IS NULL) = (${table.organizerContactValue} IS NULL)`,
+    ),
+    check(
+      "competitions_frozen_pair_chk",
+      sql`(${table.frozenAt} IS NULL) = (${table.frozenReason} IS NULL)`,
+    ),
+  ],
+);
+
+export const competitionReportStatusEnum = pgEnum("competition_report_status", [
+  "open",
+  "closed",
+  "actioned",
+]);
+
+export const competitionReports = pgTable(
+  "competition_reports",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    competitionId: text("competition_id")
+      .notNull()
+      .references(() => competitions.id, { onDelete: "cascade" }),
+    reporterUserId: text("reporter_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    reason: text("reason").notNull(),
+    note: text("note"),
+    status: competitionReportStatusEnum("status").notNull().default("open"),
+    guidelineItem: text("guideline_item"),
+    handledByUserId: text("handled_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    handledAt: timestamp("handled_at", { mode: "date", withTimezone: true }),
+    handlingNote: text("handling_note"),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("competition_reports_competition_id_reporter_user_id_unique_idx").on(
+      table.competitionId,
+      table.reporterUserId,
+    ),
+    check(
+      "competition_reports_reason_chk",
+      sql`${table.reason} IN ('penipuan', 'informasi_palsu', 'konten_tidak_pantas', 'lainnya')`,
+    ),
+    check(
+      "competition_reports_note_required_chk",
+      sql`${table.reason} <> 'lainnya' OR ${table.note} IS NOT NULL`,
+    ),
+    check(
+      "competition_reports_handled_pair_chk",
+      sql`(${table.status} = 'open') = (${table.handledAt} IS NULL)`,
     ),
   ],
 );
@@ -1761,6 +1833,10 @@ export const recruiterVerificationSubmissions = pgTable(
       .defaultNow()
       .notNull(),
     reviewedAt: timestamp("reviewed_at", { mode: "date", withTimezone: true }),
+    competitionId: text("competition_id").references(() => competitions.id, {
+      onDelete: "set null",
+    }),
+    guidelineItem: text("guideline_item"),
   },
   (table) => [
     index("recruiter_verification_submissions_user_id_idx").on(table.userId),
@@ -1796,6 +1872,53 @@ export const recruiterVerificationDocuments = pgTable(
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [index("recruiter_verification_documents_submission_id_idx").on(table.submissionId)],
+);
+
+export const hostOrganizationEmails = pgTable(
+  "host_organization_emails",
+  {
+    userId: text("user_id")
+      .primaryKey()
+      .references(() => users.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    domain: text("domain").notNull(),
+    confirmedAt: timestamp("confirmed_at", { mode: "date", withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("host_organization_emails_email_unique_idx").on(table.email),
+    check(
+      "host_organization_emails_email_normalized_chk",
+      sql`${table.email} = lower(btrim(${table.email}))`,
+    ),
+    check(
+      "host_organization_emails_email_domain_chk",
+      sql`${table.email} LIKE ('%@' || ${table.domain})`,
+    ),
+  ],
+);
+
+export const organizationEmailChallenges = pgTable(
+  "organization_email_challenges",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    codeHash: text("code_hash").notNull(),
+    expiresAt: timestamp("expires_at", { mode: "date", withTimezone: true }).notNull(),
+    failedAttempts: integer("failed_attempts").notNull().default(0),
+    consumedAt: timestamp("consumed_at", { mode: "date", withTimezone: true }),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    check("organization_email_challenges_failed_attempts_chk", sql`${table.failedAttempts} >= 0`),
+    index("organization_email_challenges_email_created_at_idx").on(table.email, table.createdAt),
+    index("organization_email_challenges_user_id_created_at_idx").on(table.userId, table.createdAt),
+  ],
 );
 
 export type RecruiterVerificationSubmissionRecord =
