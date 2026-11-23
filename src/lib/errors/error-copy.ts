@@ -39,6 +39,9 @@ export const OWN_PROOF_VERDICT_MESSAGE =
 export const OWN_RESULT_MESSAGE =
   "Anda tidak dapat mengubah atau menerbitkan hasil untuk pendaftaran Anda sendiri. Minta pemilik atau staf lain untuk melakukannya.";
 
+export const ENTRANT_RESULT_MESSAGE =
+  "Anda terdaftar di kompetisi ini, jadi tidak dapat mengubah atau menerbitkan hasil peserta lain. Minta pemilik atau staf lain untuk melakukannya.";
+
 export const COMPETITIONS_CHANGING_RETRY_MESSAGE =
   "Sedang ada perubahan lain pada kompetisi lembaga ini. Coba lagi.";
 

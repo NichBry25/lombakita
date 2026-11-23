@@ -11,7 +11,7 @@
 // no information leak.
 
 import { NextResponse } from "next/server";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
 import {
   competitions,
@@ -19,6 +19,7 @@ import {
   competitionResults,
   institutionAuditLogs,
   institutions,
+  teamMemberships,
   teams,
   type CompetitionResultStatus,
   type CompetitionRegistrationType,
@@ -39,7 +40,8 @@ export type ResultErrorCode =
   | "result_registration_not_found"
   | "result_already_published"
   | "result_competition_cancelled"
-  | "result_own_place";
+  | "result_own_place"
+  | "result_actor_is_entrant";
 
 export class ResultError extends Error {
   constructor(
@@ -244,6 +246,48 @@ const assertResultIsNotOnOwnEntry = async (
   }
 };
 
+// DEC-0284: an entrant of the competition writes none of its results.
+const assertActorHoldsNoEntryInCompetition = async (
+  db: DbOrTx,
+  competitionId: string,
+  actorUserId: string,
+): Promise<void> => {
+  const [ownRegistration] = await db
+    .select({ id: competitionRegistrations.id })
+    .from(competitionRegistrations)
+    .where(
+      and(
+        eq(competitionRegistrations.competitionId, competitionId),
+        eq(competitionRegistrations.studentId, actorUserId),
+        ne(competitionRegistrations.status, "cancelled"),
+      ),
+    )
+    .limit(1);
+
+  const [teamPlace] = await db
+    .select({ id: teamMemberships.id })
+    .from(teamMemberships)
+    .innerJoin(teams, eq(teams.id, teamMemberships.teamId))
+    .innerJoin(competitionRegistrations, eq(competitionRegistrations.teamId, teams.id))
+    .where(
+      and(
+        eq(teamMemberships.userId, actorUserId),
+        eq(teamMemberships.status, "active"),
+        eq(teams.competitionId, competitionId),
+        ne(competitionRegistrations.status, "cancelled"),
+      ),
+    )
+    .limit(1);
+
+  if (ownRegistration || teamPlace) {
+    throw new ResultError(
+      "result_actor_is_entrant",
+      403,
+      "Anda terdaftar di kompetisi ini, jadi tidak dapat mengubah atau menerbitkan hasil peserta lain.",
+    );
+  }
+};
+
 // ─── Registration context loader ─────────────────────────────────────────────
 
 type RegistrationMeta = {
@@ -374,6 +418,7 @@ export const upsertResultDraft = async (
     }
 
     await assertResultIsNotOnOwnEntry(tx, competitionId, registrationId, actorUserId);
+    await assertActorHoldsNoEntryInCompetition(tx, competitionId, actorUserId);
 
     // Reject upsert if the result is already published — callers must unpublish first.
     const [existing] = await tx
@@ -448,6 +493,7 @@ export const publishResult = async (
     }
 
     await assertResultIsNotOnOwnEntry(tx, competitionId, registrationId, actorUserId);
+    await assertActorHoldsNoEntryInCompetition(tx, competitionId, actorUserId);
 
     // Label check inside the transaction: prevents a concurrent null-label upsert
     // from producing a published row between the check and the UPDATE commit.
@@ -572,6 +618,7 @@ export const unpublishResult = async (
 
   const updatedRows = await db.transaction(async (tx) => {
     await assertResultIsNotOnOwnEntry(tx, competitionId, registrationId, actorUserId);
+    await assertActorHoldsNoEntryInCompetition(tx, competitionId, actorUserId);
 
     let rows;
     if (meta.teamId) {

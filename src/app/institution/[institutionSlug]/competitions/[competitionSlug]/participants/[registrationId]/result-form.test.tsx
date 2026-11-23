@@ -14,12 +14,12 @@ vi.mock("@/components/ui/primitives", async (importActual) => {
   return { ...actual, useToast: () => ({ addToast: mockAddToast }) };
 });
 
-import { OWN_RESULT_MESSAGE } from "@/lib/errors/error-copy";
+import { ENTRANT_RESULT_MESSAGE, OWN_RESULT_MESSAGE } from "@/lib/errors/error-copy";
 import { ResultForm } from "./result-form";
 
-const refuseWithOwnPlace = () =>
+const refuseWith = (code: string) =>
   vi.fn().mockResolvedValue(
-    new Response(JSON.stringify({ error: { code: "result_own_place", message: "server text" } }), {
+    new Response(JSON.stringify({ error: { code, message: "server text" } }), {
       status: 403,
     }),
   );
@@ -48,13 +48,35 @@ describe("ResultForm refusal of the actor's own entry", () => {
     { action: "publishing", status: "draft" as const, button: "Terbitkan" },
     { action: "unpublishing", status: "published" as const, button: "Batalkan publikasi" },
   ])("shows OWN_RESULT_MESSAGE when $action is refused with result_own_place", async (scenario) => {
-    vi.stubGlobal("fetch", refuseWithOwnPlace());
+    vi.stubGlobal("fetch", refuseWith("result_own_place"));
     renderForm(scenario.status);
 
     fireEvent.click(screen.getByRole("button", { name: scenario.button }));
 
     await waitFor(() => expect(mockAddToast).toHaveBeenCalledTimes(1));
     expect(mockAddToast).toHaveBeenCalledWith({ type: "error", message: OWN_RESULT_MESSAGE });
+    expect(mockRefresh).not.toHaveBeenCalled();
+  });
+});
+
+describe("ResultForm refusal of an actor who holds an entry in the competition", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it.each([
+    { action: "saving a draft", status: "draft" as const, button: "Simpan draf" },
+    { action: "publishing", status: "draft" as const, button: "Terbitkan" },
+    { action: "unpublishing", status: "published" as const, button: "Batalkan publikasi" },
+  ])("shows ENTRANT_RESULT_MESSAGE when $action is refused", async (scenario) => {
+    vi.stubGlobal("fetch", refuseWith("result_actor_is_entrant"));
+    renderForm(scenario.status);
+
+    fireEvent.click(screen.getByRole("button", { name: scenario.button }));
+
+    await waitFor(() => expect(mockAddToast).toHaveBeenCalledTimes(1));
+    expect(mockAddToast).toHaveBeenCalledWith({ type: "error", message: ENTRANT_RESULT_MESSAGE });
     expect(mockRefresh).not.toHaveBeenCalled();
   });
 });
