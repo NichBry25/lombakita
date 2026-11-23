@@ -100,6 +100,18 @@ const uniqueSuffix = (): string => `${Date.now().toString(36)}${seq++}`;
 
 const daysFromNow = (days: number): Date => new Date(Date.now() + days * DAY_MS);
 
+const endTheEvent = async (tx: Tx, competitionId: string): Promise<void> => {
+  await tx
+    .update(competitions)
+    .set({
+      registrationStartAt: daysFromNow(-10),
+      registrationEndAt: daysFromNow(-5),
+      eventStartAt: daysFromNow(-3),
+      eventEndAt: daysFromNow(-1),
+    })
+    .where(eq(competitions.id, competitionId));
+};
+
 type Refusal = { code: string; status: number };
 
 const refusalOf = async (work: Promise<unknown>): Promise<Refusal | null> => {
@@ -706,6 +718,35 @@ describe.skipIf(skipWithoutDatabase)(
         });
       });
     });
+
+    describe.each(REFUSED_ACTORS)(
+      "refuses an actor who $actor after the event ended",
+      ({ build }) => {
+        it.each(WRITERS)("for $name on another entrant's registration", async (writer) => {
+          await inRollback(async (tx) => {
+            const world = await seedWorld(tx);
+            const actorId = await build(tx, world);
+            const targetRegistrationId = await buildTargetEntrant(tx, world);
+            await writer.prepareRows(tx, world, targetRegistrationId);
+            await endTheEvent(tx, world.competitionId);
+            const [row] = await tx
+              .select({ eventEndAt: competitions.eventEndAt })
+              .from(competitions)
+              .where(eq(competitions.id, world.competitionId));
+            expect(row!.eventEndAt!.getTime() < Date.now(), "seed: the event has ended").toBe(true);
+            const actor = await staffActor(tx, world, actorId);
+            const before = await readPostState(tx, world);
+
+            const refusal = await refusalOf(writer.attempt(tx, world, targetRegistrationId, actor));
+
+            const after = await readPostState(tx, world);
+            expect(after, POST_STATE).toEqual(before);
+            expect(refusal?.code).toBe("result_actor_is_entrant");
+            expect(refusal?.status).toBe(403);
+          });
+        });
+      },
+    );
 
     describe.each(ALLOWED_ACTORS)("allows an actor who $actor", ({ build }) => {
       it.each(WRITERS)("for $name on another entrant's registration", async (writer) => {
