@@ -567,5 +567,78 @@ describe.skipIf(skipWithoutDatabase)(
         });
       });
     });
+
+    describe("refuses the holder ahead of the other refusals", () => {
+      it("for upsertResultDraft over a published result", async () => {
+        await inRollback(async (tx) => {
+          const world = await seedWorld(tx);
+          const entry = await buildOwnIndividualEntry(tx, world);
+          await writeDraftAsOwner(tx, world, entry.registrationId);
+          await publishAsOwner(tx, world, entry.registrationId);
+          const actorMembershipId = await seedStaffMembership(
+            tx,
+            world.institutionId,
+            entry.actorId,
+            "institution_staff",
+          );
+          const before = await readPostState(tx, world);
+          expect(
+            before.resultRows.map((row) => row.resultStatus),
+            "seed: the result is published, so an unguarded draft would be refused as published",
+          ).toEqual(["published"]);
+
+          const refusal = await refusalOf(
+            draftWriter.attempt(tx, world, entry.registrationId, {
+              actorUserId: entry.actorId,
+              actorMembershipId,
+            }),
+          );
+
+          const after = await readPostState(tx, world);
+          expect(after, POST_STATE).toEqual(before);
+          expect(refusal).toEqual(OWN_RESULT_REFUSAL);
+        });
+      });
+
+      it("for publishResult on a draft with no label", async () => {
+        await inRollback(async (tx) => {
+          const world = await seedWorld(tx);
+          const entry = await buildOwnIndividualEntry(tx, world);
+          await upsertResultDraft(
+            world.institutionId,
+            world.competitionId,
+            entry.registrationId,
+            world.ownerId,
+            { resultLabel: null, resultNotes: null },
+            tx as never,
+          );
+          const actorMembershipId = await seedStaffMembership(
+            tx,
+            world.institutionId,
+            entry.actorId,
+            "institution_staff",
+          );
+          const before = await readPostState(tx, world);
+          expect(
+            before.resultRows.map((row) => ({
+              status: row.resultStatus,
+              label: row.resultLabel,
+            })),
+            "seed: the draft has no label, so an unguarded publish would be refused as unlabelled",
+          ).toEqual([{ status: "draft", label: null }]);
+
+          const refusal = await refusalOf(
+            publishWriter.attempt(tx, world, entry.registrationId, {
+              actorUserId: entry.actorId,
+              actorMembershipId,
+            }),
+          );
+
+          const after = await readPostState(tx, world);
+          expect(after, POST_STATE).toEqual(before);
+          expect(refusal).toEqual(OWN_RESULT_REFUSAL);
+        });
+      });
+    });
   },
 );
