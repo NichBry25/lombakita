@@ -15,11 +15,7 @@ const DEADLINE_SKIP =
   "  if (immutableCompetitionValuesEqual(registrationEndAt, storedRegistrationEndAt)) return;\n";
 const DEADLINE_CHECK = "  validateRegistrationEndInFuture(registrationEndAt);\n";
 const FIELD_SKIP = "        if (unchanged) delete patch[field];";
-const EMPTY_PATCH_SKIP = `    if (isPublished && !isDirty) {
-      addToast({ type: "success", message: "Perubahan tersimpan." });
-      return;
-    }
-`;
+const EMPTY_PATCH_SKIP = '    if (isPublished && !isDirty) return { status: "unchanged" };\n';
 
 export const probes = [
   {
