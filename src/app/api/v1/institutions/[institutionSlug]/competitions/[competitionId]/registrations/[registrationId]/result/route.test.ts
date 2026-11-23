@@ -123,6 +123,50 @@ describe("PUT .../result", () => {
     expect(body.result.resultLabel).toBe("Juara 1");
   });
 
+  it("(h) passes the session user id as the actor user id", async () => {
+    requireAuthenticatedSession.mockResolvedValue(ownerSession);
+    requireAdminInstitutionBySlug.mockResolvedValue({
+      institutionId: "inst_1",
+      actorMembershipId: "membership_1",
+    });
+    upsertResultDraft.mockResolvedValue({ ...draftResult, resultLabel: "Juara 1" });
+
+    const req = new Request("http://localhost/...", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ resultLabel: "Juara 1" }),
+    });
+    await PUT(req, makeParams());
+
+    expect(upsertResultDraft).toHaveBeenCalledWith(
+      "inst_1",
+      "comp-1",
+      "reg-1",
+      "owner_1",
+      { resultLabel: "Juara 1" },
+      expect.anything(),
+    );
+  });
+
+  it("(i) returns 403 with result_own_place when the service refuses the actor's own entry", async () => {
+    requireAuthenticatedSession.mockResolvedValue(ownerSession);
+    requireAdminInstitutionBySlug.mockResolvedValue({ institutionId: "inst_1" });
+    const { ResultError } = await import("@/server/participants/result-service");
+    upsertResultDraft.mockRejectedValue(
+      new ResultError("result_own_place", 403, "Anda tidak dapat mengubah"),
+    );
+
+    const req = new Request("http://localhost/...", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ resultLabel: "new" }),
+    });
+    const res = await PUT(req, makeParams());
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error.code).toBe("result_own_place");
+  });
+
   it("(f) returns 409 when result is already published", async () => {
     requireAuthenticatedSession.mockResolvedValue(ownerSession);
     requireAdminInstitutionBySlug.mockResolvedValue({ institutionId: "inst_1" });

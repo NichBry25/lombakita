@@ -60,7 +60,14 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
     const body = await request.json().catch(() => null);
     const input = parseResultDraftInput(body);
 
-    const result = await upsertResultDraft(institutionId, competitionId, registrationId, input, db);
+    const result = await upsertResultDraft(
+      institutionId,
+      competitionId,
+      registrationId,
+      session.user.id,
+      input,
+      db,
+    );
     return NextResponse.json({ result });
   } catch (error) {
     if (error instanceof ResultError) return toResultErrorResponse(error);

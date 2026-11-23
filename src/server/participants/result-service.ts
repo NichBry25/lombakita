@@ -26,6 +26,7 @@ import {
 import { isNotNull } from "drizzle-orm";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 import { acquireCompetitionParticipationLock } from "@/server/competitions/competition-participation-lock";
+import { isActiveTeamMember } from "@/server/teams/team-membership-reads";
 
 assertServerOnly("server/participants/result-service");
 
@@ -37,12 +38,13 @@ export type ResultErrorCode =
   | "result_label_required"
   | "result_registration_not_found"
   | "result_already_published"
-  | "result_competition_cancelled";
+  | "result_competition_cancelled"
+  | "result_own_place";
 
 export class ResultError extends Error {
   constructor(
     public readonly code: ResultErrorCode,
-    public readonly httpStatus: 400 | 404 | 409 | 422,
+    public readonly httpStatus: 400 | 403 | 404 | 409 | 422,
     message: string,
   ) {
     super(message);
@@ -174,6 +176,74 @@ const assertOwnedCompetitionAcceptsResultMutations = async (
   }
 };
 
+const hasRegistrationRowInTeam = async (
+  db: DbOrTx,
+  competitionId: string,
+  teamId: string,
+  userId: string,
+): Promise<boolean> => {
+  const [row] = await db
+    .select({ id: competitionRegistrations.id })
+    .from(competitionRegistrations)
+    .where(
+      and(
+        eq(competitionRegistrations.teamId, teamId),
+        eq(competitionRegistrations.competitionId, competitionId),
+        eq(competitionRegistrations.studentId, userId),
+      ),
+    )
+    .limit(1);
+
+  return row !== undefined;
+};
+
+/**
+ * Refuses a result write on an entry the actor holds (DEC-0284).
+ *
+ * The actor holds the entry when they are the target registration's candidate, an active member of
+ * its team, or the candidate of any registration row of that team in the competition. The last
+ * case matters because a team publish writes every row of the team, a cancelled row of a former
+ * member included.
+ */
+const assertResultIsNotOnOwnEntry = async (
+  db: DbOrTx,
+  competitionId: string,
+  registrationId: string,
+  actorUserId: string,
+): Promise<void> => {
+  const [target] = await db
+    .select({
+      studentId: competitionRegistrations.studentId,
+      teamId: competitionRegistrations.teamId,
+    })
+    .from(competitionRegistrations)
+    .where(
+      and(
+        eq(competitionRegistrations.id, registrationId),
+        eq(competitionRegistrations.competitionId, competitionId),
+      ),
+    )
+    .limit(1);
+
+  if (!target) {
+    throw new ResultError("result_registration_not_found", 404, "Registration not found");
+  }
+
+  const holdsOwnRegistration = target.studentId === actorUserId;
+  const holdsOwnTeamPlace =
+    target.teamId !== null &&
+    ((await isActiveTeamMember(db, target.teamId, actorUserId)) ||
+      (await hasRegistrationRowInTeam(db, competitionId, target.teamId, actorUserId)));
+
+  if (holdsOwnRegistration || holdsOwnTeamPlace) {
+    throw new ResultError(
+      "result_own_place",
+      403,
+      "Anda tidak dapat mengubah atau menerbitkan hasil untuk pendaftaran Anda sendiri.",
+    );
+  }
+};
+
 // ─── Registration context loader ─────────────────────────────────────────────
 
 type RegistrationMeta = {
@@ -290,6 +360,7 @@ export const upsertResultDraft = async (
   institutionId: string,
   competitionId: string,
   registrationId: string,
+  actorUserId: string,
   input: ResultDraftInput,
   db: Database = getDb(),
 ): Promise<ResultInstitutionView> => {
@@ -301,6 +372,8 @@ export const upsertResultDraft = async (
     if (!meta) {
       throw new ResultError("result_registration_not_found", 404, "Registration not found");
     }
+
+    await assertResultIsNotOnOwnEntry(tx, competitionId, registrationId, actorUserId);
 
     // Reject upsert if the result is already published — callers must unpublish first.
     const [existing] = await tx
@@ -355,6 +428,7 @@ export const publishResult = async (
   institutionId: string,
   competitionId: string,
   registrationId: string,
+  actorUserId: string,
   actorMembershipId: string,
   db: Database = getDb(),
 ): Promise<{ result: ResultInstitutionView; teamId: string | null; publishedAt: Date }> => {
@@ -372,6 +446,8 @@ export const publishResult = async (
     if (!meta) {
       throw new ResultError("result_registration_not_found", 404, "Registration not found");
     }
+
+    await assertResultIsNotOnOwnEntry(tx, competitionId, registrationId, actorUserId);
 
     // Label check inside the transaction: prevents a concurrent null-label upsert
     // from producing a published row between the check and the UPDATE commit.
@@ -479,6 +555,7 @@ export const unpublishResult = async (
   institutionId: string,
   competitionId: string,
   registrationId: string,
+  actorUserId: string,
   actorMembershipId: string,
   db: Database = getDb(),
 ): Promise<ResultInstitutionView> => {
@@ -494,6 +571,8 @@ export const unpublishResult = async (
   const now = new Date();
 
   const updatedRows = await db.transaction(async (tx) => {
+    await assertResultIsNotOnOwnEntry(tx, competitionId, registrationId, actorUserId);
+
     let rows;
     if (meta.teamId) {
       rows = await tx

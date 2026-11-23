@@ -33,6 +33,7 @@ export async function POST(_request: Request, context: RouteContext): Promise<Re
       institutionId,
       competitionId,
       registrationId,
+      session.user.id,
       actorMembershipId,
       db,
     );

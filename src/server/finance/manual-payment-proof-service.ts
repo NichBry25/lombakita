@@ -13,7 +13,6 @@ import {
   financePaymentEvents,
   financePayments,
   institutionAuditLogs,
-  teamMemberships,
   type FinanceManualPaymentProofRecord,
 } from "@/server/db/schema";
 import { appendPaymentEvent } from "@/server/finance/payment-service";
@@ -25,6 +24,7 @@ import {
   resolveActivePaymentGroupMemberUserIdsByPaymentId,
 } from "@/server/finance/paid-registration";
 import { acquireCompetitionParticipationLock } from "@/server/competitions/competition-participation-lock";
+import { isActiveTeamMember } from "@/server/teams/team-membership-reads";
 import {
   deleteObject,
   generatePresignedGetUrl,
@@ -687,26 +687,6 @@ const loadCompetitionIdForPayment = async (paymentId: string, db: Database): Pro
   }
 
   return row.competitionId;
-};
-
-const isActiveTeamMember = async (
-  tx: TransactionClient,
-  teamId: string,
-  userId: string,
-): Promise<boolean> => {
-  const [membership] = await tx
-    .select({ id: teamMemberships.id })
-    .from(teamMemberships)
-    .where(
-      and(
-        eq(teamMemberships.teamId, teamId),
-        eq(teamMemberships.userId, userId),
-        eq(teamMemberships.status, "active"),
-      ),
-    )
-    .limit(1);
-
-  return membership !== undefined;
 };
 
 /**

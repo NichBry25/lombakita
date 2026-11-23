@@ -153,12 +153,13 @@ describe("publishResult", () => {
       selects: [
         [{ id: "comp_1" }], // ownsCompetition
         [{ registrationType: "individual", teamId: null, teamName: null }], // loadRegistrationMeta
+        [{ studentId: "cand_1", teamId: null }], // assertResultIsNotOnOwnEntry target read
         [{ resultLabel: "Juara 1" }], // existing label check
       ],
       updates: [[resultRow]], // publish update
     });
 
-    const { result } = await publishResult("inst_1", "comp_1", "reg_1", "user_1", db);
+    const { result } = await publishResult("inst_1", "comp_1", "reg_1", "actor_1", "user_1", db);
     expect(result.resultStatus).toBe("published");
     expect(result.resultLabel).toBe("Juara 1");
   });
@@ -169,7 +170,7 @@ describe("publishResult", () => {
     });
 
     const error = await catchResultAsync(() =>
-      publishResult("inst_1", "comp_1", "reg_1", "user_1", db),
+      publishResult("inst_1", "comp_1", "reg_1", "actor_1", "user_1", db),
     );
 
     expect(error.code).toBe("result_competition_cancelled");
@@ -181,12 +182,13 @@ describe("publishResult", () => {
       selects: [
         [{ id: "comp_1" }], // ownsCompetition
         [{ registrationType: "individual", teamId: null, teamName: null }], // loadRegistrationMeta
+        [{ studentId: "cand_1", teamId: null }], // assertResultIsNotOnOwnEntry target read
         [{ resultLabel: "   " }], // blank label
       ],
     });
 
     const err = await catchResultAsync(() =>
-      publishResult("inst_1", "comp_1", "reg_1", "user_1", db),
+      publishResult("inst_1", "comp_1", "reg_1", "actor_1", "user_1", db),
     );
     expect(err.code).toBe("result_label_required");
     expect(err.httpStatus).toBe(422);
@@ -197,12 +199,13 @@ describe("publishResult", () => {
       selects: [
         [{ id: "comp_1" }],
         [{ registrationType: "individual", teamId: null, teamName: null }],
+        [{ studentId: "cand_1", teamId: null }], // assertResultIsNotOnOwnEntry target read
         [], // no existing row
       ],
     });
 
     const err = await catchResultAsync(() =>
-      publishResult("inst_1", "comp_1", "reg_1", "user_1", db),
+      publishResult("inst_1", "comp_1", "reg_1", "actor_1", "user_1", db),
     );
     expect(err.code).toBe("result_label_required");
     expect(err.httpStatus).toBe(422);
@@ -225,13 +228,23 @@ describe("publishResult", () => {
       selects: [
         [{ id: "comp_1" }], // ownsCompetition
         [{ registrationType: "team", teamId: "team_1", teamName: "Tim Alpha" }], // loadRegistrationMeta
+        [{ studentId: "cand_1", teamId: "team_1" }], // assertResultIsNotOnOwnEntry target read
+        [], // actor is not an active member of the team
+        [], // actor has no registration row under the team
         [{ resultLabel: "Finalis", resultNotes: null }], // label check (inside tx)
         [{ id: "reg_1" }, { id: "reg_2" }], // member reg IDs (inside tx)
       ],
       inserts: [[memberRow1, memberRow2]], // upsert returns all member rows
     });
 
-    const { result, teamId } = await publishResult("inst_1", "comp_1", "reg_1", "user_1", db);
+    const { result, teamId } = await publishResult(
+      "inst_1",
+      "comp_1",
+      "reg_1",
+      "actor_1",
+      "user_1",
+      db,
+    );
     expect(result.resultStatus).toBe("published");
     expect(teamId).toBe("team_1");
   });
@@ -240,7 +253,7 @@ describe("publishResult", () => {
     const db = createDbMock({ selects: [[]] }); // ownsCompetition returns empty
 
     const err = await catchResultAsync(() =>
-      publishResult("inst_X", "comp_1", "reg_1", "user_1", db),
+      publishResult("inst_X", "comp_1", "reg_1", "actor_1", "user_1", db),
     );
     expect(err.code).toBe("result_registration_not_found");
     expect(err.httpStatus).toBe(404);
@@ -260,8 +273,11 @@ describe("publishResult", () => {
     const selectResults: Record<number, unknown[]> = {
       1: [{ id: "comp_1" }],
       2: [{ registrationType: "team", teamId: "team_1", teamName: "Tim Alpha" }],
-      3: [{ resultLabel: "Juara 1", resultNotes: null }],
-      4: [{ id: "reg_captain" }, { id: "reg_member_2" }], // reg_member_2 has no existing draft row
+      3: [{ studentId: "cand_captain", teamId: "team_1" }], // assertResultIsNotOnOwnEntry target read
+      4: [], // actor is not an active member of the team
+      5: [], // actor has no registration row under the team
+      6: [{ resultLabel: "Juara 1", resultNotes: null }],
+      7: [{ id: "reg_captain" }, { id: "reg_member_2" }], // reg_member_2 has no existing draft row
     };
 
     const db: Record<string, unknown> = {
@@ -324,7 +340,7 @@ describe("publishResult", () => {
       },
     };
 
-    await publishResult("inst_1", "comp_1", "reg_captain", "user_1", db as never);
+    await publishResult("inst_1", "comp_1", "reg_captain", "actor_1", "user_1", db as never);
 
     const regIds = capturedValues.map((v) => v.registrationId);
     expect(regIds).toContain("reg_captain");
@@ -343,6 +359,7 @@ describe("publishResult", () => {
     const selectResults: unknown[][] = [
       [{ id: "comp_1" }],
       [{ registrationType: "individual", teamId: null, teamName: null }],
+      [{ studentId: "cand_1", teamId: null }],
       [{ resultLabel: "Juara 1", resultNotes: null }],
     ];
     const db: Record<string, unknown> = {
@@ -394,7 +411,7 @@ describe("publishResult", () => {
       },
     };
 
-    await publishResult("inst_1", "comp_1", "reg_1", "mem_1", db as never);
+    await publishResult("inst_1", "comp_1", "reg_1", "actor_1", "mem_1", db as never);
 
     expect(capturedAuditValues).not.toBeNull();
     const vals = capturedAuditValues as Record<string, unknown>;
@@ -427,11 +444,12 @@ describe("unpublishResult", () => {
       selects: [
         [{ id: "comp_1" }],
         [{ registrationType: "individual", teamId: null, teamName: null }],
+        [{ studentId: "cand_1", teamId: null }], // assertResultIsNotOnOwnEntry target read
       ],
       updates: [[draftRow]],
     });
 
-    const result = await unpublishResult("inst_1", "comp_1", "reg_1", "user_1", db);
+    const result = await unpublishResult("inst_1", "comp_1", "reg_1", "actor_1", "user_1", db);
     expect(result.resultStatus).toBe("draft");
     expect(result.publishedAt).toBeNull();
   });
@@ -440,7 +458,7 @@ describe("unpublishResult", () => {
     const db = createDbMock({ selects: [[]] });
 
     const err = await catchResultAsync(() =>
-      unpublishResult("inst_X", "comp_1", "reg_1", "user_1", db),
+      unpublishResult("inst_X", "comp_1", "reg_1", "actor_1", "user_1", db),
     );
     expect(err.code).toBe("result_registration_not_found");
     expect(err.httpStatus).toBe(404);
@@ -458,7 +476,7 @@ describe("upsertResultDraft", () => {
     });
 
     const error = await catchResultAsync(() =>
-      upsertResultDraft("inst_1", "comp_1", "reg_1", { resultLabel: "Juara 1" }, db),
+      upsertResultDraft("inst_1", "comp_1", "reg_1", "actor_1", { resultLabel: "Juara 1" }, db),
     );
 
     expect(error.code).toBe("result_competition_cancelled");
@@ -481,6 +499,7 @@ describe("upsertResultDraft", () => {
       selects: [
         [{ id: "comp_1" }],
         [{ registrationType: "individual", teamId: null, teamName: null }],
+        [{ studentId: "cand_1", teamId: null }], // assertResultIsNotOnOwnEntry target read
         [], // no existing row (fresh insert)
       ],
       inserts: [[draftRow]],
@@ -490,6 +509,7 @@ describe("upsertResultDraft", () => {
       "inst_1",
       "comp_1",
       "reg_1",
+      "actor_1",
       { resultLabel: "Juara 2" },
       db,
     );
@@ -502,12 +522,13 @@ describe("upsertResultDraft", () => {
       selects: [
         [{ id: "comp_1" }],
         [{ registrationType: "individual", teamId: null, teamName: null }],
+        [{ studentId: "cand_1", teamId: null }], // assertResultIsNotOnOwnEntry target read
         [{ resultStatus: "published" }], // existing published row
       ],
     });
 
     const err = await catchResultAsync(() =>
-      upsertResultDraft("inst_1", "comp_1", "reg_1", { resultLabel: "New" }, db),
+      upsertResultDraft("inst_1", "comp_1", "reg_1", "actor_1", { resultLabel: "New" }, db),
     );
     expect(err.code).toBe("result_already_published");
     expect(err.httpStatus).toBe(409);
@@ -517,7 +538,7 @@ describe("upsertResultDraft", () => {
     const db = createDbMock({ selects: [[]] });
 
     const err = await catchResultAsync(() =>
-      upsertResultDraft("inst_X", "comp_1", "reg_1", { resultLabel: "x" }, db),
+      upsertResultDraft("inst_X", "comp_1", "reg_1", "actor_1", { resultLabel: "x" }, db),
     );
     expect(err.code).toBe("result_registration_not_found");
     expect(err.httpStatus).toBe(404);
