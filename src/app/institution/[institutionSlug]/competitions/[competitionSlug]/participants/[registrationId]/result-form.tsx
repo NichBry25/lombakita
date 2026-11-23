@@ -6,7 +6,7 @@ import type { CompetitionResultStatus } from "@/server/db/schema";
 import type { ResultErrorCode } from "@/server/participants/result-service";
 import { useToast } from "@/components/ui/primitives";
 import { Button, FormInput, FormLabelText, FormTextarea } from "@/components/ui";
-import { OWN_RESULT_MESSAGE } from "@/lib/errors/error-copy";
+import { ENTRANT_RESULT_MESSAGE, OWN_RESULT_MESSAGE } from "@/lib/errors/error-copy";
 
 const RESULT_ERROR_MESSAGES: Partial<Record<ResultErrorCode, string>> = {
   result_registration_not_found: "Pendaftaran tidak ditemukan.",
@@ -15,6 +15,7 @@ const RESULT_ERROR_MESSAGES: Partial<Record<ResultErrorCode, string>> = {
   result_already_published: "Hasil sudah diterbitkan. Batalkan publikasi sebelum mengubahnya.",
   result_label_required: "Simpan label hasil sebagai draf sebelum menerbitkan.",
   result_own_place: OWN_RESULT_MESSAGE,
+  result_actor_is_entrant: ENTRANT_RESULT_MESSAGE,
 };
 
 async function readResultErrorMessage(res: Response, fallback: string): Promise<string> {

@@ -154,6 +154,8 @@ describe("publishResult", () => {
         [{ id: "comp_1" }], // ownsCompetition
         [{ registrationType: "individual", teamId: null, teamName: null }], // loadRegistrationMeta
         [{ studentId: "cand_1", teamId: null }], // assertResultIsNotOnOwnEntry target read
+        [], // actor has no registration of their own in the competition
+        [], // actor has no active place in a registered team of the competition
         [{ resultLabel: "Juara 1" }], // existing label check
       ],
       updates: [[resultRow]], // publish update
@@ -183,6 +185,8 @@ describe("publishResult", () => {
         [{ id: "comp_1" }], // ownsCompetition
         [{ registrationType: "individual", teamId: null, teamName: null }], // loadRegistrationMeta
         [{ studentId: "cand_1", teamId: null }], // assertResultIsNotOnOwnEntry target read
+        [], // actor has no registration of their own in the competition
+        [], // actor has no active place in a registered team of the competition
         [{ resultLabel: "   " }], // blank label
       ],
     });
@@ -200,6 +204,8 @@ describe("publishResult", () => {
         [{ id: "comp_1" }],
         [{ registrationType: "individual", teamId: null, teamName: null }],
         [{ studentId: "cand_1", teamId: null }], // assertResultIsNotOnOwnEntry target read
+        [], // actor has no registration of their own in the competition
+        [], // actor has no active place in a registered team of the competition
         [], // no existing row
       ],
     });
@@ -231,6 +237,8 @@ describe("publishResult", () => {
         [{ studentId: "cand_1", teamId: "team_1" }], // assertResultIsNotOnOwnEntry target read
         [], // actor is not an active member of the team
         [], // actor has no registration row under the team
+        [], // actor has no registration of their own in the competition
+        [], // actor has no active place in a registered team of the competition
         [{ resultLabel: "Finalis", resultNotes: null }], // label check (inside tx)
         [{ id: "reg_1" }, { id: "reg_2" }], // member reg IDs (inside tx)
       ],
@@ -276,8 +284,10 @@ describe("publishResult", () => {
       3: [{ studentId: "cand_captain", teamId: "team_1" }], // assertResultIsNotOnOwnEntry target read
       4: [], // actor is not an active member of the team
       5: [], // actor has no registration row under the team
-      6: [{ resultLabel: "Juara 1", resultNotes: null }],
-      7: [{ id: "reg_captain" }, { id: "reg_member_2" }], // reg_member_2 has no existing draft row
+      6: [], // actor has no registration of their own in the competition
+      7: [], // actor has no active place in a registered team of the competition
+      8: [{ resultLabel: "Juara 1", resultNotes: null }],
+      9: [{ id: "reg_captain" }, { id: "reg_member_2" }], // reg_member_2 has no existing draft row
     };
 
     const db: Record<string, unknown> = {
@@ -360,6 +370,8 @@ describe("publishResult", () => {
       [{ id: "comp_1" }],
       [{ registrationType: "individual", teamId: null, teamName: null }],
       [{ studentId: "cand_1", teamId: null }],
+      [], // actor has no registration of their own in the competition
+      [], // actor has no active place in a registered team of the competition
       [{ resultLabel: "Juara 1", resultNotes: null }],
     ];
     const db: Record<string, unknown> = {
@@ -445,6 +457,8 @@ describe("unpublishResult", () => {
         [{ id: "comp_1" }],
         [{ registrationType: "individual", teamId: null, teamName: null }],
         [{ studentId: "cand_1", teamId: null }], // assertResultIsNotOnOwnEntry target read
+        [], // actor has no registration of their own in the competition
+        [], // actor has no active place in a registered team of the competition
       ],
       updates: [[draftRow]],
     });
@@ -500,6 +514,8 @@ describe("upsertResultDraft", () => {
         [{ id: "comp_1" }],
         [{ registrationType: "individual", teamId: null, teamName: null }],
         [{ studentId: "cand_1", teamId: null }], // assertResultIsNotOnOwnEntry target read
+        [], // actor has no registration of their own in the competition
+        [], // actor has no active place in a registered team of the competition
         [], // no existing row (fresh insert)
       ],
       inserts: [[draftRow]],
@@ -523,6 +539,8 @@ describe("upsertResultDraft", () => {
         [{ id: "comp_1" }],
         [{ registrationType: "individual", teamId: null, teamName: null }],
         [{ studentId: "cand_1", teamId: null }], // assertResultIsNotOnOwnEntry target read
+        [], // actor has no registration of their own in the competition
+        [], // actor has no active place in a registered team of the competition
         [{ resultStatus: "published" }], // existing published row
       ],
     });
