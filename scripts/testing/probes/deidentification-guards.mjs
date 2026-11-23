@@ -73,18 +73,18 @@ export const probes = [
     files: [SERVICE],
     // The lock's EFFECT removed rather than its clause rewritten: the `for update` suffix is dropped
     // and the statement stays a statement, so the mutation compiles for a reason rather than by luck
-    // (clause 1). The marker carries the next statement, because the statement WITHOUT the suffix is a
-    // prefix of the statement with it and would be present before the mutation as well — and it is
-    // the re-read below rather than a comment, so the marker still names code after the comment above
-    // this statement was rewritten.
+    // (clause 1). The marker carries the not-found refusal that follows, because the statement
+    // WITHOUT the suffix is a prefix of the statement with it and would be present before the
+    // mutation as well. The refusal is code rather than a comment, so the marker still names code
+    // after the comment above this statement is rewritten.
     appliedMarkers: [
-      "  await tx.select({ id: users.id }).from(users).where(eq(users.id, accountId));\n\n  const currentInstitutionIds = await findInstitutionsWhereTargetIsActiveMember(tx, accountId);",
+      "    .where(eq(users.id, accountId));\n\n  if (lockedAccount === undefined) {",
     ],
     mutate: () =>
       substituteOnce(
         SERVICE,
-        '  await tx.select({ id: users.id }).from(users).where(eq(users.id, accountId)).for("update");',
-        "  await tx.select({ id: users.id }).from(users).where(eq(users.id, accountId));",
+        '    .where(eq(users.id, accountId))\n    .for("update");',
+        "    .where(eq(users.id, accountId));",
       ),
     // THE DETECTOR HAD TO BE BUILT BEFORE THIS PROBE COULD BE HONEST. The race suite already polled
     // `pg_blocking_pids` for both racers, and that poll stays green with the lock removed — the
@@ -232,18 +232,18 @@ export const probes = [
     // and set down above the institution lock, so the marker is the adjacency that only the mutated
     // file holds — the row lock directly above the institution lock.
     appliedMarkers: [
-      '  await tx.select({ id: users.id }).from(users).where(eq(users.id, accountId)).for("update");\n\n  await lockInstitutionOwnership(tx, lockedInstitutionIds);',
+      '    .for("update");\n\n  await lockInstitutionOwnership(tx, lockedInstitutionIds);',
     ],
     mutate: () => {
       substituteOnce(
         SERVICE,
-        '  await tx.select({ id: users.id }).from(users).where(eq(users.id, accountId)).for("update");\n\n',
+        '  const [lockedAccount] = await tx\n    .select({ recruiterVerificationTier: users.recruiterVerificationTier })\n    .from(users)\n    .where(eq(users.id, accountId))\n    .for("update");\n\n',
         "",
       );
       substituteOnce(
         SERVICE,
         "  await lockInstitutionOwnership(tx, lockedInstitutionIds);",
-        '  await tx.select({ id: users.id }).from(users).where(eq(users.id, accountId)).for("update");\n\n  await lockInstitutionOwnership(tx, lockedInstitutionIds);',
+        '  const [lockedAccount] = await tx\n    .select({ recruiterVerificationTier: users.recruiterVerificationTier })\n    .from(users)\n    .where(eq(users.id, accountId))\n    .for("update");\n\n  await lockInstitutionOwnership(tx, lockedInstitutionIds);',
       );
     },
     // THE DETECTOR IS THE SOURCE ORDER, AND THE RACE SUITE CANNOT BE IT.
