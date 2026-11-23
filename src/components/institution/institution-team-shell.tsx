@@ -19,7 +19,11 @@ import {
 import { useModal, useToast, type ModalOutcome } from "@/components/ui/primitives";
 import { LocalDate } from "@/components/ui/local-date";
 import { getInstitutionRoleLabel } from "@/lib/access/role-labels";
-import { errorMessageFor } from "@/lib/errors/error-copy";
+import {
+  COMPETITIONS_CHANGING_RETRY_MESSAGE,
+  errorMessageFor,
+  MEMBER_HOLDS_PLACE_MESSAGE,
+} from "@/lib/errors/error-copy";
 import { readErrorCode } from "@/lib/session/session-fetch";
 
 type MemberRole = "institution_owner" | "institution_staff" | "institution_member";
@@ -63,6 +67,8 @@ const TEAM_ERROR_COPY: Partial<Record<string, string>> = {
   role_escalation_forbidden:
     "Akun ini harus menyelesaikan verifikasi penyelenggara sebelum dapat menjadi pemilik atau staf.",
   last_owner_demotion_forbidden: "Institusi harus memiliki paling sedikit satu pemilik.",
+  member_holds_competition_place: MEMBER_HOLDS_PLACE_MESSAGE,
+  member_role_retry: COMPETITIONS_CHANGING_RETRY_MESSAGE,
   member_last_admin:
     "Pemilik terakhir tidak dapat dihapus. Institusi harus memiliki paling sedikit satu pemilik.",
   invitation_invalid_identifier: "Masukkan username atau alamat email yang valid.",

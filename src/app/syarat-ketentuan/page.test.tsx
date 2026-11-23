@@ -84,16 +84,18 @@ describe("TermsPage", () => {
       "Saat menerbitkan kompetisi, penyelenggara memilih satu kontak untuk peserta, berupa nomor " +
         "WhatsApp, nomor telepon, atau alamat email. Dengan menerbitkan, penyelenggara menyetujui " +
         "kontak itu tampil untuk umum di halaman kompetisi dan dapat muncul di mesin pencari. " +
-        "Kontak itu dihapus dari kompetisi jika akun yang memakai email tersebut dihapus, atau jika " +
-        "akun yang pendaftaran penyelenggaranya dengan nomor tersebut sudah disetujui dihapus.",
+        "Kontak itu dihapus dari kompetisi jika akun yang memakai email tersebut dihapus, jika " +
+        "akun yang pendaftaran penyelenggaranya dengan nomor tersebut sudah disetujui dihapus, " +
+        "atau jika penyelenggara terverifikasi yang mencantumkan nomor tersebut dalam " +
+        "pendaftaran penyelenggaranya dihapus.",
     );
     expect(html).not.toContain("pemilik atau staf");
   });
 
-  it("states version 1.2 and the effective date as published", () => {
+  it("states version 1.3 and the effective date as published", () => {
     const html = renderToStaticMarkup(TermsPage());
 
-    expect(html).toContain("<span>Versi 1.2</span>");
-    expect(html).toContain("<span>Berlaku sejak 22 November 2026</span>");
+    expect(html).toContain("<span>Versi 1.3</span>");
+    expect(html).toContain("<span>Berlaku sejak 23 November 2026</span>");
   });
 });

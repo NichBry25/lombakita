@@ -13,7 +13,7 @@ import {
 import { VerifyRoleForm } from "./verify-role-form";
 
 const ROLE_HEADLINE: Record<VerifiableRole, string> = {
-  candidate: "Daftar sebagai peserta",
+  candidate: "Daftar sebagai kandidat",
   recruiter: "Daftar sebagai penyelenggara",
 };
 
@@ -43,7 +43,7 @@ export default async function VerifyRolePage(props: {
     return (
       <AuthPageFrame
         title="Pilih peran Anda"
-        description="Satu akun dapat menjadi peserta sekaligus penyelenggara."
+        description="Satu akun dapat menjadi kandidat sekaligus penyelenggara."
       >
         <div className="auth-state stack-md">
           <span className="auth-state-icon" data-tone="error" aria-hidden="true">
@@ -76,7 +76,7 @@ export default async function VerifyRolePage(props: {
   return (
     <AuthPageFrame
       title="Lengkapi data untuk membuka akses"
-      description="Satu akun dapat menjadi peserta sekaligus penyelenggara."
+      description="Satu akun dapat menjadi kandidat sekaligus penyelenggara."
     >
       <div className="stack-md">
         <header className="auth-entry-header">

@@ -188,6 +188,8 @@ const uniqueSuffix = (): string => `${Date.now()}_${seq++}`;
 /** One institution and one candidate registered on one of its competitions. */
 type Tenant = {
   userId: string;
+  // A second account that rules on this tenant's proofs: nobody may rule on their own place.
+  reviewerUserId: string;
   institutionId: string;
   competitionId: string;
   registrationId: string;
@@ -237,6 +239,15 @@ const seedTenant = async (tx: Tx, label: string, verified: boolean): Promise<Ten
     })
     .returning({ id: users.id });
 
+  const [reviewer] = await tx
+    .insert(users)
+    .values({
+      email: `${label}_reviewer_${id}@example.test`,
+      username: `${label}_reviewer_${id}`,
+      candidateVerifiedAt: NOW,
+    })
+    .returning({ id: users.id });
+
   const [institution] = await tx
     .insert(institutions)
     .values({
@@ -266,6 +277,7 @@ const seedTenant = async (tx: Tx, label: string, verified: boolean): Promise<Ten
 
   return {
     userId: user!.id,
+    reviewerUserId: reviewer!.id,
     institutionId: institution!.id,
     competitionId: competition!.id,
     registrationId: registration!.id,
@@ -1383,7 +1395,13 @@ describe.skipIf(skipWithoutDatabase)("the attempt history's own guarantees", () 
         .values(attemptValues(fixture, proofId, paymentId));
 
       await expect(
-        verifyManualPaymentProof(fixture.institutionId, fixture.userId, proofId, tx as never, NOW),
+        verifyManualPaymentProof(
+          fixture.institutionId,
+          fixture.reviewerUserId,
+          proofId,
+          tx as never,
+          NOW,
+        ),
       ).rejects.toThrow();
 
       const [proof] = await tx
@@ -1561,7 +1579,7 @@ describe.skipIf(skipWithoutDatabase)("the lane's write precondition", () => {
 
       await rejectManualPaymentProof(
         fixture.institutionId,
-        fixture.userId,
+        fixture.reviewerUserId,
         proofId,
         "nominal tidak sesuai",
         true,
@@ -1646,7 +1664,13 @@ describe.skipIf(skipWithoutDatabase)("the lane's write precondition", () => {
         .where(eq(competitionRegistrations.id, fixture.registrationId));
 
       await expect(
-        verifyManualPaymentProof(fixture.institutionId, fixture.userId, proofId, tx as never, NOW),
+        verifyManualPaymentProof(
+          fixture.institutionId,
+          fixture.reviewerUserId,
+          proofId,
+          tx as never,
+          NOW,
+        ),
       ).rejects.toMatchObject({ code: "manual_proof_registration_cancelled" });
 
       const events = await tx
@@ -1829,7 +1853,7 @@ describe.skipIf(skipWithoutDatabase)("the proof review loop is CAS-guarded (real
 
       await verifyManualPaymentProof(
         fixture.institutionId,
-        fixture.userId,
+        fixture.reviewerUserId,
         proofId,
         tx as never,
         NOW,
@@ -1837,7 +1861,13 @@ describe.skipIf(skipWithoutDatabase)("the proof review loop is CAS-guarded (real
 
       // The CAS is what stops the second click, before the accrual's unique index has to.
       await expect(
-        verifyManualPaymentProof(fixture.institutionId, fixture.userId, proofId, tx as never, NOW),
+        verifyManualPaymentProof(
+          fixture.institutionId,
+          fixture.reviewerUserId,
+          proofId,
+          tx as never,
+          NOW,
+        ),
       ).rejects.toMatchObject({ code: "manual_proof_not_pending", status: 409 });
 
       const accruals = await tx
@@ -1865,7 +1895,7 @@ describe.skipIf(skipWithoutDatabase)("the proof review loop is CAS-guarded (real
 
       await rejectManualPaymentProof(
         fixture.institutionId,
-        fixture.userId,
+        fixture.reviewerUserId,
         proofId,
         "bukan transfer ke rekening kami",
         false,
@@ -1899,7 +1929,7 @@ describe.skipIf(skipWithoutDatabase)("the proof review loop is CAS-guarded (real
 
       await rejectManualPaymentProof(
         fixture.institutionId,
-        fixture.userId,
+        fixture.reviewerUserId,
         proofId,
         "nominal tidak sesuai",
         true,
@@ -1989,7 +2019,7 @@ describe.skipIf(skipWithoutDatabase)("the proof review loop is CAS-guarded (real
 
         await verifyManualPaymentProof(
           fixture.institutionId,
-          fixture.userId,
+          fixture.reviewerUserId,
           proofId,
           tx as never,
           NOW,
@@ -2037,7 +2067,7 @@ describe.skipIf(skipWithoutDatabase)("the proof review loop is CAS-guarded (real
 
         await rejectManualPaymentProof(
           fixture.institutionId,
-          fixture.userId,
+          fixture.reviewerUserId,
           proofId,
           "bukti tidak terbaca",
           false,
@@ -2197,7 +2227,7 @@ describe.skipIf(skipWithoutDatabase)("proof access is tenant-scoped (real databa
 
       const verified = await verifyManualPaymentProof(
         fixture.institutionId,
-        fixture.userId,
+        fixture.reviewerUserId,
         proofId,
         tx as never,
         NOW,
@@ -2276,7 +2306,7 @@ describe.skipIf(skipWithoutDatabase)("proof access is tenant-scoped (real databa
 
       await rejectManualPaymentProof(
         fixture.institutionId,
-        fixture.userId,
+        fixture.reviewerUserId,
         proofId,
         "nominal tidak sesuai",
         true,
@@ -2308,7 +2338,7 @@ describe.skipIf(skipWithoutDatabase)("proof access is tenant-scoped (real databa
 
       await rejectManualPaymentProof(
         fixture.institutionId,
-        fixture.userId,
+        fixture.reviewerUserId,
         proofId,
         "nominal tidak sesuai",
         true,
@@ -2451,7 +2481,7 @@ describe.skipIf(skipWithoutDatabase)("the object key is held to its own payment'
       const proofId = await seedProof(tx, fixture, paymentId);
       await rejectManualPaymentProof(
         fixture.institutionId,
-        fixture.userId,
+        fixture.reviewerUserId,
         proofId,
         "nominal tidak sesuai",
         true,
@@ -4468,7 +4498,7 @@ describe.skipIf(skipWithoutDatabase)(
 
           await rejectManualPaymentProof(
             fixture.institutionId,
-            fixture.userId,
+            fixture.reviewerUserId,
             proofId,
             "nominal transfer tidak sesuai",
             true,
@@ -4509,7 +4539,7 @@ describe.skipIf(skipWithoutDatabase)(
 
           await verifyManualPaymentProof(
             fixture.institutionId,
-            fixture.userId,
+            fixture.reviewerUserId,
             proofId,
             tx as unknown as Database,
             NOW,
@@ -4529,7 +4559,7 @@ describe.skipIf(skipWithoutDatabase)(
           await expect(
             verifyManualPaymentProof(
               fixture.institutionId,
-              fixture.userId,
+              fixture.reviewerUserId,
               proofId,
               tx as unknown as Database,
               NOW,
@@ -4580,7 +4610,7 @@ describe.skipIf(skipWithoutDatabase)(
 
           await verifyManualPaymentProof(
             fixture.other.institutionId,
-            fixture.other.userId,
+            fixture.other.reviewerUserId,
             proofId,
             tx as unknown as Database,
             NOW,
@@ -4621,7 +4651,7 @@ describe.skipIf(skipWithoutDatabase)(
             try {
               await verifyManualPaymentProof(
                 fixture.other.institutionId,
-                fixture.other.userId,
+                fixture.other.reviewerUserId,
                 proofId,
                 tx as unknown as Database,
                 NOW,
@@ -4719,7 +4749,7 @@ describe.skipIf(skipWithoutDatabase)(
           await expect(
             rejectManualPaymentProof(
               fixture.institutionId,
-              fixture.userId,
+              fixture.reviewerUserId,
               proofId,
               "Nominal tidak cocok",
               true,
@@ -4826,7 +4856,7 @@ describe.skipIf(skipWithoutDatabase)(
           await expect(
             rejectManualPaymentProof(
               fixture.institutionId,
-              fixture.userId,
+              fixture.reviewerUserId,
               proofId,
               "Nominal tidak cocok",
               true,
@@ -4848,7 +4878,7 @@ describe.skipIf(skipWithoutDatabase)(
 
           await rejectManualPaymentProof(
             fixture.institutionId,
-            fixture.userId,
+            fixture.reviewerUserId,
             proofId,
             "Nominal tidak cocok",
             true,
@@ -5028,7 +5058,7 @@ describe.skipIf(skipWithoutDatabase)(
           await import("@/server/finance/manual-payment-proof-service");
         await rejectManualPaymentProof(
           fixture.institutionId,
-          fixture.userId,
+          fixture.reviewerUserId,
           proof.id,
           "nominal tidak sesuai",
           true,
@@ -5285,7 +5315,7 @@ describe.skipIf(skipWithoutDatabase)(
           await import("@/server/finance/manual-payment-proof-service");
         await rejectManualPaymentProof(
           fixture.institutionId,
-          fixture.userId,
+          fixture.reviewerUserId,
           proof.id,
           "bukti tidak terbaca",
           true,
@@ -5446,7 +5476,7 @@ describe.skipIf(skipWithoutDatabase)("what the deadline means to the payer (real
         await import("@/server/finance/manual-payment-proof-service");
       await rejectManualPaymentProof(
         fixture.institutionId,
-        fixture.userId,
+        fixture.reviewerUserId,
         proof.id,
         "nominal tidak sesuai",
         true,
@@ -5644,7 +5674,7 @@ describe.skipIf(skipWithoutDatabase)("what the deadline means to the payer (real
         .limit(1);
       await rejectManualPaymentProof(
         fixture.institutionId,
-        fixture.userId,
+        fixture.reviewerUserId,
         proofRow!.id,
         "nominal tidak sesuai",
         true,
@@ -5777,7 +5807,7 @@ describe.skipIf(skipWithoutDatabase)("what the deadline means to the payer (real
         .limit(1);
       await rejectManualPaymentProof(
         fixture.institutionId,
-        fixture.userId,
+        fixture.reviewerUserId,
         proofRow!.id,
         "nominal tidak sesuai",
         true,
@@ -6045,7 +6075,7 @@ describe.skipIf(skipWithoutDatabase)("every A2 guard in the expiry worker (real 
         await import("@/server/finance/manual-payment-proof-service");
       await verifyManualPaymentProof(
         fixture.institutionId,
-        fixture.userId,
+        fixture.reviewerUserId,
         proof.id,
         tx as never,
         NOW,
@@ -6186,7 +6216,7 @@ describe.skipIf(skipWithoutDatabase)("what the manual lane announces (real datab
       const proof = await submitProof(tx, fixture, paymentId);
       await rejectManualPaymentProof(
         fixture.institutionId,
-        fixture.userId,
+        fixture.reviewerUserId,
         proof.id,
         "Foto tidak terbaca",
         true,
@@ -6225,7 +6255,7 @@ describe.skipIf(skipWithoutDatabase)("what the manual lane announces (real datab
       const reject = (reason: string) =>
         rejectManualPaymentProof(
           fixture.institutionId,
-          fixture.userId,
+          fixture.reviewerUserId,
           proof.id,
           reason,
           true,
@@ -6367,7 +6397,7 @@ describe.skipIf(skipWithoutDatabase)("what the manual lane announces (real datab
 
       await verifyManualPaymentProof(
         fixture.institutionId,
-        fixture.userId,
+        fixture.reviewerUserId,
         proof.id,
         tx as never,
         NOW,
@@ -6399,7 +6429,7 @@ describe.skipIf(skipWithoutDatabase)("what the manual lane announces (real datab
 
       await rejectManualPaymentProof(
         fixture.institutionId,
-        fixture.userId,
+        fixture.reviewerUserId,
         proof.id,
         "Nominal transfer tidak sesuai",
         false,
@@ -6527,7 +6557,7 @@ describe.skipIf(skipWithoutDatabase)("what the manual lane announces (real datab
 
       await verifyManualPaymentProof(
         fixture.institutionId,
-        fixture.userId,
+        fixture.reviewerUserId,
         proof.id,
         tx as never,
         NOW,
@@ -6563,7 +6593,13 @@ describe.skipIf(skipWithoutDatabase)("what the manual lane announces (real datab
       mockEnqueuePaymentOutcome.mockRejectedValueOnce(new Error("redis unreachable"));
 
       await expect(
-        verifyManualPaymentProof(fixture.institutionId, fixture.userId, proof.id, tx as never, NOW),
+        verifyManualPaymentProof(
+          fixture.institutionId,
+          fixture.reviewerUserId,
+          proof.id,
+          tx as never,
+          NOW,
+        ),
       ).resolves.toMatchObject({ status: "verified" });
 
       const [row] = await tx
@@ -6606,7 +6642,13 @@ describe.skipIf(skipWithoutDatabase)("what the manual lane announces (real datab
         .where(eq(financePayments.id, paymentId));
 
       await expect(
-        verifyManualPaymentProof(fixture.institutionId, fixture.userId, proof.id, tx as never, NOW),
+        verifyManualPaymentProof(
+          fixture.institutionId,
+          fixture.reviewerUserId,
+          proof.id,
+          tx as never,
+          NOW,
+        ),
       ).rejects.toMatchObject({ code: "fee_accrual_not_manual_lane" });
 
       const [row] = await tx
@@ -6677,7 +6719,7 @@ describe.skipIf(skipWithoutDatabase)("the DEC-0132 escape hatch (real database)"
       const proof = await submitProof(tx, fixture, paymentId);
       await verifyManualPaymentProof(
         fixture.institutionId,
-        fixture.userId,
+        fixture.reviewerUserId,
         proof.id,
         tx as never,
         NOW,
@@ -6864,7 +6906,7 @@ describe.skipIf(skipWithoutDatabase)("the DEC-0132 escape hatch (real database)"
 
       await rejectManualPaymentProof(
         fixture.institutionId,
-        fixture.userId,
+        fixture.reviewerUserId,
         proof.id,
         "Bukan transfer ke rekening kami",
         false,
@@ -6912,7 +6954,7 @@ describe.skipIf(skipWithoutDatabase)("the DEC-0132 escape hatch (real database)"
 
       await rejectManualPaymentProof(
         fixture.institutionId,
-        fixture.userId,
+        fixture.reviewerUserId,
         proof.id,
         "Nominal tidak sesuai",
         true,
@@ -6940,7 +6982,7 @@ describe.skipIf(skipWithoutDatabase)("the DEC-0132 escape hatch (real database)"
 
       await rejectManualPaymentProof(
         fixture.institutionId,
-        fixture.userId,
+        fixture.reviewerUserId,
         proof.id,
         "Bukan transfer ke rekening kami",
         false,
@@ -6978,7 +7020,7 @@ describe.skipIf(skipWithoutDatabase)("the DEC-0132 escape hatch (real database)"
 
       await rejectManualPaymentProof(
         fixture.institutionId,
-        fixture.userId,
+        fixture.reviewerUserId,
         proof.id,
         "Bukan transfer ke rekening kami",
         false,
@@ -7125,7 +7167,7 @@ describe.skipIf(skipWithoutDatabase)("the DEC-0132 escape hatch (real database)"
       const proof = await submitProof(tx, fixture, paymentId);
       await verifyManualPaymentProof(
         fixture.institutionId,
-        fixture.userId,
+        fixture.reviewerUserId,
         proof.id,
         tx as never,
         NOW,
@@ -7340,7 +7382,7 @@ describe.skipIf(skipWithoutDatabase)("the finance_ops dispute view (real databas
       const proof = await submitProof(tx, fixture, paymentId);
       await rejectManualPaymentProof(
         fixture.institutionId,
-        fixture.userId,
+        fixture.reviewerUserId,
         proof.id,
         "Tanggal transfer tidak terbaca",
         true,
@@ -7388,7 +7430,7 @@ describe.skipIf(skipWithoutDatabase)("the finance_ops dispute view (real databas
       for (const [index, reason] of ["Alasan pertama", "Alasan kedua"].entries()) {
         await rejectManualPaymentProof(
           fixture.institutionId,
-          fixture.userId,
+          fixture.reviewerUserId,
           proof.id,
           reason,
           true,
@@ -7479,7 +7521,7 @@ describe.skipIf(skipWithoutDatabase)("the finance_ops dispute view (real databas
 
       await verifyManualPaymentProof(
         fixture.institutionId,
-        fixture.userId,
+        fixture.reviewerUserId,
         proof.id,
         tx as never,
         NOW,
@@ -7652,7 +7694,7 @@ describe.skipIf(skipWithoutDatabase)("the institution fee statement (real databa
       const proofId = await seedProof(tx, fixture, paymentId);
       await verifyManualPaymentProof(
         fixture.institutionId,
-        fixture.userId,
+        fixture.reviewerUserId,
         proofId,
         tx as never,
         NOW,
@@ -7694,7 +7736,7 @@ describe.skipIf(skipWithoutDatabase)("the institution fee statement (real databa
       const proofId = await seedProof(tx, fixture, paymentId);
       await verifyManualPaymentProof(
         fixture.institutionId,
-        fixture.userId,
+        fixture.reviewerUserId,
         proofId,
         tx as never,
         NOW,
@@ -7729,7 +7771,7 @@ describe.skipIf(skipWithoutDatabase)("the institution fee statement (real databa
       const proofId = await seedProof(tx, fixture, paymentId);
       await verifyManualPaymentProof(
         fixture.institutionId,
-        fixture.userId,
+        fixture.reviewerUserId,
         proofId,
         tx as never,
         NOW,
@@ -7759,7 +7801,7 @@ describe.skipIf(skipWithoutDatabase)("the institution fee statement (real databa
       const mineProofId = await seedProof(tx, fixture, minePaymentId);
       await verifyManualPaymentProof(
         fixture.institutionId,
-        fixture.userId,
+        fixture.reviewerUserId,
         mineProofId,
         tx as never,
         NOW,
@@ -7789,7 +7831,7 @@ describe.skipIf(skipWithoutDatabase)("the institution fee statement (real databa
       const rivalProofId = await seedProof(tx, fixture.other, rivalPayment!.id);
       await verifyManualPaymentProof(
         fixture.other.institutionId,
-        fixture.other.userId,
+        fixture.other.reviewerUserId,
         rivalProofId,
         tx as never,
         NOW,
@@ -7895,7 +7937,7 @@ describe.skipIf(skipWithoutDatabase)("the institution fee statement (real databa
       const proofId = await seedProof(tx, fixture, paymentId);
       await verifyManualPaymentProof(
         fixture.institutionId,
-        fixture.userId,
+        fixture.reviewerUserId,
         proofId,
         tx as never,
         NOW,

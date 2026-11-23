@@ -85,6 +85,10 @@ type CompetitionErrorCode =
   | "competition_fee_locked_after_publish"
   // A draft still holding a non-cancelled registration keeps its price.
   | "competition_fee_blocked_active_registrations"
+  // A published competition's prizes are fixed.
+  | "competition_prizes_locked_after_publish"
+  // A draft that still holds registrations keeps its prizes.
+  | "competition_prizes_held_by_registrations"
   // A transfer awaits the host's decision: a published close waits for it.
   | "competition_close_waits_for_transfer_review"
   // The row changed between the read a change was judged on and its write.

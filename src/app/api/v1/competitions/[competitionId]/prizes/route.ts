@@ -24,8 +24,8 @@ export async function GET(
   try {
     const session = await requireAuthenticatedSession();
     const { competitionId } = await context.params;
-    const prizes = await getCompetitionPrizesForEditor(session.user.id, competitionId);
-    return NextResponse.json({ prizes });
+    const { prizes, locked } = await getCompetitionPrizesForEditor(session.user.id, competitionId);
+    return NextResponse.json({ prizes, locked });
   } catch (error) {
     if (error instanceof CompetitionError) return toCompetitionErrorResponse(error);
     if (error instanceof CompetitionPrizesInputError) {

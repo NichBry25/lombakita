@@ -65,9 +65,9 @@ describe("PrivacyPage", () => {
   it("states the version and both dates as published", () => {
     const html = renderPage();
 
-    expect(html).toContain("<span>Versi 1.2</span>");
-    expect(html).toContain("<span>Berlaku sejak 22 November 2026</span>");
-    expect(html).toContain("<span>Diperbarui 22 November 2026</span>");
+    expect(html).toContain("<span>Versi 1.3</span>");
+    expect(html).toContain("<span>Berlaku sejak 23 November 2026</span>");
+    expect(html).toContain("<span>Diperbarui 23 November 2026</span>");
   });
 
   it("never renders an NPWP, by name or by shape", () => {
@@ -205,10 +205,11 @@ describe("PrivacyPage", () => {
       const html = renderPage();
 
       expect(html).toContain(
-        "Jika sebuah akun dihapus, kontak yang sama dengan email akun itu atau dengan nomor ponsel " +
-          "dari pendaftaran penyelenggara akun itu yang sudah disetujui dihapus dari setiap " +
-          "kompetisi yang memakainya. Tombol untuk menghubungi penyelenggara tidak tampil lagi " +
-          "sampai penyelenggara mengisi kontak baru.",
+        "Jika sebuah akun dihapus, kontak yang sama dengan email akun itu, dengan nomor ponsel " +
+          "dari pendaftaran penyelenggara akun itu yang sudah disetujui, atau, untuk penyelenggara " +
+          "terverifikasi, dengan nomor ponsel dari pendaftaran penyelenggara mana pun milik akun " +
+          "itu, dihapus dari setiap kompetisi yang memakainya. Tombol untuk menghubungi " +
+          "penyelenggara tidak tampil lagi sampai penyelenggara mengisi kontak baru.",
       );
       expect(html).not.toContain("pemilik atau staf");
     });

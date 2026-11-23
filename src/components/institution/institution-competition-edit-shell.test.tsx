@@ -680,14 +680,17 @@ describe("InstitutionCompetitionEditShell after publish", () => {
     {
       state: "a published competition in both mode",
       competition: { ...PUBLISHED_TEAM, mode: "both", minTeamSize: 1, maxTeamSize: 4 },
-      min: ["form-label", "form-input-lock-wrap"],
+      min: ["form-label", "form-input-lock-wrap", "form-help"],
       max: ["form-label", "form-input", "form-help"],
+      minLine:
+        "Minimum anggota tim tetap 1 karena kompetisi ini juga menerima pendaftaran individu.",
     },
     {
       state: "a published competition in team mode",
       competition: PUBLISHED_TEAM,
       min: ["form-label", "form-input", "form-help"],
       max: ["form-label", "form-input", "form-help"],
+      minLine: MIN_REASON,
     },
     {
       state: "a draft in both mode",
@@ -700,10 +703,11 @@ describe("InstitutionCompetitionEditShell after publish", () => {
       },
       min: ["form-label", "form-input-lock-wrap"],
       max: ["form-label", "form-input"],
+      minLine: undefined,
     },
   ])(
     "keeps the team size fields in one row with the label and input first, on $state",
-    async ({ competition, min, max }) => {
+    async ({ competition, min, max, minLine }) => {
       stubFetchSequence([() => okJson({ competition, publishReadiness: READY })]);
       mount();
       await screen.findByRole("button", { name: "Simpan" });
@@ -717,7 +721,8 @@ describe("InstitutionCompetitionEditShell after publish", () => {
         row: minField.parentElement?.className,
         min: classesOf(minField),
         max: classesOf(maxField),
-      }).toEqual({ sameRow: true, row: "form-grid", min, max });
+        minLine: document.getElementById("min-team-size-lock")?.textContent,
+      }).toEqual({ sameRow: true, row: "form-grid", min, max, minLine });
     },
   );
 
@@ -1976,7 +1981,10 @@ describe("InstitutionCompetitionEditShell steps", () => {
       [`GET ${COMPETITION_URL}/tags`]: [() => okJson({ tags: [] })],
       [`GET ${COMPETITION_URL}/eligibility`]: [() => okJson({ eligibilityNote: null })],
       [`GET ${COMPETITION_URL}/rounds`]: [() => okJson({ rounds: [] })],
-      [`GET ${COMPETITION_URL}/prizes`]: [() => okJson({ prizes: [] })],
+      [`GET ${COMPETITION_URL}/prizes`]: [
+        () =>
+          okJson({ prizes: [], locked: (competition as { status: string }).status !== "draft" }),
+      ],
       [`GET ${COMPETITION_URL}/fee`]: [() => okJson(PAID_FEE)],
       [`PUT ${COMPETITION_URL}/tags`]: [() => okJson({})],
       [`PUT ${COMPETITION_URL}/eligibility`]: [() => okJson({})],
@@ -2953,9 +2961,9 @@ describe("InstitutionCompetitionEditShell steps", () => {
         description: null,
       };
       stubFetchRoutes({
-        ...partRoutes(PUBLISHED),
+        ...partRoutes(COMPETITION),
         [`GET ${COMPETITION_URL}/prizes`]: [
-          () => okJson({ prizes: [storedPrize] }),
+          () => okJson({ prizes: [storedPrize], locked: false }),
           () => new Response(null, { status: 500 }),
         ],
         [`PUT ${COMPETITION_URL}/fee`]: [() => refusedWith("competition_invalid_value")],
@@ -2969,7 +2977,7 @@ describe("InstitutionCompetitionEditShell steps", () => {
       fireEvent.click(screen.getByRole("button", { name: "Tambah hadiah" }));
       fireEvent.change(storedTitle!, { target: { value: "Medali Emas" } });
       await changeFeeWindowWithAcknowledgement();
-      fireEvent.click(saveButton());
+      fireEvent.click(screen.getByRole("button", { name: "Lanjut" }));
 
       expect(
         await screen.findByText(
@@ -2980,6 +2988,42 @@ describe("InstitutionCompetitionEditShell steps", () => {
         /^Nama hadiah(?: \* \(wajib\)| \(opsional\))?$/,
       ) as HTMLInputElement[];
       expect(titles.map((input) => input.value)).toEqual(["Medali Emas"]);
+    });
+
+    it("shows the prizes of a published competition read only and sends no prize save", async () => {
+      const calls = stubFetchRoutes({
+        ...partRoutes(PUBLISHED),
+        [`GET ${COMPETITION_URL}/prizes`]: [
+          () =>
+            okJson({
+              prizes: [
+                {
+                  id: "prize_1",
+                  rankLabel: "Juara 1",
+                  title: "Medali",
+                  cashAmount: "100000.00",
+                  isCertificate: false,
+                  description: null,
+                  sortOrder: 0,
+                },
+              ],
+              locked: true,
+            }),
+        ],
+      });
+
+      render(shellWithPartsAt(4));
+
+      expect(
+        await screen.findByText("Hadiah tidak dapat diubah setelah kompetisi terbit."),
+      ).toBeTruthy();
+      expect(screen.getByText("Medali")).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "Tambah hadiah" })).toBeNull();
+      expect(screen.queryByLabelText(/^Nama hadiah/)).toBeNull();
+      fireEvent.click(saveButton());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(writeKeys(calls)).not.toContain(`PUT ${COMPETITION_URL}/prizes`);
     });
 
     it.each([

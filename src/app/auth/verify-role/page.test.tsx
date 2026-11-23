@@ -155,18 +155,18 @@ describe("the role page return address", () => {
     const html = await renderPage({ callbackUrl: RETURN_PATH });
 
     expect(html).toContain('href="/competitions/acme/lomba-1"');
-    expect(html).toContain("Satu akun dapat menjadi peserta sekaligus penyelenggara.");
+    expect(html).toContain("Satu akun dapat menjadi kandidat sekaligus penyelenggara.");
   });
 });
 
 describe("the role page words", () => {
-  it("titles the participant page Daftar sebagai peserta", async () => {
+  it("titles the candidate page Daftar sebagai kandidat", async () => {
     signInAsHost(["candidate"]);
 
     const html = await renderPage({ as: "candidate" });
 
-    expect(html).toContain("<h1>Daftar sebagai peserta</h1>");
-    expect(html).toContain("Satu akun dapat menjadi peserta sekaligus penyelenggara.");
+    expect(html).toContain("<h1>Daftar sebagai kandidat</h1>");
+    expect(html).toContain("Satu akun dapat menjadi kandidat sekaligus penyelenggara.");
   });
 
   it("titles the host page Daftar sebagai penyelenggara and calls no one rekruter", async () => {

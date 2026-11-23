@@ -8,8 +8,14 @@ import {
   users,
   type InstitutionMembershipRole,
 } from "@/server/db/schema";
+import { COMPETITIONS_CHANGING_RETRY_MESSAGE } from "@/lib/errors/error-copy";
+import { MEMBER_ROLES } from "@/server/competitions/competition-access";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 import { MemberError, type MemberRecord } from "@/server/institution-members/member-core";
+import {
+  holdsLivePlaceInInstitution,
+  lockInstitutionCompetitionsForPlaceCheck,
+} from "@/server/institution-members/live-place";
 import { countActiveOwners } from "@/server/institution-members/owner-count";
 import { lockInstitutionOwnership } from "@/server/institution-members/owner-membership-lock";
 
@@ -208,6 +214,29 @@ export const listActiveMembers = async (
     .orderBy(institutionMemberships.joinedAt);
 };
 
+type TransactionClient = Parameters<Parameters<Database["transaction"]>[0]>[0];
+
+// DEC-0273 keeps a host from joining; this keeps a joined person from becoming a host.
+const lockCompetitionsAndRefuseTargetHoldingLivePlace = async (
+  tx: TransactionClient,
+  institutionId: string,
+  targetUserId: string,
+): Promise<void> => {
+  await lockInstitutionCompetitionsForPlaceCheck(
+    tx,
+    institutionId,
+    () => new MemberError("member_role_retry", 409, COMPETITIONS_CHANGING_RETRY_MESSAGE),
+  );
+
+  if (await holdsLivePlaceInInstitution(tx, targetUserId, institutionId)) {
+    throw new MemberError(
+      "member_holds_competition_place",
+      409,
+      "Member holds a place in a running competition of this institution and cannot become its owner or staff",
+    );
+  }
+};
+
 export const changeMemberRole = async (
   actorUserId: string,
   institutionSlug: string,
@@ -263,6 +292,12 @@ export const changeMemberRole = async (
         403,
         "Target account must have recruiter role verified to hold owner or staff membership",
       );
+    }
+
+    // Taken after every refusal above and after lockInstitutionOwnership, never the reverse. Moves
+    // between owner and staff, and demotions, wait behind no competition lock.
+    if (target.role === "institution_member" && MEMBER_ROLES.includes(newRole)) {
+      await lockCompetitionsAndRefuseTargetHoldingLivePlace(tx, institutionId, target.userId);
     }
 
     // Last-owner guard: only relevant when demoting an institution_owner.

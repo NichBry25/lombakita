@@ -610,7 +610,7 @@ export const PAGES = [
     id: "86c-admin-blocked-payments",
     as: "ops",
     path: "/admin/payments",
-    label: "DEC-0132 escape hatch: blocked payments and competitions",
+    label: "DEC-0132 escape hatch: blocked payments, with the bukti transfer void",
   },
   {
     id: "87a-finance-disputes",

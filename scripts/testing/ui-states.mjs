@@ -414,19 +414,19 @@ export const CASES = [
     why: "a bukti transfer nobody is told about waits until the deadline cancels the payer",
   },
   {
-    id: "ops-hatch-offers-both-actions",
+    id: "ops-hatch-offers-the-void-and-no-cancellation",
     as: "ops",
     path: "/admin/payments",
     present: [
       "Pembayaran tertahan",
       "Lombakita tidak pernah menampung dana peserta",
       "Batalkan bukti transfer",
-      "Batalkan kompetisi",
     ],
     // A closed proof is not in flight and never blocked anything, so it must not appear here as
-    // though an operator had something to resolve. `seed-proof-c` is the rejected one.
-    absent: ["bukti-transfer-cindy.jpg"],
-    why: "DEC-0132 makes this the only way to withdraw a paid competition, so unreachable means the hatch does not exist",
+    // though an operator had something to resolve. `seed-proof-c` is the rejected one. The
+    // operator's competition cancellation has no control on this page.
+    absent: ["bukti-transfer-cindy.jpg", "Batalkan kompetisi"],
+    why: "the void is the only way to release a transfer no organiser will rule on, so unreachable means the hatch does not exist",
   },
   {
     id: "ops-hatch-withholds-void-on-a-verified-proof",

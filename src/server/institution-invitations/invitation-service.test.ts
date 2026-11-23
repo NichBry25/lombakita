@@ -1,6 +1,6 @@
 // @vitest-environment node
 
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   acceptInstitutionInvitationForUser,
   createInstitutionInvitation,
@@ -13,6 +13,26 @@ const { enqueueInstitutionInvitationDispatch } = vi.hoisted(() => ({
   enqueueInstitutionInvitationDispatch: vi.fn(),
 }));
 vi.mock("@/server/async/enqueue", () => ({ enqueueInstitutionInvitationDispatch }));
+
+// The live-place read and its locks run against a real database in
+// host-promotion-refusal-db.integration.test.ts. Here they are the seam this file drives.
+const { lockInstitutionCompetitionsForPlaceCheck, holdsLivePlaceInInstitution } = vi.hoisted(
+  () => ({
+    lockInstitutionCompetitionsForPlaceCheck: vi.fn(),
+    holdsLivePlaceInInstitution: vi.fn(),
+  }),
+);
+vi.mock("@/server/institution-members/live-place", () => ({
+  lockInstitutionCompetitionsForPlaceCheck,
+  holdsLivePlaceInInstitution,
+}));
+
+beforeEach(() => {
+  lockInstitutionCompetitionsForPlaceCheck.mockReset();
+  lockInstitutionCompetitionsForPlaceCheck.mockResolvedValue(undefined);
+  holdsLivePlaceInInstitution.mockReset();
+  holdsLivePlaceInInstitution.mockResolvedValue(false);
+});
 
 const INVITATION_ID = "inv_1";
 const TARGET_USER = "user_1";
@@ -42,14 +62,17 @@ const baseInvitation = (
 
 // Sequential select results feed `limit()` in call order; update().set().where() resolves to [].
 //
-// The first read in the acceptance transaction is the de-identified-account guard, so its row is
-// answered here rather than at every call site: `active` unless a test passes the second argument.
-// What `.limit` returns is both awaitable and carries the `.for("update")` the guard calls.
+// The first read in the acceptance transaction is the plain read that decides which competition
+// locks to take, answered here by the invitation row the test supplies first. The second is the
+// de-identified-account guard, answered here rather than at every call site: `active` unless a test
+// passes the second argument. What `.limit` returns is both awaitable and carries the
+// `.for("update")` the guard calls.
 const makeTx = (
   selectResults: unknown[][],
   deactivatedStatus: "active" | "deactivated" = "active",
 ) => {
-  const results: unknown[][] = [[{ status: deactivatedStatus }], ...selectResults];
+  const [invitationRows = []] = selectResults;
+  const results: unknown[][] = [invitationRows, [{ status: deactivatedStatus }], ...selectResults];
   let callIndex = 0;
   return {
     select: vi.fn().mockReturnThis(),
@@ -140,11 +163,11 @@ describe("acceptInstitutionInvitationForUser — session-id match", () => {
     expect(tx.insert).not.toHaveBeenCalled();
   });
 
-  it("refuses a de-identified account with 409 account_deactivated, before it reads the invitation", async () => {
+  it("refuses a de-identified account with 409 account_deactivated, before the invitation is read for the accept", async () => {
     // Acceptance hands this account a membership, so a tombstone is refused whole rather than
-    // refused at the membership write. The one read the run made is the guard's own — asserted by
-    // count, because a guard that ran after the invitation read would refuse for the same reason
-    // while the run had already read a row it should never have touched.
+    // refused at the membership write. The two reads the run made are the plain read that picks the
+    // competition locks and the guard's own, asserted by count: the read the accept acts on comes
+    // after the guard.
     const tx = makeTx([[baseInvitation()], []], "deactivated");
     await expect(
       acceptInstitutionInvitationForUser(
@@ -154,8 +177,68 @@ describe("acceptInstitutionInvitationForUser — session-id match", () => {
         makeDb(tx) as never,
       ),
     ).rejects.toMatchObject({ code: "account_deactivated", httpStatus: 409 });
-    expect(tx.limit).toHaveBeenCalledTimes(1);
+    expect(tx.limit).toHaveBeenCalledTimes(2);
     expect(tx.insert).not.toHaveBeenCalled();
+  });
+});
+
+describe("acceptInstitutionInvitationForUser — a live place in the institution's competitions", () => {
+  const acceptAs = (tx: ReturnType<typeof makeTx>) =>
+    acceptInstitutionInvitationForUser(
+      INVITATION_ID,
+      TARGET_USER,
+      ["recruiter"],
+      makeDb(tx) as never,
+    );
+
+  it("takes the competition locks before the account row is locked, for a staff invitation", async () => {
+    const tx = makeTx([[baseInvitation({ invitedRole: "institution_staff" })], []]);
+    await acceptAs(tx);
+
+    const accountGuardCallOrder = tx.limit.mock.invocationCallOrder[1]!;
+    expect(lockInstitutionCompetitionsForPlaceCheck).toHaveBeenCalledTimes(1);
+    expect(lockInstitutionCompetitionsForPlaceCheck.mock.calls[0]![1]).toBe("inst_1");
+    expect(lockInstitutionCompetitionsForPlaceCheck.mock.invocationCallOrder[0]).toBeLessThan(
+      accountGuardCallOrder,
+    );
+  });
+
+  it("refuses an owner or staff invitation with 409 when the person holds a live place, and writes nothing", async () => {
+    holdsLivePlaceInInstitution.mockResolvedValue(true);
+    const tx = makeTx([[baseInvitation({ invitedRole: "institution_owner" })], []]);
+
+    await expect(acceptAs(tx)).rejects.toMatchObject({
+      code: "member_holds_competition_place",
+      httpStatus: 409,
+    });
+    expect(tx.insert).not.toHaveBeenCalled();
+    expect(tx.set).not.toHaveBeenCalled();
+  });
+
+  it("neither locks nor reads a place for a member invitation", async () => {
+    holdsLivePlaceInInstitution.mockResolvedValue(true);
+    const tx = makeTx([[baseInvitation({ invitedRole: "institution_member" })], []]);
+
+    await expect(
+      acceptInstitutionInvitationForUser(
+        INVITATION_ID,
+        TARGET_USER,
+        ["candidate"],
+        makeDb(tx) as never,
+      ),
+    ).resolves.toBeUndefined();
+    expect(lockInstitutionCompetitionsForPlaceCheck).not.toHaveBeenCalled();
+    expect(holdsLivePlaceInInstitution).not.toHaveBeenCalled();
+  });
+
+  it("does not take the place check for another user's invitation, so the 404 is unchanged", async () => {
+    const tx = makeTx([[baseInvitation({ targetUserId: "someone_else" })]]);
+
+    await expect(acceptAs(tx)).rejects.toMatchObject({
+      code: "invitation_not_found",
+      httpStatus: 404,
+    });
+    expect(lockInstitutionCompetitionsForPlaceCheck).not.toHaveBeenCalled();
   });
 });
 

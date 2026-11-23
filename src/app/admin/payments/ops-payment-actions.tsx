@@ -14,7 +14,6 @@ import {
   FormTextarea,
 } from "@/components/ui";
 import { useModal, useModalTask, useToast, type ModalOutcome } from "@/components/ui/primitives";
-import { getCompetitionStatusLabel } from "@/lib/competitions/status-labels";
 import { LocalDate } from "@/components/ui/local-date";
 import { asSentence, formatRupiah } from "@/lib/finance/payment-display";
 import { PROOF_STATUS_LABELS, PROOF_STATUS_TONES } from "@/lib/finance/proof-display";
@@ -26,13 +25,6 @@ const OPS_PAYMENT_ERROR_COPY: Partial<Record<string, string>> = {
   manual_proof_not_voidable:
     "Bukti transfer ini tidak dapat dibatalkan lagi. Muat ulang halaman untuk melihat status terbaru.",
   operator_actor_is_target: "Anda tidak dapat menangani pembayaran yang Anda lakukan sendiri.",
-  ops_competition_not_found: "Kompetisi tidak ditemukan.",
-  ops_competition_not_published:
-    "Kompetisi ini sudah tidak berstatus terbit. Muat ulang halaman untuk melihat status terbaru.",
-  ops_competition_payment_in_flight:
-    "Kompetisi tidak dapat dibatalkan selama masih ada bukti transfer yang menunggu verifikasi atau sudah diverifikasi. Selesaikan dulu setiap bukti yang menunggu: penyelenggara memverifikasi atau menolaknya, atau Anda membatalkan bukti itu. Kompetisi dengan transfer yang sudah diverifikasi tidak dapat dibatalkan.",
-  ops_competition_concurrently_modified:
-    "Status kompetisi sudah berubah. Muat ulang halaman lalu coba lagi.",
   operator_actor_conflicted:
     "Anda tidak dapat mengambil tindakan atas institusi ini karena akun Anda pernah mengajukan verifikasi, diundang, atau menjadi anggota institusi tersebut.",
   operator_actor_not_found: "Akun Anda tidak ditemukan. Masuk lagi untuk melanjutkan.",
@@ -44,7 +36,6 @@ const OPS_PAYMENT_ERROR_COPY: Partial<Record<string, string>> = {
 const OPS_REASON_FORM_ID = "ops-reason-form";
 
 const VOID_PROOF_FALLBACK = "Bukti transfer gagal dibatalkan. Coba lagi.";
-const CANCEL_COMPETITION_FALLBACK = "Kompetisi gagal dibatalkan. Coba lagi.";
 
 export type OpsProofView = {
   proofId: string;
@@ -64,7 +55,6 @@ export type OpsCompetitionView = {
   institutionSlug: string;
   slug: string;
   status: string;
-  cancellable: boolean;
   proofs: OpsProofView[];
 };
 
@@ -82,17 +72,12 @@ export type OpsBarredProofView = {
 };
 
 /**
- * The DEC-0132 escape hatch, as an operator uses it.
+ * The one control an operator has on a blocked payment: voiding a bukti transfer.
  *
- * TWO ACTIONS AT TWO LEVELS, deliberately kept apart. Voiding one bukti transfer says nothing about
- * the competition; cancelling the competition says nothing about the transfers, and the service
- * refuses to bundle them for the same reason: one click must not both cancel a competition and
- * discard the evidence that somebody paid for it.
- *
- * NEITHER ACTION IS GUARDED HERE BEYOND WHAT THE SERVICE ENFORCES. The void is the only way to
- * release a transfer no organiser will rule on, so a gate here tighter than platform_ops itself
- * would strand the organiser and the payer the block protects. The service refuses the cancellation
- * while any transfer on the competition is in flight, and the refusal says why.
+ * THE VOID IS NOT GUARDED HERE BEYOND WHAT THE SERVICE ENFORCES. It is the only way to release a
+ * transfer no organiser will rule on, so a gate here tighter than platform_ops itself would strand
+ * the organiser and the payer the block protects. Voiding says nothing about the competition: it
+ * releases the transfer, and the organiser then withdraws the competition themselves.
  */
 export function OpsPaymentActions({
   competitions,
@@ -190,33 +175,6 @@ export function OpsPaymentActions({
     });
   };
 
-  const openCancel = (competition: OpsCompetitionView) => {
-    openModal({
-      title: "Batalkan kompetisi",
-      wide: true,
-      formId: OPS_REASON_FORM_ID,
-      body: (
-        <ReasonForm
-          intro={`${competition.title} · ${competition.proofs.length} bukti transfer belum selesai`}
-          // R8 in one sentence, and it is stated because no part of this flow can undo it: the fee
-          // already accrued to the institution stays accrued, and cancelled registrations are
-          // terminal.
-          warning="Kompetisi akan turun ke draf dan seluruh pendaftaran dibatalkan secara permanen. Biaya layanan yang sudah tercatat tidak dibatalkan. Peserta yang sudah transfer akan diberi tahu untuk menghubungi penyelenggara soal pengembalian dana."
-          placeholder="Contoh: penyelenggara membatalkan acara dan meminta penarikan lewat dukungan."
-          onSubmit={(reason) =>
-            post(
-              `/api/platform-ops/competitions/${competition.competitionId}/cancel`,
-              reason,
-              "Kompetisi dibatalkan.",
-              CANCEL_COMPETITION_FALLBACK,
-            )
-          }
-        />
-      ),
-      actions: [{ label: "Kembali" }, { label: "Batalkan kompetisi", variant: "primary" }],
-    });
-  };
-
   return (
     <>
       <PageSection title="Kompetisi tertahan">
@@ -242,9 +200,9 @@ export function OpsPaymentActions({
                       with no dot rather than failing anywhere a reviewer would see it. */}
                     <span
                       className="status-badge"
-                      data-status={competition.cancellable ? "open" : "closed"}
+                      data-status={competition.status === "published" ? "open" : "closed"}
                     >
-                      {competition.cancellable ? "Terbit" : "Tidak terbit"}
+                      {competition.status === "published" ? "Terbit" : "Tidak terbit"}
                     </span>
                   </div>
 
@@ -310,22 +268,6 @@ export function OpsPaymentActions({
                       </li>
                     ))}
                   </ul>
-
-                  {competition.cancellable ? (
-                    <div className="record-actions">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => openCancel(competition)}
-                      >
-                        Batalkan kompetisi
-                      </Button>
-                    </div>
-                  ) : (
-                    <Feedback tone="neutral">
-                      {`Kompetisi ini berstatus ${getCompetitionStatusLabel(competition.status)}, bukan Terbit, sehingga tidak ada penarikan yang perlu diambil alih.`}
-                    </Feedback>
-                  )}
                 </div>
               </li>
             ))}

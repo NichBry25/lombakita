@@ -25,6 +25,20 @@ export const GOOGLE_EMAIL_UNVERIFIED_MESSAGE =
 export const COMPETITION_HOST_CANNOT_JOIN_MESSAGE =
   "Anda pemilik atau staf penyelenggara kompetisi ini, jadi tidak dapat ikut mendaftar.";
 
+// One refusal code, two sentences: the owner promoting someone and the invitee accepting are told
+// the same fact from their own side, so each surface maps the code to its own sentence.
+export const MEMBER_HOLDS_PLACE_MESSAGE =
+  "Anggota ini masih terdaftar di kompetisi lembaga ini yang belum selesai, jadi belum dapat dijadikan pemilik atau staf.";
+
+export const INVITEE_HOLDS_PLACE_MESSAGE =
+  "Anda masih terdaftar di kompetisi lembaga ini yang belum selesai, jadi belum dapat menerima undangan sebagai pemilik atau staf.";
+
+export const OWN_PROOF_VERDICT_MESSAGE =
+  "Anda tidak dapat memeriksa bukti transfer untuk pendaftaran Anda sendiri. Minta pemilik atau staf lain untuk memeriksanya.";
+
+export const COMPETITIONS_CHANGING_RETRY_MESSAGE =
+  "Sedang ada perubahan lain pada kompetisi lembaga ini. Coba lagi.";
+
 // A key "<code>.<field>" holds the sentence for a refusal about one field.
 export const ONBOARDING_FIELD_REFUSAL_COPY: Partial<Record<string, string>> = {
   "candidate_profile_invalid_value.fullName": "Isi nama lengkap (minimal 2 karakter).",

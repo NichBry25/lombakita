@@ -23,7 +23,7 @@ import { asSentence, formatRupiah } from "@/lib/finance/payment-display";
 import { PROOF_STATUS_LABELS, PROOF_STATUS_TONES } from "@/lib/finance/proof-display";
 import { formatFileSize } from "@/lib/text/format-file-size";
 import type { ManualPaymentProofStatus } from "@/lib/finance/payment-model";
-import { errorMessageFor } from "@/lib/errors/error-copy";
+import { errorMessageFor, OWN_PROOF_VERDICT_MESSAGE } from "@/lib/errors/error-copy";
 import { readErrorCode } from "@/lib/session/session-fetch";
 
 type RefusalAction = "open" | "decision";
@@ -37,6 +37,7 @@ const PROOF_ERROR_COPY: Partial<Record<string, string>> = {
     "Permintaan tidak dapat diproses. Muat ulang halaman lalu coba lagi.",
   manual_proof_not_pending:
     "Bukti transfer ini tidak sedang menunggu tinjauan, mungkin sudah ditinjau.",
+  payment_proof_own_place: OWN_PROOF_VERDICT_MESSAGE,
   manual_proof_payment_not_found: "Pembayaran tidak ditemukan.",
   manual_proof_registration_cancelled:
     "Pendaftaran ini sudah dibatalkan, sehingga bukti transfer tidak dapat diproses.",

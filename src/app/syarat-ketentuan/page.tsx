@@ -30,7 +30,7 @@ export default function TermsPage() {
         <div className="content-shell document-hero-inner">
           <h1>Syarat & Ketentuan</h1>
           <p>
-            Ketentuan ini mengatur penggunaan Lombakita oleh peserta dan oleh institusi
+            Ketentuan ini mengatur penggunaan Lombakita oleh kandidat dan oleh institusi
             penyelenggara kompetisi.
           </p>
           <p className="document-meta">
@@ -44,7 +44,7 @@ export default function TermsPage() {
         <section className="stack-md document-clause">
           <h2 className="section-title">1. Tentang layanan ini</h2>
           <p>
-            Lombakita adalah platform yang mempertemukan peserta dengan kompetisi yang
+            Lombakita adalah platform yang mempertemukan kandidat dengan kompetisi yang
             diselenggarakan oleh institusi. Layanan ini dioperasikan oleh tim Lombakita, yang dapat
             dihubungi melalui <a href={`mailto:${COMPANY.supportEmail}`}>{COMPANY.supportEmail}</a>.
           </p>
@@ -60,7 +60,7 @@ export default function TermsPage() {
           <p>
             Pendaftaran akun terbuka untuk siapa saja. Tidak ada batasan usia, tidak ada syarat
             status pelajar atau mahasiswa, dan tidak ada keharusan berafiliasi dengan kampus mana
-            pun. Pelajar, mahasiswa, lulusan baru, dan profesional sama-sama dapat menjadi peserta.
+            pun. Pelajar, mahasiswa, lulusan baru, dan profesional sama-sama dapat menjadi kandidat.
           </p>
           <p>
             Saat mendaftar, Anda melengkapi profil berisi nama lengkap, nomor telepon, status saat
@@ -103,8 +103,9 @@ export default function TermsPage() {
             nomor WhatsApp, nomor telepon, atau alamat email. Dengan menerbitkan, penyelenggara
             menyetujui kontak itu tampil untuk umum di halaman kompetisi dan dapat muncul di mesin
             pencari. Kontak itu dihapus dari kompetisi jika akun yang memakai email tersebut
-            dihapus, atau jika akun yang pendaftaran penyelenggaranya dengan nomor tersebut sudah
-            disetujui dihapus.
+            dihapus, jika akun yang pendaftaran penyelenggaranya dengan nomor tersebut sudah
+            disetujui dihapus, atau jika penyelenggara terverifikasi yang mencantumkan nomor
+            tersebut dalam pendaftaran penyelenggaranya dihapus.
           </p>
         </section>
 

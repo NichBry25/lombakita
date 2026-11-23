@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { render, screen } from "@testing-library/react";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }) }));
 import { UIPrimitivesProvider } from "@/components/ui/primitives";
@@ -13,7 +13,6 @@ const COMPETITION: OpsCompetitionView = {
   institutionSlug: "universitas-contoh",
   slug: "lomba-robotik",
   status: "published",
-  cancellable: true,
   proofs: [
     {
       proofId: "proof_1",
@@ -29,42 +28,26 @@ const COMPETITION: OpsCompetitionView = {
   ],
 };
 
-afterEach(() => {
-  vi.unstubAllGlobals();
-});
-
-describe("what the operator is told when a cancellation is refused", () => {
-  it("names the transfers to resolve first while one is still in flight", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            error: { code: "ops_competition_payment_in_flight", message: "in flight" },
-          }),
-          { status: 409 },
-        ),
-      ),
-    );
+describe("what an operator can do on a blocked competition", () => {
+  it("offers the bukti transfer void and no competition cancellation", () => {
     render(
       <UIPrimitivesProvider>
         <OpsPaymentActions competitions={[COMPETITION]} barredProofs={[]} />
       </UIPrimitivesProvider>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Batalkan kompetisi" }));
-    const dialog = within(screen.getByRole("dialog"));
-    fireEvent.change(dialog.getByLabelText(/^Alasan(?: \* \(wajib\)| \(opsional\))?$/), {
-      target: { value: "acara dibatalkan" },
-    });
-    fireEvent.click(dialog.getByRole("button", { name: "Batalkan kompetisi" }));
+    expect(screen.getByRole("button", { name: "Batalkan bukti transfer" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Batalkan kompetisi" })).toBeNull();
+  });
 
-    await waitFor(() => {
-      expect(
-        screen.getByText(
-          "Kompetisi tidak dapat dibatalkan selama masih ada bukti transfer yang menunggu verifikasi atau sudah diverifikasi. Selesaikan dulu setiap bukti yang menunggu: penyelenggara memverifikasi atau menolaknya, atau Anda membatalkan bukti itu. Kompetisi dengan transfer yang sudah diverifikasi tidak dapat dibatalkan.",
-        ),
-      ).toBeTruthy();
-    });
+  it("offers no competition cancellation on a competition that is no longer published", () => {
+    render(
+      <UIPrimitivesProvider>
+        <OpsPaymentActions competitions={[{ ...COMPETITION, status: "draft" }]} barredProofs={[]} />
+      </UIPrimitivesProvider>,
+    );
+
+    expect(screen.getByText("Tidak terbit")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Batalkan kompetisi" })).toBeNull();
   });
 });

@@ -28,7 +28,7 @@ export default function AboutPage() {
           <h1>Tentang Lombakita</h1>
           <p>
             Lombakita adalah platform untuk menemukan dan mendaftar kompetisi di Indonesia.
-            Penyelenggara menerbitkan kompetisinya di sini, dan peserta mendaftar tanpa pindah
+            Penyelenggara menerbitkan kompetisinya di sini, dan kandidat mendaftar tanpa pindah
             situs.
           </p>
         </div>
@@ -38,7 +38,7 @@ export default function AboutPage() {
         <section className="stack-md document-clause">
           <h2 className="section-title">Layanan kami</h2>
           <p>
-            Untuk peserta: jelajahi kompetisi menurut kategori, penyelenggara, dan tenggat, simpan
+            Untuk kandidat: jelajahi kompetisi menurut kategori, penyelenggara, dan tenggat, simpan
             yang menarik, lalu daftar langsung dari halaman kompetisi, sebagai individu atau tim.
           </p>
           <p>
@@ -52,7 +52,7 @@ export default function AboutPage() {
           <h2 className="section-title">Cara mendaftar kompetisi</h2>
           <ol className="document-list prose-list">
             <li>Buka halaman kompetisi dan baca persyaratannya.</li>
-            <li>Masuk, atau buat akun sebagai peserta.</li>
+            <li>Masuk, atau buat akun sebagai kandidat.</li>
             <li>Tekan &quot;Daftar kompetisi&quot;, lalu daftar sebagai individu atau buat tim.</li>
             <li>Konfirmasi pendaftaran dikirim ke emailmu.</li>
           </ol>

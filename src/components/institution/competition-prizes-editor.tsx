@@ -16,14 +16,23 @@ import {
   useCompetitionEditorPart,
   type CompetitionPartSaveResult,
 } from "@/components/institution/competition-editor-parts";
+import {
+  DRAFT_PRIZES_HELD_BY_REGISTRATIONS_REASON,
+  PUBLISH_LOCK_REASONS,
+} from "@/lib/competitions/publish-locks";
 import { errorMessageFor } from "@/lib/errors/error-copy";
+import { formatRupiah } from "@/lib/finance/payment-display";
 import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
+
+const PRIZES_LOCKED_CODE = "competition_prizes_locked_after_publish";
 
 const SAVE_ERROR_COPY: Partial<Record<string, string>> = {
   forbidden: "Anda tidak memiliki akses ke kompetisi institusi ini.",
   competition_prizes_invalid_payload:
     "Permintaan tidak dapat diproses. Muat ulang halaman lalu coba lagi.",
   competition_prizes_invalid_value: "Periksa data hadiah lalu coba lagi.",
+  [PRIZES_LOCKED_CODE]: PUBLISH_LOCK_REASONS.prizes,
+  competition_prizes_held_by_registrations: DRAFT_PRIZES_HELD_BY_REGISTRATIONS_REASON,
 };
 
 const SAVE_FALLBACK = "Gagal menyimpan hadiah. Coba lagi.";
@@ -44,6 +53,7 @@ type PrizesResponse = {
     isCertificate: boolean;
     description: string | null;
   }>;
+  locked?: boolean;
 };
 
 const emptyRow = (): PrizeRow => ({
@@ -72,6 +82,30 @@ const prizeRowsEqual = (a: PrizeRow[], b: PrizeRow[]): boolean =>
     );
   });
 
+const ReadOnlyPrizeList = ({ prizes }: { prizes: PrizeRow[] }) => (
+  <ul className="detail-prize-list stack-sm">
+    {prizes.map((prize, index) => (
+      <li
+        key={`${prize.title}-${index}`}
+        className="detail-prize-item stack-xs"
+        data-main={index === 0 ? "true" : undefined}
+      >
+        {prize.rankLabel ? <p>{prize.rankLabel}</p> : null}
+        <div className="cluster">
+          <strong>{prize.title}</strong>
+          {prize.cashAmount && parseFloat(prize.cashAmount) > 0 ? (
+            <span className="status-badge">
+              {formatRupiah(parseFloat(prize.cashAmount), "IDR")}
+            </span>
+          ) : null}
+          {prize.isCertificate ? <span className="status-badge">Sertifikat</span> : null}
+        </div>
+        {prize.description ? <p className="muted-copy">{prize.description}</p> : null}
+      </li>
+    ))}
+  </ul>
+);
+
 export const CompetitionPrizesEditor = ({
   competitionId,
   expectedUserId,
@@ -84,6 +118,7 @@ export const CompetitionPrizesEditor = ({
   const [savedRows, setSavedRows] = useState<PrizeRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [hasLoaded, setHasLoaded] = useState(false);
+  const [isLocked, setIsLocked] = useState(false);
 
   const loadPrizes = useCallback(async () => {
     setIsLoading(true);
@@ -96,7 +131,7 @@ export const CompetitionPrizesEditor = ({
         addToast({ type: "error", message: "Gagal memuat hadiah." });
         return;
       }
-      const { prizes } = (await response.json()) as PrizesResponse;
+      const { prizes, locked } = (await response.json()) as PrizesResponse;
       const loadedRows = prizes.map((prize) => ({
         rankLabel: prize.rankLabel ?? "",
         title: prize.title,
@@ -106,6 +141,7 @@ export const CompetitionPrizesEditor = ({
       }));
       setRows(loadedRows);
       setSavedRows(loadedRows);
+      setIsLocked(locked !== false);
       setHasLoaded(true);
     } catch {
       addToast({ type: "error", message: "Gagal memuat hadiah." });
@@ -159,6 +195,7 @@ export const CompetitionPrizesEditor = ({
       );
       if (!response.ok) {
         const code = await readErrorCode(response);
+        if (code === PRIZES_LOCKED_CODE) await loadPrizes();
         return { ok: false, errorMessage: errorMessageFor(code, SAVE_ERROR_COPY, SAVE_FALLBACK) };
       }
       setRows(sentRows);
@@ -176,16 +213,27 @@ export const CompetitionPrizesEditor = ({
     <section className="content-section stack-md">
       <div className="stack-xs">
         <h2 className="section-title">Hadiah</h2>
-        <p className="form-help">
-          Tambahkan hadiah kompetisi. Nominal tunai hanya ditampilkan, karena pembayaran belum
-          aktif.
-        </p>
+        {hasLoaded && isLocked ? null : (
+          <p className="form-help">
+            Tambahkan hadiah kompetisi. Nominal tunai hanya ditampilkan, karena pembayaran belum
+            aktif.
+          </p>
+        )}
       </div>
 
       {isLoading ? (
         <p className="muted-copy">Memuat hadiah…</p>
       ) : !hasLoaded ? (
         <Feedback tone="error">{describePartLoadFailure("prizes")}</Feedback>
+      ) : isLocked ? (
+        <div className="stack-md">
+          {savedRows.length > 0 ? (
+            <ReadOnlyPrizeList prizes={savedRows} />
+          ) : (
+            <p className="muted-copy">Belum ada hadiah.</p>
+          )}
+          <Feedback tone="info">{PUBLISH_LOCK_REASONS.prizes}</Feedback>
+        </div>
       ) : (
         <div className="stack-md">
           {rows.map((row, index) => (
