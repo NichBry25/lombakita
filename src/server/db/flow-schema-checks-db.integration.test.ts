@@ -142,7 +142,7 @@ describe.skipIf(skipWithoutDatabase)("host_organization_emails_email_domain_chk"
       const constraint = await refusedConstraint(tx, (nested) =>
         nested
           .insert(hostOrganizationEmails)
-          .values(emailRow(userId, "a@bxample.com", "_xample.com")),
+          .values(emailRow(userId, "a@bxample.example", "_xample.example")),
       );
 
       expect(constraint).toBe("host_organization_emails_email_domain_chk");
