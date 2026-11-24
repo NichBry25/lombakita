@@ -124,7 +124,7 @@ export const institutionInvitationStatusEnum = pgEnum("institution_invitation_st
 // to `minimal` at recruiter signup; only `platform_ops` can lift an account to `elevated` (manual
 // review at launch — there is no mechanical verification flow). The tier only rises, except
 // that the database allows elevated to minimal inside a transaction that set
-// lombakita.trust_removal to on.
+// lombakita.trust_removal to its own transaction id.
 //   unverified — schema default for backfilled rows + non-recruiter accounts. Not reachable
 //                naturally for recruiter signups (signup auto-grants `minimal` atomically).
 //   minimal    — auto-granted on `?as=recruiter` signup. Satisfies the opportunity-creation gate.

@@ -2,7 +2,7 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/recruiter-verification/recruiter-verification-service");
 
-import { and, desc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, ne, sql } from "drizzle-orm";
 import { logger } from "@/lib/logger";
 import {
   enqueueRecruiterVerificationApproved,
@@ -594,31 +594,6 @@ export const resolveVerificationDocumentUrlForOps = async (
   return { url };
 };
 
-// Vouch signal: called when the user accepts an owner/staff invitation from an institution with
-// a Trusted owner. Sets vouched_at on the open submission if one exists and is not already
-// vouched. A withdrawn draft counts as open — the vouch is earned when the invitation is accepted,
-// and it must survive until the applicant sends the submission back to the queue. Returns true
-// when a row was marked. Never throws domain errors — the caller treats this as a fire-and-forget
-// priority bump.
-export const markRecruiterSubmissionVouched = async (
-  userId: string,
-  db: Database = getDb(),
-): Promise<boolean> => {
-  const updated = await db
-    .update(recruiterVerificationSubmissions)
-    .set({ vouchedAt: sql`now()` })
-    .where(
-      and(
-        eq(recruiterVerificationSubmissions.userId, userId),
-        inArray(recruiterVerificationSubmissions.status, ["draft", "pending_review"]),
-        isNull(recruiterVerificationSubmissions.vouchedAt),
-      ),
-    )
-    .returning({ id: recruiterVerificationSubmissions.id });
-
-  return updated.length > 0;
-};
-
 export type PendingVerificationDocument = {
   id: string;
   originalFileName: string;
@@ -637,7 +612,7 @@ export type PendingRecruiterVerificationEntry = {
 // remain editable, so a reviewer can watch a recruiter revise their evidence and can lift a
 // resubmission bar they set earlier.
 // Awaiting-review rows always sort above rejected ones. Within the awaiting group the existing
-// priority order holds: vouched first, then corporate email domain, then documents attached, then
+// priority order holds: corporate email domain first, then documents attached, then
 // oldest first — where "oldest" means first_submitted_at, the moment the account first entered the
 // queue. Ordering deliberately ignores submitted_at so that withdrawing to fix a document, or
 // reopening after a rejection, does not send the applicant to the back of the line.
@@ -669,7 +644,6 @@ export const listRecruiterVerificationQueue = async (
     )
     .orderBy(
       sql`(${recruiterVerificationSubmissions.status} = 'pending_review') desc`,
-      sql`(${recruiterVerificationSubmissions.vouchedAt} is not null) desc`,
       sql`(${recruiterVerificationSubmissions.emailDomainFlag} is true) desc`,
       sql`${hasDocuments} desc`,
       recruiterVerificationSubmissions.firstSubmittedAt,

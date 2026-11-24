@@ -48,18 +48,31 @@ export const validateSubmissionDocuments = (
 
 // Known personal-provider email domains. Used to derive the email_domain_flag for university
 // and campus_organization submissions: true = institutional domain, false = personal provider.
+// The host trust rules read the same set.
 export const PERSONAL_EMAIL_DOMAINS: ReadonlySet<string> = new Set([
   "gmail.com",
+  "googlemail.com",
   "yahoo.com",
   "yahoo.co.id",
-  "outlook.com",
-  "hotmail.com",
   "ymail.com",
-  "icloud.com",
-  "protonmail.com",
+  "rocketmail.com",
+  "outlook.com",
+  "outlook.co.id",
+  "hotmail.com",
+  "hotmail.co.id",
   "live.com",
   "msn.com",
+  "icloud.com",
   "me.com",
+  "mac.com",
+  "aol.com",
+  "protonmail.com",
+  "proton.me",
+  "gmx.com",
+  "mail.com",
+  "zoho.com",
+  "yandex.com",
+  "tutanota.com",
 ]);
 
 // Derives the email_domain_flag for university/campus_organization submissions.

@@ -214,10 +214,10 @@ describe.skipIf(skipWithoutDatabase)("elevateRecruiterTier against a real databa
 
   // THE ACTOR AS THE TARGET. The account below is a `users` row that holds `platform_ops` AND is
   // recruiter-verified at `minimal` — a shape this platform permits, because the two roles are
-  // independent columns — so every other refusal in this file would let it through. Migration 0061
-  // makes the tier column a one-way ratchet, so the elevation this refuses would have been
-  // permanent. The row is asserted unchanged AND un-audited: a refusal that still wrote the flip
-  // would satisfy "it threw" while being the self-grant it exists to prevent.
+  // independent columns — so every other refusal in this file would let it through. The database
+  // refuses a lower tier except a staff trust removal that opts in, so the elevation this refuses
+  // would have stood. The row is asserted unchanged AND un-audited: a refusal that still wrote the
+  // flip would satisfy "it threw" while being the self-grant it exists to prevent.
   it("refuses a platform_ops actor that names its own account as the target", async () => {
     await inRollback(async (tx) => {
       const actor = await seedAccount(tx, {
