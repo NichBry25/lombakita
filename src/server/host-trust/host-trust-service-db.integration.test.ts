@@ -468,6 +468,18 @@ describe.skipIf(skipWithoutDatabase)("host trust (real database)", () => {
         ]);
       });
     });
+
+    it("does not take a sign-in email with a non-ASCII character as a source", async () => {
+      await inRollback(async (tx) => {
+        const userId = await signUpHost(tx, "budi.müller@acme.example");
+
+        expect(await resolveAutomaticTrustSource(tx, userId)).toBeNull();
+        expect(await trustHostInTransaction(tx, userId)).toBeNull();
+
+        expect(await tierOf(tx, userId)).toBe("minimal");
+        expect(await organizationEmailRowsOf(tx, userId)).toEqual([]);
+      });
+    });
   });
 
   describe("publish trust", () => {

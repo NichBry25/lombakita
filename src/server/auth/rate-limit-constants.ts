@@ -98,6 +98,17 @@ export const REGISTRATION_CODE_DAILY_LIMIT = {
 } as const;
 
 /**
+ * Email organisasi code tries against one domain in a day, across every account, keyed by the
+ * domain. FAIL CLOSED and counted before the attempt is claimed, so many accounts guessing codes
+ * for addresses at one organization cannot add up to an unbounded number of guesses.
+ */
+export const ORGANIZATION_EMAIL_DOMAIN_TRY_LIMIT = {
+  limit: 50,
+  windowSeconds: 24 * 60 * 60,
+  keyPrefix: "rl:org-email-domain-try:",
+} as const;
+
+/**
  * Fixed-window limiter keyed by the ADDRESS a verification email is being requested for.
  *
  * This is the anti-amplification bound proper: without it, an attacker rotating IPs can have the

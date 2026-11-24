@@ -1631,13 +1631,15 @@ export const EXTERNAL_STORES: readonly ExternalStore[] = Object.freeze([
     store: "Redis rate-limit counters",
     address:
       "rl:identify: · rl:login-fail: · rl:register: · rl:register-resend-ip: · " +
-      "rl:verify-email-addr: · rl:mfa: · rl:register-verify-ip: · rl:register-code: · rl:register-code-day:",
+      "rl:verify-email-addr: · rl:mfa: · rl:register-verify-ip: · rl:register-code: · rl:register-code-day:" +
+      " · rl:org-email-domain-try:",
     scope: "user",
     reached: false,
     reason:
       "keyed by IP, or by IP:email, or by user id (rl:mfa:, rl:register-code-day:), or by a code's " +
-      "row id (rl:register-code:). Fixed-window keys with a TTL of minutes to a day, so they lapse " +
-      "on their own; nothing deletes them early and nothing needs to",
+      "row id (rl:register-code:), or by an email domain (rl:org-email-domain-try:). Fixed-window " +
+      "keys with a TTL of minutes to a day, so they lapse on their own; nothing deletes them early " +
+      "and nothing needs to",
   },
   {
     store: "Redis OAuth single-use nonce",

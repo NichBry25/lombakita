@@ -14,6 +14,7 @@ import {
   competitionSubmissions,
   competitions,
   financePaymentInstructionSnapshots,
+  hostOrganizationEmails,
   institutionInvitations,
   institutionMemberships,
   institutionPaymentInstructions,
@@ -24,6 +25,7 @@ import {
   mfaFactors,
   mfaRecoveryCodes,
   notifications,
+  organizationEmailChallenges,
   platformOpsNotes,
   profileCertifications,
   profileEducations,
@@ -1025,6 +1027,20 @@ const runDeidentificationWrites = async (
       .delete(recruiterVerificationSubmissions)
       .where(eq(recruiterVerificationSubmissions.userId, accountId))
       .returning({ id: recruiterVerificationSubmissions.id }),
+  );
+
+  await deleteFrom("host_organization_emails", () =>
+    tx
+      .delete(hostOrganizationEmails)
+      .where(eq(hostOrganizationEmails.userId, accountId))
+      .returning({ id: hostOrganizationEmails.userId }),
+  );
+
+  await deleteFrom("organization_email_challenges", () =>
+    tx
+      .delete(organizationEmailChallenges)
+      .where(eq(organizationEmailChallenges.userId, accountId))
+      .returning({ id: organizationEmailChallenges.id }),
   );
 
   // Invitations addressed to the person, by id or by an address that resolves to them. `lower()`

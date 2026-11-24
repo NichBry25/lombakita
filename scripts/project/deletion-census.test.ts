@@ -45,6 +45,7 @@ import {
   unruledTables,
 } from "./deletion-census";
 import { renderEnumeration } from "./emit-deletion-enumeration";
+import { ORGANIZATION_EMAIL_DOMAIN_TRY_LIMIT } from "@/server/auth/rate-limit-constants";
 
 describe("the derived Postgres population", () => {
   it("derives the table list from the schema rather than from a written-down number", () => {
@@ -578,5 +579,13 @@ describe("the stores outside Postgres", () => {
       "Resend message log",
       "Sentry events",
     ]);
+  });
+
+  it("names the Email organisasi domain try counter in the Redis rate-limit entry", () => {
+    const entry = EXTERNAL_STORES.find((store) => store.store === "Redis rate-limit counters");
+    if (!entry) throw new Error("The Redis rate-limit entry is missing");
+
+    expect(entry.address).toContain(ORGANIZATION_EMAIL_DOMAIN_TRY_LIMIT.keyPrefix);
+    expect(entry.reason).toContain("or by an email domain (rl:org-email-domain-try:)");
   });
 });

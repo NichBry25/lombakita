@@ -1,8 +1,13 @@
 import { and, eq, inArray, isNotNull, isNull, ne, sql, type SQL } from "drizzle-orm";
 import { SELF_SERVICE_ROLES } from "@/lib/access/roles";
+import { normalizeEmail } from "@/server/auth/credentials-auth";
 import { getDb, type Database } from "@/server/db/client";
 import { hostOrganizationEmails, institutionMemberships, users } from "@/server/db/schema";
-import { extractEmailDomain, isFreeOrThrowawayEmailDomain } from "@/server/host-trust/email-domain";
+import {
+  extractEmailDomain,
+  holdsOnlyPrintableAscii,
+  isFreeOrThrowawayEmailDomain,
+} from "@/server/host-trust/email-domain";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/host-trust/host-trust-service");
@@ -48,17 +53,17 @@ const holdsConfirmedSignInEmailOnOrganizationDomain = async (
     .limit(1);
   if (!account || account.emailVerified === null) return false;
 
-  const domain = extractEmailDomain(account.email);
+  const signInEmail = normalizeEmail(account.email);
+  if (!holdsOnlyPrintableAscii(signInEmail)) return false;
+
+  const domain = extractEmailDomain(signInEmail);
   if (domain === null || isFreeOrThrowawayEmailDomain(domain)) return false;
 
   const [otherAccountHoldingItAsOrganizationEmail] = await tx
     .select({ userId: hostOrganizationEmails.userId })
     .from(hostOrganizationEmails)
     .where(
-      and(
-        ne(hostOrganizationEmails.userId, userId),
-        sql`${hostOrganizationEmails.email} = lower(${account.email})`,
-      ),
+      and(ne(hostOrganizationEmails.userId, userId), eq(hostOrganizationEmails.email, signInEmail)),
     )
     .limit(1);
   return otherAccountHoldingItAsOrganizationEmail === undefined;
@@ -92,7 +97,7 @@ export const trustHostInTransaction = async (
   if (source === null) return null;
 
   if (source === "sign_in_email") {
-    const email = eligibleAccount.email.trim().toLowerCase();
+    const email = normalizeEmail(eligibleAccount.email);
     const recordedRows = await tx
       .insert(hostOrganizationEmails)
       .values({

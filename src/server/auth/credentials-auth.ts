@@ -154,6 +154,8 @@ export const normalizeEmail = (email: string): string => {
   return email.trim().toLowerCase();
 };
 
+export const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 const parseEmail = (email: unknown): string => {
   if (typeof email !== "string") {
     throw new CredentialsAuthError("invalid_email", 400, "Email must be a valid email address");
@@ -161,7 +163,7 @@ const parseEmail = (email: unknown): string => {
 
   const normalized = normalizeEmail(email);
 
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
+  if (!EMAIL_SHAPE.test(normalized)) {
     throw new CredentialsAuthError("invalid_email", 400, "Email must be a valid email address");
   }
 

@@ -44,6 +44,7 @@ import {
   financeFeeRules,
   financePaymentInstructionSnapshots,
   financePayments,
+  hostOrganizationEmails,
   institutionAuditLogs,
   institutionInvitations,
   institutionMemberships,
@@ -55,6 +56,7 @@ import {
   mfaFactors,
   mfaRecoveryCodes,
   notifications,
+  organizationEmailChallenges,
   platformOpsAuditLogs,
   platformOpsNotes,
   profileCertifications,
@@ -445,6 +447,36 @@ const buildFixture = async (tx: Tx): Promise<Fixture> => {
     fileSizeBytes: 256,
     contentType: "application/pdf",
   });
+
+  await tx.insert(hostOrganizationEmails).values([
+    {
+      userId: f.target,
+      email: `deident_org_${f.suffix}@example.test`,
+      domain: "example.test",
+      confirmedAt: new Date(),
+    },
+    {
+      userId: f.bystander,
+      email: `deident_by_org_${f.suffix}@example.test`,
+      domain: "example.test",
+      confirmedAt: new Date(),
+    },
+  ]);
+
+  await tx.insert(organizationEmailChallenges).values([
+    {
+      userId: f.target,
+      email: `deident_org_${f.suffix}@example.test`,
+      codeHash: "fixture-code-hash",
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+    },
+    {
+      userId: f.bystander,
+      email: `deident_by_org_${f.suffix}@example.test`,
+      codeHash: "fixture-code-hash",
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+    },
+  ]);
 
   await tx.insert(platformOpsNotes).values([
     {
@@ -1200,6 +1232,8 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
           ["candidate_profiles", "user_id"],
           ["platform_ops_notes", "target_user_id"],
           ["recruiter_verification_submissions", "user_id"],
+          ["host_organization_emails", "user_id"],
+          ["organization_email_challenges", "user_id"],
           ["institution_invitations", "target_user_id"],
           ["team_invitations", "target_user_id"],
         ];
@@ -1237,6 +1271,10 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
 
         // The bystander's own row is where it was.
         expect(await countRows(tx, "competition_registrations", "student_id", f.bystander)).toBe(1);
+        expect(await countRows(tx, "host_organization_emails", "user_id", f.bystander)).toBe(1);
+        expect(await countRows(tx, "organization_email_challenges", "user_id", f.bystander)).toBe(
+          1,
+        );
 
         // ---- the scrubs -----------------------------------------------------------------------
         const [profile] = await tx
@@ -1416,6 +1454,8 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
         expect(metadata.rowsDeleted.user_password_reset_tokens).toBe(1);
         expect(metadata.rowsDeleted.notifications).toBe(1);
         expect(metadata.rowsDeleted.competition_document_request_files).toBe(1);
+        expect(metadata.rowsDeleted.host_organization_emails).toBe(1);
+        expect(metadata.rowsDeleted.organization_email_challenges).toBe(1);
         expect(metadata.rowsScrubbed.user_profiles).toBe(1);
         expect(metadata.rowsScrubbed.competition_submissions).toBe(1);
         expect(metadata.rowsScrubbed.institutions).toBe(1);

@@ -179,9 +179,9 @@ describe("readJournalMigrations", () => {
   it("hashes every declared migration in the real journal", () => {
     const journal = readJournalMigrations("drizzle");
 
-    expect(journal).toHaveLength(71);
+    expect(journal).toHaveLength(72);
     expect(journal[0]?.index).toBe(0);
-    expect(journal[70]?.index).toBe(70);
+    expect(journal[71]?.index).toBe(71);
     for (const migration of journal) {
       expect(migration.hash, migration.tag).toMatch(/^[0-9a-f]{64}$/);
     }

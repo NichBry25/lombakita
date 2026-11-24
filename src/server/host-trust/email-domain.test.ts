@@ -2,7 +2,11 @@
 
 import { describe, expect, it } from "vitest";
 import disposableEmailDomains from "./disposable-email-domains.json";
-import { extractEmailDomain, isFreeOrThrowawayEmailDomain } from "./email-domain";
+import {
+  extractEmailDomain,
+  holdsOnlyPrintableAscii,
+  isFreeOrThrowawayEmailDomain,
+} from "./email-domain";
 import { PERSONAL_EMAIL_DOMAINS } from "@/server/institution-verification/verification-requirements";
 
 const EXPECTED_FREE_PROVIDERS = [
@@ -10,6 +14,8 @@ const EXPECTED_FREE_PROVIDERS = [
   "googlemail.com",
   "yahoo.com",
   "yahoo.co.id",
+  "yahoo.co.uk",
+  "yahoo.co.jp",
   "ymail.com",
   "rocketmail.com",
   "outlook.com",
@@ -23,12 +29,28 @@ const EXPECTED_FREE_PROVIDERS = [
   "mac.com",
   "aol.com",
   "protonmail.com",
+  "protonmail.ch",
   "proton.me",
+  "pm.me",
   "gmx.com",
+  "gmx.net",
+  "gmx.de",
+  "web.de",
   "mail.com",
   "zoho.com",
   "yandex.com",
+  "yandex.ru",
   "tutanota.com",
+  "tutanota.de",
+  "tuta.io",
+  "mail.ru",
+  "qq.com",
+  "163.com",
+  "126.com",
+  "fastmail.com",
+  "hey.com",
+  "naver.com",
+  "rediffmail.com",
 ];
 
 describe("email domains", () => {
@@ -41,6 +63,29 @@ describe("email domains", () => {
     expect(extractEmailDomain("budi.acme.example")).toBeNull();
     expect(extractEmailDomain("a@b@acme.example")).toBeNull();
     expect(extractEmailDomain("budi@")).toBeNull();
+  });
+
+  it("reads no domain when a label is empty or the domain has one label", () => {
+    expect(extractEmailDomain("x@gmail.com.")).toBeNull();
+    expect(extractEmailDomain("x@acme..example")).toBeNull();
+    expect(extractEmailDomain("budi@localhost")).toBeNull();
+  });
+
+  it("reads no domain from a domain with a character outside ASCII letters, digits and hyphens", () => {
+    expect(extractEmailDomain("budi@bücher.example")).toBeNull();
+    expect(extractEmailDomain("budi@acme_corp.example")).toBeNull();
+  });
+
+  it("still reads a subdomain of an organization domain as an organization domain", () => {
+    expect(extractEmailDomain("a@sub.acme.example")).toBe("sub.acme.example");
+    expect(isFreeOrThrowawayEmailDomain("sub.acme.example")).toBe(false);
+  });
+
+  it("tells printable ASCII text from text with any other character", () => {
+    expect(holdsOnlyPrintableAscii("budi@acme.example")).toBe(true);
+    expect(holdsOnlyPrintableAscii("Budİ@acme.example")).toBe(false);
+    expect(holdsOnlyPrintableAscii("budi @acme.example")).toBe(false);
+    expect(holdsOnlyPrintableAscii("budi\t@acme.example")).toBe(false);
   });
 
   it("lists exactly the free providers the trust rules name", () => {
