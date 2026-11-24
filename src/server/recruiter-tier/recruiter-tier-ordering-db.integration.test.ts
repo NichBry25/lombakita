@@ -7,8 +7,9 @@
 // `src/` that writes a lower tier — so a test that went through the service would exercise the
 // absence of a demotion feature and prove nothing about the database. The claim is stronger than
 // that: the ORDERING is enforced by the schema, so an UPDATE that lowers the tier is refused even
-// when nothing in the application issued it. Raw SQL against the table is the only way to make that
-// claim, and it is what the acceptance criterion asks for.
+// when nothing in the application issued it, apart from the one move elevated to minimal that a
+// transaction opts into by setting lombakita.trust_removal to on. Raw SQL against the table is the
+// only way to make that claim, and it is what the acceptance criterion asks for.
 //
 // The connection here is the ordinary application role out of `.env.local` (`lombakita_app`), which
 // does NOT own the table — so the refusal cannot be an ownership artefact, and the test asserts the
@@ -235,5 +236,68 @@ describe.skipIf(skipWithoutDatabase)("the ordering has exactly one source", () =
     const fromDatabase = rows.map((row) => row.enumlabel);
 
     expect(fromDatabase).toEqual([...RECRUITER_TIERS]);
+  });
+});
+
+/** The opt-in the staff removal of trust sets inside its own transaction. */
+const optIntoTrustRemoval = async (tx: Tx, value: string): Promise<void> => {
+  await tx.execute(sql`select set_config('lombakita.trust_removal', ${value}, true)`);
+};
+
+describe.skipIf(skipWithoutDatabase)("the one backwards move a transaction can opt into", () => {
+  it("allows elevated -> minimal when the transaction set lombakita.trust_removal to on", async () => {
+    await inRollback(async (tx) => {
+      const account = await seedAtTier(tx, "elevated");
+      await optIntoTrustRemoval(tx, "on");
+
+      await demoteByHand(tx, account, "minimal");
+
+      expect(await readTier(tx, account)).toBe("minimal");
+    });
+  });
+
+  it("refuses elevated -> minimal when the setting holds a value other than on", async () => {
+    await inRollback(async (tx) => {
+      const account = await seedAtTier(tx, "elevated");
+      await optIntoTrustRemoval(tx, "yes");
+
+      const refusal = await expectRejection(tx, (nested) =>
+        demoteByHand(nested, account, "minimal"),
+      );
+
+      expect(refusal.code).toBe("23514");
+      expect(refusal.constraint).toBe(NO_DOWNGRADE_CONSTRAINT);
+      expect(await readTier(tx, account)).toBe("elevated");
+    });
+  });
+
+  it("still refuses elevated -> unverified with the setting on", async () => {
+    await inRollback(async (tx) => {
+      const account = await seedAtTier(tx, "elevated");
+      await optIntoTrustRemoval(tx, "on");
+
+      const refusal = await expectRejection(tx, (nested) =>
+        demoteByHand(nested, account, "unverified"),
+      );
+
+      expect(refusal.code).toBe("23514");
+      expect(refusal.constraint).toBe(NO_DOWNGRADE_CONSTRAINT);
+      expect(await readTier(tx, account)).toBe("elevated");
+    });
+  });
+
+  it("still refuses minimal -> unverified with the setting on", async () => {
+    await inRollback(async (tx) => {
+      const account = await seedAtTier(tx, "minimal");
+      await optIntoTrustRemoval(tx, "on");
+
+      const refusal = await expectRejection(tx, (nested) =>
+        demoteByHand(nested, account, "unverified"),
+      );
+
+      expect(refusal.code).toBe("23514");
+      expect(refusal.constraint).toBe(NO_DOWNGRADE_CONSTRAINT);
+      expect(await readTier(tx, account)).toBe("minimal");
+    });
   });
 });

@@ -31,11 +31,10 @@ const edgeName = (edge: { table: string; column: string }): string =>
   `${edge.table}.${edge.column}`;
 
 describe("the derived edges into users", () => {
-  it("derives 48 edges, 17 allowed and 31 blocking, as the census derives them", () => {
-    // 48/17/31 after user_password_reset_tokens.user_id (LAUNCH-D192)
-    expect(derivedLeftoverEdges()).toHaveLength(48);
-    expect(LEFTOVER_RULINGS.filter((ruling) => ruling.ruling === "allowed")).toHaveLength(17);
-    expect(blockingRulings()).toHaveLength(31);
+  it("derives 53 edges, 18 allowed and 35 blocking, as the census derives them", () => {
+    expect(derivedLeftoverEdges()).toHaveLength(53);
+    expect(LEFTOVER_RULINGS.filter((ruling) => ruling.ruling === "allowed")).toHaveLength(18);
+    expect(blockingRulings()).toHaveLength(35);
   });
 
   it("has no derived edge without a ruling", () => {
@@ -110,8 +109,8 @@ describe("the rendered fragments", () => {
   });
 
   it("add one guard and one listing select per edge, blocking edges then the two email arms", () => {
-    expect(absent.split("\n")).toHaveLength(31 + 2);
-    expect(listing.split("\n    union all\n")).toHaveLength(31 + 2);
+    expect(absent.split("\n")).toHaveLength(35 + 2);
+    expect(listing.split("\n    union all\n")).toHaveLength(35 + 2);
   });
 
   it("match the email arms with lower(btrim(the account's email)) on the exact forms", () => {

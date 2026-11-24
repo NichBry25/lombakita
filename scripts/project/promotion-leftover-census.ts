@@ -99,6 +99,7 @@ export const LEFTOVER_RULINGS: readonly LeftoverRuling[] = Object.freeze([
   allowed(SCAFFOLDING, SCAFFOLDING_REASON, "candidate_profiles", "user_id"),
   allowed(SCAFFOLDING, SCAFFOLDING_REASON, "mfa_factors", "user_id"),
   allowed(SCAFFOLDING, SCAFFOLDING_REASON, "mfa_recovery_codes", "user_id"),
+  allowed(SCAFFOLDING, SCAFFOLDING_REASON, "organization_email_challenges", "user_id"),
   allowed("inbox", "owner ruling: the inbox may remain", "notifications", "user_id"),
   allowed("bookmarks", "owner ruling: bookmarks may remain", "competition_saves", "user_id"),
 
@@ -111,6 +112,8 @@ export const LEFTOVER_RULINGS: readonly LeftoverRuling[] = Object.freeze([
   blocks("competing", "competition_reviews", "author_user_id"),
   blocks("competing", "competition_document_requests", "requested_by_user_id"),
   blocks("competing", "competition_document_requests", "reviewed_by_user_id"),
+  blocks("competing", "competition_reports", "reporter_user_id"),
+  blocks("competing", "competition_reports", "handled_by_user_id"),
 
   blocks("institutions", "institution_memberships", "user_id"),
   blocks("institutions", "institution_memberships", "invited_by_user_id"),
@@ -121,9 +124,11 @@ export const LEFTOVER_RULINGS: readonly LeftoverRuling[] = Object.freeze([
   blocks("institutions", "institution_verification_submissions", "submitted_by_user_id"),
   blocks("institutions", "institution_verification_submissions", "reviewer_user_id"),
   blocks("institutions", "competitions", "created_by_user_id"),
+  blocks("institutions", "competitions", "frozen_by_user_id"),
 
   blocks("recruiting", "recruiter_verification_submissions", "user_id"),
   blocks("recruiting", "recruiter_verification_submissions", "reviewer_user_id"),
+  blocks("recruiting", "host_organization_emails", "user_id"),
 
   blocks("money", "finance_payments", "payer_user_id"),
   blocks("money", "finance_manual_payment_proofs", "submitted_by_user_id"),

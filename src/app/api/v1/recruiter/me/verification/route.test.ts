@@ -42,6 +42,8 @@ const reviewedSubmission = {
   firstSubmittedAt: NOW,
   submittedAt: NOW,
   reviewedAt: NOW,
+  competitionId: null,
+  guidelineItem: null,
 };
 
 const attachedDocument = {

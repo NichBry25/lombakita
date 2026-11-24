@@ -461,9 +461,12 @@ describe.skipIf(skipWithoutDatabase)("the deletion census oracle", () => {
     // THE BLIND SPOT, derived from the schema rather than listed: the rule asked whether the SOURCE
     // TABLE was inside the closure, so it dropped every blocking or detaching edge whose source
     // table is — without asking what that edge's rows do.
+    // Only an edge whose target the deletion reaches can be measured, so the target must be
+    // inside too.
     const insideTheClosure = schemaForeignKeys()
       .filter((key) => ["no action", "restrict", "set null"].includes(key.onDelete))
       .filter((key) => closure.has(key.sourceTable))
+      .filter((key) => closure.has(key.targetTable))
       .map(censusKey)
       .sort();
 

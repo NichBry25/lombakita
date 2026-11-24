@@ -470,6 +470,20 @@
       "when": 1794843493568,
       "tag": "0066_pale_kree",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1795457568009,
+      "tag": "0067_flow_simplification_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1795457574405,
+      "tag": "0068_flow_trust_removal",
+      "breakpoints": true
     }
   ]
 }
