@@ -39,7 +39,7 @@ export const isCompetitionCategory = (value: string): value is CompetitionCatego
   (COMPETITION_CATEGORY_VALUES as readonly string[]).includes(value);
 
 // Status state machine for competitions.
-// draft → published   (admin only, institution must be verified, publish-validation must pass)
+// draft → published   (owner or staff, a paid draft by the owner only, publish-validation must pass)
 // published → draft   (admin-only "unpublish"; cancels every active registration)
 //
 // There is no archive transition. A competition that has finished stays published so its rules,
@@ -69,6 +69,12 @@ type CompetitionErrorCode =
   | "competition_organizer_contact_not_indonesian"
   | "competition_institution_not_verified"
   | "competition_recruiter_not_trusted"
+  // Only an owner sets a price, so only an owner puts a paid draft live.
+  | "competition_paid_publish_owner_only"
+  // The account already has an open host check on another draft.
+  | "host_check_pending_other_draft"
+  // A host check copies a name and a phone number, and the account has neither.
+  | "host_check_contact_missing"
   | "institution_suspended"
   | "competition_slug_taken"
   | "competition_delete_not_allowed"
@@ -122,6 +128,9 @@ export type CompetitionErrorDetails = {
   // The fields a post-publish edit may not change in the requested direction. Surfaced so
   // the editor can name the offending field(s) in a modal.
   blockedFields?: string[];
+  // The title of the draft whose host check is open, given only while the caller still runs its
+  // institution as owner or staff.
+  pendingCompetitionTitle?: string;
 };
 
 export class CompetitionError extends Error {

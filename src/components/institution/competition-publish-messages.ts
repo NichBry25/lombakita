@@ -66,6 +66,11 @@ const REASONS: Record<CompetitionPublishBlockerCode, PublishBlockerReason> = {
     text: "Untuk siapa kompetisi ini belum diisi. Pilih minimal satu pilihan Untuk di bagian Kelayakan.",
     link: { kind: "edit", label: "Isi Untuk" },
   },
+  competition_paid_publish_owner_only: {
+    code: "competition_paid_publish_owner_only",
+    text: "Kompetisi berbayar hanya dapat diterbitkan oleh pemilik institusi.",
+    link: null,
+  },
   competition_institution_not_verified: {
     code: "competition_institution_not_verified",
     text: "Kompetisi berbayar hanya dapat diterbitkan oleh institusi yang sudah terverifikasi.",

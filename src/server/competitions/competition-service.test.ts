@@ -286,7 +286,7 @@ describe("F5-5 — publish rejects team competition with minTeamSize < 2 (Step 6
     });
   });
 
-  it("rejects publish with 403 competition_recruiter_not_trusted when the actor is not Trusted", async () => {
+  it("refuses an incomplete draft before the trust gate runs", async () => {
     assertCompetitionAccess.mockResolvedValue({
       competition: baseCompetition({
         status: "draft",
@@ -308,15 +308,15 @@ describe("F5-5 — publish rejects team competition with minTeamSize < 2 (Step 6
         "Publishing requires a Trusted Recruiter account — complete recruiter verification first",
       ),
     );
+    assertInstitutionNotSuspended.mockResolvedValue(undefined);
 
     await expect(
       transitionCompetitionStatus("user_1", "comp_1", "published", stubDb),
     ).rejects.toMatchObject({
-      code: "competition_recruiter_not_trusted",
-      httpStatus: 403,
+      code: "competition_publish_validation_failed",
+      httpStatus: 422,
     });
-    // The trust gate fires before the suspension read — no institution lookup happens.
-    expect(assertInstitutionNotSuspended).not.toHaveBeenCalled();
+    expect(assertActorIsTrustedRecruiter).not.toHaveBeenCalled();
   });
 
   it("validatePublishChecklist passes for an otherwise-identical team competition with minTeamSize=2", async () => {
@@ -604,6 +604,8 @@ describe("personal institution publish — capability is independent of institut
     expect(capturedUpdates[0]).toMatchObject({ status: "published" });
     // The account-level trust gate is what authorizes this publish.
     expect(assertActorIsTrustedRecruiter).toHaveBeenCalledTimes(1);
+    expect(assertActorIsTrustedRecruiter).toHaveBeenCalledWith("user_1", "inst_1", db);
+    expect(assertCompetitionAccess).toHaveBeenCalledWith("user_1", "comp_1", "member", db);
   });
 
   it("still enforces the personal reach cap — the capability is bounded, not unconditional", async () => {
@@ -618,5 +620,30 @@ describe("personal institution publish — capability is independent of institut
     await expect(
       transitionCompetitionStatus("user_1", "comp_1", "published", db),
     ).rejects.toMatchObject({ code: "competition_personal_publish_limit", httpStatus: 422 });
+  });
+
+  it("runs the trust gate last and writes nothing when it refuses", async () => {
+    assertCompetitionAccess.mockResolvedValue({
+      competition: publishableDraft(),
+      membershipRole: "institution_owner",
+    });
+    assertInstitutionNotSuspended.mockResolvedValue(undefined);
+    assertActorIsTrustedRecruiter.mockRejectedValue(
+      new CompetitionError(
+        "competition_recruiter_not_trusted",
+        403,
+        "Publishing requires a trusted host, or a trusted owner of the institution",
+      ),
+    );
+    const { db, capturedUpdates } = makePersonalPublishDb(1);
+
+    await expect(
+      transitionCompetitionStatus("user_1", "comp_1", "published", db),
+    ).rejects.toMatchObject({ code: "competition_recruiter_not_trusted", httpStatus: 403 });
+    expect(capturedUpdates).toEqual([]);
+    expect(assertActorIsTrustedRecruiter).toHaveBeenCalledWith("user_1", "inst_1", db);
+    expect(assertInstitutionNotSuspended.mock.invocationCallOrder[0]!).toBeLessThan(
+      assertActorIsTrustedRecruiter.mock.invocationCallOrder[0]!,
+    );
   });
 });

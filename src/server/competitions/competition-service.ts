@@ -53,6 +53,7 @@ import {
   assertCompetitionRead,
   assertInstitutionNotSuspended,
   assertInstitutionVerified,
+  assertPaidCompetitionPublisherIsOwner,
   assertPersonalCompetitionPublishable,
   assertPersonalInstitutionIndividualMode,
   hasActiveRegistrationsForCompetition,
@@ -1001,8 +1002,9 @@ export const transitionCompetitionStatus = async (
   targetStatus: CompetitionStatus,
   db: Database = getDb(),
 ): Promise<StatusTransitionResult> => {
-  // All transitions require institution_owner.
-  const { competition } = await assertCompetitionAccess(actorUserId, competitionId, "admin", db);
+  // Owners and institution_staff publish. A paid draft is held to an owner below.
+  const access = await assertCompetitionAccess(actorUserId, competitionId, "member", db);
+  const { competition, membershipRole } = access;
 
   // Same-status transitions are rejected as invalid: ALLOWED_TRANSITIONS does not contain any
   // from===to edge (e.g. published → published).
@@ -1027,12 +1029,11 @@ export const transitionCompetitionStatus = async (
     );
   }
 
-  // Publish guards: the acting recruiter must be Trusted (account-level gate), the institution
-  // must not be suspended, and the publish-validation checklist must pass. Validation runs
-  // against the merged DB row (not caller payload) so partial PATCHes that left the row
-  // internally inconsistent are caught here. This is the second gate referenced in DEC-0028.
+  // Publish guards: the institution must not be suspended, the publish-validation checklist must
+  // pass, and the actor must be trusted, checked last. Validation runs against the merged DB row
+  // (not caller payload) so partial PATCHes that left the row internally inconsistent are caught
+  // here. This is the second gate referenced in DEC-0028.
   if (competition.status === "draft" && targetStatus === "published") {
-    await assertActorIsTrustedRecruiter(actorUserId, db);
     await assertInstitutionNotSuspended(competition.institutionId, db);
     const result = validatePublishChecklist({
       title: competition.title,
@@ -1075,6 +1076,7 @@ export const transitionCompetitionStatus = async (
     const pricing = await loadCompetitionPricing(competitionId, db);
 
     if (isPaidCompetition(pricing.feeAmount)) {
+      assertPaidCompetitionPublisherIsOwner(membershipRole);
       await assertInstitutionVerified(competition.institutionId, db);
     }
 
@@ -1085,6 +1087,10 @@ export const transitionCompetitionStatus = async (
       { id: competition.id, institutionId: competition.institutionId, mode: competition.mode },
       db,
     );
+
+    // Last, so an untrusted host's press opens a host check only for a draft that passes every
+    // other check.
+    await assertActorIsTrustedRecruiter(actorUserId, competition.institutionId, db);
   }
 
   // This function writes only draft → published. Unpublish (published → draft) is

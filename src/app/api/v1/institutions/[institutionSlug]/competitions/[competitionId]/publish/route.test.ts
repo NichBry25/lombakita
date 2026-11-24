@@ -7,22 +7,22 @@ import { SESSION_USER_HEADER } from "@/lib/session/session-fetch";
 
 const {
   requireAuthenticatedSession,
-  transitionCompetitionStatus,
+  publishOrOpenHostCheck,
   unpublishCompetition,
   assertCompetitionInInstitution,
 } = vi.hoisted(() => ({
   requireAuthenticatedSession: vi.fn(),
-  transitionCompetitionStatus: vi.fn(),
+  publishOrOpenHostCheck: vi.fn(),
   unpublishCompetition: vi.fn(),
   assertCompetitionInInstitution: vi.fn(),
 }));
 
 vi.mock("@/server/auth/session", () => ({ requireAuthenticatedSession }));
 vi.mock("@/server/competitions/competition-service", () => ({
-  transitionCompetitionStatus,
   unpublishCompetition,
   assertCompetitionInInstitution,
 }));
+vi.mock("@/server/host-trust/host-check-service", () => ({ publishOrOpenHostCheck }));
 
 import { POST as PUBLISH } from "@/app/api/v1/institutions/[institutionSlug]/competitions/[competitionId]/publish/route";
 import { POST as UNPUBLISH } from "@/app/api/v1/institutions/[institutionSlug]/competitions/[competitionId]/unpublish/route";
@@ -34,6 +34,11 @@ const adminSession = {
 
 const staffSession = {
   user: { id: "staff_1", role: "recruiter", email: "staff@example.com" },
+  expires: new Date(Date.now() + 60_000).toISOString(),
+};
+
+const memberSession = {
+  user: { id: "member_1", role: "recruiter", email: "member@example.com" },
   expires: new Date(Date.now() + 60_000).toISOString(),
 };
 
@@ -73,19 +78,48 @@ describe("POST /api/v1/institutions/[institutionSlug]/competitions/[competitionI
   it("returns 200 on draft → published with verified institution", async () => {
     requireAuthenticatedSession.mockResolvedValue(adminSession);
     assertCompetitionInInstitution.mockResolvedValue(undefined);
-    transitionCompetitionStatus.mockResolvedValue({ competition: baseCompetition });
+    publishOrOpenHostCheck.mockResolvedValue({
+      outcome: "published",
+      competition: baseCompetition,
+    });
     const response = await PUBLISH(makeRequest(), makeParams("lk-univ", "comp_1"));
     expect(response.status).toBe(200);
     expect(assertCompetitionInInstitution).toHaveBeenCalledWith("lk-univ", "comp_1");
-    expect(transitionCompetitionStatus).toHaveBeenCalledWith("admin_1", "comp_1", "published");
+    expect(publishOrOpenHostCheck).toHaveBeenCalledWith("admin_1", "comp_1");
+    expect(await response.json()).toEqual({ competition: baseCompetition });
   });
 
   it("normalizes institution slug to lowercase before guard lookup", async () => {
     requireAuthenticatedSession.mockResolvedValue(adminSession);
     assertCompetitionInInstitution.mockResolvedValue(undefined);
-    transitionCompetitionStatus.mockResolvedValue({ competition: baseCompetition });
+    publishOrOpenHostCheck.mockResolvedValue({
+      outcome: "published",
+      competition: baseCompetition,
+    });
     await PUBLISH(makeRequest(), makeParams("  LK-Univ  ", "comp_1"));
     expect(assertCompetitionInInstitution).toHaveBeenCalledWith("lk-univ", "comp_1");
+  });
+
+  it("returns 202 with the host check when the press opens one", async () => {
+    requireAuthenticatedSession.mockResolvedValue(adminSession);
+    assertCompetitionInInstitution.mockResolvedValue(undefined);
+    publishOrOpenHostCheck.mockResolvedValue({
+      outcome: "host_check_opened",
+      hostCheck: {
+        id: "check_1",
+        status: "pending_review",
+        submittedAt: new Date("2026-11-25T08:00:00.000Z"),
+      },
+    });
+    const response = await PUBLISH(makeRequest(), makeParams("lk-univ", "comp_1"));
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({
+      hostCheck: {
+        id: "check_1",
+        status: "pending_review",
+        submittedAt: "2026-11-25T08:00:00.000Z",
+      },
+    });
   });
 
   it("returns 404 when competition does not belong to the institution slug", async () => {
@@ -95,13 +129,13 @@ describe("POST /api/v1/institutions/[institutionSlug]/competitions/[competitionI
     );
     const response = await PUBLISH(makeRequest(), makeParams("other-univ", "comp_1"));
     expect(response.status).toBe(404);
-    expect(transitionCompetitionStatus).not.toHaveBeenCalled();
+    expect(publishOrOpenHostCheck).not.toHaveBeenCalled();
   });
 
   it("returns 422 with structured failures on incomplete draft", async () => {
     requireAuthenticatedSession.mockResolvedValue(adminSession);
     assertCompetitionInInstitution.mockResolvedValue(undefined);
-    transitionCompetitionStatus.mockRejectedValue(
+    publishOrOpenHostCheck.mockRejectedValue(
       new CompetitionError(
         "competition_publish_validation_failed",
         422,
@@ -127,7 +161,7 @@ describe("POST /api/v1/institutions/[institutionSlug]/competitions/[competitionI
   it("returns 422 when institution is not verified", async () => {
     requireAuthenticatedSession.mockResolvedValue(adminSession);
     assertCompetitionInInstitution.mockResolvedValue(undefined);
-    transitionCompetitionStatus.mockRejectedValue(
+    publishOrOpenHostCheck.mockRejectedValue(
       new CompetitionError(
         "competition_institution_not_verified",
         422,
@@ -138,11 +172,11 @@ describe("POST /api/v1/institutions/[institutionSlug]/competitions/[competitionI
     expect(response.status).toBe(422);
   });
 
-  it("returns 403 when institution_staff attempts to publish", async () => {
-    requireAuthenticatedSession.mockResolvedValue(staffSession);
+  it("returns 403 when an institution_member attempts to publish", async () => {
+    requireAuthenticatedSession.mockResolvedValue(memberSession);
     assertCompetitionInInstitution.mockResolvedValue(undefined);
-    transitionCompetitionStatus.mockRejectedValue(
-      new AccessError("forbidden", 403, "institution_owner access required"),
+    publishOrOpenHostCheck.mockRejectedValue(
+      new AccessError("forbidden", 403, "Institution owner/staff access required"),
     );
     const response = await PUBLISH(makeRequest(), makeParams("lk-univ", "comp_1"));
     expect(response.status).toBe(403);
@@ -151,7 +185,7 @@ describe("POST /api/v1/institutions/[institutionSlug]/competitions/[competitionI
   it("returns 403 for non-member student", async () => {
     requireAuthenticatedSession.mockResolvedValue(studentSession);
     assertCompetitionInInstitution.mockResolvedValue(undefined);
-    transitionCompetitionStatus.mockRejectedValue(
+    publishOrOpenHostCheck.mockRejectedValue(
       new AccessError("forbidden", 403, "Institution owner/staff access required"),
     );
     const response = await PUBLISH(makeRequest(), makeParams("lk-univ", "comp_1"));
@@ -167,12 +201,15 @@ describe("POST /api/v1/institutions/[institutionSlug]/competitions/[competitionI
     expect(assertCompetitionInInstitution).not.toHaveBeenCalled();
   });
 
-  it("returns 409 and never reaches the transition when the expected user is another account", async () => {
+  it("returns 409 and never reaches the press when the expected user is another account", async () => {
     requireAuthenticatedSession.mockResolvedValue(adminSession);
     assertCompetitionInInstitution.mockResolvedValue(undefined);
     // Everything the route needs to publish successfully is staged, so a request that gets past the
     // session guard WILL publish. That is what makes the assertion below able to fail.
-    transitionCompetitionStatus.mockResolvedValue({ competition: baseCompetition });
+    publishOrOpenHostCheck.mockResolvedValue({
+      outcome: "published",
+      competition: baseCompetition,
+    });
 
     const response = await PUBLISH(
       makeRequestWithExpectedUser("someone_else"),
@@ -183,11 +220,10 @@ describe("POST /api/v1/institutions/[institutionSlug]/competitions/[competitionI
     expect(response.status).toBe(409);
     expect(body.error.code).toBe("session_user_mismatch");
 
-    // The status alone cannot tell this refusal from one raised AFTER the transition: a guard that
-    // runs below `transitionCompetitionStatus` still answers 409, and the competition has already
-    // been published. So the assertion that carries the rule is that the transition never ran at
-    // all — delete this line and the test still passes while the guard is useless.
-    expect(transitionCompetitionStatus).not.toHaveBeenCalled();
+    // The status alone cannot tell this refusal from one raised after the press: a guard that runs
+    // below publishOrOpenHostCheck still answers 409, with the draft already published or sent for a
+    // host check. So the assertion that carries the rule is that the press never ran.
+    expect(publishOrOpenHostCheck).not.toHaveBeenCalled();
   });
 });
 

@@ -145,6 +145,8 @@ const institutionHasTrustedOwner = async (
   return row !== undefined;
 };
 
+// Does not check that the actor belongs to the institution. Callers run assertCompetitionAccess
+// first and pass the institution id of the competition row it loaded.
 export const isPublishTrustSatisfied = async (
   actorUserId: string,
   institutionId: string,

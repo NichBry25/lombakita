@@ -8,10 +8,8 @@ import {
   CompetitionError,
   toCompetitionErrorResponse,
 } from "@/server/competitions/competition-core";
-import {
-  assertCompetitionInInstitution,
-  transitionCompetitionStatus,
-} from "@/server/competitions/competition-service";
+import { assertCompetitionInInstitution } from "@/server/competitions/competition-service";
+import { publishOrOpenHostCheck } from "@/server/host-trust/host-check-service";
 
 export async function POST(
   request: Request,
@@ -25,8 +23,11 @@ export async function POST(
     assertSessionMatchesExpectedUser(request, session);
     const { institutionSlug, competitionId } = await context.params;
     await assertCompetitionInInstitution(institutionSlug.trim().toLowerCase(), competitionId);
-    const result = await transitionCompetitionStatus(session.user.id, competitionId, "published");
-    return NextResponse.json(result);
+    const result = await publishOrOpenHostCheck(session.user.id, competitionId);
+    if (result.outcome === "host_check_opened") {
+      return NextResponse.json({ hostCheck: result.hostCheck }, { status: 202 });
+    }
+    return NextResponse.json({ competition: result.competition });
   } catch (error) {
     if (error instanceof CompetitionError) return toCompetitionErrorResponse(error);
     return toAccessDeniedResponse(error);

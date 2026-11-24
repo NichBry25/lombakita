@@ -6,7 +6,6 @@ import {
   competitions,
   institutionMemberships,
   institutions,
-  users,
   type CompetitionCategory,
   type CompetitionLocation,
   type CompetitionMode,
@@ -15,7 +14,7 @@ import {
   type InstitutionType,
   type InstitutionVerificationStatus,
 } from "@/server/db/schema";
-import { meetsRecruiterTier, OPPORTUNITY_PUBLISH_MIN_TIER } from "@/server/auth/recruiter-tier";
+import { isPublishTrustSatisfied } from "@/server/host-trust/host-trust-service";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 import { CompetitionError } from "@/server/competitions/competition-core";
 import {
@@ -30,7 +29,7 @@ assertServerOnly("server/competitions/competition-access");
 //   "admin"  — only active institution_owner in the owning institution
 // institution_member is excluded: no operational access to competition surfaces.
 // Mutating routes (PATCH fields, DELETE) require "member".
-// Status transitions and publish/unpublish/archive require "admin".
+// Publishing requires "member", and a paid draft an owner. Unpublishing requires "admin".
 export type CompetitionAccessLevel = "member" | "admin";
 
 // Output projection for every public competition response. fee_amount, fee_currency, and
@@ -214,27 +213,37 @@ export const isCompetitionHost = async (
   return role !== null && MEMBER_ROLES.includes(role);
 };
 
-// Recruiter trust gate for publishing. The acting account must hold the Trusted Recruiter tier
-// (`elevated`); sandboxed recruiters (`minimal`) may draft but not publish. Reads the tier from
-// the DB (not the JWT) so a fresh platform-ops approval takes effect on the next request.
+// The publish trust gate. Trust is read from the database, not the JWT, so a staff decision takes
+// effect on the next request. The caller passes the institution id of the competition row that
+// assertCompetitionAccess loaded, because isPublishTrustSatisfied reads no membership of the actor.
 // Throws CompetitionError 403 competition_recruiter_not_trusted otherwise.
 export const assertActorIsTrustedRecruiter = async (
   actorUserId: string,
+  institutionId: string,
   db: Database = getDb(),
 ): Promise<void> => {
-  const [row] = await db
-    .select({ recruiterVerificationTier: users.recruiterVerificationTier })
-    .from(users)
-    .where(eq(users.id, actorUserId))
-    .limit(1);
-
-  if (!row || !meetsRecruiterTier(row.recruiterVerificationTier, OPPORTUNITY_PUBLISH_MIN_TIER)) {
+  const trusted = await isPublishTrustSatisfied(actorUserId, institutionId, db);
+  if (!trusted) {
     throw new CompetitionError(
       "competition_recruiter_not_trusted",
       403,
       "Publishing requires a Trusted Recruiter account — complete recruiter verification first",
     );
   }
+};
+
+// A paid draft goes live by an institution owner only, because only an owner sets its price
+// (competition-fee-service.ts) and going live opens charging.
+// Throws CompetitionError 403 competition_paid_publish_owner_only otherwise.
+export const assertPaidCompetitionPublisherIsOwner = (
+  membershipRole: InstitutionMembershipRole | null,
+): void => {
+  if (membershipRole === "institution_owner") return;
+  throw new CompetitionError(
+    "competition_paid_publish_owner_only",
+    403,
+    "A paid competition is published by an institution owner only",
+  );
 };
 
 // Publishing needs the contact participants reach the organiser through. Read here because

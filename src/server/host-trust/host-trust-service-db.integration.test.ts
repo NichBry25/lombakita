@@ -199,8 +199,8 @@ const signUpHost = async (tx: Database, address: string): Promise<string> => {
   return userId;
 };
 
-// Planted directly: the host role at tier minimal with no trust, which older hosts hold and no
-// path writes now.
+// Planted directly: the host step trusts a confirmed sign-in email on an organization domain at
+// once, so only an older account holds the host role on such a domain without trust.
 const signUpLegacyHost = async (tx: Database, address: string): Promise<string> => {
   const userId = await signUpParticipant(tx, address);
   await tx
@@ -583,6 +583,7 @@ describe.skipIf(skipWithoutDatabase)("host trust (real database)", () => {
         await trustByStaff(tx, owner);
         const workspace = await ownWorkspace(tx, owner);
         const actor = await signUpLegacyHost(tx, "actor@acme.example");
+        await plantMembership(tx, workspace, actor, "institution_staff", "active");
 
         expect(await isPublishTrustSatisfied(actor, workspace, tx)).toBe(true);
       });
@@ -793,6 +794,28 @@ describe.skipIf(skipWithoutDatabase)("host trust (real database)", () => {
 
         expect(await tierOf(tx, userId)).toBe("elevated");
         expect(await recruiterVerifiedAtOf(tx, userId)).toBeInstanceOf(Date);
+      });
+    });
+
+    it("keeps the host step's role grant when the sign-in email cannot be recorded because the account holds another Email organisasi", async () => {
+      await inRollback(async (tx) => {
+        const userId = await signUpParticipant(tx, "budi.host@acme.example");
+        await confirmOrganizationEmail(tx, userId, "rina@acme.example");
+        await signUpParticipant(tx, "rina@acme.example");
+
+        const response = await takeHostStepThroughRoute(tx, userId, "budi.host@acme.example");
+
+        expect(response.status).toBe(200);
+        expect(await response.json()).toEqual({
+          verified: "recruiter",
+          redirectTo: dashboardPathForRole("recruiter"),
+          hostTrusted: false,
+        });
+        expect(await tierOf(tx, userId)).toBe("minimal");
+        expect(await recruiterVerifiedAtOf(tx, userId)).toBeInstanceOf(Date);
+        expect(await organizationEmailRowsOf(tx, userId)).toEqual([
+          { email: "rina@acme.example", domain: "acme.example" },
+        ]);
       });
     });
   });
