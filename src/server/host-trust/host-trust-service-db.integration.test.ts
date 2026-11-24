@@ -13,11 +13,15 @@ import postgres from "postgres";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "@/server/db/schema";
 import type { Database } from "@/server/db/client";
+import type { Session } from "next-auth";
 import { TEST_DATABASE_URL, skipWithoutDatabase } from "@/server/testing/database-url";
 
 const mocks = vi.hoisted(() => ({
   sentCodes: [] as Array<{ email: string; code: string }>,
+  organizationCodes: [] as Array<{ email: string; code: string }>,
   windowCounts: new Map<string, number>(),
+  routeTransaction: null as Database | null,
+  routeSession: null as Session | null,
   sweepForAccount: vi.fn().mockResolvedValue(undefined),
   enqueueApproved: vi.fn(),
 }));
@@ -33,6 +37,9 @@ vi.mock("@/config/env.server", async (importOriginal) => {
 vi.mock("@/server/auth/email-verification", () => ({
   sendRegistrationVerificationEmail: async (options: { email: string; code: string }) => {
     mocks.sentCodes.push({ email: options.email, code: options.code });
+  },
+  sendOrganizationEmailCode: async (options: { email: string; code: string }) => {
+    mocks.organizationCodes.push({ email: options.email, code: options.code });
   },
 }));
 
@@ -71,11 +78,24 @@ vi.mock(
   },
 );
 
+vi.mock("@/server/db/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/server/db/client")>();
+  return { ...actual, getDb: () => mocks.routeTransaction ?? actual.getDb() };
+});
+
+vi.mock("next-auth", () => ({
+  getServerSession: async () => mocks.routeSession,
+}));
+
+vi.mock("@/server/auth/auth.config", () => ({
+  authOptions: {},
+}));
+
 import {
   registerUserWithCredentials,
   verifyEmailCodeAndSetPassword,
 } from "@/server/auth/credentials-auth";
-import { markRoleAsVerified } from "@/server/auth/role-verification";
+import { dashboardPathForRole, markRoleAsVerified } from "@/server/auth/role-verification";
 import { createPersonalInstitutionForUser } from "@/server/institution-workspace/institution-service";
 import { elevateRecruiterTier } from "@/server/recruiter-tier/recruiter-tier-service";
 import { extractEmailDomain } from "./email-domain";
@@ -85,6 +105,12 @@ import {
   resolveAutomaticTrustSource,
   trustHostInTransaction,
 } from "./host-trust-service";
+import {
+  confirmOrganizationEmailCode,
+  issueOrganizationEmailCode,
+} from "./organization-email-service";
+import { POST as verifyRoleRoute } from "@/app/api/v1/auth/verify-role/route";
+import { SESSION_USER_HEADER } from "@/lib/session/session-fetch";
 
 const PASSWORD = "fresh-pass-3";
 
@@ -119,7 +145,10 @@ const inRollback = async (test: (tx: Database) => Promise<void>): Promise<void> 
 
 beforeEach(() => {
   mocks.sentCodes.length = 0;
+  mocks.organizationCodes.length = 0;
   mocks.windowCounts.clear();
+  mocks.routeTransaction = null;
+  mocks.routeSession = null;
 });
 
 const latestCode = (): string => {
@@ -166,13 +195,18 @@ const signUpParticipant = async (tx: Database, address: string): Promise<string>
 
 const signUpHost = async (tx: Database, address: string): Promise<string> => {
   const userId = await signUpParticipant(tx, address);
-  await markRoleAsVerified(
-    userId,
-    "recruiter",
-    null,
-    { fullName: "Budi Santoso", mobileNumber: "081298765432", corporateEmail: null },
-    tx,
-  );
+  await markRoleAsVerified(userId, "recruiter", null, tx);
+  return userId;
+};
+
+// Planted directly: the host role at tier minimal with no trust, which older hosts hold and no
+// path writes now.
+const signUpLegacyHost = async (tx: Database, address: string): Promise<string> => {
+  const userId = await signUpParticipant(tx, address);
+  await tx
+    .update(schema.users)
+    .set({ recruiterVerifiedAt: new Date(), recruiterVerificationTier: "minimal" })
+    .where(eq(schema.users.id, userId));
   return userId;
 };
 
@@ -260,11 +294,64 @@ const organizationEmailRowsOf = (tx: Database, userId: string) =>
     .from(schema.hostOrganizationEmails)
     .where(eq(schema.hostOrganizationEmails.userId, userId));
 
+const hostRequestRowsOf = (tx: Database, userId: string) =>
+  tx
+    .select({ id: schema.recruiterVerificationSubmissions.id })
+    .from(schema.recruiterVerificationSubmissions)
+    .where(eq(schema.recruiterVerificationSubmissions.userId, userId));
+
+const latestOrganizationCodeFor = (address: string): string => {
+  const sent = mocks.organizationCodes.filter((entry) => entry.email === address).at(-1);
+  if (!sent) throw new Error(`No Email organisasi code was sent to ${address}`);
+  return sent.code;
+};
+
+const confirmOrganizationEmail = async (
+  tx: Database,
+  userId: string,
+  address: string,
+): Promise<void> => {
+  await issueOrganizationEmailCode(userId, address, tx);
+  await confirmOrganizationEmailCode(userId, latestOrganizationCodeFor(address), tx);
+};
+
+const takeHostStepThroughRoute = async (
+  tx: Database,
+  userId: string,
+  address: string,
+): Promise<Response> => {
+  mocks.routeTransaction = tx;
+  mocks.routeSession = {
+    user: { id: userId, email: address, role: "candidate", verifiedRoles: ["candidate"] },
+    expires: new Date(Date.now() + 60_000).toISOString(),
+  } as Session;
+  const request = new Request("http://localhost/api/v1/auth/verify-role", {
+    method: "POST",
+    headers: { "content-type": "application/json", [SESSION_USER_HEADER]: userId },
+    body: JSON.stringify({
+      role: "recruiter",
+      fullName: "Budi Santoso",
+      mobileNumber: "081298765432",
+      corporateEmail: "budi@acme.example",
+    }),
+  });
+  return verifyRoleRoute(request as unknown as Parameters<typeof verifyRoleRoute>[0]);
+};
+
+// Planted directly: an elevated tier without the host role, which no path writes (the staff raise
+// refuses an account without the host role) and which the host step must not lower.
+const plantElevatedTierWithoutHostRole = async (tx: Database, userId: string): Promise<void> => {
+  await tx
+    .update(schema.users)
+    .set({ recruiterVerificationTier: "elevated" })
+    .where(eq(schema.users.id, userId));
+};
+
 describe.skipIf(skipWithoutDatabase)("host trust (real database)", () => {
   describe("automatic trust", () => {
     it("trusts a host whose confirmed sign-in email is on an organization domain and records that address", async () => {
       await inRollback(async (tx) => {
-        const userId = await signUpHost(tx, "budi.host@acme.example");
+        const userId = await signUpLegacyHost(tx, "budi.host@acme.example");
 
         expect(await trustHostInTransaction(tx, userId)).toBe("sign_in_email");
 
@@ -303,7 +390,7 @@ describe.skipIf(skipWithoutDatabase)("host trust (real database)", () => {
 
     it("does not trust a host whose trust staff removed", async () => {
       await inRollback(async (tx) => {
-        const userId = await signUpHost(tx, "budi.host@acme.example");
+        const userId = await signUpLegacyHost(tx, "budi.host@acme.example");
         await plantOrganizationEmail(tx, userId, "budi@acme.example");
         await plantTrustRemoval(tx, userId);
 
@@ -318,7 +405,7 @@ describe.skipIf(skipWithoutDatabase)("host trust (real database)", () => {
 
     it("does not trust an operational account", async () => {
       await inRollback(async (tx) => {
-        const userId = await signUpHost(tx, "ops.host@acme.example");
+        const userId = await signUpLegacyHost(tx, "ops.host@acme.example");
         await tx
           .update(schema.users)
           .set({ role: "platform_ops" })
@@ -347,7 +434,7 @@ describe.skipIf(skipWithoutDatabase)("host trust (real database)", () => {
 
     it("reports no trust write for a host who is already trusted", async () => {
       await inRollback(async (tx) => {
-        const userId = await signUpHost(tx, "budi.host@acme.example");
+        const userId = await signUpLegacyHost(tx, "budi.host@acme.example");
         await trustByStaff(tx, userId);
 
         expect(await trustHostInTransaction(tx, userId)).toBeNull();
@@ -361,7 +448,7 @@ describe.skipIf(skipWithoutDatabase)("host trust (real database)", () => {
     // Google sign-up on an unverified address is refused (DEC-0263). The row is planted.
     it("does not trust an account whose sign-in email is unconfirmed", async () => {
       await inRollback(async (tx) => {
-        const userId = await signUpHost(tx, "budi.host@acme.example");
+        const userId = await signUpLegacyHost(tx, "budi.host@acme.example");
         await plantOrganizationEmail(tx, userId, "budi@acme.example");
         await tx
           .update(schema.users)
@@ -379,7 +466,7 @@ describe.skipIf(skipWithoutDatabase)("host trust (real database)", () => {
 
     it("does not trust on a sign-in address another account holds as its Email organisasi", async () => {
       await inRollback(async (tx) => {
-        const accountA = await signUpHost(tx, "budi.host@acme.example");
+        const accountA = await signUpLegacyHost(tx, "budi.host@acme.example");
         const accountB = await signUpParticipant(tx, "dina@acme.example");
         await plantOrganizationEmail(tx, accountB, "budi.host@acme.example");
 
@@ -409,7 +496,7 @@ describe.skipIf(skipWithoutDatabase)("host trust (real database)", () => {
 
     it("reads a removed host as not eligible through the shared predicate", async () => {
       await inRollback(async (tx) => {
-        const userId = await signUpHost(tx, "budi.host@acme.example");
+        const userId = await signUpLegacyHost(tx, "budi.host@acme.example");
         const eligibleUsers = () =>
           tx
             .select({ id: schema.users.id })
@@ -427,7 +514,7 @@ describe.skipIf(skipWithoutDatabase)("host trust (real database)", () => {
     // Same reason as the unconfirmed sign-in email test above: no production path reaches it.
     it("does not take an unconfirmed sign-in email as a source", async () => {
       await inRollback(async (tx) => {
-        const userId = await signUpHost(tx, "budi.host@acme.example");
+        const userId = await signUpLegacyHost(tx, "budi.host@acme.example");
         await tx
           .update(schema.users)
           .set({ emailVerified: null })
@@ -439,7 +526,7 @@ describe.skipIf(skipWithoutDatabase)("host trust (real database)", () => {
 
     it("keeps an Email organisasi row and does not trust when the sign-in email cannot be recorded", async () => {
       await inRollback(async (tx) => {
-        const accountA = await signUpHost(tx, "budi.host@acme.example");
+        const accountA = await signUpLegacyHost(tx, "budi.host@acme.example");
         await plantOrganizationEmail(tx, accountA, "dina@acme.example");
         await signUpParticipant(tx, "dina@acme.example");
 
@@ -481,9 +568,9 @@ describe.skipIf(skipWithoutDatabase)("host trust (real database)", () => {
   describe("publish trust", () => {
     it("is satisfied by the actor's own trust", async () => {
       await inRollback(async (tx) => {
-        const owner = await signUpHost(tx, "owner.one@acme.example");
+        const owner = await signUpLegacyHost(tx, "owner.one@acme.example");
         const workspace = await ownWorkspace(tx, owner);
-        const actor = await signUpHost(tx, "actor@acme.example");
+        const actor = await signUpLegacyHost(tx, "actor@acme.example");
         await trustByStaff(tx, actor);
 
         expect(await isPublishTrustSatisfied(actor, workspace, tx)).toBe(true);
@@ -492,10 +579,10 @@ describe.skipIf(skipWithoutDatabase)("host trust (real database)", () => {
 
     it("is satisfied for an untrusted actor when an active owner of that institution is trusted", async () => {
       await inRollback(async (tx) => {
-        const owner = await signUpHost(tx, "owner.one@acme.example");
+        const owner = await signUpLegacyHost(tx, "owner.one@acme.example");
         await trustByStaff(tx, owner);
         const workspace = await ownWorkspace(tx, owner);
-        const actor = await signUpHost(tx, "actor@acme.example");
+        const actor = await signUpLegacyHost(tx, "actor@acme.example");
 
         expect(await isPublishTrustSatisfied(actor, workspace, tx)).toBe(true);
       });
@@ -503,10 +590,10 @@ describe.skipIf(skipWithoutDatabase)("host trust (real database)", () => {
 
     it("is not satisfied by a trusted owner who is deactivated", async () => {
       await inRollback(async (tx) => {
-        const owner = await signUpHost(tx, "owner.one@acme.example");
+        const owner = await signUpLegacyHost(tx, "owner.one@acme.example");
         await trustByStaff(tx, owner);
         const workspace = await ownWorkspace(tx, owner);
-        const actor = await signUpHost(tx, "actor@acme.example");
+        const actor = await signUpLegacyHost(tx, "actor@acme.example");
         await tx
           .update(schema.users)
           .set({ status: "deactivated" })
@@ -518,10 +605,10 @@ describe.skipIf(skipWithoutDatabase)("host trust (real database)", () => {
 
     it("is not satisfied by a trusted owner who is suspended", async () => {
       await inRollback(async (tx) => {
-        const owner = await signUpHost(tx, "owner.one@acme.example");
+        const owner = await signUpLegacyHost(tx, "owner.one@acme.example");
         await trustByStaff(tx, owner);
         const workspace = await ownWorkspace(tx, owner);
-        const actor = await signUpHost(tx, "actor@acme.example");
+        const actor = await signUpLegacyHost(tx, "actor@acme.example");
         await tx
           .update(schema.users)
           .set({ suspendedAt: new Date() })
@@ -533,12 +620,12 @@ describe.skipIf(skipWithoutDatabase)("host trust (real database)", () => {
 
     it("is not satisfied by a trusted owner of another institution", async () => {
       await inRollback(async (tx) => {
-        const untrustedOwner = await signUpHost(tx, "owner.one@acme.example");
+        const untrustedOwner = await signUpLegacyHost(tx, "owner.one@acme.example");
         const untrustedOwnersWorkspace = await ownWorkspace(tx, untrustedOwner);
-        const trustedOwner = await signUpHost(tx, "owner.two@acme.example");
+        const trustedOwner = await signUpLegacyHost(tx, "owner.two@acme.example");
         await trustByStaff(tx, trustedOwner);
         await ownWorkspace(tx, trustedOwner);
-        const actor = await signUpHost(tx, "actor@acme.example");
+        const actor = await signUpLegacyHost(tx, "actor@acme.example");
 
         expect(await isPublishTrustSatisfied(actor, untrustedOwnersWorkspace, tx)).toBe(false);
       });
@@ -546,15 +633,15 @@ describe.skipIf(skipWithoutDatabase)("host trust (real database)", () => {
 
     it("is not satisfied by a trusted institution_member or institution_staff who is not an owner", async () => {
       await inRollback(async (tx) => {
-        const owner = await signUpHost(tx, "owner.one@acme.example");
+        const owner = await signUpLegacyHost(tx, "owner.one@acme.example");
         const workspace = await ownWorkspace(tx, owner);
-        const member = await signUpHost(tx, "member@acme.example");
+        const member = await signUpLegacyHost(tx, "member@acme.example");
         await trustByStaff(tx, member);
         await plantMembership(tx, workspace, member, "institution_member", "active");
-        const staff = await signUpHost(tx, "staff@acme.example");
+        const staff = await signUpLegacyHost(tx, "staff@acme.example");
         await trustByStaff(tx, staff);
         await plantMembership(tx, workspace, staff, "institution_staff", "active");
-        const actor = await signUpHost(tx, "actor@acme.example");
+        const actor = await signUpLegacyHost(tx, "actor@acme.example");
 
         expect(await isPublishTrustSatisfied(actor, workspace, tx)).toBe(false);
       });
@@ -562,10 +649,10 @@ describe.skipIf(skipWithoutDatabase)("host trust (real database)", () => {
 
     it("is not satisfied for an actor whose trust staff removed, even with a trusted owner", async () => {
       await inRollback(async (tx) => {
-        const owner = await signUpHost(tx, "owner.one@acme.example");
+        const owner = await signUpLegacyHost(tx, "owner.one@acme.example");
         await trustByStaff(tx, owner);
         const workspace = await ownWorkspace(tx, owner);
-        const actor = await signUpHost(tx, "actor@acme.example");
+        const actor = await signUpLegacyHost(tx, "actor@acme.example");
         await plantTrustRemoval(tx, actor);
 
         expect(await isPublishTrustSatisfied(actor, workspace, tx)).toBe(false);
@@ -574,14 +661,138 @@ describe.skipIf(skipWithoutDatabase)("host trust (real database)", () => {
 
     it("is not satisfied by a trusted owner whose membership is not active", async () => {
       await inRollback(async (tx) => {
-        const untrustedOwner = await signUpHost(tx, "owner.one@acme.example");
+        const untrustedOwner = await signUpLegacyHost(tx, "owner.one@acme.example");
         const workspace = await ownWorkspace(tx, untrustedOwner);
-        const inactiveOwner = await signUpHost(tx, "owner.inactive@acme.example");
+        const inactiveOwner = await signUpLegacyHost(tx, "owner.inactive@acme.example");
         await trustByStaff(tx, inactiveOwner);
         await plantMembership(tx, workspace, inactiveOwner, "institution_owner", "inactive");
-        const actor = await signUpHost(tx, "actor@acme.example");
+        const actor = await signUpLegacyHost(tx, "actor@acme.example");
 
         expect(await isPublishTrustSatisfied(actor, workspace, tx)).toBe(false);
+      });
+    });
+  });
+
+  describe("the host step", () => {
+    it("trusts a participant whose confirmed sign-in email is on an organization domain at the host step", async () => {
+      await inRollback(async (tx) => {
+        const userId = await signUpParticipant(tx, "budi.host@acme.example");
+
+        const response = await takeHostStepThroughRoute(tx, userId, "budi.host@acme.example");
+
+        expect(response.status).toBe(200);
+        expect(await response.json()).toEqual({
+          verified: "recruiter",
+          redirectTo: dashboardPathForRole("recruiter"),
+          hostTrusted: true,
+        });
+        expect(await tierOf(tx, userId)).toBe("elevated");
+        expect(await recruiterVerifiedAtOf(tx, userId)).toBeInstanceOf(Date);
+        expect(await organizationEmailRowsOf(tx, userId)).toEqual([
+          { email: "budi.host@acme.example", domain: "acme.example" },
+        ]);
+        expect(await hostRequestRowsOf(tx, userId)).toEqual([]);
+      });
+    });
+
+    it("keeps a participant whose sign-in email is on a free provider untrusted at the host step and reads no older host form field", async () => {
+      await inRollback(async (tx) => {
+        const userId = await signUpParticipant(tx, "rina.free@gmail.com");
+
+        const response = await takeHostStepThroughRoute(tx, userId, "rina.free@gmail.com");
+
+        expect(response.status).toBe(200);
+        expect(await response.json()).toEqual({
+          verified: "recruiter",
+          redirectTo: dashboardPathForRole("recruiter"),
+          hostTrusted: false,
+        });
+        expect(await tierOf(tx, userId)).toBe("minimal");
+        expect(await recruiterVerifiedAtOf(tx, userId)).toBeInstanceOf(Date);
+        expect(await organizationEmailRowsOf(tx, userId)).toEqual([]);
+        expect(await hostRequestRowsOf(tx, userId)).toEqual([]);
+      });
+    });
+
+    it("keeps a participant untrusted at the host step when another account confirmed its sign-in address as an Email organisasi first", async () => {
+      await inRollback(async (tx) => {
+        const holder = await signUpParticipant(tx, "dina@acme.example");
+        await confirmOrganizationEmail(tx, holder, "budi.host@acme.example");
+        const host = await signUpParticipant(tx, "budi.host@acme.example");
+
+        const response = await takeHostStepThroughRoute(tx, host, "budi.host@acme.example");
+
+        expect(response.status).toBe(200);
+        expect(await response.json()).toEqual({
+          verified: "recruiter",
+          redirectTo: dashboardPathForRole("recruiter"),
+          hostTrusted: false,
+        });
+        expect(await tierOf(tx, host)).toBe("minimal");
+        expect(await recruiterVerifiedAtOf(tx, host)).toBeInstanceOf(Date);
+        expect(await organizationEmailRowsOf(tx, host)).toEqual([]);
+        expect(await organizationEmailRowsOf(tx, holder)).toEqual([
+          { email: "budi.host@acme.example", domain: "acme.example" },
+        ]);
+      });
+    });
+
+    it("trusts a participant at the host step by the Email organisasi it confirmed before", async () => {
+      await inRollback(async (tx) => {
+        const userId = await signUpParticipant(tx, "rina.free@gmail.com");
+        await confirmOrganizationEmail(tx, userId, "rina@acme.example");
+        expect(await tierOf(tx, userId)).toBe("unverified");
+
+        const response = await takeHostStepThroughRoute(tx, userId, "rina.free@gmail.com");
+
+        expect(response.status).toBe(200);
+        expect(await response.json()).toEqual({
+          verified: "recruiter",
+          redirectTo: dashboardPathForRole("recruiter"),
+          hostTrusted: true,
+        });
+        expect(await tierOf(tx, userId)).toBe("elevated");
+        expect(await organizationEmailRowsOf(tx, userId)).toEqual([
+          { email: "rina@acme.example", domain: "acme.example" },
+        ]);
+        expect(await hostRequestRowsOf(tx, userId)).toEqual([]);
+      });
+    });
+
+    it("keeps a participant untrusted at the host step when its Email organisasi became another account's sign-in email", async () => {
+      await inRollback(async (tx) => {
+        const userId = await signUpParticipant(tx, "rina.free@gmail.com");
+        await confirmOrganizationEmail(tx, userId, "dina@acme.example");
+        await signUpParticipant(tx, "dina@acme.example");
+
+        const response = await takeHostStepThroughRoute(tx, userId, "rina.free@gmail.com");
+
+        expect(response.status).toBe(200);
+        expect(await response.json()).toEqual({
+          verified: "recruiter",
+          redirectTo: dashboardPathForRole("recruiter"),
+          hostTrusted: false,
+        });
+        expect(await tierOf(tx, userId)).toBe("minimal");
+        expect(await organizationEmailRowsOf(tx, userId)).toEqual([
+          { email: "dina@acme.example", domain: "acme.example" },
+        ]);
+      });
+    });
+
+    it("keeps an elevated tier when an account without the host role takes the host step", async () => {
+      await inRollback(async (tx) => {
+        const userId = await signUpParticipant(tx, "rina.peserta@acme.example");
+        await plantElevatedTierWithoutHostRole(tx, userId);
+
+        expect(await markRoleAsVerified(userId, "recruiter", null, tx)).toEqual({
+          candidateVerified: true,
+          recruiterVerified: true,
+          hostTrusted: true,
+        });
+
+        expect(await tierOf(tx, userId)).toBe("elevated");
+        expect(await recruiterVerifiedAtOf(tx, userId)).toBeInstanceOf(Date);
       });
     });
   });

@@ -16,7 +16,7 @@ import {
   extractEmailDomain,
   holdsOnlyPrintableAscii,
   isFreeOrThrowawayEmailDomain,
-  registrableDomainOf,
+  organizationDomainOf,
 } from "@/server/host-trust/email-domain";
 import {
   trustHostInTransaction,
@@ -183,7 +183,7 @@ export const issueOrganizationEmailCode = async (
 
 const countDomainTryOrRefuse = async (challengeEmail: string): Promise<void> => {
   const domain = extractEmailDomain(challengeEmail)!;
-  const organizationDomain = registrableDomainOf(domain);
+  const organizationDomain = organizationDomainOf(domain);
   const decision = await checkFixedWindowLimitFailClosed({
     key: `${ORGANIZATION_EMAIL_DOMAIN_TRY_LIMIT.keyPrefix}${organizationDomain}`,
     limit: ORGANIZATION_EMAIL_DOMAIN_TRY_LIMIT.limit,
@@ -279,7 +279,6 @@ export const confirmOrganizationEmailCode = async (
     .select({
       id: organizationEmailChallenges.id,
       email: organizationEmailChallenges.email,
-      claimable: sql<boolean>`${organizationEmailChallenges.failedAttempts} < ${ORGANIZATION_EMAIL_CODE_ATTEMPT_LIMIT} and ${organizationEmailChallenges.expiresAt} > now()`,
     })
     .from(organizationEmailChallenges)
     .where(
@@ -294,15 +293,13 @@ export const confirmOrganizationEmailCode = async (
     throw new OrganizationEmailError("organization_email_no_code", 404, NO_CODE_MESSAGE);
   }
 
-  // A challenge that cannot be claimed is refused before the domain count, so a request that is never
-  // compared spends no try of the organization's domain.
-  if (!challenge.claimable) return refuseUnclaimedAttempt(db, challenge.id);
-
-  await countDomainTryOrRefuse(challenge.email);
-
   // The attempt is claimed and committed before any compare, so parallel guesses cannot pass the limit together.
   const claimed = await claimCodeAttempt(db, challenge.id);
   if (!claimed) return refuseUnclaimedAttempt(db, challenge.id);
+
+  // Counted only after a claim, so one challenge spends at most five tries of its organization's
+  // domain, and before the compare, so no code is compared when the count refuses or cannot run.
+  await countDomainTryOrRefuse(challenge.email);
 
   if (!registrationCodeMatches(claimed.codeHash, challenge.id, code)) {
     const attemptsLeft = ORGANIZATION_EMAIL_CODE_ATTEMPT_LIMIT - claimed.failedAttempts;

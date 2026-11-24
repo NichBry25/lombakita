@@ -294,8 +294,8 @@ export const users = pgTable(
     // recruiterVerifiedAt must also hold a tier above 'unverified'. Enforced at the DB so any
     // write path that forgets to set the tier (e.g. a future verification flow) is rejected at
     // INSERT/UPDATE time rather than silently producing an inconsistent row. The application
-    // already writes 'minimal' atomically at signup (credentials-auth.ts) and at the second-role
-    // stub (role-verification.ts); this CHECK is the safety net.
+    // writes 'minimal' at the host step (role-verification.ts) in the same UPDATE that sets
+    // recruiterVerifiedAt, and this CHECK is the safety net.
     check(
       "users_recruiter_tier_consistency_chk",
       sql`${table.recruiterVerifiedAt} IS NULL OR ${table.recruiterVerificationTier} <> 'unverified'`,

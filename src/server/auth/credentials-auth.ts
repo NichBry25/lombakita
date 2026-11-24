@@ -781,9 +781,9 @@ export const verifyEmailCodeAndSetPassword = async (
 
 // Method-first credentials entry. The single `/auth/login` page asks for email +
 // password, then must branch existing-vs-new BEFORE deciding whether to attempt a password
-// sign-in, show an "email not verified" notice, or offer the role picker. Credentials is
+// sign-in, show an "email not verified" notice, or offer the sign-up form. Credentials is
 // email-first (unlike OAuth, where the provider resolves identity), so we classify by email:
-//   - `none`       — no account; the page offers the role picker (signup).
+//   - `none`       — no account; the page offers the sign-up form.
 //   - `unverified` — an account exists but email is not yet verified; the page shows the
 //                    verify notice, collects the sign-up details and sends a code through
 //                    resend. Register refuses it; the details travel with the code instead.

@@ -14,17 +14,10 @@ import {
   toCandidateProfileErrorResponse,
   type CandidateProfileInput,
 } from "@/server/candidate/candidate-profile-core";
-import {
-  parseRecruiterVerificationInput,
-  RecruiterVerificationError,
-  toRecruiterVerificationErrorResponse,
-  type RecruiterVerificationInput,
-} from "@/server/recruiter-verification/recruiter-verification-core";
 
-// Second-role verification. POST grants the requested role together with that role's onboarding
-// data in one transaction: candidate → onboarding profile; recruiter → affiliation form that
-// enters the platform-ops trust review queue (the account stays sandboxed at tier `minimal`
-// until approved).
+// Second-role verification. POST grants the requested role in one transaction: the candidate role
+// with its onboarding profile, or the host role with no form. The answer says whether the account
+// is a trusted host once the step commits.
 //
 // Note on path: the step prompt describes this as `POST /api/auth/verify-role`. The project's
 // established API surface lives under `/api/v1/auth/...` (see /api/v1/auth/register,
@@ -114,22 +107,13 @@ export const POST = withApiRole(VERIFIABLE_ROLES, async (request, session) => {
     }
   }
 
-  // Verifying the recruiter role requires the affiliation form in the same request, so the
-  // trust-verification submission and the recruiter grant land in one transaction.
-  let recruiterVerification: RecruiterVerificationInput | null = null;
-  if (role === "recruiter") {
-    try {
-      recruiterVerification = parseRecruiterVerificationInput(body);
-    } catch (error) {
-      if (error instanceof RecruiterVerificationError) {
-        return toRecruiterVerificationErrorResponse(error);
-      }
-      throw error;
-    }
-  }
-
   try {
-    await markRoleAsVerified(session.user.id, role, candidateProfile, recruiterVerification);
+    const verification = await markRoleAsVerified(session.user.id, role, candidateProfile);
+    return NextResponse.json({
+      verified: role,
+      redirectTo: dashboardPathForRole(role),
+      hostTrusted: verification.hostTrusted,
+    });
   } catch (error) {
     if (error instanceof RoleVerificationError) {
       return NextResponse.json(
@@ -139,9 +123,4 @@ export const POST = withApiRole(VERIFIABLE_ROLES, async (request, session) => {
     }
     throw error;
   }
-
-  return NextResponse.json({
-    verified: role,
-    redirectTo: dashboardPathForRole(role),
-  });
 });

@@ -234,13 +234,7 @@ const signUpParticipant = async (tx: Database, address: string): Promise<string>
 
 const signUpHost = async (tx: Database, address: string): Promise<string> => {
   const userId = await signUpParticipant(tx, address);
-  await markRoleAsVerified(
-    userId,
-    "recruiter",
-    null,
-    { fullName: "Budi Santoso", mobileNumber: "081298765432", corporateEmail: null },
-    tx,
-  );
+  await markRoleAsVerified(userId, "recruiter", null, tx);
   return userId;
 };
 
@@ -673,7 +667,7 @@ describe.skipIf(skipWithoutDatabase)("Email organisasi code (real database)", ()
           "Terlalu banyak percobaan kode untuk domain email ini hari ini. Coba lagi besok.",
         );
         const [challenge] = await challengeRowsOf(tx, accounts[10]!);
-        expect(challenge?.failedAttempts).toBe(0);
+        expect(challenge?.failedAttempts).toBe(1);
         expect(mocks.codeMatchCalls).toBe(0);
         expect(await organizationEmailRowsOf(tx, accounts[10]!)).toEqual([]);
       });
@@ -695,7 +689,7 @@ describe.skipIf(skipWithoutDatabase)("Email organisasi code (real database)", ()
           "Konfirmasi kode sedang tidak tersedia. Coba lagi beberapa saat.",
         );
         const [challenge] = await challengeRowsOf(tx, account);
-        expect(challenge?.failedAttempts).toBe(0);
+        expect(challenge?.failedAttempts).toBe(1);
         expect(mocks.codeMatchCalls).toBe(0);
         expect(await organizationEmailRowsOf(tx, account)).toEqual([]);
       });
@@ -735,7 +729,7 @@ describe.skipIf(skipWithoutDatabase)("Email organisasi code (real database)", ()
           "Terlalu banyak percobaan kode untuk domain email ini hari ini. Coba lagi besok.",
         );
         const [challenge] = await challengeRowsOf(tx, accounts[10]!);
-        expect(challenge?.failedAttempts).toBe(0);
+        expect(challenge?.failedAttempts).toBe(1);
         expect(mocks.codeMatchCalls).toBe(0);
         expect(await organizationEmailRowsOf(tx, accounts[10]!)).toEqual([]);
       });
@@ -1246,6 +1240,30 @@ describe.skipIf(skipWithoutDatabase)(
 
         expect(refusal.code).toBe("organization_email_code_locked");
         expect(mocks.codeMatchCalls).toBe(0);
+        expect(await failedAttemptsOf(account)).toBe(5);
+      } finally {
+        await pool.end();
+      }
+    }, 60_000);
+
+    it("spends at most five domain tries when twenty wrong codes arrive at once on one challenge", async () => {
+      const account = await seedRaceAccount("spender");
+      await issueOrganizationEmailCode(account, "sekretaris@kampus.example", asDatabase(control));
+      const wrong = wrongCodeFor(latestOrganizationCodeFor("sekretaris@kampus.example"));
+      const pool = postgres(TEST_DATABASE_URL!, { max: 5 });
+
+      try {
+        const poolDb = drizzle(pool, { schema }) as unknown as Database;
+        mocks.codeMatchCalls = 0;
+
+        const running = Array.from({ length: 20 }, () =>
+          settle(confirmOrganizationEmailCode(account, wrong, poolDb)),
+        );
+        const settled = await Promise.all(running);
+
+        expect(settled.filter((outcome) => outcome.ok)).toHaveLength(0);
+        expect(mocks.windowCounts.get("rl:org-email-domain-try:kampus.example")).toBe(5);
+        expect(mocks.codeMatchCalls).toBe(5);
         expect(await failedAttemptsOf(account)).toBe(5);
       } finally {
         await pool.end();

@@ -394,11 +394,6 @@ export const ACCEPTED_ROUTABLE_TEST_ADDRESSES: readonly AcceptedRoutableTestFile
     reason: "mocked_delivery",
   },
   {
-    file: "src/server/auth/role-verification-db.test.ts",
-    addresses: ["rendra@corp.co.id"],
-    reason: "mocked_delivery",
-  },
-  {
     file: "src/server/email/delivery.test.ts",
     addresses: ["a@b.com", "auth@lombakita.com"],
     reason: "domain_under_test",
@@ -425,7 +420,7 @@ export const ACCEPTED_ROUTABLE_TEST_ADDRESSES: readonly AcceptedRoutableTestFile
   },
   {
     file: "src/server/host-trust/email-domain.test.ts",
-    addresses: ["x@gmail.com"],
+    addresses: ["x@gmail.com", "x@sub.acme.co.id"],
     reason: "domain_under_test",
   },
   {

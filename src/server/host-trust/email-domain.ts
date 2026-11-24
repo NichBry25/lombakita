@@ -74,8 +74,9 @@ export const isFreeOrThrowawayEmailDomain = (domain: string): boolean => {
   return candidates.some(isListedDomain);
 };
 
-// The organization's registered domain of a domain read by extractEmailDomain.
-export const registrableDomainOf = (domain: string): string => {
+// The domain whose code tries count together for one organization, read from a domain that
+// extractEmailDomain returned. Under an unlisted second-level suffix it is the suffix itself.
+export const organizationDomainOf = (domain: string): string => {
   const labels = domain.split(".");
   const lastTwoLabels = labels.slice(-2).join(".");
   if (SECOND_LEVEL_SUFFIXES.has(lastTwoLabels)) return labels.slice(-3).join(".");

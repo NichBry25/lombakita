@@ -1,10 +1,16 @@
 // @vitest-environment node
 
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockGetDb } = vi.hoisted(() => ({ mockGetDb: vi.fn() }));
+const { mockGetDb, mockTrustHost } = vi.hoisted(() => ({
+  mockGetDb: vi.fn(),
+  mockTrustHost: vi.fn(),
+}));
 vi.mock("@/server/db/client", () => ({ getDb: mockGetDb }));
 vi.mock("@/server/runtime/assert-server-only", () => ({ assertServerOnly: vi.fn() }));
+vi.mock("@/server/host-trust/host-trust-service", () => ({
+  trustHostInTransaction: mockTrustHost,
+}));
 
 import {
   getUnverifiedRoles,
@@ -102,18 +108,18 @@ describe("markRoleAsVerified", () => {
     dateOfBirth: "2000-01-15",
   } as const;
 
-  // Recruiter affiliation form written in the same transaction as the recruiter grant, entering
-  // the account into the platform-ops trust review queue.
-  const recruiterVerificationFixture = {
-    fullName: "Rendra Wijaya",
-    mobileNumber: "0812345678",
-    corporateEmail: "rendra@corp.co.id",
-  } as const;
+  beforeEach(() => {
+    mockTrustHost.mockReset();
+    mockTrustHost.mockResolvedValue(null);
+  });
 
-  // Helper that produces a tx with a select returning `row`, a no-op update().set().where(), and
-  // an insert().values() chain that captures the onboarding write (candidate profile upsert or
-  // recruiter submission insert).
-  const buildTxDb = (row: unknown | null) => {
+  // Helper that produces a tx with a select returning `row`, an update().set().where().returning()
+  // chain that returns `grantedTier`, and an insert().values() chain that captures the candidate
+  // profile write.
+  const buildTxDb = (
+    row: unknown | null,
+    grantedTier: "unverified" | "minimal" | "elevated" = "minimal",
+  ) => {
     const selectChain = {
       from: vi.fn(),
       where: vi.fn(),
@@ -124,9 +130,11 @@ describe("markRoleAsVerified", () => {
 
     const updateChain = {
       set: vi.fn(),
-      where: vi.fn().mockResolvedValue(undefined),
+      where: vi.fn(),
+      returning: vi.fn().mockResolvedValue([{ tier: grantedTier }]),
     };
     updateChain.set.mockReturnValue(updateChain);
+    updateChain.where.mockReturnValue(updateChain);
 
     const captures: { candidateProfileInsert: Record<string, unknown> | null } = {
       candidateProfileInsert: null,
@@ -163,7 +171,6 @@ describe("markRoleAsVerified", () => {
       "u1",
       "candidate",
       candidateProfileFixture,
-      null,
       db as never,
     );
 
@@ -185,9 +192,7 @@ describe("markRoleAsVerified", () => {
       recruiterVerifiedAt: new Date(),
     });
 
-    await expect(
-      markRoleAsVerified("u1", "candidate", null, null, db as never),
-    ).rejects.toMatchObject({
+    await expect(markRoleAsVerified("u1", "candidate", null, db as never)).rejects.toMatchObject({
       code: "candidate_profile_required",
       status: 400,
     });
@@ -195,37 +200,43 @@ describe("markRoleAsVerified", () => {
     expect(tx.update).not.toHaveBeenCalled();
   });
 
-  it("throws recruiter_verification_required when verifying recruiter with no affiliation form", async () => {
+  it("verifies the recruiter role with no form and writes no host request", async () => {
     const { db, tx } = buildTxDb({
       candidateVerifiedAt: new Date(),
       recruiterVerifiedAt: null,
     });
 
-    await expect(
-      markRoleAsVerified("u1", "recruiter", null, null, db as never),
-    ).rejects.toMatchObject({
-      code: "recruiter_verification_required",
-      status: 400,
+    expect(await markRoleAsVerified("u1", "recruiter", null, db as never)).toEqual({
+      candidateVerified: true,
+      recruiterVerified: true,
+      hostTrusted: false,
     });
-    // Fail closed before opening the transaction.
-    expect(tx.update).not.toHaveBeenCalled();
+    expect(tx.insert).not.toHaveBeenCalled();
   });
 
-  it("writes the recruiter trust submission in the same transaction as the recruiter grant", async () => {
-    const { db, captures } = buildTxDb({
+  it("runs automatic trust after the recruiter grant and reports the account trusted", async () => {
+    mockTrustHost.mockResolvedValue("sign_in_email");
+    const { db, tx } = buildTxDb({
       candidateVerifiedAt: new Date(),
       recruiterVerifiedAt: null,
     });
 
-    await markRoleAsVerified("u1", "recruiter", null, recruiterVerificationFixture, db as never);
+    const result = await markRoleAsVerified("u1", "recruiter", null, db as never);
 
-    expect(captures.candidateProfileInsert).toMatchObject({
-      userId: "u1",
-      fullName: "Rendra Wijaya",
-      mobileNumber: "0812345678",
-      corporateEmail: "rendra@corp.co.id",
-      emailDomainFlag: true,
-    });
+    expect(result.hostTrusted).toBe(true);
+    expect(mockTrustHost).toHaveBeenCalledWith(tx, "u1");
+    expect(tx.update.mock.invocationCallOrder[0]!).toBeLessThan(
+      mockTrustHost.mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it("reports an account whose tier was already elevated as trusted", async () => {
+    const { db } = buildTxDb(
+      { candidateVerifiedAt: new Date(), recruiterVerifiedAt: null },
+      "elevated",
+    );
+
+    expect((await markRoleAsVerified("u1", "recruiter", null, db as never)).hostTrusted).toBe(true);
   });
 
   it("throws role_already_verified when target role is already verified", async () => {
@@ -235,7 +246,7 @@ describe("markRoleAsVerified", () => {
     });
 
     await expect(
-      markRoleAsVerified("u1", "candidate", candidateProfileFixture, null, db as never),
+      markRoleAsVerified("u1", "candidate", candidateProfileFixture, db as never),
     ).rejects.toMatchObject({
       code: "role_already_verified",
       status: 409,
@@ -246,29 +257,24 @@ describe("markRoleAsVerified", () => {
     const { db } = buildTxDb(null);
 
     await expect(
-      markRoleAsVerified("u1", "candidate", candidateProfileFixture, null, db as never),
+      markRoleAsVerified("u1", "candidate", candidateProfileFixture, db as never),
     ).rejects.toBeInstanceOf(RoleVerificationError);
   });
 
-  // Step 4.0c (4.0c-T3) — When the second-role stub flips recruiter to verified, the
-  // recruiter_verification_tier must be lifted to 'minimal' in the SAME UPDATE statement.
-  // Otherwise the row would land at recruiter_verified_at IS NOT NULL AND tier='unverified',
-  // which is the 4.0c-M1 inconsistency now prevented by both the application fix and the
-  // users_recruiter_tier_consistency_chk DB constraint.
-  it("sets recruiterVerificationTier='minimal' atomically when flipping recruiter to verified (4.0c-M1 fix)", async () => {
+  // The tier is an expression that keeps a higher tier, never the plain value minimal.
+  it("writes the recruiter timestamp and a tier expression in one update when flipping recruiter to verified", async () => {
     const { db, updateChain } = buildTxDb({
       candidateVerifiedAt: new Date(),
       recruiterVerifiedAt: null,
     });
 
-    await markRoleAsVerified("u1", "recruiter", null, recruiterVerificationFixture, db as never);
+    await markRoleAsVerified("u1", "recruiter", null, db as never);
 
-    // Both writes must land in a single .set() call — the helper only invokes update().set()
-    // once per call, so the assertion below confirms both fields ride the same statement.
     expect(updateChain.set).toHaveBeenCalledTimes(1);
     const setArg = updateChain.set.mock.calls[0]?.[0] as Record<string, unknown>;
     expect(setArg).toHaveProperty("recruiterVerifiedAt");
-    expect(setArg).toHaveProperty("recruiterVerificationTier", "minimal");
+    expect(setArg).toHaveProperty("recruiterVerificationTier");
+    expect(setArg.recruiterVerificationTier).not.toBe("minimal");
   });
 
   it("does NOT touch recruiterVerificationTier when flipping candidate to verified", async () => {
@@ -277,10 +283,11 @@ describe("markRoleAsVerified", () => {
       recruiterVerifiedAt: new Date(),
     });
 
-    await markRoleAsVerified("u1", "candidate", candidateProfileFixture, null, db as never);
+    await markRoleAsVerified("u1", "candidate", candidateProfileFixture, db as never);
 
     const setArg = updateChain.set.mock.calls[0]?.[0] as Record<string, unknown>;
     expect(setArg).toHaveProperty("candidateVerifiedAt");
     expect(setArg).not.toHaveProperty("recruiterVerificationTier");
+    expect(mockTrustHost).not.toHaveBeenCalled();
   });
 });

@@ -6,7 +6,7 @@ import {
   extractEmailDomain,
   holdsOnlyPrintableAscii,
   isFreeOrThrowawayEmailDomain,
-  registrableDomainOf,
+  organizationDomainOf,
 } from "./email-domain";
 import { PERSONAL_EMAIL_DOMAINS } from "@/server/institution-verification/verification-requirements";
 
@@ -131,21 +131,28 @@ describe("email domains", () => {
   });
 
   it("reads the organization's registered domain under a listed second-level suffix", () => {
-    expect(registrableDomainOf("a1.univ.ac.id")).toBe("univ.ac.id");
-    expect(registrableDomainOf("univ.ac.id")).toBe("univ.ac.id");
+    expect(organizationDomainOf("a1.univ.ac.id")).toBe("univ.ac.id");
+    expect(organizationDomainOf("univ.ac.id")).toBe("univ.ac.id");
   });
 
   it("reads the last two labels of a domain under any other suffix", () => {
-    expect(registrableDomainOf("sub.acme.example")).toBe("acme.example");
-    expect(registrableDomainOf("acme.example")).toBe("acme.example");
+    expect(organizationDomainOf("sub.acme.example")).toBe("acme.example");
+    expect(organizationDomainOf("acme.example")).toBe("acme.example");
   });
 
   it("puts every organization under an unlisted second-level suffix in one domain", () => {
-    expect(registrableDomainOf("fakultas.univ.edu.vn")).toBe("edu.vn");
-    expect(registrableDomainOf("kampus.edu.vn")).toBe("edu.vn");
+    expect(organizationDomainOf("fakultas.univ.edu.vn")).toBe("edu.vn");
+    expect(organizationDomainOf("kampus.edu.vn")).toBe("edu.vn");
   });
 
   it("returns a listed second-level suffix that stands alone as itself", () => {
-    expect(registrableDomainOf("ac.id")).toBe("ac.id");
+    expect(organizationDomainOf("ac.id")).toBe("ac.id");
+  });
+
+  it("reads the organization domain of an address under co.id", () => {
+    const domain = extractEmailDomain("x@sub.acme.co.id");
+
+    expect(domain).toBe("sub.acme.co.id");
+    expect(organizationDomainOf(domain!)).toBe("acme.co.id");
   });
 });

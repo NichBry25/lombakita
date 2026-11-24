@@ -73,20 +73,6 @@ const buildInsertValues = (userId: string, input: RecruiterVerificationInput) =>
   emailDomainFlag: deriveCorporateEmailDomainFlag(input.corporateEmail),
 });
 
-// Inserts the recruiter verification submission inside an existing transaction — used by the
-// registration, email code verification and second-role verification paths so the submission
-// lands atomically with the recruiter role grant. A pre-existing open submission is left untouched.
-export const createRecruiterVerificationSubmissionInTransaction = async (
-  tx: Database,
-  userId: string,
-  input: RecruiterVerificationInput,
-): Promise<void> => {
-  await tx
-    .insert(recruiterVerificationSubmissions)
-    .values(buildInsertValues(userId, input))
-    .onConflictDoNothing();
-};
-
 // Withdraws the account's queued submission back into `draft` so the applicant can revise it.
 // This is what keeps the reviewer's view stable: a pending submission is frozen, and the only way
 // to change it is to first take it out of the queue. The CAS on `pending_review` settles the

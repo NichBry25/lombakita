@@ -4,8 +4,7 @@ import { getDb, type Database } from "@/server/db/client";
 import { users } from "@/server/db/schema";
 import type { CandidateProfileInput } from "@/server/candidate/candidate-profile-core";
 import { insertCandidateProfileInTransaction } from "@/server/candidate/candidate-profile-service";
-import type { RecruiterVerificationInput } from "@/server/recruiter-verification/recruiter-verification-core";
-import { createRecruiterVerificationSubmissionInTransaction } from "@/server/recruiter-verification/recruiter-verification-service";
+import { trustHostInTransaction } from "@/server/host-trust/host-trust-service";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/auth/role-verification");
@@ -30,6 +29,9 @@ export type VerificationState = {
   candidateVerified: boolean;
   recruiterVerified: boolean;
 };
+
+// hostTrusted is true when the account's recruiter tier is elevated once the step commits.
+export type RoleVerificationResult = VerificationState & { hostTrusted: boolean };
 
 const readVerificationState = async (
   userId: string,
@@ -105,8 +107,7 @@ export class RoleVerificationError extends Error {
       | "role_already_verified"
       | "invalid_role"
       | "user_not_found"
-      | "candidate_profile_required"
-      | "recruiter_verification_required",
+      | "candidate_profile_required",
     public readonly status: 400 | 404 | 409,
     message: string,
   ) {
@@ -122,30 +123,20 @@ export class RoleVerificationError extends Error {
 // this path never grants candidate access without an onboarding profile — parity with the
 // credentials- and OAuth-signup candidacy paths. Required when `role === "candidate"`.
 //
-// `recruiterVerification` carries the recruiter affiliation form when a candidate-first account
-// verifies the recruiter role here. The trust-verification submission is written in the SAME
-// transaction as the recruiter grant, so the account enters the ops review queue immediately and
-// stays sandboxed (tier `minimal`) until approved. Required when `role === "recruiter"`.
+// The host step (`role === "recruiter"`) takes no form and writes no host request. Automatic trust
+// runs in the same transaction after the grant, because its eligibility reads the host role and the
+// tier that the grant writes.
 export const markRoleAsVerified = async (
   userId: string,
   role: VerifiableRole,
   candidateProfile: CandidateProfileInput | null,
-  recruiterVerification: RecruiterVerificationInput | null,
   db: Database = getDb(),
-): Promise<VerificationState> => {
+): Promise<RoleVerificationResult> => {
   if (role === "candidate" && !candidateProfile) {
     throw new RoleVerificationError(
       "candidate_profile_required",
       400,
       "Candidate onboarding profile is required to verify the candidate role",
-    );
-  }
-
-  if (role === "recruiter" && !recruiterVerification) {
-    throw new RoleVerificationError(
-      "recruiter_verification_required",
-      400,
-      "Recruiter affiliation form is required to verify the recruiter role",
     );
   }
 
@@ -172,24 +163,26 @@ export const markRoleAsVerified = async (
       );
     }
 
-    // When the recruiter mode is flipped to verified, the recruiter
-    // verification tier must be auto-granted to `minimal` in the SAME UPDATE statement. This
-    // mirrors the credentials-auth signup path (`?as=recruiter`) and preserves the invariant
-    // that any row holding `recruiterVerifiedAt IS NOT NULL` also holds tier >= `minimal`.
-    // Without this atomic write, the second-role verification path leaves the user stranded at
-    // tier='unverified' and locked out of opportunity creation.
+    // The host step raises the tier from unverified only, because the database refuses any backward
+    // move (users_recruiter_tier_no_downgrade) and users_recruiter_tier_consistency_chk needs a tier
+    // above unverified once recruiter_verified_at is set.
     const verificationColumns =
       role === "candidate"
         ? { candidateVerifiedAt: sql`now()` }
         : {
             recruiterVerifiedAt: sql`now()`,
-            recruiterVerificationTier: "minimal" as const,
+            recruiterVerificationTier: sql`
+              case when ${users.recruiterVerificationTier} = 'unverified'
+                then 'minimal'::recruiter_verification_tier
+                else ${users.recruiterVerificationTier}
+              end`,
           };
 
-    await tx
+    const [granted] = await tx
       .update(users)
       .set({ ...verificationColumns, updatedAt: sql`now()` })
-      .where(eq(users.id, userId));
+      .where(eq(users.id, userId))
+      .returning({ tier: users.recruiterVerificationTier });
 
     // Candidate onboarding profile lands in the SAME transaction as the candidate verification
     // grant, so a candidate account verified through this path always has its onboarding data.
@@ -197,17 +190,14 @@ export const markRoleAsVerified = async (
       await insertCandidateProfileInTransaction(tx, userId, candidateProfile);
     }
 
-    // Recruiter affiliation form lands in the SAME transaction as the recruiter grant, entering
-    // the account into the platform-ops trust review queue.
-    if (role === "recruiter" && recruiterVerification) {
-      await createRecruiterVerificationSubmissionInTransaction(tx, userId, recruiterVerification);
-    }
+    const trustSource = role === "recruiter" ? await trustHostInTransaction(tx, userId) : null;
 
     logger.info("role_verification.completed", { userId, role });
 
     return {
       candidateVerified: current.candidateVerified || role === "candidate",
       recruiterVerified: current.recruiterVerified || role === "recruiter",
+      hostTrusted: trustSource !== null || granted?.tier === "elevated",
     };
   });
 };
