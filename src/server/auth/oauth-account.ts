@@ -148,7 +148,7 @@ export const resolveGoogleSignIn = async (
     };
   }
 
-  // Brand-new Google user — defer creation to the role-picker round trip. Zero rows written.
+  // Brand-new Google user: creation waits for the details form round trip. Zero rows written.
   return { kind: "new_user" };
 };
 
@@ -402,10 +402,9 @@ const SUSPENDED_REDIRECT = "/suspended";
 const LINK_DENIED_REDIRECT = `/auth/login?error=${OAUTH_LINK_DENIED_ERROR}`;
 const SESSION_MISMATCH_REDIRECT = `/auth/login?error=${OAUTH_SESSION_MISMATCH_ERROR}`;
 const EMAIL_UNVERIFIED_REDIRECT = `/auth/login?error=${OAUTH_EMAIL_UNVERIFIED_ERROR}`;
-// The brand-new-Google-user role picker now lives on the single method-first
-// `/auth/login` page (the `/auth/register` route was merged into it). `/auth/login?oauth=<carrier>`
-// renders the OAuth role picker server-side after verifying the carrier.
-const rolePickerRedirect = (carrier: string): string =>
+// A brand-new Google user finishes sign-up on `/auth/login?oauth=<carrier>`, which renders the
+// details form after verifying the carrier.
+const participantDetailsRedirect = (carrier: string): string =>
   `/auth/login?oauth=${encodeURIComponent(carrier)}`;
 
 // next-auth v4 cookie names. Dev (http) writes `next-auth.session-token`; production (https)
@@ -467,7 +466,7 @@ export type GoogleOAuthSignInParams = {
 // (establish the session for an existing linked account or safe-link an existing same-email
 // account), or a redirect string that ABORTS the flow before any DB write (suspended → /suspended,
 // fail-closed deny → login notice, brand-new user whose address Google has not verified → the
-// email-and-code notice, any other brand-new user → role picker carrying the signed identity).
+// email-and-code notice, any other brand-new user → details form carrying the signed identity).
 //
 // Cross-session takeover guard: if a JWT session is already present in the browser, returning
 // `true` for the OAuth flow lets next-auth's callback-handler.js silently link the new
@@ -532,7 +531,7 @@ export const resolveGoogleOAuthSignIn = async (
         });
         return toRedirect(SESSION_MISMATCH_REDIRECT);
       }
-      // Same reason as the refusal in finalizeOAuthSignup. No carrier is issued, so no role picker opens.
+      // Same reason as the refusal in finalizeOAuthSignup. No carrier is issued, so no details form opens.
       if (!params.googleEmailVerified) {
         logger.warn("oauth.signin.new_user_email_unverified", {
           providerAccountId: params.providerAccountId,
@@ -547,7 +546,7 @@ export const resolveGoogleOAuthSignIn = async (
         name: params.name,
         image: params.image,
       });
-      return toRedirect(rolePickerRedirect(carrier));
+      return toRedirect(participantDetailsRedirect(carrier));
     }
   }
 };

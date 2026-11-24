@@ -185,7 +185,9 @@ type RegistrationInput = {
   candidateProfile: CandidateProfileInput;
 };
 
-const parseParticipantDetails = (payload: Record<string, unknown>): CandidateProfileInput => {
+const parseParticipantDetailsOrRefuse = (
+  payload: Record<string, unknown>,
+): CandidateProfileInput => {
   try {
     return parseCandidateProfileInput(payload);
   } catch (error) {
@@ -206,7 +208,7 @@ export const parseRegistrationInput = (payload: unknown): RegistrationInput => {
     );
   }
 
-  const candidateProfile = parseParticipantDetails(payload);
+  const candidateProfile = parseParticipantDetailsOrRefuse(payload);
 
   return {
     name: parseName(payload.name),

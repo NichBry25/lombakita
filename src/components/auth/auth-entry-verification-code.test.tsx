@@ -68,33 +68,36 @@ const submitEmailAndPassword = (password: string = PASSWORD) => {
   fireEvent.click(screen.getByRole("button", { name: "Lanjut" }));
 };
 
-const RECRUITER_VERIFY_BODY = {
+const PARTICIPANT_VERIFY_BODY = {
   email: ADDRESS,
   code: "123456",
   password: PASSWORD,
   name: "Rina Pratama",
-  signupRole: "recruiter",
   fullName: "Rina Pratama",
-  mobileNumber: "0812345678",
-  corporateEmail: null,
+  phoneNumber: "0812345678",
+  occupation: "college_student",
+  dateOfBirth: "2000-01-31",
 };
 
-const fillHostSignUpForm = async (confirmPassword: string = PASSWORD) => {
+const fillSignUpForm = async (confirmPassword: string = PASSWORD) => {
   await screen.findByLabelText(/^Konfirmasi password(?: \* \(wajib\)| \(opsional\))?$/);
   typeInto("Konfirmasi password", confirmPassword);
-  fireEvent.click(screen.getByRole("radio", { name: /Daftar sebagai penyelenggara/ }));
-  await screen.findByLabelText(/^Nomor ponsel(?: \* \(wajib\)| \(opsional\))?$/);
+  fireEvent.click(screen.getByRole("button", { name: "Lanjut" }));
+  await screen.findByLabelText(/^Nomor telepon(?: \* \(wajib\)| \(opsional\))?$/);
   typeInto("Nama lengkap", "Rina Pratama");
-  typeInto("Nomor ponsel", "0812345678");
+  typeInto("Nomor telepon", "0812345678");
+  fireEvent.click(screen.getByRole("button", { name: "Status saat ini (wajib)" }));
+  fireEvent.click(screen.getByRole("option", { name: "Mahasiswa" }));
+  typeInto("Tanggal lahir", "2000-01-31");
   fireEvent.click(screen.getByRole("button", { name: "Selesai" }));
 };
 
-const signUpAsRecruiter = async () => {
+const signUpAsParticipant = async () => {
   answer("/api/v1/auth/identify", 200, { state: "none" });
   renderEntry();
   submitEmailAndPassword();
 
-  await fillHostSignUpForm();
+  await fillSignUpForm();
 };
 
 const submitCode = (code: string) => {
@@ -108,7 +111,7 @@ const reachCodeStageFromVerifyNotice = async () => {
   renderEntry();
   submitEmailAndPassword();
   fireEvent.click(await screen.findByRole("button", { name: "Lengkapi pendaftaran" }));
-  await fillHostSignUpForm();
+  await fillSignUpForm();
   await screen.findByLabelText(/^Kode verifikasi(?: \* \(wajib\)| \(opsional\))?$/);
 };
 
@@ -126,7 +129,7 @@ afterEach(() => {
 describe("verifying an email address with a code on the sign-in page", () => {
   it("asks for the code right after a sign-up", async () => {
     answer("/api/v1/auth/register", 200, { email: ADDRESS });
-    await signUpAsRecruiter();
+    await signUpAsParticipant();
 
     expect(
       await screen.findByLabelText(/^Kode verifikasi(?: \* \(wajib\)| \(opsional\))?$/),
@@ -135,7 +138,7 @@ describe("verifying an email address with a code on the sign-in page", () => {
 
   it("moves focus to the code box when the code stage opens", async () => {
     answer("/api/v1/auth/register", 200, { email: ADDRESS });
-    await signUpAsRecruiter();
+    await signUpAsParticipant();
 
     const codeBox = await screen.findByLabelText(
       /^Kode verifikasi(?: \* \(wajib\)| \(opsional\))?$/,
@@ -149,7 +152,7 @@ describe("verifying an email address with a code on the sign-in page", () => {
     answer("/api/v1/auth/register", 409, {
       error: { code: "email_not_verified", message: "An unverified account already exists" },
     });
-    await signUpAsRecruiter();
+    await signUpAsParticipant();
 
     expect(await screen.findByRole("button", { name: "Kirim kode verifikasi" })).toBeTruthy();
   });
@@ -188,7 +191,7 @@ describe("verifying an email address with a code on the sign-in page", () => {
     submitEmailAndPassword("short6");
 
     fireEvent.click(await screen.findByRole("button", { name: "Lengkapi pendaftaran" }));
-    await fillHostSignUpForm("short6");
+    await fillSignUpForm("short6");
 
     expect(
       await screen.findByText(
@@ -218,19 +221,19 @@ describe("verifying an email address with a code on the sign-in page", () => {
         expect.objectContaining({ email: ADDRESS, password: PASSWORD }),
       );
     });
-    expect(postedBodyTo("/api/v1/auth/register/verify")).toEqual(RECRUITER_VERIFY_BODY);
+    expect(postedBodyTo("/api/v1/auth/register/verify")).toEqual(PARTICIPANT_VERIFY_BODY);
   });
 
   it("sends the sign-up details with the code", async () => {
     answer("/api/v1/auth/register", 200, { email: ADDRESS });
     answer("/api/v1/auth/register/verify", 200, { verify: { email: ADDRESS } });
-    await signUpAsRecruiter();
+    await signUpAsParticipant();
     await screen.findByLabelText(/^Kode verifikasi(?: \* \(wajib\)| \(opsional\))?$/);
 
     submitCode("123456");
 
     await waitFor(() => {
-      expect(postedBodyTo("/api/v1/auth/register/verify")).toEqual(RECRUITER_VERIFY_BODY);
+      expect(postedBodyTo("/api/v1/auth/register/verify")).toEqual(PARTICIPANT_VERIFY_BODY);
     });
   });
 
@@ -250,7 +253,7 @@ describe("verifying an email address with a code on the sign-in page", () => {
         { exact: false },
       ),
     ).toBeTruthy();
-    await fillHostSignUpForm();
+    await fillSignUpForm();
 
     expect(
       await screen.findByLabelText(/^Kode verifikasi(?: \* \(wajib\)| \(opsional\))?$/),
@@ -264,7 +267,7 @@ describe("verifying an email address with a code on the sign-in page", () => {
       error: { code: "email_not_verified", message: "An unverified account already exists" },
     });
     answer("/api/v1/auth/register/resend", 200, { resend: { email: ADDRESS } });
-    await signUpAsRecruiter();
+    await signUpAsParticipant();
 
     fireEvent.click(await screen.findByRole("button", { name: "Kirim kode verifikasi" }));
 
@@ -278,7 +281,7 @@ describe("verifying an email address with a code on the sign-in page", () => {
     answer("/api/v1/auth/register", 409, {
       error: { code: "email_not_verified", message: "An unverified account already exists" },
     });
-    await signUpAsRecruiter();
+    await signUpAsParticipant();
     await screen.findByRole("button", { name: "Kirim kode verifikasi" });
 
     fireEvent.click(screen.getByRole("button", { name: "Kembali" }));
@@ -291,7 +294,7 @@ describe("verifying an email address with a code on the sign-in page", () => {
 
   it("empties the sign-up form when the person goes back to the email step", async () => {
     answer("/api/v1/auth/register", 200, { email: ADDRESS });
-    await signUpAsRecruiter();
+    await signUpAsParticipant();
     await screen.findByLabelText(/^Kode verifikasi(?: \* \(wajib\)| \(opsional\))?$/);
 
     fireEvent.click(screen.getByRole("button", { name: "Kembali" }));
@@ -316,7 +319,7 @@ describe("verifying an email address with a code on the sign-in page", () => {
     expect(confirmPasswordField.value).toBe("");
 
     typeInto("Konfirmasi password", PASSWORD);
-    fireEvent.click(screen.getByRole("radio", { name: /Daftar sebagai kandidat/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Lanjut" }));
 
     const phoneNumberField = (await screen.findByLabelText(
       /^Nomor telepon(?: \* \(wajib\)| \(opsional\))?$/,
@@ -326,18 +329,6 @@ describe("verifying an email address with a code on the sign-in page", () => {
     ) as HTMLInputElement;
     expect(candidateNameField.value).toBe("");
     expect(phoneNumberField.value).toBe("");
-
-    fireEvent.click(screen.getByRole("button", { name: "Kembali" }));
-    fireEvent.click(await screen.findByRole("radio", { name: /Daftar sebagai penyelenggara/ }));
-
-    const mobileNumberField = (await screen.findByLabelText(
-      /^Nomor ponsel(?: \* \(wajib\)| \(opsional\))?$/,
-    )) as HTMLInputElement;
-    const hostNameField = screen.getByLabelText(
-      /^Nama lengkap(?: \* \(wajib\)| \(opsional\))?$/,
-    ) as HTMLInputElement;
-    expect(mobileNumberField.value).toBe("");
-    expect(hostNameField.value).toBe("");
   });
 
   it("says to try again in 24 hours after too many wrong codes in a day", async () => {
@@ -345,7 +336,7 @@ describe("verifying an email address with a code on the sign-in page", () => {
     answer("/api/v1/auth/register/verify", 429, {
       error: { code: "verification_code_daily_limit", message: "Too many wrong codes" },
     });
-    await signUpAsRecruiter();
+    await signUpAsParticipant();
     await screen.findByLabelText(/^Kode verifikasi(?: \* \(wajib\)| \(opsional\))?$/);
 
     submitCode("123456");
@@ -377,8 +368,8 @@ describe("verifying an email address with a code on the sign-in page", () => {
   it("sends the person back to the form when the server refuses a detail", async () => {
     answer("/api/v1/auth/register/verify", 400, {
       error: {
-        code: "recruiter_verification_invalid_value",
-        message: "mobileNumber must be a valid phone number",
+        code: "candidate_profile_invalid_value",
+        message: "phoneNumber must be a valid phone number",
       },
     });
     await reachCodeStageFromVerifyNotice();
@@ -390,9 +381,9 @@ describe("verifying an email address with a code on the sign-in page", () => {
         "Data pendaftaran belum sesuai. Periksa kembali isian Anda, lalu lanjutkan lagi.",
       ),
     ).toBeTruthy();
-    const mobileNumberField = (await screen.findByLabelText(
-      /^Nomor ponsel(?: \* \(wajib\)| \(opsional\))?$/,
+    const phoneNumberField = (await screen.findByLabelText(
+      /^Nomor telepon(?: \* \(wajib\)| \(opsional\))?$/,
     )) as HTMLInputElement;
-    expect(mobileNumberField.value).toBe("0812345678");
+    expect(phoneNumberField.value).toBe("0812345678");
   });
 });

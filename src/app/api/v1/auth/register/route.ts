@@ -13,10 +13,6 @@ import {
 } from "@/server/auth/rate-limit-response";
 import { verificationEmailTargetOf } from "@/server/auth/verification-email-target";
 
-const isRecord = (value: unknown): value is Record<string, unknown> => {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-};
-
 export async function POST(request: Request): Promise<Response> {
   // BEFORE the body is parsed and before any row is written: registration is unauthenticated
   // account-creation that also bills a verification send, so an unbounded endpoint amplifies both.
@@ -36,8 +32,7 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   try {
-    const rawPayload = await request.json();
-    const payload = isRecord(rawPayload) ? { ...rawPayload } : rawPayload;
+    const payload: unknown = await request.json();
 
     // The per-address budget, shared with /register/resend: this endpoint mails a caller-named
     // address, as the resend endpoint does, so it draws from the same allowance. Counted before

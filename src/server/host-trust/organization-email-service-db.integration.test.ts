@@ -686,7 +686,7 @@ describe.skipIf(skipWithoutDatabase)("Email organisasi code (real database)", ()
 
         expect(refusal.code).toBe("organization_email_code_locked");
         expect(refusal.message).toBe(
-          "Konfirmasi kode sedang tidak tersedia. Coba lagi beberapa saat.",
+          "Kode belum dapat diperiksa saat ini. Tunggu beberapa menit sebelum mencoba lagi, atau minta kode baru.",
         );
         const [challenge] = await challengeRowsOf(tx, account);
         expect(challenge?.failedAttempts).toBe(1);

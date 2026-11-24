@@ -4,22 +4,33 @@ import { ButtonLink, Feedback } from "@/components/ui";
 import { isSelfServiceRole } from "@/lib/access/roles";
 import { sameSitePathOr } from "@/lib/session/return-path";
 import { requireActiveSessionPage } from "@/server/auth/page-guard";
+import { getCandidateProfile } from "@/server/candidate/candidate-profile-service";
 import {
   dashboardPathForRole,
   getUnverifiedRoles,
   isVerifiableRole,
   type VerifiableRole,
 } from "@/server/auth/role-verification";
-import { VerifyRoleForm } from "./verify-role-form";
+import { VerifyRoleForm, type RegisteredContact } from "./verify-role-form";
 
 const ROLE_HEADLINE: Record<VerifiableRole, string> = {
   candidate: "Daftar sebagai kandidat",
-  recruiter: "Daftar sebagai penyelenggara",
+  recruiter: "Mulai menyelenggarakan kompetisi",
 };
 
-// Verification mechanics are deferred. This page collects the per-role verification data
-// and flips the per-role *_verified_at timestamp via the completion API. The candidate path
-// mirrors the registration onboarding form (full name, phone, occupation, date of birth).
+// The host step shows only the name and phone from sign-up, so no other profile field reaches the
+// browser.
+const readRegisteredContact = async (userId: string): Promise<RegisteredContact | null> => {
+  const profile = await getCandidateProfile(userId);
+  if (!profile) {
+    return null;
+  }
+  return { fullName: profile.fullName, phoneNumber: profile.phoneNumber };
+};
+
+// Adds a participant role to the signed-in account. The participant step collects the four sign-up
+// details, and the host step shows the name and phone from sign-up with the optional Email
+// organisasi.
 export default async function VerifyRolePage(props: {
   searchParams?: Promise<{ as?: string; callbackUrl?: string }>;
 }) {
@@ -73,6 +84,9 @@ export default async function VerifyRolePage(props: {
     redirect(returnPath ?? dashboardPathForRole(role));
   }
 
+  const registeredContact =
+    role === "recruiter" ? await readRegisteredContact(session.user.id) : null;
+
   return (
     <AuthPageFrame
       title="Lengkapi data untuk membuka akses"
@@ -83,11 +97,12 @@ export default async function VerifyRolePage(props: {
           <h1>{ROLE_HEADLINE[role]}</h1>
         </header>
 
-        {role === "recruiter" ? (
-          <p>Sebagai penyelenggara, Anda dapat menerbitkan dan mengelola kompetisi.</p>
-        ) : null}
-
-        <VerifyRoleForm role={role} expectedUserId={session.user.id} returnPath={returnPath} />
+        <VerifyRoleForm
+          role={role}
+          expectedUserId={session.user.id}
+          returnPath={returnPath}
+          registeredContact={registeredContact}
+        />
         <ButtonLink href={backHref} variant="link" size="sm">
           Kembali
         </ButtonLink>

@@ -2,39 +2,22 @@
 
 import { FormEvent, useState } from "react";
 import { signIn } from "next-auth/react";
-import {
-  Button,
-  ChoiceCard,
-  FormInput,
-  FormLabel,
-  SelectField,
-  StepIndicator,
-  usePageTransition,
-} from "@/components/ui";
+import { Button, FormInput, FormLabel, SelectField, usePageTransition } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import { AuthPageFrame } from "@/components/auth/auth-page-frame";
 import { AssentNotice } from "@/components/legal/assent-notice";
 import { readGoogleReturnPath } from "@/components/auth/google-return-path";
 import { GOOGLE_EMAIL_UNVERIFIED_MESSAGE } from "@/lib/errors/error-copy";
 
-// Minimal-proof OAuth role picker. Reached after a brand-new Google user is routed to
-// /auth/login?oauth=<carrier> — the role picker lives on the single login page. The
-// carrier is the server's HMAC-signed Google identity; this
-// component never parses it, it only forwards it (plus the declared role) to the oauth-finalize
-// credentials provider, which verifies the carrier, creates the account, and signs the user in.
-//
-// A candidate signup additionally collects the four onboarding fields, and a recruiter signup
-// collects the affiliation form (full name, mobile number, optional corporate email); both
-// forward their fields alongside the carrier and role, so a Google-origin account lands with its
-// onboarding data already written and — for recruiters — already entered into the trust-review
-// queue, exactly like the credentials-signup path. Neither role finalizes without its form.
+// The details form of a brand-new Google user, rendered on /auth/login?oauth=<carrier>. The carrier
+// is the server's HMAC-signed Google identity. This component never parses it: it forwards it with
+// the four participant details to the oauth-finalize credentials provider, which verifies the
+// carrier, creates the account and signs the person in.
 type OAuthRolePickerProps = {
   carrier: string;
   email: string;
   name: string | null;
 };
-
-type Stage = "choose" | "candidateOnboarding" | "recruiterOnboarding";
 
 const OCCUPATION_OPTIONS = [
   { value: "school_student", label: "Pelajar (SMA/SMK/sederajat)" },
@@ -60,49 +43,31 @@ const mapFinalizeError = (error: string | null | undefined): string => {
   if (normalized.includes("CANDIDATE_PROFILE")) {
     return "Data kandidat belum lengkap atau tidak valid. Periksa kembali isian Anda.";
   }
-  if (normalized.includes("RECRUITER_VERIFICATION")) {
-    return "Data penyelenggara belum lengkap atau tidak valid. Periksa kembali isian Anda.";
-  }
   if (normalized.includes("ACCOUNT_CONFLICT")) {
     return "Akun untuk email ini sudah ada. Coba masuk dengan metode yang sudah terdaftar.";
-  }
-  if (normalized.includes("INVALID_ROLE")) {
-    return "Peran tidak valid. Pilih kandidat atau penyelenggara.";
   }
   return "Pendaftaran dengan Google gagal. Silakan coba lagi.";
 };
 
 export const OAuthRolePicker = ({ carrier, email, name }: OAuthRolePickerProps) => {
-  const [stage, setStage] = useState<Stage>("choose");
-  const [isSubmitting, setIsSubmitting] = useState<"candidate" | "recruiter" | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const { begin: beginPageTransition } = usePageTransition();
   const { addToast } = useToast();
 
-  // Candidate onboarding fields — collected on the candidateOnboarding stage and forwarded with the
-  // finalize request.
-  const [fullName, setFullName] = useState("");
+  // The Google display name when the provider sent one, empty otherwise. Never the email, because
+  // the field asks for a name. It stays editable.
+  const [fullName, setFullName] = useState(() => name?.trim() || "");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [occupation, setOccupation] = useState("");
   const [dateOfBirth, setDateOfBirth] = useState("");
 
-  // Recruiter affiliation fields — collected on the recruiterOnboarding stage and forwarded with
-  // the finalize request. Separate state from the candidate fields above: a user can navigate
-  // back to "choose" and pick the other role, so the two forms must not share state.
-  const [recruiterFullName, setRecruiterFullName] = useState("");
-  const [mobileNumber, setMobileNumber] = useState("");
-  const [corporateEmail, setCorporateEmail] = useState("");
-
-  const finalize = async (
-    role: "candidate" | "recruiter",
-    extraFields: Record<string, string> | null,
-  ) => {
-    setIsSubmitting(role);
+  const finalize = async (details: Record<string, string>) => {
+    setIsSubmitting(true);
 
     try {
       const result = await signIn(OAUTH_FINALIZE_PROVIDER, {
         carrier,
-        role,
-        ...(extraFields ?? {}),
+        ...details,
         callbackUrl: readGoogleReturnPath(),
         redirect: false,
       });
@@ -122,7 +87,7 @@ export const OAuthRolePicker = ({ carrier, email, name }: OAuthRolePickerProps) 
         message: "Pendaftaran dengan Google gagal karena gangguan koneksi atau server. Coba lagi.",
       });
     } finally {
-      setIsSubmitting(null);
+      setIsSubmitting(false);
     }
   };
 
@@ -146,7 +111,7 @@ export const OAuthRolePicker = ({ carrier, email, name }: OAuthRolePickerProps) 
       return;
     }
 
-    void finalize("candidate", {
+    void finalize({
       fullName: fullName.trim(),
       phoneNumber: phoneNumber.trim(),
       occupation,
@@ -154,227 +119,85 @@ export const OAuthRolePicker = ({ carrier, email, name }: OAuthRolePickerProps) 
     });
   };
 
-  const onSubmitRecruiterOnboarding = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-
-    if (recruiterFullName.trim().length < 2) {
-      addToast({ type: "error", message: "Isi nama lengkap (minimal 2 karakter)." });
-      return;
-    }
-    if (mobileNumber.replace(/\D/g, "").length < 8) {
-      addToast({ type: "error", message: "Isi nomor ponsel yang valid (minimal 8 digit)." });
-      return;
-    }
-
-    void finalize("recruiter", {
-      fullName: recruiterFullName.trim(),
-      mobileNumber: mobileNumber.trim(),
-      corporateEmail: corporateEmail.trim(),
-    });
-  };
-
   return (
     <AuthPageFrame
-      title="Tetapkan peran utama untuk memulai"
-      description="Kandidat mencari kompetisi, penyelenggara menerbitkannya. Anda bisa menambah peran lain nanti."
+      title="Lengkapi data untuk memulai"
+      description="Satu akun untuk ikut kompetisi. Anda bisa mulai menyelenggarakan kompetisi kapan saja dari akun yang sama."
     >
       <div className="auth-entry">
         <header className="auth-entry-header">
           <h1>Selesaikan pendaftaran dengan Google</h1>
         </header>
         <p className="auth-intro-copy">
-          Anda masuk sebagai <span className="auth-email-emphasis">{email}</span>. Akun baru hanya
-          dibuat setelah Anda memilih peran.
+          Anda masuk sebagai <span className="auth-email-emphasis">{email}</span>. Akun baru dibuat
+          setelah data Anda lengkap.
         </p>
 
-        {stage === "choose" ? (
-          <>
-            <StepIndicator currentStep={1} totalSteps={2} stepName="Peran" />
-            <div className="auth-role-list" role="radiogroup" aria-label="Peran">
-              <ChoiceCard
-                title="Daftar sebagai kandidat"
-                description="Siapa pun yang mencari kompetisi, beasiswa, dan peluang lain."
-                disabled={isSubmitting !== null}
-                onSelect={() => {
-                  // The Google display name when the provider sent one; empty otherwise. Never the
-                  // email — the field asks for a name. It stays editable.
-                  setFullName((current) => current || name?.trim() || "");
-                  setStage("candidateOnboarding");
-                }}
-              />
-              <ChoiceCard
-                title="Daftar sebagai penyelenggara"
-                description="Perwakilan institusi yang ingin menerbitkan dan mengelola peluang."
-                disabled={isSubmitting !== null}
-                onSelect={() => {
-                  // The Google display name when the provider sent one; empty otherwise. Never the
-                  // email — the field asks for a name. It stays editable.
-                  setRecruiterFullName((current) => current || name?.trim() || "");
-                  setStage("recruiterOnboarding");
-                }}
-              />
-            </div>
-            <AssentNotice />
-          </>
-        ) : null}
+        <form onSubmit={onSubmitCandidateOnboarding} className="auth-form">
+          <p>Lengkapi data kandidat Anda. Data ini bisa diubah nanti di dasbor Anda.</p>
 
-        {stage === "candidateOnboarding" ? (
-          <form onSubmit={onSubmitCandidateOnboarding} className="auth-form">
-            <StepIndicator currentStep={2} totalSteps={2} stepName="Profil" />
-            <p>Lengkapi data kandidat Anda. Data ini bisa diubah nanti di dasbor Anda.</p>
+          <div className="form-field">
+            <FormLabel htmlFor="candidate-full-name" required>
+              Nama lengkap
+            </FormLabel>
+            <FormInput
+              id="candidate-full-name"
+              type="text"
+              autoComplete="name"
+              value={fullName}
+              onChange={(event) => setFullName(event.target.value)}
+              placeholder="Nama lengkap sesuai identitas"
+            />
+          </div>
 
-            <div className="form-field">
-              <FormLabel htmlFor="candidate-full-name" required>
-                Nama lengkap
-              </FormLabel>
-              <FormInput
-                id="candidate-full-name"
-                type="text"
-                autoComplete="name"
-                value={fullName}
-                onChange={(event) => setFullName(event.target.value)}
-                placeholder="Nama lengkap sesuai identitas"
-              />
-            </div>
+          <div className="form-field">
+            <FormLabel htmlFor="candidate-phone" required>
+              Nomor telepon
+            </FormLabel>
+            <FormInput
+              id="candidate-phone"
+              type="tel"
+              value={phoneNumber}
+              onChange={(event) => setPhoneNumber(event.target.value)}
+              placeholder="Contoh: 0812xxxxxxx"
+            />
+          </div>
 
-            <div className="form-field">
-              <FormLabel htmlFor="candidate-phone" required>
-                Nomor telepon
-              </FormLabel>
-              <FormInput
-                id="candidate-phone"
-                type="tel"
-                value={phoneNumber}
-                onChange={(event) => setPhoneNumber(event.target.value)}
-                placeholder="Contoh: 0812xxxxxxx"
-              />
-            </div>
+          <div className="form-field">
+            <FormLabel htmlFor="candidate-occupation" required>
+              Status saat ini
+            </FormLabel>
+            <SelectField
+              id="candidate-occupation"
+              label="Status saat ini"
+              required
+              value={occupation}
+              placeholder="Pilih status Anda"
+              options={[...OCCUPATION_OPTIONS]}
+              onChange={setOccupation}
+            />
+          </div>
 
-            <div className="form-field">
-              <FormLabel htmlFor="candidate-occupation" required>
-                Status saat ini
-              </FormLabel>
-              <SelectField
-                id="candidate-occupation"
-                label="Status saat ini"
-                required
-                value={occupation}
-                placeholder="Pilih status Anda"
-                options={[...OCCUPATION_OPTIONS]}
-                onChange={setOccupation}
-              />
-            </div>
+          <div className="form-field">
+            <FormLabel htmlFor="candidate-dob" required>
+              Tanggal lahir
+            </FormLabel>
+            <FormInput
+              id="candidate-dob"
+              type="date"
+              value={dateOfBirth}
+              onChange={(event) => setDateOfBirth(event.target.value)}
+            />
+          </div>
 
-            <div className="form-field">
-              <FormLabel htmlFor="candidate-dob" required>
-                Tanggal lahir
-              </FormLabel>
-              <FormInput
-                id="candidate-dob"
-                type="date"
-                value={dateOfBirth}
-                onChange={(event) => setDateOfBirth(event.target.value)}
-              />
-            </div>
+          <AssentNotice />
 
-            <div className="auth-form-actions">
-              <Button
-                type="button"
-                onClick={() => {
-                  setStage("choose");
-                }}
-                variant="outline"
-                size="sm"
-              >
-                Kembali
-              </Button>
-              <Button
-                type="submit"
-                loading={isSubmitting === "candidate"}
-                disabled={isSubmitting !== null}
-                variant="primary"
-                size="md"
-              >
-                Selesai
-              </Button>
-            </div>
-          </form>
-        ) : null}
-
-        {stage === "recruiterOnboarding" ? (
-          <form onSubmit={onSubmitRecruiterOnboarding} className="auth-form">
-            <StepIndicator currentStep={2} totalSteps={2} stepName="Profil" />
-            <p>
-              Lengkapi data penyelenggara Anda. Akun akan menunggu peninjauan sebelum dapat
-              menerbitkan kompetisi.
-            </p>
-
-            <div className="form-field">
-              <FormLabel htmlFor="recruiter-full-name" required>
-                Nama lengkap
-              </FormLabel>
-              <FormInput
-                id="recruiter-full-name"
-                type="text"
-                autoComplete="name"
-                value={recruiterFullName}
-                onChange={(event) => setRecruiterFullName(event.target.value)}
-                placeholder="Nama lengkap sesuai identitas"
-              />
-            </div>
-
-            <div className="form-field">
-              <FormLabel htmlFor="recruiter-mobile" required>
-                Nomor ponsel
-              </FormLabel>
-              <FormInput
-                id="recruiter-mobile"
-                type="tel"
-                value={mobileNumber}
-                onChange={(event) => setMobileNumber(event.target.value)}
-                placeholder="Contoh: 0812xxxxxxx"
-              />
-            </div>
-
-            <div className="form-field">
-              <FormLabel htmlFor="recruiter-corporate-email" optional>
-                Email korporat / institusi
-              </FormLabel>
-              <FormInput
-                id="recruiter-corporate-email"
-                type="email"
-                value={corporateEmail}
-                onChange={(event) => setCorporateEmail(event.target.value)}
-                placeholder="nama@perusahaan.co.id"
-              />
-              <p className="form-help">
-                Email domain korporat mempercepat antrean peninjauan Anda.
-              </p>
-            </div>
-
-            <div className="auth-form-actions">
-              <Button
-                type="button"
-                onClick={() => {
-                  setStage("choose");
-                }}
-                variant="outline"
-                size="sm"
-              >
-                Kembali
-              </Button>
-              <Button
-                type="submit"
-                loading={isSubmitting === "recruiter"}
-                disabled={isSubmitting !== null}
-                variant="primary"
-                size="md"
-              >
-                Selesai
-              </Button>
-            </div>
-          </form>
-        ) : null}
+          <div className="auth-form-actions">
+            <Button type="submit" loading={isSubmitting} variant="primary" size="md">
+              Selesai
+            </Button>
+          </div>
+        </form>
       </div>
     </AuthPageFrame>
   );

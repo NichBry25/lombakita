@@ -4,17 +4,31 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { candidateRoleOfferPath } from "@/app/competitions/[institutionSlug]/[slug]/candidate-role-offer-path";
 
-const { mockRedirect, mockRequireActiveSessionPage, mockGetUnverifiedRoles, VerifyRoleForm } =
-  vi.hoisted(() => ({
-    mockRedirect: vi.fn((): never => {
-      throw new Error("NEXT_REDIRECT");
+const {
+  mockRedirect,
+  mockRequireActiveSessionPage,
+  mockGetUnverifiedRoles,
+  mockGetCandidateProfile,
+  VerifyRoleForm,
+} = vi.hoisted(() => ({
+  mockRedirect: vi.fn((): never => {
+    throw new Error("NEXT_REDIRECT");
+  }),
+  mockRequireActiveSessionPage: vi.fn(async () => ({
+    user: { id: "user-42", role: "candidate" },
+  })),
+  mockGetUnverifiedRoles: vi.fn(async () => ["recruiter"]),
+  mockGetCandidateProfile: vi.fn(
+    async (): Promise<Record<string, unknown> | null> => ({
+      userId: "user-42",
+      fullName: "Andi Saputra",
+      phoneNumber: "081234567890",
+      occupation: "college_student",
+      dateOfBirth: "2000-01-31",
     }),
-    mockRequireActiveSessionPage: vi.fn(async () => ({
-      user: { id: "user-42", role: "candidate" },
-    })),
-    mockGetUnverifiedRoles: vi.fn(async () => ["recruiter"]),
-    VerifyRoleForm: vi.fn<(props: Record<string, unknown>) => null>(() => null),
-  }));
+  ),
+  VerifyRoleForm: vi.fn<(props: Record<string, unknown>) => null>(() => null),
+}));
 
 vi.mock("next/navigation", () => ({ redirect: mockRedirect }));
 vi.mock("@/server/auth/page-guard", () => ({
@@ -24,6 +38,9 @@ vi.mock("@/server/auth/role-verification", () => ({
   getUnverifiedRoles: mockGetUnverifiedRoles,
   isVerifiableRole: (role: string) => role === "candidate" || role === "recruiter",
   dashboardPathForRole: () => "/candidate-dashboard",
+}));
+vi.mock("@/server/candidate/candidate-profile-service", () => ({
+  getCandidateProfile: mockGetCandidateProfile,
 }));
 vi.mock("./verify-role-form", () => ({ VerifyRoleForm }));
 
@@ -169,15 +186,47 @@ describe("the role page words", () => {
     expect(html).toContain("Satu akun dapat menjadi kandidat sekaligus penyelenggara.");
   });
 
-  it("titles the host page Daftar sebagai penyelenggara and calls no one rekruter", async () => {
+  it("titles the host step Mulai menyelenggarakan kompetisi and calls no one rekruter", async () => {
     signInAs("candidate", ["recruiter"]);
 
     const html = await renderPage({ as: "recruiter" });
 
-    expect(html).toContain("<h1>Daftar sebagai penyelenggara</h1>");
-    expect(html).toContain(
+    expect(html).toContain("<h1>Mulai menyelenggarakan kompetisi</h1>");
+    expect(html).not.toContain(
       "Sebagai penyelenggara, Anda dapat menerbitkan dan mengelola kompetisi.",
     );
     expect(html).not.toMatch(/rekruter/i);
+  });
+});
+
+describe("the host step page", () => {
+  it("hands the host step the name and phone from sign-up and no other profile field", async () => {
+    signInAs("candidate", ["recruiter"]);
+
+    await renderPage({ as: "recruiter" });
+
+    expect(mockGetCandidateProfile).toHaveBeenCalledWith("user-42");
+    expect(lastFormProps()?.registeredContact).toEqual({
+      fullName: "Andi Saputra",
+      phoneNumber: "081234567890",
+    });
+  });
+
+  it("hands the host step no sign-up values when the account has none", async () => {
+    signInAs("candidate", ["recruiter"]);
+    mockGetCandidateProfile.mockResolvedValueOnce(null);
+
+    await renderPage({ as: "recruiter" });
+
+    expect(lastFormProps()?.registeredContact).toBeNull();
+  });
+
+  it("reads no sign-up values for the participant step", async () => {
+    signInAsHost(["candidate"]);
+
+    await renderPage({ as: "candidate" });
+
+    expect(mockGetCandidateProfile).not.toHaveBeenCalled();
+    expect(lastFormProps()?.registeredContact).toBeNull();
   });
 });

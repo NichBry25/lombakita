@@ -40,7 +40,7 @@ const CODE_LOCKED_MESSAGE = "Kode salah 5 kali. Minta kode baru.";
 const DOMAIN_TRY_LIMIT_MESSAGE =
   "Terlalu banyak percobaan kode untuk domain email ini hari ini. Coba lagi besok.";
 const CODE_CHECK_UNAVAILABLE_MESSAGE =
-  "Konfirmasi kode sedang tidak tersedia. Coba lagi beberapa saat.";
+  "Kode belum dapat diperiksa saat ini. Tunggu beberapa menit sebelum mencoba lagi, atau minta kode baru.";
 const EMAIL_TAKEN_MESSAGE =
   "Email ini sudah dipakai akun lain. Satu email organisasi hanya untuk satu akun.";
 

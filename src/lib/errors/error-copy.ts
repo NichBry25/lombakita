@@ -51,10 +51,6 @@ export const ONBOARDING_FIELD_REFUSAL_COPY: Partial<Record<string, string>> = {
   "candidate_profile_invalid_value.phoneNumber": "Isi nomor telepon yang valid (minimal 8 digit).",
   "candidate_profile_invalid_value.occupation": "Pilih status Anda saat ini.",
   "candidate_profile_invalid_value.dateOfBirth": "Isi tanggal lahir Anda.",
-  "recruiter_verification_invalid_value.fullName": "Isi nama lengkap (minimal 2 karakter).",
-  "recruiter_verification_invalid_value.mobileNumber":
-    "Isi nomor ponsel yang valid (minimal 8 digit).",
-  "recruiter_verification_invalid_value.corporateEmail": "Format email kantor tidak valid.",
 };
 
 export const errorMessageFor = (

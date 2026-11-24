@@ -1,10 +1,20 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
-import { Button, FormInput, FormLabel, SelectField, usePageTransition } from "@/components/ui";
+import {
+  Button,
+  ButtonLink,
+  Feedback,
+  FormInput,
+  FormLabel,
+  Icon,
+  SelectField,
+  usePageTransition,
+} from "@/components/ui";
 import type { VerifiableRole } from "@/server/auth/role-verification";
 import { useToast } from "@/components/ui/primitives";
+import { OrganizationEmailField } from "@/components/host/organization-email-field";
 import {
   errorMessageFor,
   ONBOARDING_FIELD_REFUSAL_COPY,
@@ -16,18 +26,21 @@ const VERIFY_ROLE_ERROR_COPY: Partial<Record<string, string>> = {
   role_already_verified: "Akun Anda sudah terverifikasi untuk peran ini.",
   ...ONBOARDING_FIELD_REFUSAL_COPY,
   candidate_profile_invalid_value: "Periksa data kandidat Anda lalu coba lagi.",
-  recruiter_verification_invalid_value: "Periksa data penyelenggara Anda lalu coba lagi.",
   user_not_found: "Akun tidak ditemukan. Masuk lagi lalu coba lagi.",
   forbidden: "Akun ini tidak dapat menambah peran kandidat atau penyelenggara.",
 };
 
 const VERIFY_ROLE_FALLBACK = "Verifikasi gagal. Coba lagi beberapa saat.";
 
+export type RegisteredContact = { fullName: string; phoneNumber: string };
+
 type VerifyRoleFormProps = {
   role: VerifiableRole;
   expectedUserId: string;
   // A path on this site that the page has already checked, or null for the dashboard the API names.
   returnPath: string | null;
+  // The name and phone the account gave at sign-up, shown read only on the host step.
+  registeredContact: RegisteredContact | null;
 };
 
 // Candidate onboarding option list. Values must match the `candidate_occupation` DB enum exactly.
@@ -39,27 +52,35 @@ const OCCUPATION_OPTIONS = [
   { value: "other", label: "Lainnya" },
 ] as const;
 
-// Verification mechanics are deferred. This component calls the completion API and refreshes
-// the session JWT so the new verifiedRoles entry is reflected without a manual re-login.
-//
-// Verifying the candidate role also collects the four onboarding fields — mirroring the
-// registration onboarding form — and sends them in the same request, so a recruiter-first account
-// gaining candidate access lands with an onboarding profile written (parity with the credentials-
-// and OAuth-signup candidacy paths). The recruiter path submits with no extra fields.
-export function VerifyRoleForm({ role, expectedUserId, returnPath }: VerifyRoleFormProps) {
+// Calls the completion API and refreshes the session JWT so the new verifiedRoles entry is
+// reflected without a manual re-login. The participant step sends the four details, the same as the
+// sign-up form. The host step sends only the role, and a host whose account is trusted once the
+// step commits is told so before going on.
+export function VerifyRoleForm({
+  role,
+  expectedUserId,
+  returnPath,
+  registeredContact,
+}: VerifyRoleFormProps) {
   const { update } = useSession();
   const { addToast } = useToast();
   const { begin: beginPageTransition } = usePageTransition();
   const [busy, setBusy] = useState(false);
+  const [trustedContinueHref, setTrustedContinueHref] = useState<string | null>(null);
+  const trustedNoticeRef = useRef<HTMLDivElement>(null);
 
   const [fullName, setFullName] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [occupation, setOccupation] = useState("");
   const [dateOfBirth, setDateOfBirth] = useState("");
 
-  // Recruiter affiliation form fields (mobile + optional corporate email).
-  const [mobileNumber, setMobileNumber] = useState("");
-  const [corporateEmail, setCorporateEmail] = useState("");
+  // The host step's button unmounts when the trusted notice replaces it, so focus moves to the
+  // notice.
+  useEffect(() => {
+    if (trustedContinueHref !== null) {
+      trustedNoticeRef.current?.focus();
+    }
+  }, [trustedContinueHref]);
 
   const submit = async (body: Record<string, unknown>) => {
     setBusy(true);
@@ -87,15 +108,22 @@ export function VerifyRoleForm({ role, expectedUserId, returnPath }: VerifyRoleF
         return;
       }
 
-      const payload = (await response.json()) as { redirectTo: string };
+      const payload = (await response.json()) as { redirectTo: string; hostTrusted?: boolean };
 
       // Refresh the JWT so the next page render sees the updated verifiedRoles. We MUST await
       // this before navigating — otherwise the destination dashboard's server-side check would
       // read a stale session.
       await update();
 
+      const nextHref = returnPath ?? payload.redirectTo;
+      if (role === "recruiter" && payload.hostTrusted === true) {
+        setTrustedContinueHref(nextHref);
+        setBusy(false);
+        return;
+      }
+
       beginPageTransition("Menyiapkan akun Anda…");
-      window.location.assign(returnPath ?? payload.redirectTo);
+      window.location.assign(nextHref);
     } catch {
       addToast({
         type: "error",
@@ -106,82 +134,62 @@ export function VerifyRoleForm({ role, expectedUserId, returnPath }: VerifyRoleF
   };
 
   if (role === "recruiter") {
-    const onSubmitRecruiter = (event: FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      if (busy) return;
-
-      if (fullName.trim().length < 2) {
-        addToast({ type: "error", message: "Isi nama lengkap (minimal 2 karakter)." });
-        return;
-      }
-      if (mobileNumber.replace(/\D/g, "").length < 8) {
-        addToast({ type: "error", message: "Isi nomor ponsel yang valid (minimal 8 digit)." });
-        return;
-      }
-
-      void submit({
-        role,
-        fullName: fullName.trim(),
-        mobileNumber: mobileNumber.trim(),
-        corporateEmail: corporateEmail.trim() || null,
-      });
-    };
+    if (trustedContinueHref !== null) {
+      return (
+        <div ref={trustedNoticeRef} tabIndex={-1} className="stack-md">
+          <Feedback tone="success">
+            Akun Anda tepercaya. Kompetisi yang Anda terbitkan langsung tayang.
+          </Feedback>
+          <ButtonLink href={trustedContinueHref} variant="primary" size="md">
+            Lanjut
+            <Icon name="arrow-right" size="md" />
+          </ButtonLink>
+        </div>
+      );
+    }
 
     return (
-      <form onSubmit={onSubmitRecruiter} className="auth-form">
-        <p>
-          Lengkapi data penyelenggara Anda. Setelah dikirim, akun akan menunggu peninjauan tim kami
-          untuk menjadi <strong>penyelenggara terverifikasi</strong>. Anda bisa membuat draf
-          kompetisi sekarang, tetapi belum bisa mempublikasikannya sampai disetujui.
+      <div className="stack-md">
+        {registeredContact ? (
+          <>
+            <p>Nama dan nomor ponsel diambil dari data pendaftaran Anda.</p>
+            <div className="form-field">
+              <FormLabel htmlFor="host-step-full-name">Nama</FormLabel>
+              <FormInput
+                id="host-step-full-name"
+                type="text"
+                value={registeredContact.fullName}
+                readOnly
+              />
+            </div>
+            <div className="form-field">
+              <FormLabel htmlFor="host-step-phone">Nomor ponsel</FormLabel>
+              <FormInput
+                id="host-step-phone"
+                type="tel"
+                value={registeredContact.phoneNumber}
+                readOnly
+              />
+            </div>
+          </>
+        ) : null}
+
+        <OrganizationEmailField expectedUserId={expectedUserId} />
+
+        <p className="form-help">
+          Tanpa email organisasi, kompetisi pertama Anda diperiksa staf sebelum tayang. Perkiraan
+          1x24 jam pada hari kerja.
         </p>
 
-        <div className="form-field">
-          <FormLabel htmlFor="recruiter-full-name" required>
-            Nama lengkap
-          </FormLabel>
-          <FormInput
-            id="recruiter-full-name"
-            type="text"
-            autoComplete="name"
-            value={fullName}
-            onChange={(event) => setFullName(event.target.value)}
-            placeholder="Nama lengkap sesuai identitas"
-          />
-        </div>
-
-        <div className="form-field">
-          <FormLabel htmlFor="recruiter-mobile" required>
-            Nomor ponsel
-          </FormLabel>
-          <FormInput
-            id="recruiter-mobile"
-            type="tel"
-            value={mobileNumber}
-            onChange={(event) => setMobileNumber(event.target.value)}
-            placeholder="Contoh: 0812xxxxxxx"
-          />
-        </div>
-
-        <div className="form-field">
-          <FormLabel htmlFor="recruiter-corporate-email" optional>
-            Email korporat / institusi
-          </FormLabel>
-          <FormInput
-            id="recruiter-corporate-email"
-            type="email"
-            value={corporateEmail}
-            onChange={(event) => setCorporateEmail(event.target.value)}
-            placeholder="nama@perusahaan.co.id"
-          />
-          <p className="form-help">
-            Email dari domain korporat mempercepat antrean peninjauan Anda.
-          </p>
-        </div>
-
-        <Button type="submit" loading={busy} data-testid="verify-role-recruiter">
-          Selesai
+        <Button
+          type="button"
+          loading={busy}
+          onClick={() => void submit({ role })}
+          data-testid="verify-role-recruiter"
+        >
+          Mulai menyelenggarakan
         </Button>
-      </form>
+      </div>
     );
   }
 
