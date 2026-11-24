@@ -1,0 +1,5 @@
+ALTER TABLE "competition_reports" DROP CONSTRAINT "competition_reports_note_required_chk";--> statement-breakpoint
+ALTER TABLE "host_organization_emails" DROP CONSTRAINT "host_organization_emails_email_domain_chk";--> statement-breakpoint
+ALTER TABLE "competition_reports" ADD CONSTRAINT "competition_reports_note_required_chk" CHECK ("competition_reports"."reason" <> 'lainnya' OR ("competition_reports"."note" IS NOT NULL AND btrim("competition_reports"."note") <> ''));--> statement-breakpoint
+ALTER TABLE "host_organization_emails" ADD CONSTRAINT "host_organization_emails_email_domain_chk" CHECK ("host_organization_emails"."email" ~ '^[^@]+@[^@]+$' AND "host_organization_emails"."domain" = split_part("host_organization_emails"."email", '@', 2));--> statement-breakpoint
+ALTER TABLE "organization_email_challenges" ADD CONSTRAINT "organization_email_challenges_email_normalized_chk" CHECK ("organization_email_challenges"."email" = lower(btrim("organization_email_challenges"."email")));
