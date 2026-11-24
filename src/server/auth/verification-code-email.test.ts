@@ -17,7 +17,10 @@ vi.mock("@/server/email/smtp-transport", () => ({
 }));
 
 import { logger } from "@/lib/logger";
-import { sendRegistrationVerificationEmail } from "@/server/auth/email-verification";
+import {
+  sendOrganizationEmailCode,
+  sendRegistrationVerificationEmail,
+} from "@/server/auth/email-verification";
 
 const DELIVERY = { apiKey: "key", from: "noreply@lombakita.test" };
 const EMAIL = "rina.code@example.test";
@@ -103,5 +106,48 @@ describe("the verification code email", () => {
 
     const loggedCode = everyLoggerCall().some((call) => JSON.stringify(call).includes(CODE));
     expect(loggedCode).toBe(false);
+  });
+});
+
+describe("the Email organisasi code email", () => {
+  const ORGANIZATION_ADDRESS = "humas@acme.example";
+  const sendCode = () =>
+    sendOrganizationEmailCode({
+      userId: "user-1",
+      email: ORGANIZATION_ADDRESS,
+      domain: "acme.example",
+      code: CODE,
+    });
+  const loggedAddress = () =>
+    everyLoggerCall().some((call) => JSON.stringify(call).includes(ORGANIZATION_ADDRESS));
+
+  it("logs the account and the domain and never the address when the code is sent", async () => {
+    mocks.resolveEmailDelivery.mockReturnValue(DELIVERY);
+    mocks.sendMail.mockResolvedValue(undefined);
+    mocks.serverEnv.emailDeliveryEnabled = true;
+
+    await sendCode();
+
+    expect(mocks.sendMail).toHaveBeenCalledOnce();
+    expect(sentMessage().to).toBe(ORGANIZATION_ADDRESS);
+    expect(logger.info).toHaveBeenCalledWith("Organization email code sent", {
+      userId: "user-1",
+      domain: "acme.example",
+    });
+    expect(loggedAddress()).toBe(false);
+  });
+
+  it("logs the code but not the address where delivery is switched off", async () => {
+    mocks.resolveEmailDelivery.mockReturnValue(null);
+    mocks.serverEnv.emailDeliveryEnabled = false;
+
+    await sendCode();
+
+    expect(logger.info).toHaveBeenCalledWith("auth.organization_email_code.delivery_suppressed", {
+      userId: "user-1",
+      domain: "acme.example",
+      code: CODE,
+    });
+    expect(loggedAddress()).toBe(false);
   });
 });

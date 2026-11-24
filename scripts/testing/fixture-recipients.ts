@@ -430,7 +430,7 @@ export const ACCEPTED_ROUTABLE_TEST_ADDRESSES: readonly AcceptedRoutableTestFile
   },
   {
     file: "src/server/host-trust/host-trust-service-db.integration.test.ts",
-    addresses: ["rina.free@gmail.com"],
+    addresses: ["rina.free@gmail.com", "x@gmail.com"],
     reason: "domain_under_test",
   },
   {
@@ -555,7 +555,7 @@ export const scanGovernedTestFiles = (): FixtureRecipient[] =>
  * assertion true by construction and measure nothing, which is the defect this whole gate exists
  * to avoid shipping.
  */
-export const PINNED_ADDRESS_CEILING = 85;
+export const PINNED_ADDRESS_CEILING = 86;
 
 /** What the register actually holds right now. Compared against the literal above. */
 export const pinnedAddressTotal = (): number =>

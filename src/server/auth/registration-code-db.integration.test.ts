@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   windowCounts: new Map<string, number>(),
   limiterMode: { current: "counting" as "counting" | "unavailable" },
   unavailableKeyPrefix: { current: null as string | null },
+  routeTransaction: { current: null as Database | null },
 }));
 
 vi.mock("@/config/env.server", async (importOriginal) => {
@@ -28,6 +29,11 @@ vi.mock("@/config/env.server", async (importOriginal) => {
     ...actual,
     serverEnv: { ...actual.serverEnv, authSecret: "test-registration-code-secret" },
   };
+});
+
+vi.mock("@/server/db/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/server/db/client")>();
+  return { ...actual, getDb: () => mocks.routeTransaction.current ?? actual.getDb() };
 });
 
 vi.mock("@/server/auth/email-verification", () => ({
@@ -40,6 +46,7 @@ vi.mock("@/server/redis/rate-limit", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/server/redis/rate-limit")>();
   return {
     ...actual,
+    checkFixedWindowLimit: async () => ({ allowed: true, retryAfterSeconds: 0 }),
     checkFixedWindowLimitFailClosed: async (params: {
       key: string;
       limit: number;
@@ -74,6 +81,7 @@ import {
   listRecruiterVerificationQueue,
   reviewRecruiterVerification,
 } from "@/server/recruiter-verification/recruiter-verification-service";
+import { POST as registerRoute } from "@/app/api/v1/auth/register/route";
 
 const ADDRESS = "rina.code@example.test";
 const STRANGER_PASSWORD = "stranger-pass-1";
@@ -105,6 +113,7 @@ beforeEach(() => {
   mocks.windowCounts.clear();
   mocks.limiterMode.current = "counting";
   mocks.unavailableKeyPrefix.current = null;
+  mocks.routeTransaction.current = null;
 });
 
 const CANDIDATE_DETAILS = {
@@ -116,22 +125,37 @@ const CANDIDATE_DETAILS = {
   dateOfBirth: "2000-01-15",
 };
 
+const HOST_DECLARING_DETAILS = {
+  ...CANDIDATE_DETAILS,
+  signupRole: "recruiter",
+  role: "recruiter",
+  mobileNumber: "081298765432",
+  corporateEmail: "budi@acme.example",
+};
+
 const signUp = (tx: Database, password: string) =>
   registerUserWithCredentials({ ...CANDIDATE_DETAILS, email: ADDRESS, password }, tx);
 
-const signUpAsHost = (tx: Database, password: string) =>
-  registerUserWithCredentials(
-    {
+// Planted directly: an unverified account holding the host role, a host tier and an open host request,
+// a state no sign-up writes and older accounts can still hold.
+const plantLegacyHostSignUp = async (tx: Database, userId: string): Promise<void> => {
+  await tx
+    .update(schema.users)
+    .set({
       name: "Budi Santoso",
-      email: ADDRESS,
-      password,
-      signupRole: "recruiter",
-      fullName: "Budi Santoso",
-      mobileNumber: "081298765432",
-      corporateEmail: null,
-    },
-    tx,
-  );
+      role: "recruiter",
+      candidateVerifiedAt: null,
+      recruiterVerifiedAt: new Date(),
+      recruiterVerificationTier: "minimal",
+    })
+    .where(eq(schema.users.id, userId));
+  await tx.delete(schema.candidateProfiles).where(eq(schema.candidateProfiles.userId, userId));
+  await tx.insert(schema.recruiterVerificationSubmissions).values({
+    userId,
+    fullName: "Budi Santoso",
+    mobileNumber: "081298765432",
+  });
+};
 
 const latestCode = (): string => {
   const sent = mocks.sentCodes.at(-1);
@@ -554,8 +578,9 @@ describe.skipIf(skipWithoutDatabase)("verifying an email address by code (real d
 
   it("replaces a stranger's host sign-up with the details sent with the code", async () => {
     await inRollback(async (tx) => {
-      await signUpAsHost(tx, STRANGER_PASSWORD);
+      await signUp(tx, STRANGER_PASSWORD);
       const { id: userId } = await userOf(tx);
+      await plantLegacyHostSignUp(tx, userId);
       const usernameAfterSignUp = (await accountOf(tx, userId)).username;
 
       await resendRegistrationVerification({ email: ADDRESS }, tx);
@@ -580,32 +605,26 @@ describe.skipIf(skipWithoutDatabase)("verifying an email address by code (real d
     });
   });
 
-  it("replaces a stranger's candidate sign-up with a host sign-up sent with the code", async () => {
+  it("keeps a participant-only account when the code is sent with a host declaration", async () => {
     await inRollback(async (tx) => {
       await signUp(tx, STRANGER_PASSWORD);
       const { id: userId } = await userOf(tx);
 
       await resendRegistrationVerification({ email: ADDRESS }, tx);
-      await verify(tx, latestCode(), OWNER_PASSWORD, {
-        name: "Rina Pratama",
-        signupRole: "recruiter",
-        fullName: "Rina Pratama",
-        mobileNumber: "081211112222",
-        corporateEmail: null,
-      });
+      await verify(tx, latestCode(), OWNER_PASSWORD, HOST_DECLARING_DETAILS);
 
       const roleColumns = await roleColumnsOf(tx, userId);
-      expect(roleColumns.role).toBe("recruiter");
-      expect(roleColumns.recruiterVerifiedAt).toBeInstanceOf(Date);
-      expect(roleColumns.candidateVerifiedAt).toBeNull();
-      expect(roleColumns.recruiterVerificationTier).toBe("minimal");
-      expect(await candidateProfileOf(tx, userId)).toBeNull();
-      const hostRequests = await hostRequestsOf(tx, userId);
-      expect(hostRequests).toHaveLength(1);
-      expect(hostRequests[0]).toMatchObject({
-        status: "pending_review",
-        mobileNumber: "081211112222",
+      expect(roleColumns.role).toBe("candidate");
+      expect(roleColumns.candidateVerifiedAt).toBeInstanceOf(Date);
+      expect(roleColumns.recruiterVerifiedAt).toBeNull();
+      expect(roleColumns.recruiterVerificationTier).toBe("unverified");
+      expect(await candidateProfileOf(tx, userId)).toEqual({
+        fullName: "Rina Pratama",
+        phoneNumber: "0812345678",
+        occupation: "college_student",
+        dateOfBirth: "2000-01-15",
       });
+      expect(await hostRequestsOf(tx, userId)).toHaveLength(0);
     });
   });
 
@@ -625,8 +644,9 @@ describe.skipIf(skipWithoutDatabase)("verifying an email address by code (real d
 
   it("writes no details for a wrong code", async () => {
     await inRollback(async (tx) => {
-      await signUpAsHost(tx, STRANGER_PASSWORD);
+      await signUp(tx, STRANGER_PASSWORD);
       const { id: userId } = await userOf(tx);
+      await plantLegacyHostSignUp(tx, userId);
       const accountBefore = await accountOf(tx, userId);
       const roleBefore = (await roleColumnsOf(tx, userId)).role;
       const hostRequestsBefore = await hostRequestsOf(tx, userId);
@@ -660,10 +680,11 @@ describe.skipIf(skipWithoutDatabase)("verifying an email address by code (real d
     });
   });
 
-  it("hides a stranger's host request from platform ops until the owner's verification replaces it", async () => {
+  it("hides an older host request from platform ops and deletes it when the owner verifies", async () => {
     await inRollback(async (tx) => {
-      await signUpAsHost(tx, STRANGER_PASSWORD);
+      await signUp(tx, STRANGER_PASSWORD);
       const { id: accountId } = await userOf(tx);
+      await plantLegacyHostSignUp(tx, accountId);
       const [strangerRequest] = await hostRequestsOf(tx, accountId);
       if (!strangerRequest) throw new Error("No recruiter request after the host sign-up");
       const operatorId = await seedOperator(tx);
@@ -683,24 +704,10 @@ describe.skipIf(skipWithoutDatabase)("verifying an email address by code (real d
       expect((await hostRequestsOf(tx, accountId))[0]?.status).toBe("pending_review");
 
       await resendRegistrationVerification({ email: ADDRESS }, tx);
-      await verify(tx, latestCode(), OWNER_PASSWORD, {
-        name: "Rina Pratama",
-        signupRole: "recruiter",
-        fullName: "Rina Pratama",
-        mobileNumber: "081211112222",
-        corporateEmail: null,
-      });
+      await verify(tx, latestCode(), OWNER_PASSWORD, HOST_DECLARING_DETAILS);
 
-      const ownerRequests = await hostRequestsOf(tx, accountId);
-      expect(ownerRequests).toHaveLength(1);
-      const [ownerRequest] = ownerRequests;
-      if (!ownerRequest) throw new Error("No recruiter request after the verification");
-      expect(ownerRequest.id).not.toBe(strangerRequest.id);
-      expect(ownerRequest.mobileNumber).toBe("081211112222");
-      expect(ownerRequest.fullName).toBe("Rina Pratama");
-      const queueEntries = await queueEntriesOfAccount();
-      expect(queueEntries).toHaveLength(1);
-      expect(queueEntries[0]?.submission.id).toBe(ownerRequest.id);
+      expect(await hostRequestsOf(tx, accountId)).toHaveLength(0);
+      expect(await queueEntriesOfAccount()).toHaveLength(0);
     });
   });
 
@@ -726,6 +733,38 @@ describe.skipIf(skipWithoutDatabase)("verifying an email address by code (real d
 
       await verify(tx, code, OWNER_PASSWORD);
       expect(await signsIn(tx, OWNER_PASSWORD)).toBe(true);
+    });
+  });
+
+  it("creates a participant-only account from a sign-up that asks for the host role, through the register route", async () => {
+    await inRollback(async (tx) => {
+      mocks.routeTransaction.current = tx;
+
+      const response = await registerRoute(
+        new Request("http://localhost/api/v1/auth/register?as=recruiter", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ ...HOST_DECLARING_DETAILS, email: ADDRESS, password: PASSWORD }),
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.registration.email).toBe(ADDRESS);
+      const { id: userId } = await userOf(tx);
+      const roleColumns = await roleColumnsOf(tx, userId);
+      expect(roleColumns.role).toBe("candidate");
+      expect(roleColumns.candidateVerifiedAt).toBeInstanceOf(Date);
+      expect(roleColumns.recruiterVerifiedAt).toBeNull();
+      expect(roleColumns.recruiterVerificationTier).toBe("unverified");
+      expect(await candidateProfileOf(tx, userId)).toEqual({
+        fullName: "Rina Pratama",
+        phoneNumber: "0812345678",
+        occupation: "college_student",
+        dateOfBirth: "2000-01-15",
+      });
+      expect(await hostRequestsOf(tx, userId)).toHaveLength(0);
+      expect(mocks.sentCodes.map((sent) => sent.email)).toEqual([ADDRESS]);
     });
   });
 });

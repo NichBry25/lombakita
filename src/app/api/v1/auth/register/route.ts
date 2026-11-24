@@ -1,9 +1,5 @@
 import { NextResponse } from "next/server";
-import {
-  CredentialsAuthError,
-  isSignupRole,
-  registerUserWithCredentials,
-} from "@/server/auth/credentials-auth";
+import { CredentialsAuthError, registerUserWithCredentials } from "@/server/auth/credentials-auth";
 import { toCredentialsAuthErrorResponse } from "@/server/auth/credentials-auth-api";
 import { extractClientIp } from "@/server/auth/client-ip";
 import {
@@ -40,28 +36,8 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   try {
-    const url = new URL(request.url);
-    // The role declaration is read from the `?as=` query param. Bodies that also carry
-    // `signupRole` or `role` are merged in parseRegistrationInput as a fallback so callers
-    // (tests, native apps) that cannot easily shape a URL can still supply the declaration
-    // explicitly. The server REJECTS a missing / unknown declaration — there is no silent default.
-    const querySignupRole = url.searchParams.get("as");
     const rawPayload = await request.json();
     const payload = isRecord(rawPayload) ? { ...rawPayload } : rawPayload;
-
-    if (isRecord(payload) && querySignupRole !== null) {
-      if (isSignupRole(querySignupRole)) {
-        payload.signupRole = querySignupRole;
-      } else {
-        return toCredentialsAuthErrorResponse(
-          new CredentialsAuthError(
-            "invalid_signup_role",
-            400,
-            "Signup role declaration is required: use ?as=candidate or ?as=recruiter",
-          ),
-        );
-      }
-    }
 
     // The per-address budget, shared with /register/resend: this endpoint mails a caller-named
     // address, as the resend endpoint does, so it draws from the same allowance. Counted before

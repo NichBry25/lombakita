@@ -7,6 +7,38 @@ const THROWAWAY_EMAIL_DOMAINS: ReadonlySet<string> = new Set(disposableEmailDoma
 const DOMAIN_LABEL_PATTERN = /^[a-z0-9-]+$/;
 const PRINTABLE_ASCII_PATTERN = /^[\x20-\x7E]*$/;
 
+// Second-level suffixes under which an organization registers its own name, so its domain is the
+// label in front of the suffix. Under an unlisted suffix every organization shares one domain, which
+// counts more tries together and never trusts more.
+const SECOND_LEVEL_SUFFIXES: ReadonlySet<string> = new Set([
+  "ac.id",
+  "co.id",
+  "or.id",
+  "go.id",
+  "sch.id",
+  "net.id",
+  "web.id",
+  "my.id",
+  "biz.id",
+  "mil.id",
+  "ponpes.id",
+  "desa.id",
+  "co.uk",
+  "ac.uk",
+  "org.uk",
+  "gov.uk",
+  "com.au",
+  "net.au",
+  "org.au",
+  "edu.au",
+  "co.jp",
+  "ac.jp",
+  "com.sg",
+  "edu.sg",
+  "com.my",
+  "edu.my",
+]);
+
 const isListedDomain = (domain: string): boolean =>
   PERSONAL_EMAIL_DOMAINS.has(domain) || THROWAWAY_EMAIL_DOMAINS.has(domain);
 
@@ -40,4 +72,12 @@ export const isFreeOrThrowawayEmailDomain = (domain: string): boolean => {
   const normalizedDomain = domain.toLowerCase();
   const candidates = [normalizedDomain, ...parentDomainsOf(normalizedDomain)];
   return candidates.some(isListedDomain);
+};
+
+// The organization's registered domain of a domain read by extractEmailDomain.
+export const registrableDomainOf = (domain: string): string => {
+  const labels = domain.split(".");
+  const lastTwoLabels = labels.slice(-2).join(".");
+  if (SECOND_LEVEL_SUFFIXES.has(lastTwoLabels)) return labels.slice(-3).join(".");
+  return lastTwoLabels;
 };

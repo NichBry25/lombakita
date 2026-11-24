@@ -17,7 +17,6 @@ import {
 } from "@/server/db/schema";
 import { hashPassword, verifyPassword } from "@/server/auth/password";
 import { sendRegistrationVerificationEmail } from "@/server/auth/email-verification";
-import { meetsRecruiterTier } from "@/server/auth/recruiter-tier";
 import {
   REGISTRATION_CODE_TTL_MS,
   hashRegistrationCode,
@@ -36,12 +35,6 @@ import {
   type CandidateProfileInput,
 } from "@/server/candidate/candidate-profile-core";
 import { insertCandidateProfileInTransaction } from "@/server/candidate/candidate-profile-service";
-import {
-  parseRecruiterVerificationInput,
-  RecruiterVerificationError,
-  type RecruiterVerificationInput,
-} from "@/server/recruiter-verification/recruiter-verification-core";
-import { createRecruiterVerificationSubmissionInTransaction } from "@/server/recruiter-verification/recruiter-verification-service";
 
 const NAME_MIN_LENGTH = 2;
 const NAME_MAX_LENGTH = 120;
@@ -57,45 +50,17 @@ const splitName = (name: string): { firstName: string; lastName: string } => {
   };
 };
 
-// Signup role declaration. Exactly one of
-// these two values is accepted on POST /api/v1/auth/register. The declared role determines:
-//   1. The user-level `users.role` value persisted on the row.
-//   2. Which of the two per-role verification timestamps is set at account-creation time.
-//      The undeclared role's timestamp stays NULL.
-// Server-side enforcement: a missing / unknown `as` value is rejected with 400; the client
-// cannot fabricate the verified-role state.
-export const SIGNUP_ROLE_VALUES = ["candidate", "recruiter"] as const;
-export type SignupRole = (typeof SIGNUP_ROLE_VALUES)[number];
-
-export const isSignupRole = (value: unknown): value is SignupRole => {
-  return typeof value === "string" && (SIGNUP_ROLE_VALUES as readonly string[]).includes(value);
-};
-
-// Shared signup primitives, extracted so the Google-OAuth finalization path
-// (`finalizeOAuthSignup` in oauth-account.ts) creates a users row through the SAME role/tier
-// derivation and username generation as the credentials registration transaction, rather than
-// duplicating the logic. Both call sites must agree byte-for-byte on:
-//   - which per-role verification timestamp is set for a declared role, and
-//   - that recruiter signup atomically grants the `minimal` tier,
-//     keeping `users_recruiter_tier_consistency_chk` satisfied.
-
-// The exact column set written to `users` for a declared signup role. The undeclared role's
-// timestamp stays null; the DB CHECK `users_one_verified_role_chk` is satisfied because the
-// declared role always sets one timestamp. Verification is sourced from the role DECLARATION, never
-// from an OAuth provider's email_verified.
-export const deriveSignupRoleColumns = (
-  signupRole: SignupRole,
+// Shared signup primitive, so the Google sign-up (finalizeOAuthSignup in oauth-account.ts) writes the
+// same role columns as the credentials sign-up.
+//
+// Every sign-up creates a participant. The host role is added later on the host step, so no sign-up
+// writes recruiter_verified_at or a recruiter tier, and the tier keeps its column default.
+export const deriveParticipantSignupColumns = (
   now: Date,
-): {
-  role: SignupRole;
-  candidateVerifiedAt: Date | null;
-  recruiterVerifiedAt: Date | null;
-  recruiterVerificationTier: "minimal" | "unverified";
-} => ({
-  role: signupRole,
-  candidateVerifiedAt: signupRole === "candidate" ? now : null,
-  recruiterVerifiedAt: signupRole === "recruiter" ? now : null,
-  recruiterVerificationTier: signupRole === "recruiter" ? "minimal" : "unverified",
+): { role: "candidate"; candidateVerifiedAt: Date; recruiterVerifiedAt: null } => ({
+  role: "candidate",
+  candidateVerifiedAt: now,
+  recruiterVerifiedAt: null,
 });
 
 // Generates a unique, reserved-word-safe username from a display name, probing availability inside
@@ -115,7 +80,6 @@ type AuthFlowErrorCode =
   | "invalid_email"
   | "invalid_name"
   | "invalid_password"
-  | "invalid_signup_role"
   | "email_exists"
   | "email_not_verified"
   | "verification_required"
@@ -131,9 +95,7 @@ type AuthFlowErrorCode =
   | "username_generation_failed"
   | "candidate_profile_invalid_payload"
   | "candidate_profile_invalid_fields"
-  | "candidate_profile_invalid_value"
-  | "recruiter_verification_invalid_payload"
-  | "recruiter_verification_invalid_value";
+  | "candidate_profile_invalid_value";
 
 export class CredentialsAuthError extends Error {
   constructor(
@@ -218,29 +180,23 @@ type RegistrationInput = {
   name: string;
   email: string;
   password: string;
-  signupRole: SignupRole;
-  // Present only for candidate signups. Candidate onboarding collects these descriptive fields in
-  // the same request that creates the account, so the profile and the candidate verification grant
-  // land in one transaction. Recruiter signups leave this null.
-  candidateProfile: CandidateProfileInput | null;
-  // Present only for recruiter signups. The affiliation form (full name, mobile number, optional
-  // corporate email) creates a pending trust-verification submission in the same transaction as
-  // the recruiter role grant. Candidate signups leave this null.
-  recruiterVerification: RecruiterVerificationInput | null;
+  // Every sign-up carries the participant details in the request that creates the account, so
+  // the profile and the participant verification land in one transaction.
+  candidateProfile: CandidateProfileInput;
 };
 
-const parseSignupRole = (value: unknown): SignupRole => {
-  if (!isSignupRole(value)) {
-    throw new CredentialsAuthError(
-      "invalid_signup_role",
-      400,
-      "Signup role declaration is required: use ?as=candidate or ?as=recruiter",
-    );
+const parseParticipantDetails = (payload: Record<string, unknown>): CandidateProfileInput => {
+  try {
+    return parseCandidateProfileInput(payload);
+  } catch (error) {
+    if (error instanceof CandidateProfileError) {
+      throw new CredentialsAuthError(error.code, 400, error.message, error.details);
+    }
+    throw error;
   }
-
-  return value;
 };
 
+// An older form may still send signupRole or role, and neither is read.
 export const parseRegistrationInput = (payload: unknown): RegistrationInput => {
   if (!isRecord(payload)) {
     throw new CredentialsAuthError(
@@ -250,49 +206,13 @@ export const parseRegistrationInput = (payload: unknown): RegistrationInput => {
     );
   }
 
-  const signupRole = parseSignupRole(payload.signupRole ?? payload.role);
-
-  // Candidate signups must carry a complete onboarding profile in the same payload. Candidate
-  // validation failures are surfaced through the credentials-auth error pipeline (400) so the
-  // register endpoint reports them uniformly.
-  let candidateProfile: CandidateProfileInput | null = null;
-  if (signupRole === "candidate") {
-    try {
-      candidateProfile = parseCandidateProfileInput(payload);
-    } catch (error) {
-      if (error instanceof CandidateProfileError) {
-        throw new CredentialsAuthError(error.code, 400, error.message, error.details);
-      }
-      throw error;
-    }
-  }
-
-  // Recruiter signups must carry the affiliation form in the same payload; validation failures
-  // surface through the same 400 pipeline as candidate onboarding errors.
-  let recruiterVerification: RecruiterVerificationInput | null = null;
-  if (signupRole === "recruiter") {
-    try {
-      recruiterVerification = parseRecruiterVerificationInput(payload);
-    } catch (error) {
-      if (error instanceof RecruiterVerificationError) {
-        // Parsing can only fail with the two validation codes; narrow explicitly for the union.
-        const code =
-          error.code === "recruiter_verification_invalid_payload"
-            ? ("recruiter_verification_invalid_payload" as const)
-            : ("recruiter_verification_invalid_value" as const);
-        throw new CredentialsAuthError(code, 400, error.message, error.details);
-      }
-      throw error;
-    }
-  }
+  const candidateProfile = parseParticipantDetails(payload);
 
   return {
     name: parseName(payload.name),
     email: parseEmail(payload.email),
     password: parsePassword(payload.password),
-    signupRole,
     candidateProfile,
-    recruiterVerification,
   };
 };
 
@@ -437,17 +357,10 @@ export const registerUserWithCredentials = async (
             );
       }
 
-      // Write the declared user-level role and the matching
-      // *_verified_at timestamp at account-creation time. The CHECK constraint
-      // `users_one_verified_role_chk` enforces the invariant at the DB layer; the application
-      // also sets exactly one timestamp here so the constraint passes on the first INSERT.
-      //
-      // Recruiter signup auto-grants the `minimal` tier in the
-      // same INSERT statement so tier and recruiterVerifiedAt land atomically. Candidate
-      // signups leave the tier at the column default ('unverified'); the tier is only meaningful
-      // once the account verifies the recruiter mode.
+      // The participant role and its verification timestamp are written at account creation, so the
+      // CHECK users_one_verified_role_chk passes on the first INSERT and the tier keeps its default.
       const now = new Date();
-      const roleColumns = deriveSignupRoleColumns(input.signupRole, now);
+      const roleColumns = deriveParticipantSignupColumns(now);
 
       // Generate a valid, unique, reserved-word-safe
       // username before the user INSERT. Generation runs inside this
@@ -480,23 +393,9 @@ export const registerUserWithCredentials = async (
         })
         .onConflictDoNothing();
 
-      // Candidate onboarding profile is written in the SAME transaction that grants the candidate
-      // verification timestamp (via roleColumns above), so a candidate account never exists without
-      // its onboarding data. Recruiter signups skip this — recruiter onboarding is a separate flow.
-      if (input.candidateProfile) {
-        await insertCandidateProfileInTransaction(tx, userId, input.candidateProfile);
-      }
-
-      // Recruiter affiliation form lands in the SAME transaction as the recruiter role grant, so
-      // every credentials-signup recruiter enters the review queue immediately. The account stays
-      // sandboxed (tier `minimal`: drafts yes, publishing no) until platform ops approve.
-      if (input.recruiterVerification) {
-        await createRecruiterVerificationSubmissionInTransaction(
-          tx,
-          userId,
-          input.recruiterVerification,
-        );
-      }
+      // The participant profile is written in the SAME transaction that grants the participant
+      // verification timestamp, so an account never exists without its participant details.
+      await insertCandidateProfileInTransaction(tx, userId, input.candidateProfile);
 
       await writePasswordHash(tx, userId, passwordHash, now);
 
@@ -717,9 +616,9 @@ const findLiveVerificationCode = async (
   return codeRow;
 };
 
-// The person who typed the code defines the account: an earlier sign-up's name, role, profile
-// and recruiter request are replaced. The username stays when the name is unchanged, and the
-// recruiter tier is never lowered.
+// The person who typed the code defines the account: an earlier sign-up's name, role and profile are
+// replaced and its host request is deleted. The username stays when the name is unchanged, and the
+// recruiter tier is not written.
 const replaceSignupDetailsWithVerifiers = async (
   tx: Database,
   userId: string,
@@ -727,11 +626,7 @@ const replaceSignupDetailsWithVerifiers = async (
   now: Date,
 ): Promise<void> => {
   const [stored] = await tx
-    .select({
-      name: users.name,
-      username: users.username,
-      recruiterVerificationTier: users.recruiterVerificationTier,
-    })
+    .select({ name: users.name, username: users.username })
     .from(users)
     .where(eq(users.id, userId))
     .limit(1);
@@ -740,19 +635,13 @@ const replaceSignupDetailsWithVerifiers = async (
     stored && stored.name === details.name
       ? stored.username
       : await generateUniqueUsernameForName(details.name, usernameIsFreeIn(tx));
-  const { recruiterVerificationTier: declaredTier, ...declaredRoleColumns } =
-    deriveSignupRoleColumns(details.signupRole, now);
-  const tierRises = !stored || !meetsRecruiterTier(stored.recruiterVerificationTier, declaredTier);
 
-  // The tier only rises here: users_recruiter_tier_no_downgrade refuses a lower value,
-  // and "minimal" grants nothing without recruiterVerifiedAt.
   await tx
     .update(users)
     .set({
       name: details.name,
       username,
-      ...declaredRoleColumns,
-      ...(tierRises ? { recruiterVerificationTier: declaredTier } : {}),
+      ...deriveParticipantSignupColumns(now),
       updatedAt: now,
     })
     .where(eq(users.id, userId));
@@ -766,22 +655,11 @@ const replaceSignupDetailsWithVerifiers = async (
     });
 
   await tx.delete(candidateProfiles).where(eq(candidateProfiles.userId, userId));
-
-  if (details.candidateProfile) {
-    await insertCandidateProfileInTransaction(tx, userId, details.candidateProfile);
-  }
+  await insertCandidateProfileInTransaction(tx, userId, details.candidateProfile);
 
   await tx
     .delete(recruiterVerificationSubmissions)
     .where(eq(recruiterVerificationSubmissions.userId, userId));
-
-  if (details.recruiterVerification) {
-    await createRecruiterVerificationSubmissionInTransaction(
-      tx,
-      userId,
-      details.recruiterVerification,
-    );
-  }
 };
 
 const completeCodeVerification = async (

@@ -16,6 +16,7 @@ import {
   extractEmailDomain,
   holdsOnlyPrintableAscii,
   isFreeOrThrowawayEmailDomain,
+  registrableDomainOf,
 } from "@/server/host-trust/email-domain";
 import {
   trustHostInTransaction,
@@ -36,6 +37,10 @@ const INVALID_EMAIL_MESSAGE = "Alamat email belum benar. Periksa lagi penulisann
 const DAILY_LIMIT_MESSAGE = "Batas pengiriman kode hari ini sudah tercapai. Coba lagi besok.";
 const NO_CODE_MESSAGE = "Belum ada kode yang aktif. Minta kode terlebih dahulu.";
 const CODE_LOCKED_MESSAGE = "Kode salah 5 kali. Minta kode baru.";
+const DOMAIN_TRY_LIMIT_MESSAGE =
+  "Terlalu banyak percobaan kode untuk domain email ini hari ini. Coba lagi besok.";
+const CODE_CHECK_UNAVAILABLE_MESSAGE =
+  "Konfirmasi kode sedang tidak tersedia. Coba lagi beberapa saat.";
 const EMAIL_TAKEN_MESSAGE =
   "Email ini sudah dipakai akun lain. Satu email organisasi hanya untuk satu akun.";
 
@@ -147,7 +152,7 @@ export const issueOrganizationEmailCode = async (
   db: Database = getDb(),
 ): Promise<{ email: string; expiresAt: Date }> => {
   const email = normalizeEmail(rawEmail);
-  readOrganizationEmailDomainOrRefuse(email);
+  const domain = readOrganizationEmailDomainOrRefuse(email);
 
   const code = issueRegistrationCode();
   const challengeId = randomUUID();
@@ -172,20 +177,23 @@ export const issueOrganizationEmailCode = async (
     return challenge!.expiresAt;
   });
 
-  await sendOrganizationEmailCode({ email, code });
+  await sendOrganizationEmailCode({ userId, email, domain, code });
   return { email, expiresAt };
 };
 
 const countDomainTryOrRefuse = async (challengeEmail: string): Promise<void> => {
   const domain = extractEmailDomain(challengeEmail)!;
+  const organizationDomain = registrableDomainOf(domain);
   const decision = await checkFixedWindowLimitFailClosed({
-    key: `${ORGANIZATION_EMAIL_DOMAIN_TRY_LIMIT.keyPrefix}${domain}`,
+    key: `${ORGANIZATION_EMAIL_DOMAIN_TRY_LIMIT.keyPrefix}${organizationDomain}`,
     limit: ORGANIZATION_EMAIL_DOMAIN_TRY_LIMIT.limit,
     windowSeconds: ORGANIZATION_EMAIL_DOMAIN_TRY_LIMIT.windowSeconds,
   });
-  if (decision.decision !== "allowed") {
-    throw new OrganizationEmailError("organization_email_code_locked", 422, CODE_LOCKED_MESSAGE);
-  }
+  if (decision.decision === "allowed") return;
+
+  const message =
+    decision.decision === "throttled" ? DOMAIN_TRY_LIMIT_MESSAGE : CODE_CHECK_UNAVAILABLE_MESSAGE;
+  throw new OrganizationEmailError("organization_email_code_locked", 422, message);
 };
 
 const claimCodeAttempt = async (
@@ -268,7 +276,11 @@ export const confirmOrganizationEmailCode = async (
   db: Database = getDb(),
 ): Promise<{ email: string; trustSource: AutomaticTrustSource | null }> => {
   const [challenge] = await db
-    .select({ id: organizationEmailChallenges.id, email: organizationEmailChallenges.email })
+    .select({
+      id: organizationEmailChallenges.id,
+      email: organizationEmailChallenges.email,
+      claimable: sql<boolean>`${organizationEmailChallenges.failedAttempts} < ${ORGANIZATION_EMAIL_CODE_ATTEMPT_LIMIT} and ${organizationEmailChallenges.expiresAt} > now()`,
+    })
     .from(organizationEmailChallenges)
     .where(
       and(
@@ -281,6 +293,10 @@ export const confirmOrganizationEmailCode = async (
   if (!challenge) {
     throw new OrganizationEmailError("organization_email_no_code", 404, NO_CODE_MESSAGE);
   }
+
+  // A challenge that cannot be claimed is refused before the domain count, so a request that is never
+  // compared spends no try of the organization's domain.
+  if (!challenge.claimable) return refuseUnclaimedAttempt(db, challenge.id);
 
   await countDomainTryOrRefuse(challenge.email);
 

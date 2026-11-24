@@ -108,6 +108,8 @@ const userRowsWithEmail = (tx: Database, email: string) =>
       emailVerified: schema.users.emailVerified,
       role: schema.users.role,
       candidateVerifiedAt: schema.users.candidateVerifiedAt,
+      recruiterVerifiedAt: schema.users.recruiterVerifiedAt,
+      recruiterVerificationTier: schema.users.recruiterVerificationTier,
     })
     .from(schema.users)
     .where(eq(schema.users.email, email));
@@ -123,6 +125,12 @@ const candidateProfileRowsOf = (tx: Database, userId: string) =>
     .select({ fullName: schema.candidateProfiles.fullName })
     .from(schema.candidateProfiles)
     .where(eq(schema.candidateProfiles.userId, userId));
+
+const hostRequestRowsOf = (tx: Database, userId: string) =>
+  tx
+    .select({ id: schema.recruiterVerificationSubmissions.id })
+    .from(schema.recruiterVerificationSubmissions)
+    .where(eq(schema.recruiterVerificationSubmissions.userId, userId));
 
 describe.skipIf(skipWithoutDatabase)("the Google sign-up against a real database", () => {
   it("finishes a Google sign-up whose address Google has verified, with the participant profile", async () => {
@@ -219,6 +227,34 @@ describe.skipIf(skipWithoutDatabase)("the Google sign-up against a real database
       );
 
       expect(outcome).toBe(true);
+    });
+  });
+
+  it("creates a participant-only account from a Google sign-up that asks for the host role", async () => {
+    await inRollback(async (tx) => {
+      const identity = newGoogleIdentity();
+      const carrier = carrierFor(identity, true);
+
+      const finalized = await authorizeOAuthFinalize(
+        {
+          carrier,
+          role: "recruiter",
+          ...CANDIDATE_FIELDS,
+          mobileNumber: "081298765432",
+          corporateEmail: null,
+        },
+        tx,
+      );
+
+      expect(finalized.role).toBe("candidate");
+      const [user] = await userRowsWithEmail(tx, identity.email);
+      expect(user?.role).toBe("candidate");
+      expect(user?.candidateVerifiedAt).toBeInstanceOf(Date);
+      expect(user?.recruiterVerifiedAt).toBeNull();
+      expect(user?.recruiterVerificationTier).toBe("unverified");
+      const [profile] = await candidateProfileRowsOf(tx, user?.id ?? "");
+      expect(profile?.fullName).toBe("Rina Pratama");
+      expect(await hostRequestRowsOf(tx, user?.id ?? "")).toEqual([]);
     });
   });
 });

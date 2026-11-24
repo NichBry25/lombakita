@@ -73,7 +73,6 @@ vi.mock(
 
 import {
   registerUserWithCredentials,
-  resendRegistrationVerification,
   verifyEmailCodeAndSetPassword,
 } from "@/server/auth/credentials-auth";
 import { markRoleAsVerified } from "@/server/auth/role-verification";
@@ -87,8 +86,6 @@ import {
   trustHostInTransaction,
 } from "./host-trust-service";
 
-const STRANGER_PASSWORD = "stranger-pass-1";
-const OWNER_PASSWORD = "owner-pass-2";
 const PASSWORD = "fresh-pass-3";
 
 const CANDIDATE_DETAILS = {
@@ -179,30 +176,6 @@ const signUpHost = async (tx: Database, address: string): Promise<string> => {
   return userId;
 };
 
-const signUpStrangerHostThenParticipant = async (
-  tx: Database,
-  address: string,
-): Promise<string> => {
-  await registerUserWithCredentials(
-    {
-      name: "Budi Santoso",
-      email: address,
-      password: STRANGER_PASSWORD,
-      signupRole: "recruiter",
-      fullName: "Budi Santoso",
-      mobileNumber: "081298765432",
-      corporateEmail: null,
-    },
-    tx,
-  );
-  await resendRegistrationVerification({ email: address }, tx);
-  await verifyEmailCodeAndSetPassword(
-    { ...CANDIDATE_DETAILS, email: address, code: latestCode(), password: OWNER_PASSWORD },
-    tx,
-  );
-  return userIdOfAddress(tx, address);
-};
-
 const trustByStaff = async (tx: Database, userId: string): Promise<void> => {
   const operatorId = await seedOperator(tx);
   await elevateRecruiterTier(operatorId, userId, tx);
@@ -249,6 +222,15 @@ const plantMembership = async (
     membershipRole,
     status,
   });
+};
+
+// Planted directly: a host tier without the host role, a state no sign-up writes and older accounts
+// can still hold.
+const plantHostTierWithoutHostRole = async (tx: Database, userId: string): Promise<void> => {
+  await tx
+    .update(schema.users)
+    .set({ recruiterVerificationTier: "minimal" })
+    .where(eq(schema.users.id, userId));
 };
 
 const tierOf = async (tx: Database, userId: string) => {
@@ -349,9 +331,11 @@ describe.skipIf(skipWithoutDatabase)("host trust (real database)", () => {
       });
     });
 
+    // No production path reaches this state: no sign-up writes a host tier, so it is planted.
     it("does not trust an account without the host role", async () => {
       await inRollback(async (tx) => {
-        const userId = await signUpStrangerHostThenParticipant(tx, "rina.peserta@acme.example");
+        const userId = await signUpParticipant(tx, "rina.peserta@acme.example");
+        await plantHostTierWithoutHostRole(tx, userId);
 
         expect(await trustHostInTransaction(tx, userId)).toBeNull();
 
@@ -472,6 +456,18 @@ describe.skipIf(skipWithoutDatabase)("host trust (real database)", () => {
     it("does not take a sign-in email with a non-ASCII character as a source", async () => {
       await inRollback(async (tx) => {
         const userId = await signUpHost(tx, "budi.müller@acme.example");
+
+        expect(await resolveAutomaticTrustSource(tx, userId)).toBeNull();
+        expect(await trustHostInTransaction(tx, userId)).toBeNull();
+
+        expect(await tierOf(tx, userId)).toBe("minimal");
+        expect(await organizationEmailRowsOf(tx, userId)).toEqual([]);
+      });
+    });
+
+    it("does not take a sign-in email whose domain ends in a dot as a source", async () => {
+      await inRollback(async (tx) => {
+        const userId = await signUpHost(tx, "x@gmail.com.");
 
         expect(await resolveAutomaticTrustSource(tx, userId)).toBeNull();
         expect(await trustHostInTransaction(tx, userId)).toBeNull();

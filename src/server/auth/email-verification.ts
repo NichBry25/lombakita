@@ -78,7 +78,9 @@ export const sendRegistrationVerificationEmail = async (options: {
 };
 
 export const sendOrganizationEmailCode = async (options: {
+  userId: string;
   email: string;
+  domain: string;
   code: string;
 }): Promise<void> => {
   const delivery = resolveEmailDelivery({
@@ -90,7 +92,8 @@ export const sendOrganizationEmailCode = async (options: {
     if (!serverEnv.emailDeliveryEnabled) {
       // Only where delivery is switched off (local and test), so a code can be read without an inbox.
       logger.info("auth.organization_email_code.delivery_suppressed", {
-        email: options.email,
+        userId: options.userId,
+        domain: options.domain,
         code: options.code,
       });
     }
@@ -137,6 +140,7 @@ export const sendOrganizationEmailCode = async (options: {
   }
 
   logger.info("Organization email code sent", {
-    email: options.email,
+    userId: options.userId,
+    domain: options.domain,
   });
 };

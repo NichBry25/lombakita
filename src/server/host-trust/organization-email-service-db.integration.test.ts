@@ -5,13 +5,14 @@
 // planted directly only where a test stands in for the clock, and each such place says so.
 //
 // The last describe COMMITS, because one connection cannot wait on itself: each racer gets its own
-// connection, and a third connection holds the advisory lock the service is expected to take, so
-// every racer is provably queued before any is let through. A lock that is removed makes those tests
+// connection, and a third connection holds the lock or the uncommitted row the service is expected to
+// wait on, so every racer is provably queued before any is let through. A lock that is removed makes those tests
 // fail at the queue check and not flake.
 
 import { randomUUID } from "node:crypto";
 import { TransactionRollbackError, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
+import type { Session } from "next-auth";
 import postgres from "postgres";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "@/server/db/schema";
@@ -24,6 +25,8 @@ const mocks = vi.hoisted(() => ({
   windowCounts: new Map<string, number>(),
   limiterUnavailable: false,
   codeMatchCalls: 0,
+  routeTransaction: null as Database | null,
+  routeSession: null as Session | null,
   sweepForAccount: vi.fn().mockResolvedValue(undefined),
   enqueueApproved: vi.fn(),
 }));
@@ -102,6 +105,19 @@ vi.mock(
   },
 );
 
+vi.mock("@/server/db/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/server/db/client")>();
+  return { ...actual, getDb: () => mocks.routeTransaction ?? actual.getDb() };
+});
+
+vi.mock("next-auth", () => ({
+  getServerSession: async () => mocks.routeSession,
+}));
+
+vi.mock("@/server/auth/auth.config", () => ({
+  authOptions: {},
+}));
+
 import { deidentifyAccount } from "@/server/accounts/account-deidentification-service";
 import {
   registerUserWithCredentials,
@@ -113,6 +129,8 @@ import {
   confirmOrganizationEmailCode,
   issueOrganizationEmailCode,
 } from "./organization-email-service";
+import { POST as confirmRoute } from "@/app/api/v1/me/organization-email/confirm/route";
+import { SESSION_USER_HEADER } from "@/lib/session/session-fetch";
 
 const PASSWORD = "fresh-pass-3";
 
@@ -151,6 +169,8 @@ beforeEach(() => {
   mocks.windowCounts.clear();
   mocks.limiterUnavailable = false;
   mocks.codeMatchCalls = 0;
+  mocks.routeTransaction = null;
+  mocks.routeSession = null;
 });
 
 const latestCode = (): string => {
@@ -649,6 +669,9 @@ describe.skipIf(skipWithoutDatabase)("Email organisasi code (real database)", ()
         );
 
         expect(refusal.code).toBe("organization_email_code_locked");
+        expect(refusal.message).toBe(
+          "Terlalu banyak percobaan kode untuk domain email ini hari ini. Coba lagi besok.",
+        );
         const [challenge] = await challengeRowsOf(tx, accounts[10]!);
         expect(challenge?.failedAttempts).toBe(0);
         expect(mocks.codeMatchCalls).toBe(0);
@@ -668,10 +691,147 @@ describe.skipIf(skipWithoutDatabase)("Email organisasi code (real database)", ()
         );
 
         expect(refusal.code).toBe("organization_email_code_locked");
+        expect(refusal.message).toBe(
+          "Konfirmasi kode sedang tidak tersedia. Coba lagi beberapa saat.",
+        );
         const [challenge] = await challengeRowsOf(tx, account);
         expect(challenge?.failedAttempts).toBe(0);
         expect(mocks.codeMatchCalls).toBe(0);
         expect(await organizationEmailRowsOf(tx, account)).toEqual([]);
+      });
+    });
+
+    it("counts tries on two subdomains of one organization against one cap", async () => {
+      await inRollback(async (tx) => {
+        const accounts: string[] = [];
+        for (let k = 1; k <= 11; k += 1) {
+          accounts.push(await signUpParticipant(tx, `peserta.${k}@acme.example`));
+        }
+        for (let k = 1; k <= 5; k += 1) {
+          await issue(tx, accounts[k - 1]!, `staff.${k}@teknik.kampus.example`);
+        }
+        for (let k = 6; k <= 10; k += 1) {
+          await issue(tx, accounts[k - 1]!, `staff.${k}@hukum.kampus.example`);
+        }
+        await issue(tx, accounts[10]!, "staff.11@ekonomi.kampus.example");
+
+        for (let k = 1; k <= 10; k += 1) {
+          const address =
+            k <= 5 ? `staff.${k}@teknik.kampus.example` : `staff.${k}@hukum.kampus.example`;
+          const wrong = wrongCodeFor(latestOrganizationCodeFor(address));
+          for (let attempt = 1; attempt <= 5; attempt += 1) {
+            const refusal = await refusalOf(confirm(tx, accounts[k - 1]!, wrong));
+            expect(refusal.code).toBe("organization_email_code_invalid");
+          }
+        }
+        mocks.codeMatchCalls = 0;
+
+        const refusal = await refusalOf(
+          confirm(tx, accounts[10]!, latestOrganizationCodeFor("staff.11@ekonomi.kampus.example")),
+        );
+
+        expect(refusal.code).toBe("organization_email_code_locked");
+        expect(refusal.message).toBe(
+          "Terlalu banyak percobaan kode untuk domain email ini hari ini. Coba lagi besok.",
+        );
+        const [challenge] = await challengeRowsOf(tx, accounts[10]!);
+        expect(challenge?.failedAttempts).toBe(0);
+        expect(mocks.codeMatchCalls).toBe(0);
+        expect(await organizationEmailRowsOf(tx, accounts[10]!)).toEqual([]);
+      });
+    }, 120_000);
+
+    it("spends no domain try on confirms that cannot be claimed", async () => {
+      await inRollback(async (tx) => {
+        const accountA = await signUpParticipant(tx, "peserta.1@acme.example");
+        await issue(tx, accountA, "staff.1@kampus.example");
+        // Planted directly: a stand-in for the clock, which a rolled-back test cannot move.
+        await tx
+          .update(schema.organizationEmailChallenges)
+          .set({ expiresAt: sql`now() - interval '1 second'` })
+          .where(eq(schema.organizationEmailChallenges.userId, accountA));
+        const wrong = wrongCodeFor(latestOrganizationCodeFor("staff.1@kampus.example"));
+
+        for (let attempt = 1; attempt <= 50; attempt += 1) {
+          const refusal = await refusalOf(confirm(tx, accountA, wrong));
+          expect(refusal.code).toBe("organization_email_code_expired");
+        }
+
+        expect(mocks.windowCounts.get("rl:org-email-domain-try:kampus.example")).toBeUndefined();
+        const accountB = await signUpParticipant(tx, "peserta.2@acme.example");
+        await issue(tx, accountB, "staff.2@kampus.example");
+        const confirmed = await confirm(
+          tx,
+          accountB,
+          latestOrganizationCodeFor("staff.2@kampus.example"),
+        );
+        expect(confirmed).toEqual({ email: "staff.2@kampus.example", trustSource: null });
+      });
+    }, 120_000);
+
+    it("spends no domain try on confirms of a locked challenge", async () => {
+      await inRollback(async (tx) => {
+        const accountA = await signUpParticipant(tx, "peserta.1@acme.example");
+        await issue(tx, accountA, "staff.1@kampus.example");
+        const wrong = wrongCodeFor(latestOrganizationCodeFor("staff.1@kampus.example"));
+        for (let attempt = 1; attempt <= 5; attempt += 1) {
+          const refusal = await refusalOf(confirm(tx, accountA, wrong));
+          expect(refusal.code).toBe("organization_email_code_invalid");
+        }
+
+        for (let attempt = 1; attempt <= 10; attempt += 1) {
+          const refusal = await refusalOf(confirm(tx, accountA, wrong));
+          expect(refusal.code).toBe("organization_email_code_locked");
+        }
+
+        expect(mocks.windowCounts.get("rl:org-email-domain-try:kampus.example")).toBe(5);
+        const accountB = await signUpParticipant(tx, "peserta.2@acme.example");
+        await issue(tx, accountB, "staff.2@kampus.example");
+        const confirmed = await confirm(
+          tx,
+          accountB,
+          latestOrganizationCodeFor("staff.2@kampus.example"),
+        );
+        expect(confirmed).toEqual({ email: "staff.2@kampus.example", trustSource: null });
+      });
+    });
+
+    it("gives no trust to a host whose trust staff removed when it confirms through the route", async () => {
+      await inRollback(async (tx) => {
+        const hostId = await signUpHost(tx, "rina.free@gmail.com");
+        // Planted directly: stands in for the staff trust removal, which this file does not drive.
+        await tx
+          .update(schema.users)
+          .set({ hostTrustRemovedAt: new Date() })
+          .where(eq(schema.users.id, hostId));
+        await issue(tx, hostId, "rina@acme.example");
+        mocks.routeTransaction = tx;
+        mocks.routeSession = {
+          user: {
+            id: hostId,
+            email: "rina.free@gmail.com",
+            role: "recruiter",
+            verifiedRoles: ["candidate", "recruiter"],
+          },
+          expires: new Date(Date.now() + 60_000).toISOString(),
+        } as Session;
+
+        const response = await confirmRoute(
+          new Request("http://localhost/api/v1/me/organization-email/confirm", {
+            method: "POST",
+            headers: { "content-type": "application/json", [SESSION_USER_HEADER]: hostId },
+            body: JSON.stringify({ code: latestOrganizationCodeFor("rina@acme.example") }),
+          }) as unknown as Parameters<typeof confirmRoute>[0],
+        );
+
+        expect(response.status).toBe(200);
+        expect(await response.json()).toEqual({
+          organizationEmail: { email: "rina@acme.example", trustSource: null },
+        });
+        expect(await tierOf(tx, hostId)).toBe("minimal");
+        expect(await organizationEmailRowsOf(tx, hostId)).toEqual([
+          { email: "rina@acme.example", domain: "acme.example" },
+        ]);
       });
     });
   });
@@ -791,19 +951,15 @@ const settle = <T>(work: Promise<T>): Promise<Settled<T>> =>
 type TrackRacer = <T>(work: Promise<T>) => Promise<Settled<T>>;
 
 /**
- * Holds one advisory lock on the barrier connection for the duration of `body`, and ALWAYS gives it
- * back.
- *
- * The key is rebuilt by each test rather than imported, so the test states the string it expects
- * the service to take. A namespace change on one side and not the other has to show up as a test
- * that stops blocking, not as two constants silently agreeing to differ.
+ * Holds what `takeHold` takes, a lock or an uncommitted row, in one barrier transaction for the
+ * duration of `body`, and ALWAYS gives it back by committing.
  *
  * The `finally` is the only reason this suite can report a failure at all: a barrier left holding
  * the lock would make the teardown wait on it forever. Racers launched through `track` are awaited
  * there too, so none wakes up during teardown and commits rows into the middle of the sweep.
  */
-const holdAdvisoryLock = async <T>(
-  lockKey: string,
+const holdInBarrierTransaction = async <T>(
+  takeHold: (tx: postgres.TransactionSql) => Promise<unknown>,
   body: (track: TrackRacer) => Promise<T>,
 ): Promise<T> => {
   let markAcquired!: () => void;
@@ -812,7 +968,7 @@ const holdAdvisoryLock = async <T>(
   const released = new Promise<void>((resolve) => (allowRelease = resolve));
 
   const holding = barrier.sql.begin(async (tx) => {
-    await tx.unsafe("select pg_advisory_xact_lock(hashtext($1))", [lockKey]);
+    await takeHold(tx);
     markAcquired();
     await released;
   });
@@ -820,7 +976,7 @@ const holdAdvisoryLock = async <T>(
   await Promise.race([
     acquired,
     holding.then(() => {
-      throw new Error("the barrier transaction ended before it took the advisory lock");
+      throw new Error("the barrier transaction ended before it took its hold");
     }),
   ]);
 
@@ -839,6 +995,22 @@ const holdAdvisoryLock = async <T>(
     await Promise.all(inFlight);
   }
 };
+
+/**
+ * Holds one advisory lock on the barrier connection for the duration of `body`.
+ *
+ * The key is rebuilt by each test rather than imported, so the test states the string it expects
+ * the service to take. A namespace change on one side and not the other has to show up as a test
+ * that stops blocking, not as two constants silently agreeing to differ.
+ */
+const holdAdvisoryLock = <T>(
+  lockKey: string,
+  body: (track: TrackRacer) => Promise<T>,
+): Promise<T> =>
+  holdInBarrierTransaction(
+    (tx) => tx.unsafe("select pg_advisory_xact_lock(hashtext($1))", [lockKey]),
+    body,
+  );
 
 const errorCodeOf = (error: unknown): string | undefined =>
   (error as { code?: string } | undefined)?.code;
@@ -872,6 +1044,18 @@ const countChallengeRowsOf = async (userId: string): Promise<number> => {
   const rows = await control.sql<{ count: string }[]>`
     select count(*) as count from organization_email_challenges where user_id = ${userId}`;
   return Number(rows[0]!.count);
+};
+
+const challengeIdOf = async (userId: string): Promise<string> => {
+  const rows = await control.sql<{ id: string }[]>`
+    select id from organization_email_challenges where user_id = ${userId}`;
+  return rows[0]!.id;
+};
+
+const organizationEmailsOf = async (userId: string): Promise<string[]> => {
+  const rows = await control.sql<{ email: string }[]>`
+    select email from host_organization_emails where user_id = ${userId} order by email`;
+  return rows.map((row) => row.email);
 };
 
 const countChallengeRowsForAddress = async (address: string): Promise<number> => {
@@ -925,9 +1109,16 @@ describe.skipIf(skipWithoutDatabase)(
         const challenges = await control.sql<{ count: string }[]>`
           select count(*) as count from organization_email_challenges
           where email like ${"%@kampus.example"}`;
+        const organizationEmails = await control.sql<{ count: string }[]>`
+          select count(*) as count from host_organization_emails
+          where email like ${"%@kampus.example"}`;
 
         expect(Number(users[0]!.count), "race accounts left behind").toBe(0);
         expect(Number(challenges[0]!.count), "race challenge rows left behind").toBe(0);
+        expect(
+          Number(organizationEmails[0]!.count),
+          "race organization email rows left behind",
+        ).toBe(0);
       } finally {
         // Connections close whether or not the survivor assertions passed.
         await Promise.all([control?.sql.end(), barrier?.sql.end()]);
@@ -1094,6 +1285,98 @@ describe.skipIf(skipWithoutDatabase)(
         expect(await countChallengeRowsOf(account)).toBe(1);
       } finally {
         await Promise.all(racers.map((racer) => racer.sql.end()));
+      }
+    }, 60_000);
+
+    it("lets one of two concurrent right codes for one challenge through", async () => {
+      const account = await seedRaceAccount("confirmer");
+      await issueOrganizationEmailCode(account, "humas@kampus.example", asDatabase(control));
+      const right = latestOrganizationCodeFor("humas@kampus.example");
+      const challengeId = await challengeIdOf(account);
+      const racers = [openConnection("racer-1"), openConnection("racer-2")];
+
+      try {
+        const pids = await Promise.all(racers.map(backendPidOf));
+        const barrierPid = await backendPidOf(barrier);
+
+        const outcomes = await holdInBarrierTransaction(
+          (tx) =>
+            tx.unsafe("select id from organization_email_challenges where id = $1 for update", [
+              challengeId,
+            ]),
+          async (track) => {
+            const running = racers.map((racer) =>
+              track(confirmOrganizationEmailCode(account, right, asDatabase(racer))),
+            );
+            for (const [k, pid] of pids.entries()) {
+              await awaitBlockedBy(pid, barrierPid, `racer ${k + 1}`);
+            }
+            return running;
+          },
+        );
+        const settled = await Promise.all(outcomes);
+
+        const accepted = settled.filter((outcome) => outcome.ok);
+        expect(accepted).toHaveLength(1);
+        expect(accepted[0]!.ok ? accepted[0]!.value : undefined).toEqual({
+          email: "humas@kampus.example",
+          trustSource: null,
+        });
+        const refused = settled.filter((outcome) => !outcome.ok);
+        expect(refused).toHaveLength(1);
+        expect(errorCodeOf(!refused[0]!.ok ? refused[0]!.error : undefined)).toBe(
+          "organization_email_no_code",
+        );
+        expect(
+          await failedAttemptsOf(account),
+          "both claims must land before either consume, or the test did not reach the consume statement",
+        ).toBe(2);
+        expect(await organizationEmailsOf(account)).toEqual(["humas@kampus.example"]);
+      } finally {
+        await Promise.all(racers.map((racer) => racer.sql.end()));
+      }
+    }, 60_000);
+
+    it("refuses a confirm whose address another account records while it runs, and keeps its earlier row", async () => {
+      const holder = await seedRaceAccount("holder");
+      const taker = await seedRaceAccount("taker");
+      await issueOrganizationEmailCode(holder, "lama@kampus.example", asDatabase(control));
+      await confirmOrganizationEmailCode(
+        holder,
+        latestOrganizationCodeFor("lama@kampus.example"),
+        asDatabase(control),
+      );
+      await issueOrganizationEmailCode(holder, "sekretariat@kampus.example", asDatabase(control));
+      const right = latestOrganizationCodeFor("sekretariat@kampus.example");
+      const racer = openConnection("racer-1");
+
+      try {
+        const racerPid = await backendPidOf(racer);
+        const barrierPid = await backendPidOf(barrier);
+
+        const outcomes = await holdInBarrierTransaction(
+          (tx) =>
+            tx.unsafe(
+              `insert into host_organization_emails (user_id, email, domain, confirmed_at)
+               values ($1, 'sekretariat@kampus.example', 'kampus.example', now())`,
+              [taker],
+            ),
+          async (track) => {
+            const running = track(confirmOrganizationEmailCode(holder, right, asDatabase(racer)));
+            await awaitBlockedBy(racerPid, barrierPid, "racer 1");
+            return [running];
+          },
+        );
+        const [outcome] = await Promise.all(outcomes);
+
+        expect(outcome!.ok).toBe(false);
+        expect(errorCodeOf(!outcome!.ok ? outcome!.error : undefined)).toBe(
+          "organization_email_taken",
+        );
+        expect(await organizationEmailsOf(holder)).toEqual(["lama@kampus.example"]);
+        expect(await organizationEmailsOf(taker)).toEqual(["sekretariat@kampus.example"]);
+      } finally {
+        await racer.sql.end();
       }
     }, 60_000);
   },
