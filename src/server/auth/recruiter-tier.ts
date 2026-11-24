@@ -14,8 +14,8 @@ assertServerOnly("server/auth/recruiter-tier");
 //
 // Tier order at launch: unverified < minimal < elevated. The tier only rises: no service lowers
 // it, and the database refuses a lower tier except elevated to minimal inside a transaction that
-// set lombakita.trust_removal to on. The recruiter mode must already be verified
-// (recruiterVerifiedAt IS NOT NULL) for any tier above `unverified` to be meaningful; the
+// set lombakita.trust_removal to its own transaction id. The recruiter mode must already be
+// verified (recruiterVerifiedAt IS NOT NULL) for any tier above `unverified` to be meaningful; the
 // assertion helper enforces both conditions in lockstep.
 //
 // THE ORDER IS DECLARED ONCE, BY THE ENUM. `RECRUITER_TIERS` is the enum's own `enumValues`, so the
