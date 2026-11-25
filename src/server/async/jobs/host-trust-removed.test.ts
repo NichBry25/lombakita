@@ -54,6 +54,27 @@ describe("processHostTrustRemovedJob", () => {
     });
   });
 
+  it("ends a reason that has no full stop with one, before the next sentence", async () => {
+    mockGetDb.mockReturnValue({ select: makeSequencedSelect([[USER_ROW]]) });
+    mockSendHostTrustRemovedEmail.mockResolvedValue(undefined);
+    mockWriteNotification.mockResolvedValue(undefined);
+
+    await processHostTrustRemovedJob(
+      removedJob({ userId: "u_1", reason: "Kontak palsu", epoch: 1 }),
+    );
+
+    const body =
+      "Alasan: Kontak palsu. Kompetisi yang sudah tayang tetap tayang. Kompetisi berikutnya diperiksa staf sebelum tayang.";
+    expect(mockWriteNotification).toHaveBeenCalledWith(
+      expect.anything(),
+      "u_1",
+      "host_trust_removed",
+      REMOVED_TITLE,
+      body,
+    );
+    expect(mockSendHostTrustRemovedEmail).toHaveBeenCalledWith(expect.objectContaining({ body }));
+  });
+
   it("rethrows when the email fails, after the inbox row was written", async () => {
     mockGetDb.mockReturnValue({ select: makeSequencedSelect([[USER_ROW]]) });
     mockSendHostTrustRemovedEmail.mockRejectedValueOnce(new Error("smtp down"));

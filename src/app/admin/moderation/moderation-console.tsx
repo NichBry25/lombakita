@@ -1,8 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { Button, FormInput, FormLabel, IconButton } from "@/components/ui";
-import { useModal, useToast, type ModalOutcome } from "@/components/ui/primitives";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
+import {
+  Button,
+  FormField,
+  FormInput,
+  FormLabel,
+  FormTextareaWithLimit,
+  IconButton,
+} from "@/components/ui";
+import { useModal, useModalTask, useToast, type ModalOutcome } from "@/components/ui/primitives";
 import { LocalDate } from "@/components/ui/local-date";
 import { getAppRoleLabel } from "@/lib/access/role-labels";
 import { errorMessageFor } from "@/lib/errors/error-copy";
@@ -63,6 +70,10 @@ const OPERATOR_ACTION_ERROR_COPY: Partial<Record<string, string>> = {
   tier_account_not_found: "Akun tidak ditemukan. Muat ulang halaman lalu coba lagi.",
   tier_target_not_recruiter_verified:
     "Akun ini belum terverifikasi sebagai rekruter, jadi tingkatnya tidak dapat dinaikkan.",
+  host_trust_reason_required: "Alasan wajib diisi, paling banyak 1000 karakter.",
+  host_trust_account_not_found: "Akun tidak ditemukan. Muat ulang halaman lalu coba lagi.",
+  host_trust_not_trusted:
+    "Akun ini sudah tidak tepercaya. Muat ulang halaman untuk melihat status terbaru.",
   email_required: "Masukkan email pengguna terlebih dahulu.",
   reason_required: "Alasan wajib diisi.",
   cannot_suspend_platform_ops: "Akun tim internal Lombakita tidak dapat ditangguhkan.",
@@ -89,6 +100,7 @@ const NOTE_SAVE_FALLBACK = "Catatan gagal disimpan. Coba lagi.";
 const NOTES_LOAD_FALLBACK = "Catatan gagal dimuat. Coba lagi.";
 const NOTE_ADD_FALLBACK = "Catatan gagal ditambahkan. Coba lagi.";
 const RECRUITER_TIER_FALLBACK = "Tingkat rekruter gagal dinaikkan. Coba lagi.";
+const HOST_TRUST_REMOVAL_FALLBACK = "Status tepercaya gagal dicabut. Coba lagi.";
 const DEIDENTIFY_FALLBACK = "Data akun gagal dihapus. Muat ulang halaman lalu periksa statusnya.";
 const USER_LOOKUP_FALLBACK = "Pencarian pengguna gagal. Coba lagi.";
 const INSTITUTION_LOOKUP_FALLBACK = "Pencarian institusi gagal. Coba lagi.";
@@ -393,6 +405,99 @@ function RecruiterTierAction({ account, onDone }: { account: UserResult; onDone:
   );
 }
 
+// The service caps a removal reason at 1000 characters.
+const HOST_TRUST_REASON_MAX_LENGTH = 1000;
+
+const HOST_TRUST_REMOVAL_FORM_ID = "host-trust-removal-form";
+
+// The pop-up footer submits this form. An empty reason shows the field error and sends nothing.
+function HostTrustRemovalForm({
+  onSubmit,
+}: {
+  onSubmit: (reason: string) => Promise<ModalOutcome>;
+}) {
+  const runModalTask = useModalTask();
+  const [reason, setReason] = useState("");
+  const [hasTriedToSubmit, setHasTriedToSubmit] = useState(false);
+  const trimmedReason = reason.trim();
+  const showsReasonError = hasTriedToSubmit && trimmedReason.length === 0;
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setHasTriedToSubmit(true);
+    if (trimmedReason.length === 0) return;
+    void runModalTask(() => onSubmit(trimmedReason));
+  };
+
+  return (
+    <form id={HOST_TRUST_REMOVAL_FORM_ID} noValidate onSubmit={submit} className="stack-md">
+      <p>
+        Kompetisi yang sudah tayang tetap tayang. Kompetisi berikutnya dari akun ini diperiksa staf
+        sebelum tayang.
+      </p>
+      <FormField>
+        <FormLabel htmlFor="host-trust-removal-reason" required>
+          Alasan
+        </FormLabel>
+        <FormTextareaWithLimit
+          id="host-trust-removal-reason"
+          value={reason}
+          maxLength={HOST_TRUST_REASON_MAX_LENGTH}
+          rows={3}
+          aria-describedby="host-trust-removal-reason-help"
+          error={showsReasonError ? OPERATOR_ACTION_ERROR_COPY.reason_required : undefined}
+          onChange={(event) => setReason(event.target.value)}
+        />
+        <p className="form-help" id="host-trust-removal-reason-help">
+          Penyelenggara membaca alasan ini di kotak masuk dan email mereka.
+        </p>
+      </FormField>
+    </form>
+  );
+}
+
+function HostTrustRemovalAction({ account, onDone }: { account: UserResult; onDone: () => void }) {
+  const { addToast } = useToast();
+  const { openModal } = useModal();
+
+  // The reason pop-up shows the waiting and the failure, so this reports an outcome.
+  const removeTrust = async (reason: string): Promise<ModalOutcome> => {
+    try {
+      const res = await fetch(`/api/platform-ops/accounts/${account.id}/host-trust-removal`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ reason }),
+      });
+      if (!res.ok) {
+        return { ok: false, message: await readError(res, HOST_TRUST_REMOVAL_FALLBACK) };
+      }
+      addToast({ type: "success", message: "Status tepercaya dicabut." });
+      onDone();
+      return { ok: true };
+    } catch {
+      return { ok: false, message: "Kesalahan jaringan." };
+    }
+  };
+
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      onClick={() =>
+        openModal({
+          title: `Cabut status tepercaya @${account.username}?`,
+          wide: true,
+          formId: HOST_TRUST_REMOVAL_FORM_ID,
+          body: <HostTrustRemovalForm onSubmit={removeTrust} />,
+          actions: [{ label: "Batal" }, { label: "Cabut", variant: "primary" }],
+        })
+      }
+    >
+      Cabut status tepercaya
+    </Button>
+  );
+}
+
 function DeidentifyAction({ account, onDone }: { account: UserResult; onDone: () => void }) {
   const { addToast } = useToast();
   const { openModal } = useModal();
@@ -586,11 +691,17 @@ function UserPanel({ initialEmail }: { initialEmail?: string }) {
               />
             )}
           </div>
-          {result.appRole === "recruiter" &&
+          {result.recruiterVerifiedAt !== null &&
             result.recruiterVerificationTier !== ELEVATION_TARGET_TIER &&
             result.status !== "deactivated" && (
               <div>
                 <RecruiterTierAction account={result} onDone={() => void lookup()} />
+              </div>
+            )}
+          {result.recruiterVerificationTier === ELEVATION_TARGET_TIER &&
+            result.status !== "deactivated" && (
+              <div>
+                <HostTrustRemovalAction account={result} onDone={() => void lookup()} />
               </div>
             )}
           {result.appRole !== "platform_ops" &&

@@ -54,6 +54,7 @@ describe("POST host-checks/[checkId]", () => {
       hostCheck: { id: "check_1", userId: "u1", status: "approved", published: true },
     });
     expect(decideHostCheck).toHaveBeenCalledWith("ops1", "check_1", { decision: "approve" });
+    expect(requireSessionRole).toHaveBeenCalledWith(["platform_ops"]);
   });
 
   it("forwards a turn-down with its guideline item and note", async () => {

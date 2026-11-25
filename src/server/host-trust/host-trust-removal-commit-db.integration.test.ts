@@ -28,7 +28,7 @@ vi.mock("@/server/async/enqueue", async (importOriginal) => {
   return { ...actual, enqueueHostTrustRemoved: mocks.enqueueRemoved };
 });
 
-import { removeHostTrust } from "./host-trust-service";
+import { removeHostTrust } from "./host-trust-removal-service";
 
 const COMMIT_MARKER = "host_trust_removal_commit";
 const REASON = "Kontak palsu di beberapa kompetisi.";

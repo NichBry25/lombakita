@@ -47,7 +47,7 @@ const userFixture = (overrides: Partial<ConsoleUser> = {}): ConsoleUser => ({
   status: "active",
   recruiterVerificationTier: "verified",
   candidateVerifiedAt: null,
-  recruiterVerifiedAt: null,
+  recruiterVerifiedAt: "2026-01-02T00:00:00.000Z",
   suspendedAt: null,
   suspensionReason: null,
   createdAt: "2026-01-01T00:00:00.000Z",
@@ -576,5 +576,183 @@ describe("what the console tells the operator when a lookup or an institution ac
     expect(
       screen.queryByText("institution_has_no_owner: zero active owner memberships remain"),
     ).toBeNull();
+  });
+});
+
+// REMOVING A HOST'S TRUST. The removal is the one action of this panel whose reason the host reads,
+// in the inbox and by email, so the pop-up says so and the reason is sent trimmed.
+const REMOVAL_URL = "/api/platform-ops/accounts/user_target/host-trust-removal";
+
+const openRemovalDialog = (): HTMLElement => {
+  fireEvent.click(screen.getByRole("button", { name: "Cabut status tepercaya" }));
+  return screen.getByRole("dialog");
+};
+
+const typeRemovalReason = (dialog: HTMLElement, reason: string) => {
+  fireEvent.change(within(dialog).getByLabelText(/^Alasan(?: \* \(wajib\)| \(opsional\))?$/), {
+    target: { value: reason },
+  });
+};
+
+describe("removing a host's trust", () => {
+  it("offers the trust removal on a trusted account, and not the raise", async () => {
+    await lookUp(userFixture({ recruiterVerificationTier: "elevated" }));
+
+    expect(screen.getByRole("button", { name: "Cabut status tepercaya" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Naikkan ke tingkat penuh" })).toBeNull();
+  });
+
+  it("offers no trust removal on an account that is not trusted", async () => {
+    await lookUp(userFixture({ recruiterVerificationTier: "minimal" }));
+
+    expect(screen.getByRole("button", { name: "Hapus data akun" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Cabut status tepercaya" })).toBeNull();
+  });
+
+  it("offers no trust removal on a trusted account that was de-identified", async () => {
+    await lookUp(userFixture({ recruiterVerificationTier: "elevated", status: "deactivated" }));
+
+    expect(screen.queryByRole("button", { name: "Cabut status tepercaya" })).toBeNull();
+  });
+
+  it("names the account and the consequence, says the host reads the reason, and sends it trimmed", async () => {
+    await lookUp(userFixture({ recruiterVerificationTier: "elevated" }));
+    actionResponse = () => jsonResponse({ accountId: "user_target", tier: "minimal" });
+
+    const dialog = openRemovalDialog();
+
+    expect(within(dialog).getByText("Cabut status tepercaya @bela_rahma?")).toBeTruthy();
+    expect(
+      within(dialog).getByText(
+        "Kompetisi yang sudah tayang tetap tayang. Kompetisi berikutnya dari akun ini diperiksa staf sebelum tayang.",
+      ),
+    ).toBeTruthy();
+    expect(
+      within(dialog).getByText("Penyelenggara membaca alasan ini di kotak masuk dan email mereka."),
+    ).toBeTruthy();
+
+    typeRemovalReason(dialog, "  Kontak palsu  ");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cabut" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Status tepercaya dicabut.")).toBeTruthy();
+    });
+
+    const request = requestTo(REMOVAL_URL);
+
+    expect(request?.method).toBe("POST");
+    expect(request?.body).toEqual({ reason: "Kontak palsu" });
+    expect(toastOf("Status tepercaya dicabut.")?.getAttribute("data-toast-type")).toBe("success");
+  });
+
+  it("shows the field error and sends nothing when the reason is blank", async () => {
+    await lookUp(userFixture({ recruiterVerificationTier: "elevated" }));
+
+    const dialog = openRemovalDialog();
+    typeRemovalReason(dialog, "   ");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cabut" }));
+
+    expect(await within(dialog).findByText("Alasan wajib diisi.")).toBeTruthy();
+    expect(requestTo(REMOVAL_URL)).toBeUndefined();
+  });
+});
+
+// One row per code the removal route answers with. As in the tables above, `message` is never the
+// sentence the operator is expected to read.
+const REMOVAL_REFUSALS: { code: string; status: number; message: string; copy: string }[] = [
+  {
+    code: "host_trust_reason_required",
+    status: 400,
+    message: "A trust removal carries a reason of 1 to 1000 characters",
+    copy: "Alasan wajib diisi, paling banyak 1000 karakter.",
+  },
+  {
+    code: "host_trust_account_not_found",
+    status: 404,
+    message: "Account not found",
+    copy: "Akun tidak ditemukan. Muat ulang halaman lalu coba lagi.",
+  },
+  {
+    code: "host_trust_not_trusted",
+    status: 409,
+    message: "The account is not a trusted host",
+    copy: "Akun ini sudah tidak tepercaya. Muat ulang halaman untuk melihat status terbaru.",
+  },
+  {
+    code: "account_deactivated",
+    status: 409,
+    message: "Account is deactivated",
+    copy: "Data akun ini sudah dihapus. Tindakan ini tidak tersedia.",
+  },
+  {
+    code: "operator_actor_is_target",
+    status: 403,
+    message: "A platform-ops account cannot remove its own host trust",
+    copy: "Anda tidak dapat melakukan tindakan ini pada akun Anda sendiri.",
+  },
+  {
+    code: "forbidden",
+    status: 403,
+    message: "no",
+    copy: "Anda tidak punya akses untuk tindakan ini.",
+  },
+];
+
+describe("what the console tells the operator when the trust removal is refused", () => {
+  it.each(REMOVAL_REFUSALS)(
+    "shows the $code refusal in the operator's words",
+    async ({ code, status, message, copy }) => {
+      await lookUp(userFixture({ recruiterVerificationTier: "elevated" }));
+      actionResponse = () => jsonResponse({ error: { code, message } }, status);
+
+      const dialog = openRemovalDialog();
+      typeRemovalReason(dialog, "Kontak palsu");
+      fireEvent.click(within(dialog).getByRole("button", { name: "Cabut" }));
+
+      await waitFor(() => {
+        expect(within(dialog).getByRole("alert").textContent).toContain(copy);
+      });
+      expect(screen.queryByText(message)).toBeNull();
+    },
+  );
+});
+
+// The raise reads the host role from recruiterVerifiedAt, as the service does. A host who signed up
+// as a participant keeps the app role candidate, and a removed host is raised back from here.
+describe("raising a host whose trust staff removed", () => {
+  it("offers the raise to a host who signed up as a participant and sends it", async () => {
+    await lookUp(
+      userFixture({
+        appRole: "candidate",
+        recruiterVerificationTier: "minimal",
+        recruiterVerifiedAt: "2026-01-02T00:00:00.000Z",
+      }),
+    );
+    actionResponse = () => jsonResponse({ changed: true });
+
+    fireEvent.click(screen.getByRole("button", { name: "Naikkan ke tingkat penuh" }));
+    fireEvent.click(screen.getByRole("button", { name: "Naikkan" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Tingkat rekruter dinaikkan.")).toBeTruthy();
+    });
+
+    const request = requestTo("/api/platform-ops/accounts/user_target/recruiter-tier");
+
+    expect(request?.method).toBe("PATCH");
+    expect(request?.body).toEqual({ tier: "elevated" });
+  });
+
+  it("offers no raise to an account that never took the host step", async () => {
+    await lookUp(
+      userFixture({
+        appRole: "candidate",
+        recruiterVerificationTier: "unverified",
+        recruiterVerifiedAt: null,
+      }),
+    );
+
+    expect(screen.getByRole("button", { name: "Hapus data akun" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Naikkan ke tingkat penuh" })).toBeNull();
   });
 });

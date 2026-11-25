@@ -583,6 +583,12 @@ export const PAGES = [
     label: "Moderation — user lookup result",
   },
   {
+    id: "83b-admin-moderation-host",
+    as: "ops",
+    path: "/admin/moderation?email=seed.rec.elev@seed.lombakita.local",
+    label: "Moderation, a trusted host with the trust removal control",
+  },
+  {
     id: "84-admin-featured",
     as: "ops",
     path: "/admin/featured",
@@ -593,6 +599,12 @@ export const PAGES = [
     as: "ops",
     path: "/admin/recruiter-verification",
     label: "Recruiter verification queue",
+  },
+  {
+    id: "85b-admin-host-checks",
+    as: "ops",
+    path: "/admin/host-checks",
+    label: "Staff host check queue",
   },
   {
     id: "86-admin-verification",

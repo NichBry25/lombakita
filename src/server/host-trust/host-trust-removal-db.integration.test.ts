@@ -140,7 +140,7 @@ import {
   confirmOrganizationEmailCode,
   issueOrganizationEmailCode,
 } from "./organization-email-service";
-import { removeHostTrust } from "./host-trust-service";
+import { removeHostTrust } from "./host-trust-removal-service";
 import { deidentifyAccount } from "@/server/accounts/account-deidentification-service";
 import {
   reviewRecruiterVerification,

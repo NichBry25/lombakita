@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { toAccessDeniedResponse } from "@/server/auth/access-core";
 import { requireSessionRole } from "@/server/auth/session";
-import { HostTrustRemovalError, removeHostTrust } from "@/server/host-trust/host-trust-service";
+import {
+  HostTrustRemovalError,
+  removeHostTrust,
+} from "@/server/host-trust/host-trust-removal-service";
 import { OperatorActorError } from "@/server/platform-ops/operator-actor";
 
 type RouteContext = { params: Promise<{ accountId: string }> };

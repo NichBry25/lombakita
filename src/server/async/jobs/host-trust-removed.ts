@@ -6,6 +6,7 @@ import { eq } from "drizzle-orm";
 import type { Job } from "bullmq";
 import { getDb } from "@/server/db/client";
 import { users } from "@/server/db/schema";
+import { asSentence } from "@/lib/finance/payment-display";
 import { logger } from "@/lib/logger";
 import { ASYNC_JOB_NAMES, type HostTrustRemovedPayload } from "@/server/async/contracts";
 import { sendHostTrustRemovedEmail } from "@/server/notifications/notification-email";
@@ -20,8 +21,9 @@ export type HostTrustRemovedJob = Job<
 
 const TRUST_REMOVED_TITLE = "Status tepercaya Anda dicabut";
 
+// A reason is free staff text, so one without a closing full stop gets one before the next sentence.
 const trustRemovedBodyOf = (reason: string): string =>
-  `Alasan: ${reason} Kompetisi yang sudah tayang tetap tayang. Kompetisi berikutnya diperiksa staf sebelum tayang.`;
+  `Alasan: ${asSentence(reason)} Kompetisi yang sudah tayang tetap tayang. Kompetisi berikutnya diperiksa staf sebelum tayang.`;
 
 // Tells a host that staff removed their trust. The reason comes from the payload, and only the
 // recipient's address is looked up.

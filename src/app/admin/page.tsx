@@ -28,6 +28,12 @@ const ADMIN_LINKS = [
     icon: "user" as const,
   },
   {
+    href: "/admin/host-checks",
+    label: "Pemeriksaan penyelenggara",
+    description: "Periksa kompetisi pertama penyelenggara yang belum tepercaya.",
+    icon: "check-circle" as const,
+  },
+  {
     href: "/admin/featured",
     label: "Kompetisi unggulan",
     description: "Kurasi urutan kompetisi yang ditonjolkan ke publik.",

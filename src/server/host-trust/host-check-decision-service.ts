@@ -27,6 +27,7 @@ import { getDb, type Database } from "@/server/db/client";
 import {
   competitions,
   institutions,
+  platformOpsAuditLogs,
   recruiterVerificationSubmissions,
   users,
 } from "@/server/db/schema";
@@ -35,6 +36,7 @@ import {
   isLiveDraft,
   liveDraftOfCheck,
 } from "@/server/host-trust/host-check-drafts";
+import { HOST_TRUST_REMOVED_EVENT } from "@/server/host-trust/host-trust-removal-service";
 import {
   OperatorActorError,
   recordOperatorAuditEntry,
@@ -87,6 +89,7 @@ export type HostCheckQueueEntry = {
     mobileNumber: string;
     email: string;
     trustRemovedAt: Date | null;
+    trustRemovalReason: string | null;
   };
   draft: HostCheckDraftFields & { competitionId: string; institutionName: string | null };
   earlierTurnDowns: HostCheckTurnDown[];
@@ -185,9 +188,38 @@ const readEarlierTurnDownsByHost = async (
   return turnDownsByHost;
 };
 
+// The reason of each host's newest staff trust removal. removeHostTrust keeps a removal's reason
+// only on its audit row, so the queue reads it there.
+const readTrustRemovalReasonsByHost = async (
+  db: Database,
+  userIds: string[],
+): Promise<Map<string, string>> => {
+  const reasonsByHost = new Map<string, string>();
+  if (userIds.length === 0) return reasonsByHost;
+
+  const rows = await db
+    .select({ userId: platformOpsAuditLogs.targetUserId, reason: platformOpsAuditLogs.reason })
+    .from(platformOpsAuditLogs)
+    .where(
+      and(
+        inArray(platformOpsAuditLogs.targetUserId, userIds),
+        eq(platformOpsAuditLogs.eventType, HOST_TRUST_REMOVED_EVENT),
+      ),
+    )
+    .orderBy(desc(platformOpsAuditLogs.createdAt), desc(platformOpsAuditLogs.id));
+
+  for (const row of rows) {
+    if (row.userId === null || row.reason === null) continue;
+    // The rows come newest first, so the first row of a host is its newest removal.
+    if (!reasonsByHost.has(row.userId)) reasonsByHost.set(row.userId, row.reason);
+  }
+  return reasonsByHost;
+};
+
 const toHostCheckQueueEntry = (
   row: OpenHostCheckQueueRow,
   earlierTurnDowns: HostCheckTurnDown[],
+  trustRemovalReason: string | null,
 ): HostCheckQueueEntry => ({
   id: row.id,
   submittedAt: row.submittedAt,
@@ -198,6 +230,7 @@ const toHostCheckQueueEntry = (
     mobileNumber: row.mobileNumber,
     email: row.email,
     trustRemovedAt: row.trustRemovedAt,
+    trustRemovalReason,
   },
   draft: {
     competitionId: row.competitionId,
@@ -225,7 +258,14 @@ export const listHostChecks = async (db: Database = getDb()): Promise<HostCheckQ
   const rows = await readOpenHostChecksOnLiveDrafts(db);
   const hostIds = rows.map((row) => row.userId);
   const turnDownsByHost = await readEarlierTurnDownsByHost(db, hostIds);
-  return rows.map((row) => toHostCheckQueueEntry(row, turnDownsByHost.get(row.userId) ?? []));
+  const removalReasonsByHost = await readTrustRemovalReasonsByHost(db, hostIds);
+  return rows.map((row) =>
+    toHostCheckQueueEntry(
+      row,
+      turnDownsByHost.get(row.userId) ?? [],
+      removalReasonsByHost.get(row.userId) ?? null,
+    ),
+  );
 };
 
 const HOST_CHECK_CLOSED_WITHOUT_DRAFT_EVENT = "host_check.closed_without_draft";

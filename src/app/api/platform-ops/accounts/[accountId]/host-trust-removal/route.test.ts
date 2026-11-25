@@ -17,7 +17,7 @@ const { requireSessionRole, removeHostTrust, HostTrustRemovalError } = vi.hoiste
 }));
 
 vi.mock("@/server/auth/session", () => ({ requireSessionRole }));
-vi.mock("@/server/host-trust/host-trust-service", () => ({
+vi.mock("@/server/host-trust/host-trust-removal-service", () => ({
   removeHostTrust,
   HostTrustRemovalError,
 }));
@@ -47,6 +47,7 @@ describe("POST host-trust-removal", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ accountId: "u1", tier: "minimal" });
     expect(removeHostTrust).toHaveBeenCalledWith("ops1", "u1", "Kontak palsu.");
+    expect(requireSessionRole).toHaveBeenCalledWith(["platform_ops"]);
   });
 
   it("passes a body without a string reason on as an empty reason", async () => {

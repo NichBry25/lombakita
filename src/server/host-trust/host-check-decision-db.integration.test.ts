@@ -75,6 +75,7 @@ vi.mock("@/server/async/enqueue", async (importOriginal) => {
     enqueueCompetitionCancelled: vi.fn(async () => ({})),
     enqueueRecruiterVerificationApproved: mocks.enqueueApproved,
     enqueueRecruiterVerificationRejected: mocks.enqueueRejected,
+    enqueueHostTrustRemoved: vi.fn(async () => ({})),
   };
 });
 
@@ -135,6 +136,7 @@ import { setCompetitionEligibilityForEditor } from "@/server/competitions/compet
 import { setCompetitionOrganizerContactForEditor } from "@/server/competitions/competition-organizer-contact-service";
 import { resolveCompetitionPublishReadiness } from "@/server/competitions/competition-publish-readiness";
 import { listHostChecks } from "./host-check-decision-service";
+import { removeHostTrust } from "./host-trust-removal-service";
 import { POST as publishRoute } from "@/app/api/v1/institutions/[institutionSlug]/competitions/[competitionId]/publish/route";
 import { POST as decideRoute } from "@/app/api/platform-ops/host-checks/[checkId]/route";
 import { PATCH as raiseRoute } from "@/app/api/platform-ops/accounts/[accountId]/recruiter-tier/route";
@@ -400,6 +402,21 @@ const plantTrusted = async (tx: Database, userId: string): Promise<void> => {
     .update(schema.users)
     .set({ recruiterVerificationTier: "elevated" })
     .where(eq(schema.users.id, userId));
+};
+
+// Planted directly: audit rows that an earlier and a later transaction write. Every row one rolled
+// back test writes carries the same now(), so only planted times can order the removal read.
+const plantAuditRow = async (
+  tx: Database,
+  actorUserId: string,
+  targetUserId: string,
+  eventType: string,
+  reason: string,
+  createdAt: Date,
+): Promise<void> => {
+  await tx
+    .insert(schema.platformOpsAuditLogs)
+    .values({ actorUserId, targetUserId, eventType, reason, createdAt });
 };
 
 // Planted directly: a host check sent days ago, which no path back-dates.
@@ -1095,6 +1112,7 @@ describe.skipIf(skipWithoutDatabase)("the staff decision on a host check (rolled
           mobileNumber: "0812345678",
           email: UNTRUSTED_HOST_ADDRESS,
           trustRemovedAt: null,
+          trustRemovalReason: null,
         },
         draft: {
           competitionId: draftA,
@@ -1297,6 +1315,87 @@ describe.skipIf(skipWithoutDatabase)("the staff decision on a host check (rolled
       ]);
       expect(mocks.enqueueApproved).not.toHaveBeenCalled();
       expect(mocks.enqueueRejected).not.toHaveBeenCalled();
+    });
+  });
+
+  it("closes a host check whose draft was deleted when staff turn it down, with no turn-down notice and no earlier turn-down", async () => {
+    await inRollback(async (tx) => {
+      const host = await signUpHost(tx, UNTRUSTED_HOST_ADDRESS);
+      const { workspace, draft, checkId } = await openCheckBy(tx, host, FIRST_TITLE);
+      await softDeleteCompetitionDraft(host, draft, tx);
+      const operator = await plantOperator(tx, OPERATOR_ADDRESS);
+
+      const answered = await decideThroughRoute(tx, operator, checkId, TURN_DOWN);
+
+      expect(answered.status).toBe(200);
+      expect(answered.body).toEqual({
+        hostCheck: { id: checkId, userId: host, status: "rejected", published: false },
+      });
+      expect(await hostCheckRowOf(tx, checkId)).toEqual({
+        status: "rejected",
+        rejectionReason: "Ditutup karena draf tidak lagi tersedia.",
+        guidelineItem: null,
+        resubmissionAllowed: false,
+        reviewedAt: expect.any(Date),
+        reviewerUserId: operator,
+      });
+      expect(await auditRowsOf(tx, host)).toEqual([
+        {
+          actorUserId: operator,
+          eventType: "host_check.closed_without_draft",
+          reason: null,
+          metadata: { checkId, competitionId: draft },
+        },
+      ]);
+      expect(mocks.enqueueRejected).not.toHaveBeenCalled();
+      expect(mocks.enqueueApproved).not.toHaveBeenCalled();
+
+      const nextDraft = await createPublishableDraft(tx, host, workspace.slug, SECOND_TITLE);
+      const nextSent = await pressOn(tx, host, workspace, nextDraft);
+      expect(nextSent.status).toBe(202);
+      const queued = (await listHostChecks(tx)).filter((entry) => entry.host.userId === host);
+      expect(queued.map((entry) => entry.id)).toEqual([nextSent.body.hostCheck!.id]);
+      expect(queued[0]?.earlierTurnDowns).toEqual([]);
+    });
+  });
+
+  it("gives the queue the reason of a host's newest trust removal, and no reason for a host whose trust staff never removed", async () => {
+    await inRollback(async (tx) => {
+      const host = await signUpHost(tx, UNTRUSTED_HOST_ADDRESS);
+      const operator = await plantOperator(tx, OPERATOR_ADDRESS);
+      const raised = await raiseThroughRoute(tx, operator, host);
+      expect(raised.status).toBe(200);
+      await plantAuditRow(
+        tx,
+        operator,
+        host,
+        "host_trust.removed",
+        "Kontak palsu.",
+        new Date(Date.now() - DAY),
+      );
+      await removeHostTrust(operator, host, "Hadiah tidak sesuai.", tx);
+      await plantAuditRow(
+        tx,
+        operator,
+        host,
+        "user.suspended",
+        "Penangguhan sementara.",
+        new Date(Date.now() + DAY),
+      );
+      const { checkId } = await openCheckBy(tx, host, FIRST_TITLE);
+      const other = await signUpHost(tx, SECOND_UNTRUSTED_HOST_ADDRESS);
+      const { checkId: otherCheckId } = await openCheckBy(tx, other, SECOND_TITLE);
+
+      const mine = (await listHostChecks(tx)).filter((entry) =>
+        [host, other].includes(entry.host.userId),
+      );
+
+      expect(
+        Object.fromEntries(mine.map((entry) => [entry.id, entry.host.trustRemovalReason])),
+      ).toEqual({ [checkId]: "Hadiah tidak sesuai.", [otherCheckId]: null });
+      expect(mine.find((entry) => entry.id === checkId)?.host.trustRemovedAt).toEqual(
+        expect.any(Date),
+      );
     });
   });
 

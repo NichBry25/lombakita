@@ -21,9 +21,10 @@ type InstitutionVerificationPageProps = {
 // One route, two surfaces, chosen by institution type:
 //   personal → "Tingkatkan level institusi" (self-service, immediate, one-way type upgrade)
 //   full     → "Verifikasi institusi" (optional document review, credibility only)
-// A personal institution has no document verification of its own — the person behind it is verified
-// through the account-level Trusted Recruiter review — so the upgrade surface replaces it until the
-// institution becomes full, at which point the verification surface takes its place.
+// A personal institution has no document verification of its own. The person behind it is trusted
+// as a host (through the Email organisasi, a sign-in email on an organization domain or the staff
+// host check), so the upgrade surface replaces it until the institution becomes full, at which
+// point the verification surface takes its place.
 export default async function InstitutionVerificationPage({
   params,
 }: InstitutionVerificationPageProps) {

@@ -57,8 +57,8 @@ const UPGRADE_FALLBACK = "Peningkatan institusi gagal diproses. Coba lagi.";
 type InstitutionUpgradeShellProps = {
   institutionSlug: string;
   expectedUserId: string;
-  // False when the owner is not yet a Trusted Recruiter. The server refuses the upgrade regardless;
-  // this only drives the explanation for the disabled submit.
+  // False when the owner is not a trusted host. The server refuses the upgrade regardless, and this
+  // only drives the explanation for the disabled submit.
   canUpgrade: boolean;
 };
 
