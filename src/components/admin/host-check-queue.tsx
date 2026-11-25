@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import {
   Button,
   Card,
@@ -13,6 +13,7 @@ import {
   FormTextareaWithLimit,
   SelectField,
   Skeleton,
+  focusFirstInvalidField,
 } from "@/components/ui";
 import { useModal, useModalTask, useToast, type ModalOutcome } from "@/components/ui/primitives";
 import { LocalDate } from "@/components/ui/local-date";
@@ -312,16 +313,26 @@ function TurnDownForm({
   const trimmedNote = note.trim();
   const showsGuidelineError = hasTriedToSubmit && guidelineItem === "";
   const showsNoteError = hasTriedToSubmit && trimmedNote.length === 0;
+  // A refused submit moves focus to the first field it marks, after the render that marks it.
+  const formRef = useRef<HTMLFormElement>(null);
+  const [errorFocusRequest, setErrorFocusRequest] = useState(0);
+  useEffect(() => {
+    if (errorFocusRequest === 0) return;
+    focusFirstInvalidField(formRef.current);
+  }, [errorFocusRequest]);
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setHasTriedToSubmit(true);
-    if (guidelineItem === "" || trimmedNote.length === 0) return;
+    if (guidelineItem === "" || trimmedNote.length === 0) {
+      setErrorFocusRequest((request) => request + 1);
+      return;
+    }
     void runModalTask(() => onSubmit(guidelineItem, trimmedNote));
   };
 
   return (
-    <form id={TURN_DOWN_FORM_ID} noValidate onSubmit={submit} className="stack-md">
+    <form id={TURN_DOWN_FORM_ID} ref={formRef} noValidate onSubmit={submit} className="stack-md">
       <p>{consequence}</p>
       <FormField>
         <FormLabel htmlFor="host-check-guideline" required>

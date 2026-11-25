@@ -655,6 +655,19 @@ describe("removing a host's trust", () => {
     expect(await within(dialog).findByText("Alasan wajib diisi.")).toBeTruthy();
     expect(requestTo(REMOVAL_URL)).toBeUndefined();
   });
+
+  it("opens the trust removal as an alert pop-up with focus on the reason field", async () => {
+    await lookUp(userFixture({ recruiterVerificationTier: "elevated" }));
+
+    const dialog = openRemovalDialog();
+
+    expect(dialog.getAttribute("role")).toBe("alertdialog");
+    await waitFor(() => {
+      expect(document.activeElement).toBe(
+        within(dialog).getByLabelText(/^Alasan(?: \* \(wajib\)| \(opsional\))?$/),
+      );
+    });
+  });
 });
 
 // One row per code the removal route answers with. As in the tables above, `message` is never the

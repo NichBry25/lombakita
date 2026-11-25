@@ -88,7 +88,7 @@ describe("what a Google sign-up sends and where it returns", () => {
     fireEvent.change(screen.getByLabelText(/^Nomor telepon(?: \* \(wajib\)| \(opsional\))?$/), {
       target: { value: "081234567890" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Status saat ini (wajib)" }));
+    fireEvent.click(screen.getByRole("combobox", { name: "Status saat ini (wajib)" }));
     fireEvent.click(screen.getByRole("option", { name: "Mahasiswa" }));
     fireEvent.change(screen.getByLabelText(/^Tanggal lahir(?: \* \(wajib\)| \(opsional\))?$/), {
       target: { value: "2000-01-31" },

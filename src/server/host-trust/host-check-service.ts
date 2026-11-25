@@ -24,7 +24,7 @@ import {
   trustHostInTransaction,
   wouldTrustHostAutomatically,
 } from "@/server/host-trust/host-trust-service";
-import { isPublishTrustSatisfied } from "@/server/host-trust/publish-trust";
+import { isHostTrustRemoved, isPublishTrustSatisfied } from "@/server/host-trust/publish-trust";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/host-trust/host-check-service");
@@ -36,12 +36,14 @@ export type HostCheckStateName =
   | "pending_other_draft"
   | "turned_down";
 
-// What the publish control says about the caller's host check for one draft.
+// What the publish control says about the caller's host check for one draft. trustRemoved marks a
+// needed check of an account whose trust staff removed.
 export type HostCheckReadout = {
   state: HostCheckStateName;
   competitionTitle?: string;
   guidelineItem?: string;
   note?: string;
+  trustRemoved?: true;
 };
 
 export type OpenedHostCheck = { id: string; status: "pending_review"; submittedAt: Date };
@@ -350,6 +352,7 @@ export const readHostCheckStateForActor = async (
 
   const decision = await readNewestStaffDecision(db, actorUserId);
   if (decision === null || decision.status !== "rejected" || decision.guidelineItem === null) {
+    if (await isHostTrustRemoved(actorUserId, db)) return { state: "needed", trustRemoved: true };
     return { state: "needed" };
   }
   return {

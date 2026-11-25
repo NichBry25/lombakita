@@ -65,7 +65,7 @@ const mountAndFill = () => {
     </UIPrimitivesProvider>,
   );
   fireEvent.change(screen.getByLabelText(/Judul/), { target: { value: "Lomba Baru 2026" } });
-  fireEvent.click(screen.getByRole("button", { name: "Kategori (wajib)" }));
+  fireEvent.click(screen.getByRole("combobox", { name: "Kategori (wajib)" }));
   fireEvent.click(screen.getByRole("option", { name: "Hackathon" }));
   fireEvent.click(screen.getByRole("checkbox", { name: TAG }));
 };

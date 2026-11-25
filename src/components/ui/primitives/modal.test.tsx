@@ -492,7 +492,7 @@ describe("Modal — footer, focus and waiting", () => {
     const stay = vi.fn();
     openGuidelinePopUp(stay);
 
-    fireEvent.click(screen.getByRole("button", { name: "Pedoman" }));
+    fireEvent.click(screen.getByRole("combobox", { name: "Pedoman" }));
     fireEvent.keyDown(screen.getByRole("option", { name: "Satu" }), { key: "Escape" });
 
     expect(screen.queryByRole("listbox")).toBeNull();
@@ -503,10 +503,10 @@ describe("Modal — footer, focus and waiting", () => {
   it("does the safe choice when Escape is pressed with no list open", () => {
     const stay = vi.fn();
     openGuidelinePopUp(stay);
-    fireEvent.click(screen.getByRole("button", { name: "Pedoman" }));
+    fireEvent.click(screen.getByRole("combobox", { name: "Pedoman" }));
     fireEvent.keyDown(screen.getByRole("option", { name: "Satu" }), { key: "Escape" });
 
-    fireEvent.keyDown(screen.getByRole("button", { name: "Pedoman" }), { key: "Escape" });
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "Pedoman" }), { key: "Escape" });
 
     expect(stay).toHaveBeenCalledOnce();
     expect(screen.queryByRole("dialog")).toBeNull();

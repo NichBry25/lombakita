@@ -143,7 +143,10 @@ export const describePublishControl = (hostCheck: HostCheckReadout | undefined):
       return {
         label: SEND_FOR_CHECK_LABEL,
         pressable: true,
-        note: `Kompetisi pertama Anda diperiksa staf sebelum tayang. ${HOST_CHECK_WAIT}`,
+        // An account whose trust staff removed has published before, so its sentence has no "pertama".
+        note: hostCheck.trustRemoved
+          ? `Kompetisi Anda diperiksa staf dulu sebelum tayang. ${HOST_CHECK_WAIT}`
+          : `Kompetisi pertama Anda diperiksa staf sebelum tayang. ${HOST_CHECK_WAIT}`,
         tone: "info",
       };
     case "pending":

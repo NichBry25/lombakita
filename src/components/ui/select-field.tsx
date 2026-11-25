@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Icon } from "./icon";
 import { joinClassNames } from "./class-names";
 
@@ -26,6 +26,7 @@ type SelectFieldProps = {
 // Brand-styled form dropdown. Shares the accessible listbox interaction of FilterDropdown
 // (trigger + listbox popup, roving focus, full keyboard support) so form selects never fall
 // back to native browser chrome. Controlled via value/onChange.
+// The trigger is a select-only combobox, the role that carries aria-invalid and names its list.
 export function SelectField({
   label,
   options,
@@ -45,6 +46,7 @@ export function SelectField({
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  const listboxId = useId();
 
   const selectedIndex = options.findIndex((option) => option.value === value);
   const selected = selectedIndex >= 0 ? options[selectedIndex] : undefined;
@@ -136,6 +138,8 @@ export function SelectField({
         ref={buttonRef}
         className="select-field-trigger"
         data-placeholder={selected ? undefined : "true"}
+        role="combobox"
+        aria-controls={listboxId}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={markedAccessibleLabel}
@@ -152,6 +156,7 @@ export function SelectField({
       </button>
       {open ? (
         <ul
+          id={listboxId}
           className="select-field-menu"
           role="listbox"
           aria-label={label}

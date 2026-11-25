@@ -184,7 +184,8 @@ export function VerifyRoleForm({
         {organizationEmailConfirmed ? null : (
           <p className="form-help">
             Tanpa email organisasi yang terkonfirmasi, kompetisi pertama Anda diperiksa staf dulu
-            sebelum tayang. Perkiraan 1x24 jam pada hari kerja.
+            sebelum tayang, kecuali email akun Anda sudah memakai domain organisasi. Perkiraan 1x24
+            jam pada hari kerja.
           </p>
         )}
 

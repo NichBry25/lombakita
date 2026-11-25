@@ -77,7 +77,7 @@ const fillCandidateProfile = (fullName: string) => {
   fireEvent.change(screen.getByLabelText(/^Nomor telepon(?: \* \(wajib\)| \(opsional\))?$/), {
     target: { value: PHONE },
   });
-  fireEvent.click(screen.getByRole("button", { name: "Status saat ini (wajib)" }));
+  fireEvent.click(screen.getByRole("combobox", { name: "Status saat ini (wajib)" }));
   fireEvent.click(screen.getByRole("option", { name: "Mahasiswa" }));
   fireEvent.change(screen.getByLabelText(/^Tanggal lahir(?: \* \(wajib\)| \(opsional\))?$/), {
     target: { value: "2000-01-31" },

@@ -86,7 +86,7 @@ const fillSignUpForm = async (confirmPassword: string = PASSWORD) => {
   await screen.findByLabelText(/^Nomor telepon(?: \* \(wajib\)| \(opsional\))?$/);
   typeInto("Nama lengkap", "Rina Pratama");
   typeInto("Nomor telepon", "0812345678");
-  fireEvent.click(screen.getByRole("button", { name: "Status saat ini (wajib)" }));
+  fireEvent.click(screen.getByRole("combobox", { name: "Status saat ini (wajib)" }));
   fireEvent.click(screen.getByRole("option", { name: "Mahasiswa" }));
   typeInto("Tanggal lahir", "2000-01-31");
   fireEvent.click(screen.getByRole("button", { name: "Selesai" }));

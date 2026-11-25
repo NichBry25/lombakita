@@ -155,6 +155,19 @@ describe("useToast — auto-dismiss", () => {
     ).not.toThrow();
     expect(result.current.state.toasts).toHaveLength(0);
   });
+
+  it("clears every dismiss timer when the provider unmounts with a toast still showing", () => {
+    const { result, unmount } = renderHook(() => useToast(), { wrapper });
+
+    act(() => {
+      result.current.addToast({ message: "Bye", type: "success", duration: 3000 });
+    });
+    expect(vi.getTimerCount()).toBe(1);
+
+    unmount();
+
+    expect(vi.getTimerCount()).toBe(0);
+  });
 });
 
 describe("useToast — kinds and limits", () => {

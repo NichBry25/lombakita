@@ -243,6 +243,15 @@ describe("the publish control for a host check", () => {
     });
   });
 
+  it("drops pertama from the needed sentence for an account whose trust staff removed", () => {
+    expect(describePublishControl({ state: "needed", trustRemoved: true })).toEqual({
+      label: "Kirim untuk diperiksa",
+      pressable: true,
+      note: "Kompetisi Anda diperiksa staf dulu sebelum tayang. Perkiraan 1x24 jam pada hari kerja.",
+      tone: "info",
+    });
+  });
+
   it("shuts the control while this draft waits", () => {
     expect(describePublishControl({ state: "pending" })).toEqual({
       label: "Sedang diperiksa",

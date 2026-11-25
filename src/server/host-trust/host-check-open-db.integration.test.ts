@@ -1039,7 +1039,11 @@ describe.skipIf(skipWithoutDatabase)("the publish press (rolled back)", () => {
 
       await plantTrustRemoval(tx, host);
 
-      expect(await readinessOf(tx, host, draft)).toEqual(NEEDED_READINESS);
+      expect(await readinessOf(tx, host, draft)).toEqual({
+        canPublish: true,
+        blockers: [],
+        hostCheck: { state: "needed", trustRemoved: true },
+      });
     });
   });
 

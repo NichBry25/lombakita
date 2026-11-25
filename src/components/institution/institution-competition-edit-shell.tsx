@@ -816,9 +816,10 @@ export const InstitutionCompetitionEditShell = ({
   const readyStatusMessage = contactAwaitsPublish
     ? "Siap diterbitkan. Kontak tersimpan saat Anda menekan Terbitkan."
     : "Semua perubahan tersimpan dan siap diterbitkan";
-  let editorStatusMessage: string | null = publishIsBlocked
-    ? null
-    : (publishControl.note ?? readyStatusMessage);
+  // A host check sentence is too long for the fixed action bar, so it sits in the page flow
+  // (showsHostCheckNote) and the bar says nothing beside the button.
+  let editorStatusMessage: string | null =
+    publishIsBlocked || publishControl.note !== null ? null : readyStatusMessage;
   if (timelineIsInvalid) {
     editorStatusMessage = outOfOrderScheduleSentence(timelineErrors[0]?.message ?? "");
   } else if (hasUnsavedChanges) {
@@ -1770,13 +1771,24 @@ export const InstitutionCompetitionEditShell = ({
           onClick={onPublish}
           loading={isPublishing}
           disabled={isSubmitting || publishIsBlocked || !publishControl.pressable}
-          aria-describedby="publish-readiness-message"
+          aria-describedby={describedByIds(
+            "publish-readiness-message",
+            publishControl.note === null ? null : "publish-host-check-note",
+          )}
         >
           {publishControl.label}
         </Button>
       </div>
     </FormActionBar>
   );
+
+  // The host check sentence sits in the page flow and never in the fixed action bar. Step 5 shows it
+  // beside its button, which shows only while nothing blocks publishing. The whole-page editor keeps
+  // it in view while the host edits, because its button is always on screen.
+  const showsHostCheckNote =
+    publishControl.note !== null &&
+    isDraft &&
+    (activeStep === null || (activeStep === COMPETITION_STEP_COUNT && !publishIsBlocked));
 
   return (
     <main className="page-shell app-page competition-form-page">
@@ -1824,10 +1836,7 @@ export const InstitutionCompetitionEditShell = ({
           </ul>
         </Feedback>
       ) : null}
-      {isDraftStep &&
-      activeStep === COMPETITION_STEP_COUNT &&
-      !publishIsBlocked &&
-      publishControl.note !== null ? (
+      {showsHostCheckNote ? (
         <Feedback
           tone={publishControl.tone}
           className="publish-reasons-notice"

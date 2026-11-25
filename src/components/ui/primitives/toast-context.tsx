@@ -1,6 +1,14 @@
 "use client";
 
-import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 export type ToastType = "error" | "success" | "info";
 
@@ -106,6 +114,17 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     },
     [startTimer],
   );
+
+  // A dismiss timer that outlives the provider would set state on a tree that is gone.
+  useEffect(() => {
+    const timers = timersRef.current;
+    return () => {
+      for (const timer of timers.values()) {
+        if (timer.handle) clearTimeout(timer.handle);
+      }
+      timers.clear();
+    };
+  }, []);
 
   return (
     <ToastContext.Provider value={{ toasts, addToast, removeToast, pauseToast, resumeToast }}>

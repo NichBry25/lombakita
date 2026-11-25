@@ -17,7 +17,7 @@ const CODE_URL = "/api/v1/me/organization-email/code";
 const CONFIRM_URL = "/api/v1/me/organization-email/confirm";
 const ADDRESS = "sekretaris@kampus.example";
 const STAFF_CHECK_SENTENCE =
-  "Tanpa email organisasi yang terkonfirmasi, kompetisi pertama Anda diperiksa staf dulu sebelum tayang. Perkiraan 1x24 jam pada hari kerja.";
+  "Tanpa email organisasi yang terkonfirmasi, kompetisi pertama Anda diperiksa staf dulu sebelum tayang, kecuali email akun Anda sudah memakai domain organisasi. Perkiraan 1x24 jam pada hari kerja.";
 const REGISTERED_CONTACT = { fullName: "Andi Saputra", phoneNumber: "081234567890" };
 
 const fetchMock = vi.fn();
@@ -96,7 +96,7 @@ describe("where the role form goes once the role is added", () => {
     fireEvent.change(screen.getByLabelText(/^Nomor telepon(?: \* \(wajib\)| \(opsional\))?$/), {
       target: { value: "081234567890" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Status saat ini (wajib)" }));
+    fireEvent.click(screen.getByRole("combobox", { name: "Status saat ini (wajib)" }));
     fireEvent.click(screen.getByRole("option", { name: "Mahasiswa" }));
     fireEvent.change(screen.getByLabelText(/^Tanggal lahir(?: \* \(wajib\)| \(opsional\))?$/), {
       target: { value: "2000-01-31" },

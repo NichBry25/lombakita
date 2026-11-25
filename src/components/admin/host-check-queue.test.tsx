@@ -4,8 +4,8 @@
 // toasts are the real ones. fetch is the only stub: the queue route and the decision route answer
 // in the shapes their route tests pin.
 
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { UIPrimitivesProvider } from "@/components/ui/primitives";
 import { NETWORK_ERROR_MESSAGE } from "@/lib/errors/error-copy";
 import { formatRupiah } from "@/lib/finance/payment-display";
@@ -88,6 +88,13 @@ afterEach(() => {
   decisionResponse = () => jsonResponse({});
 });
 
+// jsdom does no layout, so it has no scrollIntoView, and focusFirstInvalidField scrolls the field into view.
+beforeAll(() => {
+  if (!Element.prototype.scrollIntoView) {
+    Element.prototype.scrollIntoView = () => {};
+  }
+});
+
 const renderQueue = () =>
   render(
     <UIPrimitivesProvider>
@@ -122,7 +129,7 @@ const openTurnDownDialog = (): HTMLElement => {
 
 const pickGuideline = (dialog: HTMLElement) => {
   fireEvent.click(
-    within(dialog).getByRole("button", { name: "Pedoman yang tidak dipenuhi (wajib)" }),
+    within(dialog).getByRole("combobox", { name: "Pedoman yang tidak dipenuhi (wajib)" }),
   );
   fireEvent.click(within(dialog).getByRole("option", { name: KONTAK_TEXT }));
 };
@@ -389,6 +396,24 @@ const DECISION_REFUSALS: { code: string; status: number; message: string; copy: 
     message: "no",
     copy: "Anda tidak punya akses untuk tindakan ini.",
   },
+  {
+    code: "invalid_payload",
+    status: 400,
+    message: "decision must be 'approve' or 'turn_down'",
+    copy: "Permintaan tidak dapat diproses. Muat ulang halaman lalu coba lagi.",
+  },
+  {
+    code: "operator_actor_not_found",
+    status: 403,
+    message: "The acting account was not found",
+    copy: "Akun Anda tidak ditemukan. Masuk lagi untuk melanjutkan.",
+  },
+  {
+    code: "operator_actor_suspended",
+    status: 403,
+    message: "The acting account is suspended and cannot perform platform-ops actions",
+    copy: "Akun Anda sedang ditangguhkan oleh tim Lombakita.",
+  },
 ];
 
 describe("what the queue tells the operator when the decision route refuses", () => {
@@ -419,7 +444,7 @@ describe("the turn-down pop-up", () => {
     await showQueue([itemFixture()]);
     const dialog = openTurnDownDialog();
     typeNote(dialog, "Nomor kontak tidak aktif.");
-    fireEvent.click(within(dialog).getByRole("button", { name: GUIDELINE_TRIGGER_NAME }));
+    fireEvent.click(within(dialog).getByRole("combobox", { name: GUIDELINE_TRIGGER_NAME }));
 
     fireEvent.keyDown(within(dialog).getByRole("option", { name: KONTAK_TEXT }), {
       key: "Escape",
@@ -431,7 +456,7 @@ describe("the turn-down pop-up", () => {
       "Nomor kontak tidak aktif.",
     );
 
-    fireEvent.keyDown(within(dialog).getByRole("button", { name: GUIDELINE_TRIGGER_NAME }), {
+    fireEvent.keyDown(within(dialog).getByRole("combobox", { name: GUIDELINE_TRIGGER_NAME }), {
       key: "Escape",
     });
 
@@ -446,7 +471,7 @@ describe("the turn-down pop-up", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Tolak" }));
 
     await within(dialog).findByText("Pilih pedoman yang tidak dipenuhi.");
-    const trigger = within(dialog).getByRole("button", { name: GUIDELINE_TRIGGER_NAME });
+    const trigger = within(dialog).getByRole("combobox", { name: GUIDELINE_TRIGGER_NAME });
     expect(trigger.getAttribute("aria-invalid")).toBe("true");
     expect(trigger.getAttribute("aria-describedby")).toBe("host-check-guideline-error");
     expect(document.getElementById("host-check-guideline-error")?.textContent).toContain(
@@ -493,7 +518,7 @@ describe("the turn-down pop-up", () => {
         expect(within(dialog).getByRole("alert").textContent).toContain(copy);
       });
       expect(
-        within(dialog).getByRole("button", {
+        within(dialog).getByRole("combobox", {
           name: `Pedoman yang tidak dipenuhi: ${KONTAK_TEXT} (wajib)`,
         }),
       ).toBeTruthy();
@@ -518,6 +543,49 @@ describe("the turn-down pop-up", () => {
     await waitFor(() => {
       expect(within(dialog).getByRole("alert").textContent).toContain(NETWORK_ERROR_MESSAGE);
     });
+  });
+
+  it("moves focus to the guideline list when Tolak finds no guideline picked", async () => {
+    await showQueue([itemFixture()]);
+    const dialog = openTurnDownDialog();
+    typeNote(dialog, "Nomor kontak tidak aktif.");
+    act(() => {
+      within(dialog).getByLabelText(NOTE_LABEL).focus();
+    });
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Tolak" }));
+
+    await waitFor(() => {
+      expect(document.activeElement).toBe(
+        within(dialog).getByRole("combobox", { name: GUIDELINE_TRIGGER_NAME }),
+      );
+    });
+  });
+
+  it("moves focus to the note when Tolak finds the note blank", async () => {
+    await showQueue([itemFixture()]);
+    const dialog = openTurnDownDialog();
+    pickGuideline(dialog);
+    typeNote(dialog, "   ");
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Tolak" }));
+
+    await waitFor(() => {
+      expect(document.activeElement).toBe(within(dialog).getByLabelText(NOTE_LABEL));
+    });
+  });
+
+  it("names the guideline list as a combobox that controls the list it opens", async () => {
+    await showQueue([itemFixture()]);
+    const dialog = openTurnDownDialog();
+    const trigger = within(dialog).getByRole("combobox", { name: GUIDELINE_TRIGGER_NAME });
+
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(trigger);
+
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    expect(trigger.getAttribute("aria-controls")).toBe(within(dialog).getByRole("listbox").id);
   });
 });
 
