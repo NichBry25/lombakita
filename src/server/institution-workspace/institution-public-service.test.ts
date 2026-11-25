@@ -32,8 +32,6 @@ const institutionRow = (overrides: Record<string, unknown> = {}) => ({
   contactPhone: "0800",
   websiteUrl: "https://kampus.ac.id",
   ownerUsername: "alice",
-  ownerAvatarKey: "avatars/u_1/avatar.jpg",
-  ownerBannerKey: "banners/u_1/banner.jpg",
   ...overrides,
 });
 

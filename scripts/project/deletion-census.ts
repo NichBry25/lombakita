@@ -1506,9 +1506,7 @@ export const R2_PREFIXES: readonly R2Prefix[] = Object.freeze([
     keyColumns: ["user_profiles.banner_r2_key"],
     reachedBy:
       "the user id in the prefix, or the key in `user_profiles` — closure row, read it first",
-    reason:
-      "profile banner, keyed by the owning user; the institution owner's banner also renders " +
-      "on their institution's public page",
+    reason: "profile banner, keyed by the owning user",
   },
   {
     prefix: R2_PREFIX_RESUMES,

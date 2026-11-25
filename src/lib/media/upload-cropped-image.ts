@@ -25,7 +25,6 @@ const MESSAGES: Partial<Record<string, string>> = {
   profile_file_invalid_key: "Unggahan tidak cocok dengan akun ini. Unggah ulang berkas Anda.",
   profile_file_unavailable: "Unggahan berkas sedang tidak tersedia. Coba lagi nanti.",
   institution_profile_invalid_value: "Berkas tidak valid.",
-  institution_profile_not_editable: "Institusi ini tidak dapat mengunggah gambar sendiri.",
   institution_profile_storage_unavailable:
     "Unggahan berkas sedang tidak tersedia. Coba lagi nanti.",
   forbidden: "Hanya pemilik institusi yang dapat mengubah gambar institusi.",

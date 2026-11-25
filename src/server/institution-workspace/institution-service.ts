@@ -11,7 +11,6 @@ import {
 } from "@/server/db/schema";
 import {
   parseInstitutionProfileInput,
-  InstitutionProfileInputError,
   type InstitutionSocialPlatform,
 } from "@/server/institution-workspace/institution-profile-core";
 import {
@@ -33,10 +32,6 @@ import {
   getInstitutionDisplayName,
   institutionOwnerUsernameSql,
 } from "@/server/institution-workspace/institution-display-name";
-import {
-  institutionOwnerAvatarKeySql,
-  institutionOwnerBannerKeySql,
-} from "@/server/institution-workspace/institution-media";
 import { resolveInstitutionMediaUrls } from "@/server/institution-workspace/institution-media-urls";
 import { acquireOwnerCapLock } from "@/server/institution-workspace/owner-cap-lock";
 import { assertAccountNotDeactivated } from "@/server/accounts/deactivated-account";
@@ -199,19 +194,18 @@ export type UserInstitutionMembership = {
   institutionId: string;
   slug: string;
   displayName: string;
-  // The public organizer bio (full institutions only), or null when unset.
+  // The public organizer bio, or null when unset.
   about: string | null;
-  // The legacy internal description. Retained only as the dashboard-card fallback for institutions
-  // that have no `about` — personal institutions, which carry no public organizer profile, and
-  // full institutions that have not written one yet.
+  // The legacy internal description. Retained only as the dashboard-card fallback for an institution
+  // that has not written its `about` yet.
   description: string | null;
   role: typeof OWNER_ROLE | typeof STAFF_ROLE;
   isOwner: boolean;
   // Count of the institution's active operational members (owner + staff), so the dashboard can show
   // team size. institution_member is excluded — cosmetic-at-launch, no operational surface.
   staffCount: number;
-  // Presigned display URLs, null when nothing is stored or R2 is unavailable. A personal institution
-  // resolves to its owner's avatar and banner (resolveInstitutionMediaKeys).
+  // Presigned display URLs of the institution's own logo and banner, null when nothing is stored or
+  // R2 is unavailable.
   logoUrl: string | null;
   bannerUrl: string | null;
 };
@@ -235,8 +229,6 @@ export const listUserInstitutionMemberships = async (
       membershipRole: institutionMemberships.membershipRole,
       logoR2Key: institutions.logoR2Key,
       bannerR2Key: institutions.bannerR2Key,
-      ownerAvatarKey: institutionOwnerAvatarKeySql,
-      ownerBannerKey: institutionOwnerBannerKeySql,
     })
     .from(institutionMemberships)
     .innerJoin(institutions, eq(institutions.id, institutionMemberships.institutionId))
@@ -256,14 +248,10 @@ export const listUserInstitutionMemberships = async (
 
   return await Promise.all(
     rows.map(async (row) => {
-      const { logoUrl, bannerUrl } = await resolveInstitutionMediaUrls(
-        {
-          institutionType: row.institutionType,
-          logoR2Key: row.logoR2Key,
-          bannerR2Key: row.bannerR2Key,
-        },
-        { avatarR2Key: row.ownerAvatarKey, bannerR2Key: row.ownerBannerKey },
-      );
+      const { logoUrl, bannerUrl } = await resolveInstitutionMediaUrls({
+        logoR2Key: row.logoR2Key,
+        bannerR2Key: row.bannerR2Key,
+      });
 
       return {
         institutionId: row.institutionId,
@@ -722,9 +710,9 @@ export const updateInstitutionWorkspaceForOwnerBySlug = async (
 };
 
 // ── Organizer public profile (about / contact / website / socials) ────────────
-// Isolated from the workspace-identity shell above (name/slug/type). Owner-gated through the same
-// findInstitutionWorkspaceByOwnerAndSlug gate. Personal institutions are lightweight and do not
-// carry a public organizer profile — reads report isEditable=false and writes are refused.
+// Isolated from the workspace-identity shell above (the name, the slug and the type). Owner-gated
+// through the same findInstitutionWorkspaceByOwnerAndSlug gate, and open to every kind of
+// institution.
 
 export type InstitutionProfileView = {
   about: string | null;
@@ -732,9 +720,7 @@ export type InstitutionProfileView = {
   contactEmail: string | null;
   contactPhone: string | null;
   websiteUrl: string | null;
-  // Presigned read URLs, not stored paths. For a personal institution these resolve to the owner's
-  // own profile photo and banner, which is why the surface reports them as URLs rather than as
-  // "has an upload" flags — the images exist, they are just not this institution's to edit.
+  // Presigned read URLs of the institution's own logo and banner, not stored paths.
   logoUrl: string | null;
   bannerUrl: string | null;
   socialLinks: Array<{ platform: InstitutionSocialPlatform; url: string }>;
@@ -759,11 +745,8 @@ export const getInstitutionProfileForOwnerBySlug = async (
       contactEmail: institutions.contactEmail,
       contactPhone: institutions.contactPhone,
       websiteUrl: institutions.websiteUrl,
-      institutionType: institutions.institutionType,
       logoR2Key: institutions.logoR2Key,
       bannerR2Key: institutions.bannerR2Key,
-      ownerAvatarKey: institutionOwnerAvatarKeySql,
-      ownerBannerKey: institutionOwnerBannerKeySql,
     })
     .from(institutions)
     .where(eq(institutions.id, current.institutionId));
@@ -773,14 +756,10 @@ export const getInstitutionProfileForOwnerBySlug = async (
     .from(institutionSocialLinks)
     .where(eq(institutionSocialLinks.institutionId, current.institutionId));
 
-  const { logoUrl, bannerUrl } = await resolveInstitutionMediaUrls(
-    {
-      institutionType: row?.institutionType ?? null,
-      logoR2Key: row?.logoR2Key ?? null,
-      bannerR2Key: row?.bannerR2Key ?? null,
-    },
-    { avatarR2Key: row?.ownerAvatarKey ?? null, bannerR2Key: row?.ownerBannerKey ?? null },
-  );
+  const { logoUrl, bannerUrl } = await resolveInstitutionMediaUrls({
+    logoR2Key: row?.logoR2Key ?? null,
+    bannerR2Key: row?.bannerR2Key ?? null,
+  });
 
   return {
     about: row?.about ?? null,
@@ -791,7 +770,7 @@ export const getInstitutionProfileForOwnerBySlug = async (
     logoUrl,
     bannerUrl,
     socialLinks: links,
-    isEditable: !isPersonalInstitutionType(current.institutionType ?? null),
+    isEditable: true,
   };
 };
 
@@ -806,15 +785,6 @@ export const updateInstitutionProfileForOwnerBySlug = async (
   const current = await findInstitutionWorkspaceByOwnerAndSlug(userId, normalizedSlug, db);
   if (!current) {
     throw await buildInstitutionWorkspaceAccessDeniedError(userId, normalizedSlug, db);
-  }
-
-  if (isPersonalInstitutionType(current.institutionType ?? null)) {
-    throw new InstitutionProfileInputError(
-      "institution_profile_not_editable",
-      "A personal institution does not have a public organizer profile",
-      undefined,
-      403,
-    );
   }
 
   const institutionId = current.institutionId;
@@ -851,8 +821,7 @@ export const updateInstitutionProfileForOwnerBySlug = async (
   return getInstitutionProfileForOwnerBySlug(userId, normalizedSlug, db);
 };
 
-// Logo and banner upload live in institution-media-service.ts, which also owns the personal-
-// institution derivation both images share.
+// Logo and banner upload live in institution-media-service.ts.
 
 // Resolve an institution's type by slug for owner-or-staff UI surfaces
 // that decide whether to hide personal-only affordances (the competition mode selector and the

@@ -1,9 +1,6 @@
 // Fixed crop frames for uploaded profile and institution imagery. The browser crops to these exact
 // dimensions before uploading, so every stored object already has the right shape and the render
 // surfaces never have to guess how to fit an arbitrary image.
-//
-// The banner frame is shared by user profiles and institutions on purpose: a personal institution
-// renders its owner's banner directly, so the two must be interchangeable.
 
 export type ImageFrame = {
   aspectRatio: number;

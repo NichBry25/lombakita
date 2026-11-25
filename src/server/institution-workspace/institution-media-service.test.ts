@@ -92,18 +92,18 @@ describe("generateInstitutionMediaUploadUrl", () => {
     expect(grant.fileKey).toMatch(/^institution-banners\/inst_1\//);
   });
 
-  it("refuses a personal institution, which shows its owner's imagery instead", async () => {
+  it("signs an upload address for a personal workspace's own banner", async () => {
     const { db, updates } = makeDb([[ownerRow({ institutionType: "personal" })]]);
 
-    await expect(
-      generateInstitutionMediaUploadUrl(
-        "user_1",
-        "alice",
-        "banner",
-        { contentType: "image/png" },
-        db,
-      ),
-    ).rejects.toMatchObject({ code: "institution_profile_not_editable", httpStatus: 403 });
+    const grant = await generateInstitutionMediaUploadUrl(
+      "user_1",
+      "kampus-merdeka",
+      "banner",
+      { contentType: "image/png" },
+      db,
+    );
+
+    expect(grant.fileKey.startsWith("institution-banners/inst_1/")).toBe(true);
     expect(updates).toEqual([]);
   });
 

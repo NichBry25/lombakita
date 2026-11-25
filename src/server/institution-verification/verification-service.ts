@@ -78,8 +78,7 @@ const PAGE_SIZE = 20;
 // by host trust. `createVerificationSubmission` refuses one
 // outright, so a personal row could only ever sit in this queue as a permanently inert entry an
 // operator has no evidence to act on. Excluded from both the page query and the count so
-// pagination and the total agree. A personal→full upgrade resets verification_status, so an
-// upgraded institution enters this queue on its own merits.
+// pagination and the total agree.
 const NON_PERSONAL_INSTITUTION = ne(institutions.institutionType, PERSONAL_INSTITUTION_TYPE);
 
 const requirePlatformOps = (actorRole: string): void => {

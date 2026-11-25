@@ -69,11 +69,6 @@ import {
   getInstitutionDisplayName,
   institutionOwnerUsernameSql,
 } from "@/server/institution-workspace/institution-display-name";
-import {
-  institutionOwnerAvatarKeySql,
-  institutionOwnerBannerKeySql,
-  resolveInstitutionMediaKeys,
-} from "@/server/institution-workspace/institution-media";
 import { resolveInstitutionMediaUrl } from "@/server/institution-workspace/institution-media-urls";
 import type { InstitutionType } from "@/server/db/schema";
 import {
@@ -121,10 +116,9 @@ const PUBLIC_LISTING_COLUMNS = {
   institutionDisplayName: institutions.displayName,
   institutionType: institutions.institutionType,
   institutionOwnerUsername: institutionOwnerUsernameSql,
-  // The keys of the logo a card shows, read in the listing query itself so a page of results costs
-  // no further read. A personal institution has no logo of its own and shows its owner's avatar.
+  // The key of the logo a card shows, read in the listing query itself so a page of results costs
+  // no further read.
   institutionLogoR2Key: institutions.logoR2Key,
-  institutionOwnerAvatarKey: institutionOwnerAvatarKeySql,
 } as const;
 
 type PublicListingRow = {
@@ -153,7 +147,6 @@ type PublicListingRow = {
   institutionType: InstitutionType;
   institutionOwnerUsername: string | null;
   institutionLogoR2Key: string | null;
-  institutionOwnerAvatarKey: string | null;
 };
 
 // Resolve the joined institution name through the display-name helper, then drop the type, owner
@@ -166,11 +159,9 @@ const mapPublicListingRow = (
     institutionDisplayName,
     institutionType,
     institutionOwnerUsername,
-    // Destructured only to keep the storage keys off the public item.
+    // Destructured only to keep the storage key off the public item.
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     institutionLogoR2Key: _institutionLogoR2Key,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    institutionOwnerAvatarKey: _institutionOwnerAvatarKey,
     ...rest
   } = row;
   return {
@@ -181,23 +172,6 @@ const mapPublicListingRow = (
     ),
     institutionLogoUrl,
   };
-};
-
-const resolveListingLogoKey = (
-  institution: Pick<
-    PublicListingRow,
-    "institutionType" | "institutionLogoR2Key" | "institutionOwnerAvatarKey"
-  >,
-): string | null => {
-  const { logoKey } = resolveInstitutionMediaKeys(
-    {
-      institutionType: institution.institutionType,
-      logoR2Key: institution.institutionLogoR2Key,
-      bannerR2Key: null,
-    },
-    { avatarR2Key: institution.institutionOwnerAvatarKey, bannerR2Key: null },
-  );
-  return logoKey;
 };
 
 // Signs one URL per distinct logo key, so a page of cards from one organizer signs once. A logo that
@@ -224,7 +198,7 @@ const signListingLogoUrls = async (
 const toPublicCompetitionItems = async (
   rows: PublicListingRow[],
 ): Promise<PublicCompetitionItem[]> => {
-  const logoKeys = rows.map(resolveListingLogoKey);
+  const logoKeys = rows.map((row) => row.institutionLogoR2Key);
   const signedLogoUrls = await signListingLogoUrls(logoKeys);
   return rows.map((row, index) => {
     const logoKey = logoKeys[index];
@@ -784,11 +758,6 @@ const PUBLIC_DETAIL_COLUMNS = {
   institutionType: institutions.institutionType,
   institutionOwnerUsername: institutionOwnerUsernameSql,
   institutionLogoR2Key: institutions.logoR2Key,
-  institutionBannerR2Key: institutions.bannerR2Key,
-  // A personal institution shows its owner's profile imagery in place of the logo and banner it
-  // cannot upload.
-  institutionOwnerAvatarKey: institutionOwnerAvatarKeySql,
-  institutionOwnerBannerKey: institutionOwnerBannerKeySql,
   institutionAbout: institutions.about,
   // The institution's contact details are deliberately NOT read here. They are gated on
   // verification status and on the viewer (institution-public-service.ts), and this endpoint is
@@ -932,18 +901,6 @@ export const getPublicCompetitionDetail = async (
 
   if (!row) return null;
 
-  const { logoKey } = resolveInstitutionMediaKeys(
-    {
-      institutionType: row.institutionType,
-      logoR2Key: row.institutionLogoR2Key,
-      bannerR2Key: row.institutionBannerR2Key,
-    },
-    {
-      avatarR2Key: row.institutionOwnerAvatarKey,
-      bannerR2Key: row.institutionOwnerBannerKey,
-    },
-  );
-
   const [
     registrantCount,
     participantEntryCount,
@@ -957,7 +914,7 @@ export const getPublicCompetitionDetail = async (
     countPublicRegistrants(row.id, db),
     countCompetitionParticipantEntries(row.id, db),
     hasPublishedCompetitionResult(row.id, db),
-    resolveOrganizerLogoUrl(logoKey),
+    resolveOrganizerLogoUrl(row.institutionLogoR2Key),
     db
       .select({ platform: institutionSocialLinks.platform, url: institutionSocialLinks.url })
       .from(institutionSocialLinks)

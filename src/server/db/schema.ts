@@ -82,13 +82,9 @@ export const institutionMembershipRoleEnum = pgEnum("institution_membership_role
   "institution_member",
 ]);
 
-// Institution type taxonomy. The column is nullable: a NULL value is a legacy
-// full/standard institution whose concrete subtype was never declared (all rows created before
-// `personal` is the lightweight, single-member, capped institution a minimal-tier recruiter can
-// self-create. The four full subtypes (company|foundation|university|campus_organization) are
-// chosen at create time for a directly-created full institution, or at upgrade time for a
-// personal→full upgrade — never left undeclared. Predicate convention: "is personal" is
-// `institution_type = 'personal'`; "is full/standard" is `institution_type <> 'personal'`.
+// Institution type taxonomy. Every institution declares one kind at creation, on the one create
+// form, and no path changes it. Predicate convention: "is personal" is
+// `institution_type = 'personal'`.
 // `community` is intentionally absent (deferred post-Beta). The enum is forward-compatible with
 // Phase 8 opportunity types — no jobs/internship wiring is added here.
 export const institutionTypeEnum = pgEnum("institution_type", [
@@ -550,11 +546,8 @@ export const institutions = pgTable(
     // `active`, a value no creation path ever produced, so a fixture that omitted the column got
     // a state production could not reach.
     status: institutionStatusEnum("status").notNull().default("inactive"),
-    // Institution type. NOT NULL: every institution declares a type at creation — `personal` via
-    // the personal-create path, or a full subtype via the full-create form / personal→full upgrade.
-    // `personal` rows are capped (≤2 published competitions, individual-only, no featured placement,
-    // no staff/member invites); full subtypes are unconstrained by those caps. See institution-type.ts
-    // for the predicates and the type-transition state machine.
+    // Institution type. NOT NULL: every institution declares its kind at creation, on the one create
+    // form, and no path changes it. See institution-type.ts for the kind predicates.
     institutionType: institutionTypeEnum("institution_type").notNull(),
     // Short free-text description of the institution, editable in institution settings for EVERY
     // type (personal included) and surfaced on the recruiter dashboard institution list. Nullable —
@@ -580,8 +573,8 @@ export const institutions = pgTable(
     // URL at render time (never a stored public URL). These fields are descriptive only.
     logoR2Key: text("logo_r2_key"),
     // Wide header image on the public institution page, same 4:1 frame as the profile banner.
-    // Personal institutions never write either key — their logo and banner are derived from the
-    // owner's own profile at read time (see resolveInstitutionMedia).
+    // Every kind of institution writes both keys through the media upload, and every surface shows
+    // only the keys stored here.
     bannerR2Key: text("banner_r2_key"),
     about: text("about"),
     contactName: text("contact_name"),
@@ -1706,8 +1699,7 @@ export type NotificationRecord = typeof notifications.$inferSelect;
 
 // Institution document verification submission system.
 // An institution owner submits identity documents to platform ops for review. On approval,
-// verification_status transitions to verified; on upgrade (personal → full), the type flip and
-// display_name persistence happen in the same transaction.
+// verification_status transitions to verified. The institution's type never changes.
 // `draft` stays for older host request rows. No path writes it, and institution verification never
 // writes it.
 export const verificationSubmissionStatusEnum = pgEnum("verification_submission_status", [

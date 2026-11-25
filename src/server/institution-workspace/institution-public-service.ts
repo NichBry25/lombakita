@@ -14,10 +14,6 @@ import {
   getInstitutionDisplayName,
   institutionOwnerUsernameSql,
 } from "@/server/institution-workspace/institution-display-name";
-import {
-  institutionOwnerAvatarKeySql,
-  institutionOwnerBannerKeySql,
-} from "@/server/institution-workspace/institution-media";
 import { resolveInstitutionMediaUrls } from "@/server/institution-workspace/institution-media-urls";
 import { isPersonalInstitutionType } from "@/server/institution-workspace/institution-type";
 import { parseInstitutionSlugParam } from "@/server/institution-workspace/institution-core";
@@ -228,8 +224,6 @@ export const getPublicInstitution = async (
       contactPhone: institutions.contactPhone,
       websiteUrl: institutions.websiteUrl,
       ownerUsername: institutionOwnerUsernameSql,
-      ownerAvatarKey: institutionOwnerAvatarKeySql,
-      ownerBannerKey: institutionOwnerBannerKeySql,
     })
     .from(institutions)
     .where(and(eq(institutions.slug, normalizedSlug), buildPublicInstitutionCondition()))
@@ -266,10 +260,7 @@ export const getPublicInstitution = async (
   }
 
   const [media, socialLinks, contactDisclosure] = await Promise.all([
-    resolveInstitutionMediaUrls(row, {
-      avatarR2Key: row.ownerAvatarKey,
-      bannerR2Key: row.ownerBannerKey,
-    }),
+    resolveInstitutionMediaUrls(row),
     db
       .select({ platform: institutionSocialLinks.platform, url: institutionSocialLinks.url })
       .from(institutionSocialLinks)

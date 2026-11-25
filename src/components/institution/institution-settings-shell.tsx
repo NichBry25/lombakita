@@ -108,8 +108,6 @@ const REFUSAL_COPY: Record<RefusalAction, Partial<Record<string, string>>> = {
     institution_profile_invalid_fields: INVALID_PAYLOAD_MESSAGE,
     institution_profile_invalid_value:
       "Periksa kontak, situs web, dan tautan media sosial lalu coba lagi.",
-    institution_profile_not_editable:
-      "Institusi personal tidak memiliki profil penyelenggara publik.",
   },
 };
 
@@ -153,7 +151,7 @@ export const InstitutionSettingsShell = ({
   const [bannerUrl, setBannerUrl] = useState<string | null>(null);
   const [isProfileLoading, setIsProfileLoading] = useState(true);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
-  // A personal institution has no public organizer profile, so the whole section is withheld.
+  // The organizer profile section renders once the profile read reports it editable.
   const [hasProfile, setHasProfile] = useState(false);
 
   const applyInstitution = useCallback((data: InstitutionSettingsResponse) => {

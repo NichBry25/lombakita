@@ -43,7 +43,6 @@ type InstitutionProfileErrorCode =
   | "institution_profile_invalid_payload"
   | "institution_profile_invalid_fields"
   | "institution_profile_invalid_value"
-  | "institution_profile_not_editable"
   | "institution_profile_storage_unavailable";
 
 export class InstitutionProfileInputError extends Error {
