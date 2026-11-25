@@ -19,7 +19,8 @@ type MemberErrorCode =
   | "role_escalation_forbidden"
   | "last_owner_demotion_forbidden"
   | "member_holds_competition_place"
-  | "member_role_retry";
+  | "member_role_retry"
+  | "member_role_blocked_trust_removed";
 
 export class MemberError extends Error {
   constructor(

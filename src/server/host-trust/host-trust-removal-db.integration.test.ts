@@ -7,7 +7,7 @@
 // where this file does not drive its writer, and each such helper says so.
 
 import { randomUUID } from "node:crypto";
-import { TransactionRollbackError, asc, eq } from "drizzle-orm";
+import { TransactionRollbackError, and, asc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -76,6 +76,7 @@ vi.mock("@/server/async/enqueue", async (importOriginal) => {
     enqueueCompetitionCancelled: vi.fn(async () => ({})),
     enqueueCompetitionEdited: vi.fn(async () => ({})),
     enqueueRegistrationConfirmed: vi.fn(async () => ({})),
+    enqueueInstitutionInvitationDispatch: vi.fn(async () => ({})),
     enqueueRecruiterVerificationApproved: mocks.enqueueApproved,
     enqueueHostTrustRemoved: mocks.enqueueRemoved,
   };
@@ -131,7 +132,10 @@ import {
   verifyEmailCodeAndSetPassword,
 } from "@/server/auth/credentials-auth";
 import { markRoleAsVerified } from "@/server/auth/role-verification";
-import { createPersonalInstitutionForUser } from "@/server/institution-workspace/institution-service";
+import {
+  createInstitutionWorkspaceForUser,
+  createPersonalInstitutionForUser,
+} from "@/server/institution-workspace/institution-service";
 import {
   createCompetitionDraft,
   updateCompetitionDraft,
@@ -158,6 +162,8 @@ import { PUT as tagsRoute } from "@/app/api/v1/competitions/[competitionId]/tags
 import { PUT as roundsRoute } from "@/app/api/v1/competitions/[competitionId]/rounds/route";
 import { POST as unpublishRoute } from "@/app/api/v1/institutions/[institutionSlug]/competitions/[competitionId]/unpublish/route";
 import { PUT as paymentInstructionsRoute } from "@/app/api/v1/institutions/[institutionSlug]/payment-instructions/route";
+import { POST as invitationsRoute } from "@/app/api/v1/institutions/[institutionSlug]/invitations/route";
+import { PATCH as memberRoleRoute } from "@/app/api/v1/institutions/[institutionSlug]/members/[membershipId]/role/route";
 import { PATCH as raiseRoute } from "@/app/api/platform-ops/accounts/[accountId]/recruiter-tier/route";
 import { POST as removalRoute } from "@/app/api/platform-ops/accounts/[accountId]/host-trust-removal/route";
 import {
@@ -417,12 +423,12 @@ const removeThroughRoute = async (
   return { status: response.status, body: parsed };
 };
 
-// Planted directly: a stand-in for the invitation flow, which this file does not drive.
+// Planted directly: a stand-in for joining through an invitation, which this file does not drive.
 const plantMembership = async (
   tx: Database,
   institutionId: string,
   userId: string,
-  membershipRole: "institution_staff" | "institution_member",
+  membershipRole: "institution_owner" | "institution_staff" | "institution_member",
 ): Promise<void> => {
   await tx.insert(schema.institutionMemberships).values({
     institutionId,
@@ -1334,6 +1340,260 @@ describe.skipIf(skipWithoutDatabase)(
 
         expect(newQris.status).toBe(403);
         expect(newQris.body.error?.code).toBe(PAYMENT_REFUSAL_CODE);
+        expect(await instructionsOf(tx, workspace.institutionId)).toEqual({
+          accountNumber: "1370012345678",
+          qrisR2Key: null,
+        });
+      });
+    });
+  },
+);
+
+const THIRD_HOST_ADDRESS = "rudi.host@acme.example";
+const INVITATION_REFUSAL_CODE = "invitation_blocked_trust_removed";
+const ROLE_REFUSAL_CODE = "member_role_blocked_trust_removed";
+const WORKSPACE_DETAILS = {
+  displayName: "Komunitas Lomba Bandung",
+  institutionType: "campus_organization",
+};
+
+// A personal workspace refuses every invitation, so these tests need a full one.
+const fullWorkspace = async (tx: Database, ownerId: string): Promise<Workspace> => {
+  const workspace = await createInstitutionWorkspaceForUser(ownerId, WORKSPACE_DETAILS, tx);
+  return { institutionId: workspace.institutionId, slug: workspace.slug };
+};
+
+type InvitationBody = { invitation?: { id: string }; error?: { code: string } };
+
+const inviteThroughRoute = async (
+  tx: Database,
+  actorUserId: string,
+  institutionSlug: string,
+  body: unknown,
+): Promise<{ status: number; body: InvitationBody }> => {
+  routeState.transaction = tx;
+  routeState.actorUserId = actorUserId;
+  const request = new Request(
+    `http://localhost/api/v1/institutions/${institutionSlug}/invitations`,
+    {
+      method: "POST",
+      headers: { [SESSION_USER_HEADER]: actorUserId, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
+  const response = await invitationsRoute(request, {
+    params: Promise.resolve({ institutionSlug }),
+  });
+  const parsed = (await response.json()) as InvitationBody;
+  return { status: response.status, body: parsed };
+};
+
+type RoleBody = { updated?: boolean; error?: { code: string } };
+
+const roleThroughRoute = async (
+  tx: Database,
+  actorUserId: string,
+  institutionSlug: string,
+  membershipId: string,
+  body: unknown,
+): Promise<{ status: number; body: RoleBody }> => {
+  routeState.transaction = tx;
+  routeState.actorUserId = actorUserId;
+  const request = new Request(
+    `http://localhost/api/v1/institutions/${institutionSlug}/members/${membershipId}/role`,
+    {
+      method: "PATCH",
+      headers: { [SESSION_USER_HEADER]: actorUserId, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
+  const response = await memberRoleRoute(request, {
+    params: Promise.resolve({ institutionSlug, membershipId }),
+  });
+  const parsed = (await response.json()) as RoleBody;
+  return { status: response.status, body: parsed };
+};
+
+const membershipOf = async (tx: Database, institutionId: string, userId: string) => {
+  const [row] = await tx
+    .select({
+      id: schema.institutionMemberships.id,
+      membershipRole: schema.institutionMemberships.membershipRole,
+    })
+    .from(schema.institutionMemberships)
+    .where(
+      and(
+        eq(schema.institutionMemberships.institutionId, institutionId),
+        eq(schema.institutionMemberships.userId, userId),
+        eq(schema.institutionMemberships.status, "active"),
+      ),
+    );
+  if (!row) throw new Error("No membership row");
+  return row;
+};
+
+const invitedRolesOf = async (tx: Database, institutionId: string): Promise<string[]> => {
+  const rows = await tx
+    .select({ invitedRole: schema.institutionInvitations.invitedRole })
+    .from(schema.institutionInvitations)
+    .where(eq(schema.institutionInvitations.institutionId, institutionId))
+    .orderBy(asc(schema.institutionInvitations.createdAt));
+  return rows.map((row) => row.invitedRole);
+};
+
+// The host owns a full workspace, then staff remove the host's trust through the real removal route.
+const hostWithWorkspaceAfterTrustRemoval = async (
+  tx: Database,
+): Promise<{ host: string; workspace: Workspace }> => {
+  const host = await signUpHost(tx, HOST_ADDRESS);
+  const workspace = await fullWorkspace(tx, host);
+  const operator = await plantOperator(tx, OPERATOR_ADDRESS);
+  const removed = await removeThroughRoute(tx, operator, host, { reason: REASON });
+  expect(removed.status).toBe(200);
+  return { host, workspace };
+};
+
+// A second owner joins the workspace before staff remove the first owner's trust.
+const coOwnedWorkspaceAfterTrustRemoval = async (
+  tx: Database,
+): Promise<{ host: string; coOwner: string; workspace: Workspace }> => {
+  const host = await signUpHost(tx, HOST_ADDRESS);
+  const workspace = await fullWorkspace(tx, host);
+  const coOwner = await signUpHost(tx, SECOND_HOST_ADDRESS);
+  await plantMembership(tx, workspace.institutionId, coOwner, "institution_owner");
+  const operator = await plantOperator(tx, OPERATOR_ADDRESS);
+  const removed = await removeThroughRoute(tx, operator, host, { reason: REASON });
+  expect(removed.status).toBe(200);
+  return { host, coOwner, workspace };
+};
+
+describe.skipIf(skipWithoutDatabase)(
+  "what a host whose trust staff removed may grant in a workspace (rolled back)",
+  () => {
+    it.each(["institution_owner", "institution_staff"] as const)(
+      "refuses a host whose trust staff removed an invitation as %s and writes no invitation",
+      async (role) => {
+        await inRollback(async (tx) => {
+          const { host, workspace } = await hostWithWorkspaceAfterTrustRemoval(tx);
+          await signUpHost(tx, THIRD_HOST_ADDRESS);
+
+          const invited = await inviteThroughRoute(tx, host, workspace.slug, {
+            invitedIdentifier: THIRD_HOST_ADDRESS,
+            invitedRole: role,
+          });
+
+          expect(invited.status).toBe(403);
+          expect(invited.body.error?.code).toBe(INVITATION_REFUSAL_CODE);
+          expect(await invitedRolesOf(tx, workspace.institutionId)).toEqual([]);
+        });
+      },
+    );
+
+    it("lets a host whose trust staff removed invite a member", async () => {
+      await inRollback(async (tx) => {
+        const { host, workspace } = await hostWithWorkspaceAfterTrustRemoval(tx);
+        await signUpHost(tx, THIRD_HOST_ADDRESS);
+
+        const invited = await inviteThroughRoute(tx, host, workspace.slug, {
+          invitedIdentifier: THIRD_HOST_ADDRESS,
+          invitedRole: "institution_member",
+        });
+
+        expect(invited.status).toBe(201);
+        expect(await invitedRolesOf(tx, workspace.institutionId)).toEqual(["institution_member"]);
+      });
+    });
+
+    it.each(["institution_owner", "institution_staff"] as const)(
+      "refuses a host whose trust staff removed the promotion of a member to %s and keeps the role",
+      async (role) => {
+        await inRollback(async (tx) => {
+          const { host, workspace } = await hostWithWorkspaceAfterTrustRemoval(tx);
+          const target = await signUpHost(tx, THIRD_HOST_ADDRESS);
+          await plantMembership(tx, workspace.institutionId, target, "institution_member");
+          const membership = await membershipOf(tx, workspace.institutionId, target);
+
+          const promoted = await roleThroughRoute(tx, host, workspace.slug, membership.id, {
+            role,
+          });
+
+          expect(promoted.status).toBe(403);
+          expect(promoted.body.error?.code).toBe(ROLE_REFUSAL_CODE);
+          expect((await membershipOf(tx, workspace.institutionId, target)).membershipRole).toBe(
+            "institution_member",
+          );
+        });
+      },
+    );
+
+    it("lets a host whose trust staff removed move a staff member to member", async () => {
+      await inRollback(async (tx) => {
+        const { host, workspace } = await hostWithWorkspaceAfterTrustRemoval(tx);
+        const target = await signUpHost(tx, THIRD_HOST_ADDRESS);
+        await plantMembership(tx, workspace.institutionId, target, "institution_staff");
+        const membership = await membershipOf(tx, workspace.institutionId, target);
+
+        const moved = await roleThroughRoute(tx, host, workspace.slug, membership.id, {
+          role: "institution_member",
+        });
+
+        expect(moved.status).toBe(200);
+        expect((await membershipOf(tx, workspace.institutionId, target)).membershipRole).toBe(
+          "institution_member",
+        );
+      });
+    });
+
+    it("lets an owner whose trust was not removed invite and promote to staff in a workspace whose other owner staff removed", async () => {
+      await inRollback(async (tx) => {
+        const { coOwner, workspace } = await coOwnedWorkspaceAfterTrustRemoval(tx);
+        const target = await signUpHost(tx, THIRD_HOST_ADDRESS);
+        await plantMembership(tx, workspace.institutionId, target, "institution_member");
+
+        const invited = await inviteThroughRoute(tx, coOwner, workspace.slug, {
+          invitedIdentifier: OTHER_ADDRESS,
+          invitedRole: "institution_staff",
+        });
+
+        expect(invited.status).toBe(201);
+        expect(await invitedRolesOf(tx, workspace.institutionId)).toEqual(["institution_staff"]);
+
+        const membership = await membershipOf(tx, workspace.institutionId, target);
+        const promoted = await roleThroughRoute(tx, coOwner, workspace.slug, membership.id, {
+          role: "institution_staff",
+        });
+
+        expect(promoted.status).toBe(200);
+        expect((await membershipOf(tx, workspace.institutionId, target)).membershipRole).toBe(
+          "institution_staff",
+        );
+      });
+    });
+
+    it("lets an owner whose trust was not removed save the payment instructions of a workspace whose other owner staff removed", async () => {
+      await inRollback(async (tx) => {
+        const { host, coOwner, workspace } = await coOwnedWorkspaceAfterTrustRemoval(tx);
+
+        const savedByCoOwner = await paymentInstructionsThroughRoute(
+          tx,
+          coOwner,
+          workspace.slug,
+          BANK_ACCOUNT,
+        );
+
+        expect(savedByCoOwner.status).toBe(200);
+        expect(await instructionsOf(tx, workspace.institutionId)).toEqual({
+          accountNumber: "1370012345678",
+          qrisR2Key: null,
+        });
+
+        const refusedForHost = await paymentInstructionsThroughRoute(tx, host, workspace.slug, {
+          ...BANK_ACCOUNT,
+          accountNumber: "9990012345678",
+        });
+
+        expect(refusedForHost.status).toBe(403);
+        expect(refusedForHost.body.error?.code).toBe(PAYMENT_REFUSAL_CODE);
         expect(await instructionsOf(tx, workspace.institutionId)).toEqual({
           accountNumber: "1370012345678",
           qrisR2Key: null,

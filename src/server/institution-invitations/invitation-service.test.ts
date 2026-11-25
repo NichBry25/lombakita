@@ -13,6 +13,9 @@ const { enqueueInstitutionInvitationDispatch } = vi.hoisted(() => ({
   enqueueInstitutionInvitationDispatch: vi.fn(),
 }));
 vi.mock("@/server/async/enqueue", () => ({ enqueueInstitutionInvitationDispatch }));
+vi.mock("@/server/host-trust/publish-trust", () => ({
+  isHostTrustRemoved: vi.fn(async () => false),
+}));
 
 // The live-place read and its locks run against a real database in
 // host-promotion-refusal-db.integration.test.ts. Here they are the seam this file drives.

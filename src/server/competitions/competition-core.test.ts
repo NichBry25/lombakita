@@ -13,6 +13,9 @@ import {
   parseCompetitionCreateInput,
   parseCompetitionPatchInput,
   validatePublishChecklist,
+  IMMUTABLE_AFTER_PUBLISH,
+  PATCH_FIELDS,
+  PUBLIC_FIELDS_HELD_AFTER_TRUST_REMOVAL,
 } from "@/server/competitions/competition-core";
 
 describe("isAllowedStatusTransition", () => {
@@ -612,5 +615,17 @@ describe("F5 — mode floor at publish time (validatePublishChecklist)", () => {
     });
     expect(r.passed).toBe(false);
     expect(r.failures.some((f) => f.field === "maxTeamSize")).toBe(true);
+  });
+});
+
+describe("the fields of a competition PATCH once published", () => {
+  it("classifies every PATCH field as held after a trust removal, immutable after publish, or the slug", () => {
+    const classifiedFields = [
+      ...PUBLIC_FIELDS_HELD_AFTER_TRUST_REMOVAL,
+      ...IMMUTABLE_AFTER_PUBLISH,
+      "slug",
+    ];
+
+    expect([...PATCH_FIELDS].sort()).toEqual(classifiedFields.sort());
   });
 });

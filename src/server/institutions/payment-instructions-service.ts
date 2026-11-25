@@ -211,7 +211,7 @@ export const requirePaymentInstructions = async (
 // A person whose host trust staff removed does not change where registrants are told to pay. The
 // instructions are saved whole on their own form, so every save of theirs is refused.
 // Throws PaymentInstructionsError 403 payment_instructions_blocked_trust_removed.
-export const assertPaymentInstructionsSaveNotByRemovedHost = async (
+const assertPaymentInstructionsSaveNotByRemovedHost = async (
   actorUserId: string,
   db: Database = getDb(),
 ): Promise<void> => {
@@ -219,7 +219,7 @@ export const assertPaymentInstructionsSaveNotByRemovedHost = async (
   if (!trustRemoved) return;
   throw new PaymentInstructionsError(
     "payment_instructions_blocked_trust_removed",
-    "Status tepercaya akun Anda dicabut staf, jadi informasi pembayaran tidak dapat Anda ubah.",
+    "Status tepercaya akun Anda dicabut staf, jadi informasi pembayaran tidak dapat Anda ubah. Minta pemilik lain di ruang kerja ini mengubahnya, atau hubungi staf Lombakita.",
     403,
   );
 };
@@ -241,11 +241,14 @@ export type SavePaymentInstructionsInput = {
  * individual payer was told, is snapshotted onto their payment instead.
  */
 export const savePaymentInstructions = async (
+  actorUserId: string,
   institutionId: string,
   input: SavePaymentInstructionsInput,
   db: Database = getDb(),
   now: Date = new Date(),
 ): Promise<InstitutionPaymentInstructionsRecord> => {
+  await assertPaymentInstructionsSaveNotByRemovedHost(actorUserId, db);
+
   const bankName = normalizeOptional(input.bankName);
   const accountNumber = normalizeOptional(input.accountNumber);
   const accountHolderName = normalizeOptional(input.accountHolderName);

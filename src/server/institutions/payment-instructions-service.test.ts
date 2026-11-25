@@ -10,6 +10,9 @@
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@/server/runtime/assert-server-only", () => ({ assertServerOnly: vi.fn() }));
+vi.mock("@/server/host-trust/publish-trust", () => ({
+  isHostTrustRemoved: vi.fn(async () => false),
+}));
 
 import {
   PaymentInstructionsError,
@@ -50,7 +53,7 @@ describe("savePaymentInstructions: the QRIS key boundary", () => {
     const { db, inserted } = recordingDb();
     const key = `${buildQrisObjectPrefix("inst_a")}abc-123`;
 
-    await savePaymentInstructions("inst_a", { ...BANK, qrisR2Key: key }, db);
+    await savePaymentInstructions("owner_1", "inst_a", { ...BANK, qrisR2Key: key }, db);
 
     expect(inserted[0]?.qrisR2Key).toBe(key);
   });
@@ -62,6 +65,7 @@ describe("savePaymentInstructions: the QRIS key boundary", () => {
 
     await expect(
       savePaymentInstructions(
+        "owner_1",
         "inst_a",
         { ...BANK, qrisR2Key: `${buildQrisObjectPrefix("inst_b")}abc-123` },
         db,
@@ -79,6 +83,7 @@ describe("savePaymentInstructions: the QRIS key boundary", () => {
 
     await expect(
       savePaymentInstructions(
+        "owner_1",
         "inst_a",
         { ...BANK, qrisR2Key: "payment-instructions/inst_alpha/abc-123" },
         db,
@@ -93,6 +98,7 @@ describe("savePaymentInstructions: the QRIS key boundary", () => {
 
     await expect(
       savePaymentInstructions(
+        "owner_1",
         "inst_a",
         { ...BANK, qrisR2Key: `${buildQrisObjectPrefix("inst_a")}../inst_b/abc` },
         db,
@@ -107,6 +113,7 @@ describe("savePaymentInstructions: the QRIS key boundary", () => {
 
     await expect(
       savePaymentInstructions(
+        "owner_1",
         "inst_a",
         { ...BANK, qrisR2Key: buildQrisObjectPrefix("inst_a") },
         db,
@@ -125,6 +132,7 @@ describe("savePaymentInstructions: what makes a row payable", () => {
 
     await expect(
       savePaymentInstructions(
+        "owner_1",
         "inst_a",
         {
           bankName: "Bank Mandiri",
@@ -144,7 +152,12 @@ describe("savePaymentInstructions: what makes a row payable", () => {
     const { db, inserted } = recordingDb();
 
     await expect(
-      savePaymentInstructions("inst_a", { ...BANK, accountNumber: "   ", qrisR2Key: null }, db),
+      savePaymentInstructions(
+        "owner_1",
+        "inst_a",
+        { ...BANK, accountNumber: "   ", qrisR2Key: null },
+        db,
+      ),
     ).rejects.toBeInstanceOf(PaymentInstructionsError);
 
     expect(inserted).toEqual([]);
@@ -154,6 +167,7 @@ describe("savePaymentInstructions: what makes a row payable", () => {
     const { db, inserted } = recordingDb();
 
     await savePaymentInstructions(
+      "owner_1",
       "inst_a",
       {
         bankName: null,

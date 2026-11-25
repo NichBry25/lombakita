@@ -48,6 +48,8 @@ const jsonResponse = (status: number, body: unknown) =>
   });
 
 let cancelAnswer: () => Response;
+let inviteAnswer: () => Response;
+let roleAnswer: () => Response;
 
 const answerByUrlAndMethod = async (input: RequestInfo | URL, init?: RequestInit) => {
   const request = `${init?.method ?? "GET"} ${String(input)}`;
@@ -56,7 +58,8 @@ const answerByUrlAndMethod = async (input: RequestInfo | URL, init?: RequestInit
     return jsonResponse(200, { invitations: INVITATIONS });
   }
   if (request === `PATCH ${INVITATION_CANCEL_URL}`) return cancelAnswer();
-  if (request === `PATCH ${STAFF_ROLE_URL}`) return jsonResponse(200, {});
+  if (request === `PATCH ${STAFF_ROLE_URL}`) return roleAnswer();
+  if (request === `POST ${INVITATIONS_URL}`) return inviteAnswer();
   throw new Error(`unexpected request: ${request}`);
 };
 
@@ -91,6 +94,8 @@ const pressInviteTrash = async () => {
 
 beforeEach(() => {
   cancelAnswer = () => jsonResponse(200, {});
+  inviteAnswer = () => jsonResponse(201, { invitation: { id: "inv_2" } });
+  roleAnswer = () => jsonResponse(200, {});
   vi.stubGlobal("fetch", fetchMock);
 });
 
@@ -163,5 +168,42 @@ describe("changing a staff member's role from the team page", () => {
     expect(url).toBe(STAFF_ROLE_URL);
     expect(init?.method).toBe("PATCH");
     expect(JSON.parse(String(init?.body))).toEqual({ role: "institution_member" });
+  });
+});
+
+describe("the team page for a host whose trust staff removed", () => {
+  it("tells a host whose trust staff removed that an owner or staff invitation is not sent", async () => {
+    inviteAnswer = () =>
+      jsonResponse(403, { error: { code: "invitation_blocked_trust_removed", message: "x" } });
+    await renderTeamPageAsOwner();
+
+    fireEvent.change(screen.getByPlaceholderText("Username atau Email"), {
+      target: { value: "rudi@contoh.example" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Undang" }));
+
+    expect(
+      await screen.findByText(
+        "Status tepercaya akun Anda dicabut staf, jadi Anda tidak dapat mengundang pemilik atau staf. Minta pemilik atau staf lain di ruang kerja ini mengirim undangannya, atau hubungi staf Lombakita.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText("Undangan gagal dikirim. Coba lagi.")).toBeNull();
+    expect(writeRequests()).toHaveLength(1);
+  });
+
+  it("tells a host whose trust staff removed that the role is not changed", async () => {
+    roleAnswer = () =>
+      jsonResponse(403, { error: { code: "member_role_blocked_trust_removed", message: "x" } });
+    await renderTeamPageAsOwner();
+
+    fireEvent.click(screen.getByRole("button", { name: "Ubah peran Dina Kusuma" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Jadikan pemilik" }));
+
+    expect(
+      await screen.findByText(
+        "Status tepercaya akun Anda dicabut staf, jadi Anda tidak dapat menjadikan siapa pun pemilik atau staf. Minta pemilik atau staf lain di ruang kerja ini mengubah perannya, atau hubungi staf Lombakita.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText("Peran gagal diperbarui. Coba lagi.")).toBeNull();
   });
 });

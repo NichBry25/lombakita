@@ -10,6 +10,7 @@ import {
 } from "@/server/db/schema";
 import { COMPETITIONS_CHANGING_RETRY_MESSAGE } from "@/lib/errors/error-copy";
 import { MEMBER_ROLES } from "@/server/competitions/competition-access";
+import { isHostTrustRemoved } from "@/server/host-trust/publish-trust";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 import { MemberError, type MemberRecord } from "@/server/institution-members/member-core";
 import {
@@ -237,6 +238,26 @@ const lockCompetitionsAndRefuseTargetHoldingLivePlace = async (
   }
 };
 
+// A person whose host trust staff removed does not give the owner or staff role to anyone, which
+// would let an account they may control act on the workspace free of the holds. The check reads the
+// new role only, so it also refuses them moving an owner to staff. Moving anyone to member stays open.
+// Other owners and staff are not bound.
+// Throws MemberError 403 member_role_blocked_trust_removed.
+const assertRoleGrantNotByRemovedHost = async (
+  actorUserId: string,
+  newRole: InstitutionMembershipRole,
+  db: Database,
+): Promise<void> => {
+  if (!MEMBER_ROLES.includes(newRole)) return;
+  const trustRemoved = await isHostTrustRemoved(actorUserId, db);
+  if (!trustRemoved) return;
+  throw new MemberError(
+    "member_role_blocked_trust_removed",
+    403,
+    "A host whose trust staff removed cannot give the owner or staff role",
+  );
+};
+
 export const changeMemberRole = async (
   actorUserId: string,
   institutionSlug: string,
@@ -245,6 +266,7 @@ export const changeMemberRole = async (
   db: Database = getDb(),
 ): Promise<void> => {
   const { institutionId } = await requireAdminInstitutionBySlug(actorUserId, institutionSlug, db);
+  await assertRoleGrantNotByRemovedHost(actorUserId, newRole, db);
 
   await db.transaction(async (tx) => {
     // Taken before the target read so the whole transaction, including the owner count below, sees

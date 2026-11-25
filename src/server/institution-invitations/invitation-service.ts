@@ -13,6 +13,7 @@ import { isPersonalInstitutionType } from "@/server/institution-workspace/instit
 import { logger } from "@/lib/logger";
 import { COMPETITIONS_CHANGING_RETRY_MESSAGE } from "@/lib/errors/error-copy";
 import { MEMBER_ROLES } from "@/server/competitions/competition-access";
+import { isHostTrustRemoved } from "@/server/host-trust/publish-trust";
 import {
   holdsLivePlaceInInstitution,
   lockInstitutionCompetitionsForPlaceCheck,
@@ -75,6 +76,25 @@ const requireAdminInstitution = async (
   return row;
 };
 
+// A person whose host trust staff removed does not hand the owner or staff role to an account they
+// may control, which would act on the workspace free of the holds. A member invitation grants no
+// operational access, so it stays open to them. Other owners and staff are not bound.
+// Throws InstitutionInvitationError 403 invitation_blocked_trust_removed.
+const assertInvitationNotByRemovedHost = async (
+  actorUserId: string,
+  invitedRole: InvitationCreateInput["invitedRole"],
+  db: Database,
+): Promise<void> => {
+  if (!MEMBER_ROLES.includes(invitedRole)) return;
+  const trustRemoved = await isHostTrustRemoved(actorUserId, db);
+  if (!trustRemoved) return;
+  throw new InstitutionInvitationError(
+    "invitation_blocked_trust_removed",
+    403,
+    "A host whose trust staff removed cannot invite an owner or staff member",
+  );
+};
+
 export const createInstitutionInvitation = async (
   userId: string,
   institutionSlug: string,
@@ -97,6 +117,8 @@ export const createInstitutionInvitation = async (
       "A personal institution cannot invite staff or members",
     );
   }
+
+  await assertInvitationNotByRemovedHost(userId, input.invitedRole, db);
 
   // Classify the identifier (username or email) and resolve the recipient. This is the
   // shared resolver (extends DEC-0082); the service never builds its own.

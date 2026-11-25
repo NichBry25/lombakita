@@ -454,7 +454,7 @@ describe("InstitutionCompetitionDetailShell withdrawal", () => {
 
     expect(
       await within(dialog).findByText(
-        "Status tepercaya akun Anda dicabut staf, jadi kompetisi yang sudah terbit tidak dapat Anda tarik.",
+        "Status tepercaya akun Anda dicabut staf, jadi kompetisi yang sudah terbit tidak dapat Anda tarik. Minta pemilik atau staf lain di ruang kerja ini menariknya, atau hubungi staf Lombakita.",
       ),
     ).toBeTruthy();
     expect(calls).toEqual([

@@ -160,7 +160,7 @@ describe("InstitutionSettingsShell payment instructions refusals", () => {
 
     expect(
       await screen.findByText(
-        "Status tepercaya akun Anda dicabut staf, jadi informasi pembayaran tidak dapat Anda ubah.",
+        "Status tepercaya akun Anda dicabut staf, jadi informasi pembayaran tidak dapat Anda ubah. Minta pemilik lain di ruang kerja ini mengubahnya, atau hubungi staf Lombakita.",
       ),
     ).toBeTruthy();
     expect(screen.queryByText("Informasi pembayaran gagal disimpan. Coba lagi.")).toBeNull();

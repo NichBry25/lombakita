@@ -12,7 +12,7 @@ const {
   assertCompetitionAccess,
   hasActiveRegistrationsForCompetition,
   assertPublicFieldsUnchangedByRemovedHost,
-  assertWithdrawalNotByRemovedHost,
+  assertUnpublishNotByRemovedHost,
   enqueueCompetitionEdited,
   enqueueCompetitionCancelled,
   enqueueCompetitionSearchSync,
@@ -21,7 +21,7 @@ const {
   assertCompetitionAccess: vi.fn(),
   hasActiveRegistrationsForCompetition: vi.fn(),
   assertPublicFieldsUnchangedByRemovedHost: vi.fn(async () => undefined),
-  assertWithdrawalNotByRemovedHost: vi.fn(async () => undefined),
+  assertUnpublishNotByRemovedHost: vi.fn(async () => undefined),
   enqueueCompetitionEdited: vi.fn(),
   enqueueCompetitionCancelled: vi.fn(),
   enqueueCompetitionSearchSync: vi.fn(),
@@ -49,7 +49,7 @@ vi.mock("@/server/competitions/competition-access", async () => {
     assertCompetitionAccess,
     hasActiveRegistrationsForCompetition,
     assertPublicFieldsUnchangedByRemovedHost,
-    assertWithdrawalNotByRemovedHost,
+    assertUnpublishNotByRemovedHost,
   };
 });
 

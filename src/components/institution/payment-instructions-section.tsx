@@ -30,7 +30,7 @@ const PAYMENT_INSTRUCTIONS_ERROR_COPY: Partial<Record<string, string>> = {
     "Isi nama bank, nomor rekening, dan nama pemilik rekening, atau unggah QRIS.",
   payment_instructions_qris_key_invalid: "Berkas QRIS tidak valid. Unggah ulang QRIS lalu simpan.",
   payment_instructions_blocked_trust_removed:
-    "Status tepercaya akun Anda dicabut staf, jadi informasi pembayaran tidak dapat Anda ubah.",
+    "Status tepercaya akun Anda dicabut staf, jadi informasi pembayaran tidak dapat Anda ubah. Minta pemilik lain di ruang kerja ini mengubahnya, atau hubungi staf Lombakita.",
 };
 
 const REFUSAL_FALLBACK: Record<RefusalAction, string> = {

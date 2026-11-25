@@ -55,7 +55,7 @@ import {
   assertInstitutionNotSuspended,
   assertInstitutionVerified,
   assertPublicFieldsUnchangedByRemovedHost,
-  assertWithdrawalNotByRemovedHost,
+  assertUnpublishNotByRemovedHost,
   assertPersonalCompetitionPublishable,
   assertPersonalInstitutionIndividualMode,
   hasActiveRegistrationsForCompetition,
@@ -1189,7 +1189,7 @@ export const unpublishCompetition = async (
   now?: Date,
 ): Promise<UnpublishCompetitionResult> => {
   await assertCompetitionAccess(actorUserId, competitionId, "member", db);
-  await assertWithdrawalNotByRemovedHost(actorUserId, db);
+  await assertUnpublishNotByRemovedHost(actorUserId, db);
 
   const result = await db.transaction(async (tx) => {
     await acquireCompetitionParticipationLock(tx, competitionId);
