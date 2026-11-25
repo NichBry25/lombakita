@@ -602,18 +602,27 @@ const plantAccountDeactivated = async (tx: Database, userId: string): Promise<vo
   await tx.update(schema.users).set({ status: "deactivated" }).where(eq(schema.users.id, userId));
 };
 
-const openCheckBy = async (
+const openCheckIn = async (
   tx: Database,
   host: string,
+  workspace: Workspace,
   title: string,
 ): Promise<{ workspace: Workspace; draft: string; checkId: string }> => {
-  const workspace = await ownWorkspace(tx, host);
   const draft = await createPublishableDraft(tx, host, workspace.slug, title);
   const pressed = await pressOn(tx, host, workspace, draft);
   if (pressed.status !== 202 || pressed.body.hostCheck === undefined) {
     throw new Error("the press opened no host check");
   }
   return { workspace, draft, checkId: pressed.body.hostCheck.id };
+};
+
+const openCheckBy = async (
+  tx: Database,
+  host: string,
+  title: string,
+): Promise<{ workspace: Workspace; draft: string; checkId: string }> => {
+  const workspace = await ownWorkspace(tx, host);
+  return openCheckIn(tx, host, workspace, title);
 };
 
 type DecisionBody = {
@@ -1011,8 +1020,13 @@ describe.skipIf(skipWithoutDatabase)("the staff decision on a host check (rolled
   it("clears a trust removal and closes the open host check as approved when staff raise the host, without publishing", async () => {
     await inRollback(async (tx) => {
       const host = await signUpHost(tx, UNTRUSTED_HOST_ADDRESS);
+      const hostWorkspace = await ownWorkspace(tx, host);
       await plantTrustRemoval(tx, host);
-      const { workspace, draft, checkId: firstCheck } = await openCheckBy(tx, host, FIRST_TITLE);
+      const {
+        workspace,
+        draft,
+        checkId: firstCheck,
+      } = await openCheckIn(tx, host, hostWorkspace, FIRST_TITLE);
       const operator = await plantOperator(tx, OPERATOR_ADDRESS);
       const turnedDown = await decideThroughRoute(tx, operator, firstCheck, TURN_DOWN);
       expect(turnedDown.status).toBe(200);
@@ -1096,8 +1110,9 @@ describe.skipIf(skipWithoutDatabase)("the staff decision on a host check (rolled
   it("clears a trust removal when staff approve the host check of a removed host", async () => {
     await inRollback(async (tx) => {
       const host = await signUpHost(tx, UNTRUSTED_HOST_ADDRESS);
+      const hostWorkspace = await ownWorkspace(tx, host);
       await plantTrustRemoval(tx, host);
-      const { draft, checkId } = await openCheckBy(tx, host, FIRST_TITLE);
+      const { draft, checkId } = await openCheckIn(tx, host, hostWorkspace, FIRST_TITLE);
       const operator = await plantOperator(tx, OPERATOR_ADDRESS);
 
       const answered = await decideThroughRoute(tx, operator, checkId, APPROVE);
@@ -1501,6 +1516,7 @@ describe.skipIf(skipWithoutDatabase)("the staff decision on a host check (rolled
   it("gives the queue the reason of a host's newest trust removal, and no reason for a host whose trust staff never removed", async () => {
     await inRollback(async (tx) => {
       const host = await signUpHost(tx, UNTRUSTED_HOST_ADDRESS);
+      const hostWorkspace = await ownWorkspace(tx, host);
       const operator = await plantOperator(tx, OPERATOR_ADDRESS);
       const raised = await raiseThroughRoute(tx, operator, host);
       expect(raised.status).toBe(200);
@@ -1521,7 +1537,7 @@ describe.skipIf(skipWithoutDatabase)("the staff decision on a host check (rolled
         "Penangguhan sementara.",
         new Date(Date.now() + DAY),
       );
-      const { checkId } = await openCheckBy(tx, host, FIRST_TITLE);
+      const { checkId } = await openCheckIn(tx, host, hostWorkspace, FIRST_TITLE);
       const other = await signUpHost(tx, SECOND_UNTRUSTED_HOST_ADDRESS);
       const { checkId: otherCheckId } = await openCheckBy(tx, other, SECOND_TITLE);
 
@@ -1627,12 +1643,13 @@ describe.skipIf(skipWithoutDatabase)("the staff decision on a host check (rolled
   it("reads a removed host as removed, a removed host who waits as pending, and a raised host as trusted", async () => {
     await inRollback(async (tx) => {
       const host = await signUpHost(tx, OWNER_ADDRESS);
+      const hostWorkspace = await ownWorkspace(tx, host);
       const operator = await plantOperator(tx, OPERATOR_ADDRESS);
       await removeHostTrust(operator, host, "Hadiah tidak sesuai.", tx);
 
       expect(await readHostStatusForAccount(host, tx)).toEqual({ state: "trust_removed" });
 
-      await openCheckBy(tx, host, FIRST_TITLE);
+      await openCheckIn(tx, host, hostWorkspace, FIRST_TITLE);
 
       expect(await readHostStatusForAccount(host, tx)).toEqual({
         state: "pending",
@@ -1649,11 +1666,12 @@ describe.skipIf(skipWithoutDatabase)("the staff decision on a host check (rolled
   it("gives the queue no removal reason once the host's removal no longer stands", async () => {
     await inRollback(async (tx) => {
       const host = await signUpHost(tx, UNTRUSTED_HOST_ADDRESS);
+      const hostWorkspace = await ownWorkspace(tx, host);
       const operator = await plantOperator(tx, OPERATOR_ADDRESS);
       const raised = await raiseThroughRoute(tx, operator, host);
       expect(raised.status).toBe(200);
       await removeHostTrust(operator, host, "Hadiah tidak sesuai.", tx);
-      const { checkId } = await openCheckBy(tx, host, FIRST_TITLE);
+      const { checkId } = await openCheckIn(tx, host, hostWorkspace, FIRST_TITLE);
       await plantTrustRemovalCleared(tx, host);
 
       const entry = (await listHostChecks(tx)).find((queued) => queued.id === checkId);

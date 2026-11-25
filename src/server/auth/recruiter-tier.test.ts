@@ -8,7 +8,6 @@ vi.mock("@/server/runtime/assert-server-only", () => ({ assertServerOnly: vi.fn(
 
 import {
   assertRecruiterTier,
-  FULL_INSTITUTION_CREATION_MIN_TIER,
   getRecruiterTierForAccount,
   INSTITUTION_CREATION_MIN_TIER,
   isRecruiterTier,
@@ -51,15 +50,6 @@ describe("OPPORTUNITY_CREATION_MIN_TIER", () => {
 describe("institution-creation tier gates (Step 6.5f.1)", () => {
   it("workspace creation requires the minimal tier for every kind", () => {
     expect(INSTITUTION_CREATION_MIN_TIER).toBe("minimal");
-  });
-
-  it("full institution creation requires the elevated tier", () => {
-    expect(FULL_INSTITUTION_CREATION_MIN_TIER).toBe("elevated");
-  });
-
-  it("the gates are independent of OPPORTUNITY_CREATION_MIN_TIER (unchanged)", () => {
-    expect(OPPORTUNITY_CREATION_MIN_TIER).toBe("minimal");
-    expect(FULL_INSTITUTION_CREATION_MIN_TIER).not.toBe(OPPORTUNITY_CREATION_MIN_TIER);
   });
 });
 

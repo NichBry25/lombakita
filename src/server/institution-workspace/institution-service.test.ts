@@ -18,6 +18,10 @@ import {
   MAX_INSTITUTIONS_PER_RECRUITER,
 } from "@/server/institution-workspace/institution-core";
 
+vi.mock("@/server/host-trust/publish-trust", () => ({
+  isHostTrustRemoved: vi.fn(async () => false),
+}));
+
 // Every create-path insert transaction now (1) acquires a per-owner advisory lock via tx.execute and
 // (2) re-counts the owner's institutions under that lock via tx.select before inserting (the true cap
 // guard). These helpers let each tx mock satisfy both without duplicating the thenable boilerplate.

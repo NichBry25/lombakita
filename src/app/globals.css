@@ -5878,8 +5878,7 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
 }
 
 .candidate-summary-icon,
-.saved-card-icon,
-.personal-institution-icon {
+.saved-card-icon {
   display: inline-grid;
   width: var(--touch-target);
   height: var(--touch-target);
@@ -6298,10 +6297,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   color: var(--color-warning-text);
   font-size: var(--text-meta);
   font-weight: 500;
-}
-
-.personal-institution-page {
-  max-width: var(--content-prose);
 }
 
 /* ---------------------------------------------------------------------------
@@ -7059,24 +7054,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
-}
-
-.personal-institution-card,
-.personal-institution-created {
-  display: grid;
-  gap: var(--space-5);
-}
-
-.personal-institution-intro {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: var(--space-4);
-  align-items: start;
-}
-
-.personal-institution-intro p {
-  margin: var(--space-0);
-  color: var(--color-ink-soft);
 }
 
 /* Institution workspace */
@@ -8391,8 +8368,7 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
     width: 100%;
   }
 
-  .result-hero,
-  .personal-institution-intro {
+  .result-hero {
     grid-template-columns: minmax(0, 1fr);
   }
 

@@ -210,13 +210,12 @@ export const createVerificationSubmission = async (
   );
 
   // A personal institution is the person, and the person is judged through host trust, so there is
-  // nothing separate to document here. Reaching a full type is
-  // the self-service upgrade, not a document submission.
+  // nothing separate to document here.
   if (isPersonalInstitutionType(institutionType)) {
     throw new SubmissionError(
       "institution_verification_not_applicable",
       409,
-      "A personal institution has no document verification. Upgrade it to a full institution type first",
+      "A personal institution has no document verification yet",
     );
   }
 
@@ -512,8 +511,7 @@ export const listPendingVerificationSubmissions = async (
 };
 
 // Platform ops: approve or reject a submission.
-// On approval of a regular verification: transitions verification_status to verified.
-// On approval of an upgrade (personal → full): upgrades type, persists display_name, then verifies.
+// On approval: transitions verification_status to verified. The institution's type never changes.
 // All writes are atomic in one transaction (closes 6.5f.1-S1).
 export const reviewVerificationSubmission = async (
   submissionId: string,

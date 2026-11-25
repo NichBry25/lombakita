@@ -56,7 +56,6 @@ export const DISALLOWED_PATH_PREFIXES = [
   // Institution management. `/institution/<slug>` is the organizer's public page and stays
   // indexable; everything below it is the workspace behind a recruiter session.
   "/institution/create",
-  "/institution/personal",
   "/institution/*/team",
   "/institution/*/settings",
   "/institution/*/verification",

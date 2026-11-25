@@ -893,6 +893,7 @@ describe.skipIf(skipWithoutDatabase)("the staff removal of a host's trust (rolle
   it("keeps a removed host untrusted through an Email organisasi confirm and sends its next press to a host check", async () => {
     await inRollback(async (tx) => {
       const host = await signUpHost(tx, HOST_ADDRESS);
+      const workspace = await ownWorkspace(tx, host);
       const operator = await plantOperator(tx, OPERATOR_ADDRESS);
       const removed = await removeThroughRoute(tx, operator, host, { reason: REASON });
       expect(removed.status).toBe(200);
@@ -903,7 +904,6 @@ describe.skipIf(skipWithoutDatabase)("the staff removal of a host's trust (rolle
       expect(confirmed).toEqual({ email: ORGANIZATION_ADDRESS, trustSource: null });
       expect(await tierOf(tx, host)).toBe("minimal");
 
-      const workspace = await ownWorkspace(tx, host);
       const draft = await createPublishableDraft(tx, host, workspace.slug, FIRST_TITLE);
 
       const pressed = await pressOn(tx, host, workspace, draft);

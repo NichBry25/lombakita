@@ -8,7 +8,7 @@
 import { describe, expect, it } from "vitest";
 
 import { INSTITUTION_STATUS_LABELS } from "./status-labels";
-import { FULL_INSTITUTION_TYPE_LABELS, INSTITUTION_TYPE_LABELS } from "./type-labels";
+import { INSTITUTION_TYPE_LABELS } from "./type-labels";
 import { INSTITUTION_VERIFICATION_STATUS_LABELS } from "./verification-status-labels";
 
 describe("INSTITUTION_TYPE_LABELS", () => {
@@ -20,27 +20,6 @@ describe("INSTITUTION_TYPE_LABELS", () => {
       university: "Universitas",
       campus_organization: "Organisasi kampus",
     });
-  });
-
-  it("offers the full types in the order the forms present them, without `personal`", () => {
-    // `personal` is what these forms upgrade FROM, so offering it would let a form create the state
-    // it exists to leave.
-    expect(Object.keys(FULL_INSTITUTION_TYPE_LABELS)).toEqual([
-      "company",
-      "foundation",
-      "university",
-      "campus_organization",
-    ]);
-  });
-
-  it("spells the full types with the same words as the shared map", () => {
-    // The two maps exist so a form cannot offer `personal`; if they ever disagree, the same
-    // institution is named two ways depending on which surface drew it.
-    for (const [type, label] of Object.entries(FULL_INSTITUTION_TYPE_LABELS)) {
-      expect(label, type).toBe(
-        INSTITUTION_TYPE_LABELS[type as keyof typeof INSTITUTION_TYPE_LABELS],
-      );
-    }
   });
 
   it("leaves no label empty, so nothing renders as a blank cell", () => {

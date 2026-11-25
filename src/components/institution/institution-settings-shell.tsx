@@ -135,9 +135,6 @@ export const InstitutionSettingsShell = ({
   const [displayName, setDisplayName] = useState("");
   const [slug, setSlug] = useState("");
   const [status, setStatus] = useState<"active" | "inactive" | "suspended">("inactive");
-  // A personal institution's name is derived from the owner username and is read-only;
-  // the type also drives the minimal "Personal" indicator in the header.
-  const [isPersonal, setIsPersonal] = useState(false);
   const [institutionType, setInstitutionType] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -167,7 +164,6 @@ export const InstitutionSettingsShell = ({
       slug: data.institution.slug,
     });
     setStatus(data.institution.status);
-    setIsPersonal(data.institution.institutionType === "personal");
     setInstitutionType(data.institution.institutionType);
   }, []);
 
@@ -241,9 +237,7 @@ export const InstitutionSettingsShell = ({
   const saveIdentity = async (event?: React.FormEvent<HTMLFormElement>) => {
     event?.preventDefault();
 
-    // A personal institution has no editable name (it derives from the owner username), so the name
-    // length check is skipped and only the slug is sent.
-    if (!isPersonal && displayName.trim().length < 2) {
+    if (displayName.trim().length < 2) {
       addToast({ type: "error", message: "Nama institusi minimal terdiri dari 2 karakter." });
       return;
     }
@@ -255,13 +249,9 @@ export const InstitutionSettingsShell = ({
 
     setIsSaving(true);
 
-    // Name/slug are editable only for full institutions — a personal institution derives both from
-    // the owner username. `description` is deliberately not sent: the organizer profile's `about`
-    // replaced it as the authored blurb, and omitting the key preserves whatever is stored.
-    const body: { displayName?: string; slug: string } = { slug };
-    if (!isPersonal) {
-      body.displayName = displayName;
-    }
+    // `description` is deliberately not sent: the organizer profile's `about` replaced it as the
+    // authored blurb, and omitting the key preserves whatever is stored.
+    const body = { displayName, slug };
 
     const response = await sessionFetch(
       expectedUserId,
@@ -373,40 +363,27 @@ export const InstitutionSettingsShell = ({
         ) : (
           <form className="stack-md" onSubmit={saveIdentity}>
             <div className="form-field">
-              <FormLabel htmlFor="institution-settings-display-name" required={!isPersonal}>
+              <FormLabel htmlFor="institution-settings-display-name" required>
                 Nama institusi
               </FormLabel>
               <FormInput
                 id="institution-settings-display-name"
                 value={displayName}
                 onChange={(event) => setDisplayName(event.target.value)}
-                readOnly={isPersonal}
-                required={!isPersonal}
+                required
               />
-              {isPersonal ? (
-                <p className="form-help">
-                  Nama institusi personal mengikuti username Anda dan tidak dapat diubah di sini.
-                </p>
-              ) : null}
             </div>
 
             <div className="form-field">
-              <FormLabel htmlFor="institution-settings-slug" required={!isPersonal}>
+              <FormLabel htmlFor="institution-settings-slug" required>
                 Slug
               </FormLabel>
               <FormInput
                 id="institution-settings-slug"
                 value={slug}
                 onChange={(event) => setSlug(event.target.value)}
-                readOnly={isPersonal}
-                required={!isPersonal}
+                required
               />
-              {isPersonal ? (
-                <p className="form-help">
-                  Slug institusi personal mengikuti username Anda dan tidak dapat diubah di sini.
-                  Ubah username Anda di pengaturan profil untuk mengubahnya.
-                </p>
-              ) : null}
             </div>
 
             <div className="form-field">

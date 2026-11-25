@@ -8,16 +8,6 @@ export const INSTITUTION_TYPES = institutionTypeEnum.enumValues;
 
 export const PERSONAL_INSTITUTION_TYPE = "personal" as const satisfies InstitutionType;
 
-// The four "full" subtypes. `personal` is excluded. `community` is deferred post-Beta.
-export const FULL_INSTITUTION_TYPES = [
-  "company",
-  "foundation",
-  "university",
-  "campus_organization",
-] as const satisfies readonly InstitutionType[];
-
-export type FullInstitutionType = (typeof FULL_INSTITUTION_TYPES)[number];
-
 // Reach caps for a personal institution. Enforced server-side at the existing gates
 // (publish, competition-create, featured, invitation). Shared constants — never inline.
 //
@@ -33,6 +23,3 @@ export const isInstitutionType = (value: unknown): value is InstitutionType =>
 // A NULL type is NOT personal (it is a legacy full institution).
 export const isPersonalInstitutionType = (type: InstitutionType | null): boolean =>
   type === PERSONAL_INSTITUTION_TYPE;
-
-export const isFullInstitutionType = (value: unknown): value is FullInstitutionType =>
-  typeof value === "string" && (FULL_INSTITUTION_TYPES as readonly string[]).includes(value);

@@ -4,16 +4,8 @@ import { HostStatusCard } from "@/components/host/host-status-card";
 import { Icon, PageHeader } from "@/components/ui";
 import { requireRolePage } from "@/server/auth/page-guard";
 import { getUnverifiedRoles } from "@/server/auth/role-verification";
-import {
-  FULL_INSTITUTION_CREATION_MIN_TIER,
-  getRecruiterTierForAccount,
-  meetsRecruiterTier,
-} from "@/server/auth/recruiter-tier";
 import { readHostStatusForAccount } from "@/server/host-trust/host-check-service";
-import {
-  findOwnedPersonalInstitution,
-  listUserInstitutionMemberships,
-} from "@/server/institution-workspace/institution-service";
+import { listUserInstitutionMemberships } from "@/server/institution-workspace/institution-service";
 
 export default async function RecruiterDashboardPage() {
   const session = await requireRolePage("recruiter", {
@@ -27,18 +19,10 @@ export default async function RecruiterDashboardPage() {
   const unverified = await getUnverifiedRoles(session.user.id);
   const showCandidateBanner = unverified.includes("candidate");
 
-  const [tierState, hostStatus, institutions, personalInstitution] = await Promise.all([
-    getRecruiterTierForAccount(session.user.id),
+  const [hostStatus, institutions] = await Promise.all([
     readHostStatusForAccount(session.user.id),
     listUserInstitutionMemberships(session.user.id),
-    findOwnedPersonalInstitution(session.user.id),
   ]);
-  const canCreateFullInstitution = tierState
-    ? meetsRecruiterTier(tierState.recruiterVerificationTier, FULL_INSTITUTION_CREATION_MIN_TIER)
-    : false;
-  const startHostingHref = personalInstitution
-    ? `/institution/${personalInstitution.slug}/competitions/new`
-    : "/institution/personal";
 
   return (
     <main className="page-shell app-page recruiter-dashboard">
@@ -52,26 +36,18 @@ export default async function RecruiterDashboardPage() {
       ) : null}
 
       <section className="hub-grid" aria-label="Akses penyelenggara">
-        <Link className="hub-card hub-card--action" href={startHostingHref}>
+        <Link className="hub-card hub-card--action" href="/institution/create">
           <span className="hub-card-icon">
             <Icon name="plus" size="lg" />
           </span>
           <div className="stack-xs">
-            <h2>Mulai menyelenggarakan</h2>
-            <p>Buat draf kompetisi di ruang kerja personal Anda.</p>
+            <h2>Buat institusi</h2>
+            <p>
+              Buat ruang penyelenggara baru, pribadi atau organisasi. Satu akun dapat memiliki
+              hingga 3 institusi.
+            </p>
           </div>
         </Link>
-        {canCreateFullInstitution ? (
-          <Link className="hub-card" href="/institution/create">
-            <span className="hub-card-icon">
-              <Icon name="building" size="lg" />
-            </span>
-            <div className="stack-xs">
-              <h2>Buat institusi</h2>
-              <p>Buat ruang penyelenggara baru untuk memublikasikan kompetisi.</p>
-            </div>
-          </Link>
-        ) : null}
         <Link className="hub-card" href="/profile">
           <span className="hub-card-icon">
             <Icon name="user" size="lg" />

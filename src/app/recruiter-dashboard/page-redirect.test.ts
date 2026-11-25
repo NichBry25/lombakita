@@ -7,20 +7,16 @@ const {
   redirectMock,
   getCurrentSessionMock,
   getUnverifiedRolesMock,
-  getRecruiterTierForAccountMock,
   readHostStatusForAccountMock,
   listUserInstitutionMembershipsMock,
-  findOwnedPersonalInstitutionMock,
 } = vi.hoisted(() => ({
   redirectMock: vi.fn((): never => {
     throw new Error("NEXT_REDIRECT");
   }),
   getCurrentSessionMock: vi.fn<() => Promise<Session | null>>(),
   getUnverifiedRolesMock: vi.fn(),
-  getRecruiterTierForAccountMock: vi.fn(),
   readHostStatusForAccountMock: vi.fn(),
   listUserInstitutionMembershipsMock: vi.fn(),
-  findOwnedPersonalInstitutionMock: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({ redirect: redirectMock }));
@@ -29,17 +25,10 @@ vi.mock("@/server/runtime/assert-server-only", () => ({ assertServerOnly: vi.fn(
 vi.mock("@/server/auth/role-verification", () => ({
   getUnverifiedRoles: getUnverifiedRolesMock,
 }));
-vi.mock("@/server/auth/recruiter-tier", async () => {
-  const actual = await vi.importActual<typeof import("@/server/auth/recruiter-tier")>(
-    "@/server/auth/recruiter-tier",
-  );
-  return { ...actual, getRecruiterTierForAccount: getRecruiterTierForAccountMock };
-});
 vi.mock("@/server/host-trust/host-check-service", () => ({
   readHostStatusForAccount: readHostStatusForAccountMock,
 }));
 vi.mock("@/server/institution-workspace/institution-service", () => ({
-  findOwnedPersonalInstitution: findOwnedPersonalInstitutionMock,
   listUserInstitutionMemberships: listUserInstitutionMembershipsMock,
 }));
 vi.mock("@/components/host/host-status-card", () => ({ HostStatusCard: () => null }));

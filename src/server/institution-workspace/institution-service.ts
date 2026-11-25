@@ -40,6 +40,7 @@ import {
 import { resolveInstitutionMediaUrls } from "@/server/institution-workspace/institution-media-urls";
 import { acquireOwnerCapLock } from "@/server/institution-workspace/owner-cap-lock";
 import { assertAccountNotDeactivated } from "@/server/accounts/deactivated-account";
+import { isHostTrustRemoved } from "@/server/host-trust/publish-trust";
 
 // `assertAccountNotDeactivated` throws the shape every refusal class in the repository carries —
 // (code, status, message) — and this module's own error takes its status last, so that class cannot
@@ -501,15 +502,31 @@ const isInstitutionSlugUniqueViolation = (error: unknown): boolean => {
   return false;
 };
 
+// A person whose host trust staff removed opens no new workspace: each one is a new public organizer
+// page and a new name to send invitations under. The workspaces they already run stay theirs.
+// Throws InstitutionWorkspaceInputError 403 institution_create_blocked_trust_removed.
+const assertCreatorHostTrustNotRemoved = async (userId: string, db: Database): Promise<void> => {
+  const trustRemoved = await isHostTrustRemoved(userId, db);
+  if (!trustRemoved) return;
+  throw new InstitutionWorkspaceInputError(
+    "institution_create_blocked_trust_removed",
+    "A host whose trust staff removed cannot create a workspace",
+    undefined,
+    403,
+  );
+};
+
 // Workspace creation for every kind. The recruiter-tier gate is enforced in the route layer via
-// assertRecruiterTier, and this service owns the per-owner limit, which counts every institution the
-// user actively owns, whatever its kind. The created row carries the kind and the name chosen on the
-// create form.
+// assertRecruiterTier. This service refuses a host whose trust staff removed, and owns the per-owner
+// limit, which counts every institution the user actively owns, whatever its kind. The created row
+// carries the kind and the name chosen on the create form.
 export const createInstitutionWorkspaceForUser = async (
   userId: string,
   payload: unknown,
   db: Database = getDb(),
 ): Promise<InstitutionWorkspaceShell> => {
+  await assertCreatorHostTrustNotRemoved(userId, db);
+
   const ownedCount = await countOwnedInstitutions(userId, db);
 
   if (ownedCount >= MAX_INSTITUTIONS_PER_RECRUITER) {
@@ -864,10 +881,10 @@ export type InstitutionVerificationSummary = {
   displayName: string;
 };
 
-// Everything the /institution/[slug]/verification page needs to choose its surface: the type decides
-// between the upgrade and the document-verification view, and the status decides whether that view
-// still accepts a submission or only reports the verdict already reached. Returns null for a slug
-// that does not resolve.
+// Everything the verification page of a workspace needs: the type decides whether the page sends a
+// personal workspace's owner to its hub, and the status decides whether the document-verification
+// view still accepts a submission or only reports the verdict already reached. Returns null for a
+// slug that does not resolve.
 export const loadInstitutionVerificationSummaryBySlug = async (
   institutionSlug: string,
   db: Database = getDb(),

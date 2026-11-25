@@ -166,3 +166,50 @@ describe("InstitutionSettingsShell payment instructions refusals", () => {
     expect(screen.queryByText("Informasi pembayaran gagal disimpan. Coba lagi.")).toBeNull();
   });
 });
+
+describe("a personal workspace's identity in settings", () => {
+  it("edits the name and the address of a personal workspace", async () => {
+    const personalSettings = institution("Akademi Pribadi");
+    personalSettings.institution.institutionType = "personal";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if ((init?.method ?? "GET") === "GET" && String(input) === SETTINGS_URL) {
+          return jsonResponse(200, personalSettings);
+        }
+        return answerByUrlAndMethod(input, init);
+      }),
+    );
+    render(
+      <UIPrimitivesProvider>
+        <PageTransitionProvider>
+          <InstitutionSettingsShell institutionSlug="academy" expectedUserId="user-42" />
+        </PageTransitionProvider>
+      </UIPrimitivesProvider>,
+    );
+
+    const nameInput = (await screen.findByLabelText(
+      /^Nama institusi(?: \* \(wajib\)| \(opsional\))?$/,
+    )) as HTMLInputElement;
+    const slugInput = screen.getByLabelText(
+      /^Slug(?: \* \(wajib\)| \(opsional\))?$/,
+    ) as HTMLInputElement;
+
+    expect(nameInput.readOnly).toBe(false);
+    expect(nameInput.required).toBe(true);
+    expect(slugInput.readOnly).toBe(false);
+    expect(slugInput.required).toBe(true);
+    expect(screen.queryByText("mengikuti username", { exact: false })).toBeNull();
+
+    fireEvent.change(nameInput, { target: { value: "Akademi Baru" } });
+    fireEvent.click(screen.getByRole("button", { name: "Simpan" }));
+
+    const fetchCalls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+    await waitFor(() => expect(fetchCalls.some(([, init]) => init?.method === "PATCH")).toBe(true));
+    const patchCall = fetchCalls.find(([, init]) => init?.method === "PATCH")!;
+    expect(JSON.parse(String(patchCall[1].body))).toEqual({
+      displayName: "Akademi Baru",
+      slug: "academy",
+    });
+  });
+});

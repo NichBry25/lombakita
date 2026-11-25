@@ -41,7 +41,6 @@ const MUST_BE_WITHHELD = [
   "/api/v1/competitions",
   "/competitions/seed-academy/seed-open/registration",
   "/institution/create",
-  "/institution/personal",
   "/institution/seed-academy/team",
   "/institution/seed-academy/settings",
   "/institution/seed-academy/verification",
