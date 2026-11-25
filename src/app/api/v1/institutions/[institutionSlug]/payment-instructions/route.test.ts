@@ -18,6 +18,7 @@ const {
   requireOwnerInstitutionBySlug,
   loadPaymentInstructionsForInstitution,
   savePaymentInstructions,
+  assertPaymentInstructionsSaveNotByRemovedHost,
   getDb,
 } = vi.hoisted(() => ({
   requireAuthenticatedSession: vi.fn(),
@@ -25,6 +26,7 @@ const {
   requireOwnerInstitutionBySlug: vi.fn(),
   loadPaymentInstructionsForInstitution: vi.fn(),
   savePaymentInstructions: vi.fn(),
+  assertPaymentInstructionsSaveNotByRemovedHost: vi.fn(),
   getDb: vi.fn(() => ({}) as never),
 }));
 
@@ -43,7 +45,12 @@ vi.mock("@/server/institutions/payment-instructions-service", async () => {
   const actual = await vi.importActual<
     typeof import("@/server/institutions/payment-instructions-service")
   >("@/server/institutions/payment-instructions-service");
-  return { ...actual, loadPaymentInstructionsForInstitution, savePaymentInstructions };
+  return {
+    ...actual,
+    loadPaymentInstructionsForInstitution,
+    savePaymentInstructions,
+    assertPaymentInstructionsSaveNotByRemovedHost,
+  };
 });
 
 import { GET, PUT } from "./route";
@@ -130,6 +137,27 @@ describe("PUT …/payment-instructions", () => {
 
     expect((await PUT(putRequest(COMPLETE), context)).status).toBe(409);
     expect(requireOwnerInstitutionBySlug).not.toHaveBeenCalled();
+    expect(savePaymentInstructions).not.toHaveBeenCalled();
+  });
+
+  it("WRITES NOTHING for an owner whose host trust staff removed", async () => {
+    requireAuthenticatedSession.mockResolvedValue(OWNER);
+    requireOwnerInstitutionBySlug.mockResolvedValue({ institutionId: "inst_a" });
+    assertPaymentInstructionsSaveNotByRemovedHost.mockRejectedValue(
+      new PaymentInstructionsError(
+        "payment_instructions_blocked_trust_removed",
+        "Status tepercaya akun Anda dicabut staf, jadi informasi pembayaran tidak dapat Anda ubah.",
+        403,
+      ),
+    );
+
+    const response = await PUT(putRequest(COMPLETE), context);
+    const body = (await response.json()) as { error: { code: string } };
+
+    expect(response.status).toBe(403);
+    expect(body.error.code).toBe("payment_instructions_blocked_trust_removed");
+    expect(assertPaymentInstructionsSaveNotByRemovedHost).toHaveBeenCalledTimes(1);
+    expect(assertPaymentInstructionsSaveNotByRemovedHost.mock.calls[0]?.[0]).toBe("owner_1");
     expect(savePaymentInstructions).not.toHaveBeenCalled();
   });
 

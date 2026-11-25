@@ -55,6 +55,7 @@ import {
   assertInstitutionNotSuspended,
   assertInstitutionVerified,
   assertPublicFieldsUnchangedByRemovedHost,
+  assertWithdrawalNotByRemovedHost,
   assertPersonalCompetitionPublishable,
   assertPersonalInstitutionIndividualMode,
   hasActiveRegistrationsForCompetition,
@@ -581,15 +582,16 @@ const closeMovedByPatch = (
   return patch.registrationEndAt;
 };
 
-// The held public fields this patch would change on the stored competition. A field sent with its
+// The fields of the list whose patched value differs from the stored one. A field sent with its
 // stored value changes nothing, so a form that resends it is not refused.
-const publicFieldsChangedByPatch = (
+const fieldsChangedByPatch = (
+  fieldNames: readonly string[],
   competition: CompetitionRow,
   patch: CompetitionPatchInput,
 ): string[] => {
   const row = competition as unknown as Record<string, unknown>;
   const patchRecord = patch as Record<string, unknown>;
-  return PUBLIC_FIELDS_HELD_AFTER_TRUST_REMOVAL.filter(
+  return fieldNames.filter(
     (field) =>
       field in patchRecord && !immutableCompetitionValuesEqual(patchRecord[field], row[field]),
   );
@@ -666,12 +668,7 @@ const updatePublishedCompetition = async (
   patch: CompetitionPatchInput,
   db: Database,
 ): Promise<CompetitionRow> => {
-  const row = competition as unknown as Record<string, unknown>;
-  const patchRecord = patch as Record<string, unknown>;
-  const immutableChanged = IMMUTABLE_AFTER_PUBLISH.filter(
-    (field) =>
-      field in patchRecord && !immutableCompetitionValuesEqual(patchRecord[field], row[field]),
-  );
+  const immutableChanged = fieldsChangedByPatch(IMMUTABLE_AFTER_PUBLISH, competition, patch);
   if (immutableChanged.length > 0) {
     throw new CompetitionError(
       "competition_field_immutable",
@@ -852,7 +849,11 @@ export const updateCompetitionDraft = async (
   // Published competitions are edited in place through the classifier, which judges each change by
   // its field and direction.
   if (competition.status === "published") {
-    const changedPublicFields = publicFieldsChangedByPatch(competition, patch);
+    const changedPublicFields = fieldsChangedByPatch(
+      PUBLIC_FIELDS_HELD_AFTER_TRUST_REMOVAL,
+      competition,
+      patch,
+    );
     await assertPublicFieldsUnchangedByRemovedHost(actorUserId, changedPublicFields, db);
     return updatePublishedCompetition(competition, patch, db);
   }
@@ -860,12 +861,7 @@ export const updateCompetitionDraft = async (
   // Archived (and any non-draft, non-published) competitions remain non-editable. Defensive
   // immutable-field check first so callers distinguish "never editable" from "terminal state".
   if (competition.status !== "draft") {
-    const row = competition as unknown as Record<string, unknown>;
-    const patchRecord = patch as Record<string, unknown>;
-    const immutableChanged = IMMUTABLE_AFTER_PUBLISH.filter(
-      (field) =>
-        field in patchRecord && !immutableCompetitionValuesEqual(patchRecord[field], row[field]),
-    );
+    const immutableChanged = fieldsChangedByPatch(IMMUTABLE_AFTER_PUBLISH, competition, patch);
     if (immutableChanged.length > 0) {
       throw new CompetitionError(
         "competition_field_immutable",
@@ -1193,6 +1189,7 @@ export const unpublishCompetition = async (
   now?: Date,
 ): Promise<UnpublishCompetitionResult> => {
   await assertCompetitionAccess(actorUserId, competitionId, "member", db);
+  await assertWithdrawalNotByRemovedHost(actorUserId, db);
 
   const result = await db.transaction(async (tx) => {
     await acquireCompetitionParticipationLock(tx, competitionId);

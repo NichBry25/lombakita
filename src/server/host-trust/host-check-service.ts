@@ -11,6 +11,7 @@ import {
   candidateProfiles,
   competitions,
   institutionMemberships,
+  institutions,
   recruiterVerificationSubmissions,
   users,
 } from "@/server/db/schema";
@@ -363,16 +364,19 @@ export const readHostCheckStateForActor = async (
 };
 
 // Asks the publish predicate for every workspace the account runs as an active owner or staff member,
-// so the card says what a press there would do.
+// so the card says what a press there would do. A suspended workspace refuses every press, and the
+// workspace of a deleted account is suspended with it, so neither counts.
 const runsWorkspaceWithTrustedOwner = async (db: Database, userId: string): Promise<boolean> => {
   const runs = await db
     .select({ institutionId: institutionMemberships.institutionId })
     .from(institutionMemberships)
+    .innerJoin(institutions, eq(institutions.id, institutionMemberships.institutionId))
     .where(
       and(
         eq(institutionMemberships.userId, userId),
         eq(institutionMemberships.status, "active"),
         inArray(institutionMemberships.membershipRole, MEMBER_ROLES),
+        isNull(institutions.suspendedAt),
       ),
     );
   for (const { institutionId } of runs) {

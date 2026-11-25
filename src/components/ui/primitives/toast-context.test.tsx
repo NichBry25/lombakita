@@ -1,7 +1,7 @@
 import { renderHook, act } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ToastProvider, useToast, useToastState } from "./toast-context";
-import type { ReactNode } from "react";
+import { StrictMode, useEffect, type ReactNode } from "react";
 
 const wrapper = ({ children }: { children: ReactNode }) => (
   <ToastProvider>{children}</ToastProvider>
@@ -167,6 +167,35 @@ describe("useToast — auto-dismiss", () => {
     unmount();
 
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("closes a toast added on mount after its timeout under Strict Mode", () => {
+    const strictWrapper = ({ children }: { children: ReactNode }) => (
+      <StrictMode>
+        <ToastProvider>{children}</ToastProvider>
+      </StrictMode>
+    );
+    // React runs the mount effect twice only for a StrictMode at the root of the render, so the
+    // wrapper's own StrictMode needs the one the render option puts above it.
+    const { result } = renderHook(
+      () => {
+        const { addToast } = useToast();
+        const state = useToastState();
+        useEffect(() => {
+          addToast({ message: "Halo", type: "success", duration: 3000 });
+        }, [addToast]);
+        return state;
+      },
+      { wrapper: strictWrapper, reactStrictMode: true },
+    );
+
+    expect(result.current.toasts).toHaveLength(2);
+
+    act(() => {
+      vi.advanceTimersByTime(3000);
+    });
+
+    expect(result.current.toasts).toHaveLength(0);
   });
 });
 

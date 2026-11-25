@@ -115,16 +115,18 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     [startTimer],
   );
 
-  // A dismiss timer that outlives the provider would set state on a tree that is gone.
+  // Strict Mode and Fast Refresh unmount the provider and mount it again with its toasts kept, so the
+  // cleanup pauses every dismiss timer and the mount resumes them. After a real unmount no timer is
+  // left to set state on a tree that is gone.
   useEffect(() => {
     const timers = timersRef.current;
+    for (const [id, timer] of timers) {
+      if (timer.handle === null) startTimer(id, timer);
+    }
     return () => {
-      for (const timer of timers.values()) {
-        if (timer.handle) clearTimeout(timer.handle);
-      }
-      timers.clear();
+      for (const id of timers.keys()) pauseToast(id);
     };
-  }, []);
+  }, [startTimer, pauseToast]);
 
   return (
     <ToastContext.Provider value={{ toasts, addToast, removeToast, pauseToast, resumeToast }}>

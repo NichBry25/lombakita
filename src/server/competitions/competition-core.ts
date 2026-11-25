@@ -101,6 +101,8 @@ type CompetitionErrorCode =
   | "competition_audience_cannot_be_emptied"
   // Staff removed the actor's host trust, so the public fields of a live competition stay as they are.
   | "competition_public_edit_blocked_trust_removed"
+  // Staff removed the actor's host trust, so the actor does not withdraw a live competition.
+  | "competition_unpublish_blocked_trust_removed"
   // The organiser must be shown, and confirm, what the platform charges before a price goes live.
   // The confirmation is recorded; this refusal is what makes it unskippable.
   | "competition_fee_disclosure_required"
@@ -795,8 +797,8 @@ export const IMMUTABLE_AFTER_PUBLISH: readonly string[] = [
 
 // The public fields of a published competition that a person whose host trust staff removed may not
 // change through the competition edit. The prizes and the price are fixed for every editor once the
-// competition is published, the eligibility note, the audience and the tags are held by their own
-// writes, and the payment window, the rounds and the team sizes stay editable to run the event.
+// competition is published, the eligibility note, the audience, the tags and the rounds are held by
+// their own writes, and the payment window and the contact stay editable to run the event.
 export const PUBLIC_FIELDS_HELD_AFTER_TRUST_REMOVAL: readonly string[] = [
   "title",
   "description",
@@ -809,6 +811,8 @@ export const PUBLIC_FIELDS_HELD_AFTER_TRUST_REMOVAL: readonly string[] = [
   "resultAnnouncementAt",
   "allowCancellation",
   "cancellationCutoffDays",
+  "minTeamSize",
+  "maxTeamSize",
 ];
 
 // Publish-validation checklist. A competition can only transition draft → published if every

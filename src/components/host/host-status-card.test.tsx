@@ -17,6 +17,8 @@ const EMAIL_FIELD_LABEL = /^Email organisasi(?: \(opsional\))?$/;
 const TRUSTED_SENTENCE = "Akun Anda tepercaya. Kompetisi yang Anda terbitkan langsung tayang.";
 const NOT_TRUSTED_SENTENCE =
   "Kompetisi pertama Anda diperiksa staf sebelum tayang. Perkiraan 1x24 jam pada hari kerja. Konfirmasi email organisasi agar langsung tayang.";
+const TRUSTED_WORKSPACE_PARAGRAPH =
+  "Kompetisi yang Anda terbitkan di ruang kerja dengan pemilik tepercaya langsung tayang. Di ruang kerja lain, kompetisi pertama Anda diperiksa staf sebelum tayang. Perkiraan 1x24 jam pada hari kerja. Konfirmasi email organisasi agar langsung tayang di semua ruang kerja.";
 
 const fetchMock = vi.fn();
 let answerFor: Record<string, () => Response> = {};
@@ -116,11 +118,7 @@ describe("the host status card", () => {
     expect(screen.getByRole("heading", { name: "Status penyelenggara" })).toBeTruthy();
     expect(screen.getByText(NOT_TRUSTED_SENTENCE)).toBeTruthy();
     expect(screen.getByLabelText(EMAIL_FIELD_LABEL)).toBeTruthy();
-    expect(
-      screen.queryByText(
-        "Kompetisi di ruang kerja yang pemiliknya tepercaya tetap langsung tayang.",
-      ),
-    ).toBeNull();
+    expect(screen.queryByText(TRUSTED_WORKSPACE_PARAGRAPH)).toBeNull();
   });
 
   it("turns trusted when the confirmed Email organisasi trusts the account", async () => {
@@ -152,14 +150,12 @@ describe("the host status card", () => {
     expect(screen.queryByText(TRUSTED_SENTENCE)).toBeNull();
   });
 
-  it("says that competitions in a workspace with a trusted owner still go live at once", () => {
+  it("says in one paragraph that competitions in a workspace with a trusted owner go live at once and that the staff check holds elsewhere", () => {
     renderCard({ state: "not_trusted", runsTrustedWorkspace: true });
 
     expect(screen.getByRole("heading", { name: "Status penyelenggara" })).toBeTruthy();
-    expect(screen.getByText(NOT_TRUSTED_SENTENCE)).toBeTruthy();
-    expect(
-      screen.getByText("Kompetisi di ruang kerja yang pemiliknya tepercaya tetap langsung tayang."),
-    ).toBeTruthy();
+    expect(screen.getByText(TRUSTED_WORKSPACE_PARAGRAPH)).toBeTruthy();
+    expect(screen.queryByText(NOT_TRUSTED_SENTENCE)).toBeNull();
     expect(screen.getByLabelText(EMAIL_FIELD_LABEL)).toBeTruthy();
   });
 });

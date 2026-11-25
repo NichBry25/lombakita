@@ -6,6 +6,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
 import { randomUUID } from "node:crypto";
 import { generatePresignedPutUrl, isR2Available } from "@/server/storage/r2.client";
+import { isHostTrustRemoved } from "@/server/host-trust/publish-trust";
 import {
   QRIS_FORMAT_HINT,
   qrisMimeTypeForFileName,
@@ -88,7 +89,8 @@ export type PaymentInstructionsErrorCode =
   | "payment_instructions_missing"
   | "payment_instructions_qris_key_invalid"
   | "payment_instructions_qris_format_unsupported"
-  | "payment_instructions_upload_unavailable";
+  | "payment_instructions_upload_unavailable"
+  | "payment_instructions_blocked_trust_removed";
 
 export class PaymentInstructionsError extends Error {
   constructor(
@@ -204,6 +206,22 @@ export const requirePaymentInstructions = async (
   }
 
   return instructions;
+};
+
+// A person whose host trust staff removed does not change where registrants are told to pay. The
+// instructions are saved whole on their own form, so every save of theirs is refused.
+// Throws PaymentInstructionsError 403 payment_instructions_blocked_trust_removed.
+export const assertPaymentInstructionsSaveNotByRemovedHost = async (
+  actorUserId: string,
+  db: Database = getDb(),
+): Promise<void> => {
+  const trustRemoved = await isHostTrustRemoved(actorUserId, db);
+  if (!trustRemoved) return;
+  throw new PaymentInstructionsError(
+    "payment_instructions_blocked_trust_removed",
+    "Status tepercaya akun Anda dicabut staf, jadi informasi pembayaran tidak dapat Anda ubah.",
+    403,
+  );
 };
 
 export type SavePaymentInstructionsInput = {

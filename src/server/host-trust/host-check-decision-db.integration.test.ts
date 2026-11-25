@@ -138,6 +138,7 @@ import { resolveCompetitionPublishReadiness } from "@/server/competitions/compet
 import { listHostChecks } from "./host-check-decision-service";
 import { readHostStatusForAccount } from "./host-check-service";
 import { removeHostTrust } from "./host-trust-removal-service";
+import { suspendInstitution } from "@/server/moderation/moderation-service";
 import { POST as publishRoute } from "@/app/api/v1/institutions/[institutionSlug]/competitions/[competitionId]/publish/route";
 import { POST as decideRoute } from "@/app/api/platform-ops/host-checks/[checkId]/route";
 import { PATCH as raiseRoute } from "@/app/api/platform-ops/accounts/[accountId]/recruiter-tier/route";
@@ -1552,6 +1553,31 @@ describe.skipIf(skipWithoutDatabase)("the staff decision on a host check (rolled
       await removeMember(owner, ownerWorkspace.slug, membershipId, tx);
 
       expect(await readHostStatusForAccount(host, tx)).toEqual({ state: "not_trusted" });
+    });
+  });
+
+  it("reads an untrusted staff member of a workspace with a trusted owner as not trusted alone once staff suspend the workspace", async () => {
+    await inRollback(async (tx) => {
+      const owner = await signUpHost(tx, OWNER_ADDRESS);
+      const ownerWorkspace = await ownWorkspace(tx, owner);
+      const host = await signUpHost(tx, UNTRUSTED_HOST_ADDRESS);
+      await plantMembership(tx, ownerWorkspace.institutionId, host, "institution_staff");
+
+      const beforeSuspension = await readHostStatusForAccount(host, tx);
+
+      expect(beforeSuspension).toEqual({ state: "not_trusted", runsTrustedWorkspace: true });
+
+      const operator = await plantOperator(tx, OPERATOR_ADDRESS);
+      await suspendInstitution(
+        operator,
+        ownerWorkspace.institutionId,
+        "Pemeriksaan kompetisi palsu.",
+        tx,
+      );
+
+      const afterSuspension = await readHostStatusForAccount(host, tx);
+
+      expect(afterSuspension).toEqual({ state: "not_trusted" });
     });
   });
 });

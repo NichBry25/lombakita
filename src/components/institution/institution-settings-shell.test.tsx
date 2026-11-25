@@ -134,3 +134,35 @@ describe("the account the settings save is bound to", () => {
     ).toBeTruthy();
   });
 });
+
+describe("InstitutionSettingsShell payment instructions refusals", () => {
+  it("tells an owner whose trust staff removed that the payment instructions stay as they are", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === "PUT" && String(input) === PAYMENT_INSTRUCTIONS_URL) {
+          return jsonResponse(403, {
+            error: { code: "payment_instructions_blocked_trust_removed", message: "x" },
+          });
+        }
+        return answerByUrlAndMethod(input, init);
+      }),
+    );
+    render(
+      <UIPrimitivesProvider>
+        <PageTransitionProvider>
+          <InstitutionSettingsShell institutionSlug="academy" expectedUserId="user-42" />
+        </PageTransitionProvider>
+      </UIPrimitivesProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Simpan informasi pembayaran" }));
+
+    expect(
+      await screen.findByText(
+        "Status tepercaya akun Anda dicabut staf, jadi informasi pembayaran tidak dapat Anda ubah.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText("Informasi pembayaran gagal disimpan. Coba lagi.")).toBeNull();
+  });
+});

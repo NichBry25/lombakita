@@ -241,6 +241,21 @@ describe("updateCompetitionDraft — IMMUTABLE_AFTER_PUBLISH guard (Step 3.3)", 
       httpStatus: 422,
     });
   });
+
+  it("rejects 422 competition_field_immutable when mode changes on an archived competition", async () => {
+    assertCompetitionAccess.mockResolvedValue({
+      competition: baseCompetition({ status: "archived", mode: "individual" }),
+      membershipRole: "institution_owner",
+    });
+
+    await expect(
+      updateCompetitionDraft("user_1", "comp_1", { mode: "team" }, stubDb),
+    ).rejects.toMatchObject({
+      code: "competition_field_immutable",
+      httpStatus: 422,
+      details: { fields: ["mode"] },
+    });
+  });
 });
 
 // F5-5 — publish floor: a team competition with min < 2 must be rejected at publish even when

@@ -430,4 +430,36 @@ describe("InstitutionCompetitionDetailShell withdrawal", () => {
       "POST /api/v1/institutions/institusi-contoh/competitions/comp_1/unpublish",
     ]);
   });
+
+  it("tells a host whose trust staff removed that the live competition cannot be withdrawn", async () => {
+    const withdrawableCompetition = {
+      ...PUBLISHED_COMPETITION,
+      participantConfirmationAt: new Date(now() + 5 * DAY).toISOString(),
+    };
+    const refusedAsTrustRemoved = {
+      ok: false,
+      status: 403,
+      json: async () => ({ error: { code: "competition_unpublish_blocked_trust_removed" } }),
+    } as unknown as Response;
+    const calls = stubFetchSequence([
+      () => loadOk(BLOCKED, withdrawableCompetition),
+      () => refusedAsTrustRemoved,
+    ]);
+
+    mount();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Tarik" }));
+    const dialog = await screen.findByRole("alertdialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Tarik" }));
+
+    expect(
+      await within(dialog).findByText(
+        "Status tepercaya akun Anda dicabut staf, jadi kompetisi yang sudah terbit tidak dapat Anda tarik.",
+      ),
+    ).toBeTruthy();
+    expect(calls).toEqual([
+      "GET /api/v1/competitions/comp_1",
+      "POST /api/v1/institutions/institusi-contoh/competitions/comp_1/unpublish",
+    ]);
+  });
 });

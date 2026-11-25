@@ -7,7 +7,7 @@
 // where this file does not drive its writer, and each such helper says so.
 
 import { randomUUID } from "node:crypto";
-import { TransactionRollbackError, eq } from "drizzle-orm";
+import { TransactionRollbackError, asc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -75,6 +75,7 @@ vi.mock("@/server/async/enqueue", async (importOriginal) => {
     enqueueCompetitionSearchSync: vi.fn(async () => ({})),
     enqueueCompetitionCancelled: vi.fn(async () => ({})),
     enqueueCompetitionEdited: vi.fn(async () => ({})),
+    enqueueRegistrationConfirmed: vi.fn(async () => ({})),
     enqueueRecruiterVerificationApproved: mocks.enqueueApproved,
     enqueueHostTrustRemoved: mocks.enqueueRemoved,
   };
@@ -138,6 +139,8 @@ import {
 import { setCompetitionEligibilityForEditor } from "@/server/competitions/competition-eligibility-service";
 import { setCompetitionOrganizerContactForEditor } from "@/server/competitions/competition-organizer-contact-service";
 import { setCompetitionPaymentWindow } from "@/server/competitions/competition-fee-service";
+import { createIndividualRegistration } from "@/server/registrations/registration-service";
+import { buildQrisObjectPrefix } from "@/server/institutions/payment-instructions-service";
 import {
   confirmOrganizationEmailCode,
   issueOrganizationEmailCode,
@@ -152,6 +155,10 @@ import { POST as publishRoute } from "@/app/api/v1/institutions/[institutionSlug
 import { PATCH as patchCompetitionRoute } from "@/app/api/v1/competitions/[competitionId]/route";
 import { PUT as eligibilityRoute } from "@/app/api/v1/competitions/[competitionId]/eligibility/route";
 import { PUT as tagsRoute } from "@/app/api/v1/competitions/[competitionId]/tags/route";
+import { PUT as roundsRoute } from "@/app/api/v1/competitions/[competitionId]/rounds/route";
+import { POST as unpublishRoute } from "@/app/api/v1/institutions/[institutionSlug]/competitions/[competitionId]/unpublish/route";
+import { PUT as paymentInstructionsRoute } from "@/app/api/v1/institutions/[institutionSlug]/payment-instructions/route";
+import { PATCH as raiseRoute } from "@/app/api/platform-ops/accounts/[accountId]/recruiter-tier/route";
 import { POST as removalRoute } from "@/app/api/platform-ops/accounts/[accountId]/host-trust-removal/route";
 import {
   processHostTrustRemovedJob,
@@ -449,6 +456,7 @@ type EditBody = {
   eligibilityNote?: string | null;
   audience?: string[] | null;
   tags?: string[];
+  rounds?: Array<{ title: string }>;
   error?: { code: string; details?: { fields?: string[] } };
 };
 
@@ -519,7 +527,16 @@ const publicFieldsOf = async (tx: Database, competitionId: string) => {
   const [row] = await tx
     .select({
       title: schema.competitions.title,
+      description: schema.competitions.description,
+      category: schema.competitions.category,
+      location: schema.competitions.location,
+      registrationStartAt: schema.competitions.registrationStartAt,
       registrationEndAt: schema.competitions.registrationEndAt,
+      eventStartAt: schema.competitions.eventStartAt,
+      eventEndAt: schema.competitions.eventEndAt,
+      resultAnnouncementAt: schema.competitions.resultAnnouncementAt,
+      minTeamSize: schema.competitions.minTeamSize,
+      maxTeamSize: schema.competitions.maxTeamSize,
       allowCancellation: schema.competitions.allowCancellation,
       cancellationCutoffDays: schema.competitions.cancellationCutoffDays,
       audience: schema.competitions.audience,
@@ -539,6 +556,123 @@ const tagsOf = async (tx: Database, competitionId: string): Promise<string[]> =>
     .from(schema.competitionTags)
     .where(eq(schema.competitionTags.competitionId, competitionId));
   return rows.map((row) => row.tag).sort();
+};
+
+const roundsThroughRoute = (
+  tx: Database,
+  actorUserId: string,
+  competitionId: string,
+  body: unknown,
+) =>
+  sendEditThroughRoute(roundsRoute, tx, actorUserId, competitionId, {
+    method: "PUT",
+    path: "/rounds",
+    body,
+  });
+
+const roundsOf = (tx: Database, competitionId: string) =>
+  tx
+    .select({
+      title: schema.competitionRounds.title,
+      description: schema.competitionRounds.description,
+      platformLabel: schema.competitionRounds.platformLabel,
+      startsAt: schema.competitionRounds.startsAt,
+      endsAt: schema.competitionRounds.endsAt,
+    })
+    .from(schema.competitionRounds)
+    .where(eq(schema.competitionRounds.competitionId, competitionId))
+    .orderBy(asc(schema.competitionRounds.sortOrder));
+
+type UnpublishBody = {
+  competition?: { status: string };
+  cancelledCount?: number;
+  error?: { code: string };
+};
+
+const unpublishThroughRoute = async (
+  tx: Database,
+  actorUserId: string,
+  workspace: Workspace,
+  competitionId: string,
+): Promise<{ status: number; body: UnpublishBody }> => {
+  routeState.transaction = tx;
+  routeState.actorUserId = actorUserId;
+  const request = new Request(
+    `http://localhost/api/v1/institutions/${workspace.slug}/competitions/${competitionId}/unpublish`,
+    { method: "POST", headers: { [SESSION_USER_HEADER]: actorUserId } },
+  );
+  const response = await unpublishRoute(request, {
+    params: Promise.resolve({ institutionSlug: workspace.slug, competitionId }),
+  });
+  const body = (await response.json()) as UnpublishBody;
+  return { status: response.status, body };
+};
+
+type PaymentBody = {
+  instructions?: { accountNumber: string | null };
+  error?: { code: string };
+};
+
+const paymentInstructionsThroughRoute = async (
+  tx: Database,
+  actorUserId: string,
+  institutionSlug: string,
+  body: unknown,
+): Promise<{ status: number; body: PaymentBody }> => {
+  routeState.transaction = tx;
+  routeState.actorUserId = actorUserId;
+  const request = new Request(
+    `http://localhost/api/v1/institutions/${institutionSlug}/payment-instructions`,
+    {
+      method: "PUT",
+      headers: { [SESSION_USER_HEADER]: actorUserId, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
+  const response = await paymentInstructionsRoute(request, {
+    params: Promise.resolve({ institutionSlug }),
+  });
+  const parsed = (await response.json()) as PaymentBody;
+  return { status: response.status, body: parsed };
+};
+
+const instructionsOf = async (tx: Database, institutionId: string) => {
+  const [row] = await tx
+    .select({
+      accountNumber: schema.institutionPaymentInstructions.accountNumber,
+      qrisR2Key: schema.institutionPaymentInstructions.qrisR2Key,
+    })
+    .from(schema.institutionPaymentInstructions)
+    .where(eq(schema.institutionPaymentInstructions.institutionId, institutionId));
+  return row ?? null;
+};
+
+const registrationStatusOf = async (tx: Database, registrationId: string) => {
+  const [row] = await tx
+    .select({ status: schema.competitionRegistrations.status })
+    .from(schema.competitionRegistrations)
+    .where(eq(schema.competitionRegistrations.id, registrationId));
+  if (!row) throw new Error("No registration row");
+  return row.status;
+};
+
+const raiseThroughRoute = async (
+  tx: Database,
+  staffUserId: string,
+  accountId: string,
+): Promise<{ status: number; body: unknown }> => {
+  routeState.transaction = tx;
+  routeState.actorUserId = staffUserId;
+  const request = new Request(
+    `http://localhost/api/platform-ops/accounts/${accountId}/recruiter-tier`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ tier: "elevated" }),
+    },
+  );
+  const response = await raiseRoute(request, { params: Promise.resolve({ accountId }) });
+  const parsed: unknown = await response.json();
+  return { status: response.status, body: parsed };
 };
 
 const runRemovalJob = (payload: unknown) =>
@@ -773,18 +907,60 @@ describe.skipIf(skipWithoutDatabase)("the staff removal of a host's trust (rolle
 
 const NEW_TITLE = "Lomba Esai Nasional Terbaru";
 const HELD_REFUSAL_CODE = "competition_public_edit_blocked_trust_removed";
+const WITHDRAWAL_REFUSAL_CODE = "competition_unpublish_blocked_trust_removed";
+const PAYMENT_REFUSAL_CODE = "payment_instructions_blocked_trust_removed";
+const SECOND_TITLE = "Lomba Poster Digital";
+const ROUND_ONE = {
+  title: "Penyisihan",
+  description: "Unggah esai pertama.",
+  platformLabel: "Zoom",
+  startsAt: "2030-03-01T02:00:00.000Z",
+  endsAt: "2030-03-02T02:00:00.000Z",
+};
+const ROUND_TWO = {
+  title: "Final",
+  description: "Presentasi di depan juri.",
+  platformLabel: "Google Meet",
+  startsAt: "2030-03-05T02:00:00.000Z",
+  endsAt: "2030-03-06T02:00:00.000Z",
+};
+const BANK_ACCOUNT = {
+  bankName: "Bank Mandiri",
+  accountNumber: "1370012345678",
+  accountHolderName: "Budi Santoso",
+  qrisR2Key: null,
+  instructionsNote: null,
+};
 
 // A trusted host publishes through the real press, then staff remove its trust through the real
 // removal route, so the account is the one the guard has to hold.
 const hostWithLiveCompetitionAfterTrustRemoval = async (
   tx: Database,
-): Promise<{ host: string; workspace: Workspace; draft: string }> => {
+): Promise<{ host: string; workspace: Workspace; draft: string; operator: string }> => {
   const host = await signUpHost(tx, HOST_ADDRESS);
   const { workspace, draft } = await publishAsHost(tx, host);
   const operator = await plantOperator(tx, OPERATOR_ADDRESS);
   const removed = await removeThroughRoute(tx, operator, host, { reason: REASON });
   expect(removed.status).toBe(200);
-  return { host, workspace, draft };
+  return { host, workspace, draft, operator };
+};
+
+// The rounds are written through the real route while the host is trusted, the competition goes
+// live through the real press, and the trust is removed through the real removal route.
+const hostWithLiveRoundsAfterTrustRemoval = async (
+  tx: Database,
+): Promise<{ host: string; workspace: Workspace; draft: string; operator: string }> => {
+  const host = await signUpHost(tx, HOST_ADDRESS);
+  const workspace = await ownWorkspace(tx, host);
+  const draft = await createPublishableDraft(tx, host, workspace.slug, FIRST_TITLE);
+  const saved = await roundsThroughRoute(tx, host, draft, { rounds: [ROUND_ONE, ROUND_TWO] });
+  if (saved.status !== 200) throw new Error("the rounds were not saved");
+  const pressed = await pressOn(tx, host, workspace, draft);
+  if (pressed.status !== 200) throw new Error("the press did not publish");
+  const operator = await plantOperator(tx, OPERATOR_ADDRESS);
+  const removed = await removeThroughRoute(tx, operator, host, { reason: REASON });
+  expect(removed.status).toBe(200);
+  return { host, workspace, draft, operator };
 };
 
 describe.skipIf(skipWithoutDatabase)(
@@ -956,6 +1132,212 @@ describe.skipIf(skipWithoutDatabase)(
         await expect(setCompetitionPaymentWindow(host, draft, 5, tx)).resolves.toBeUndefined();
 
         expect((await publicFieldsOf(tx, draft)).paymentWindowDays).toBe(5);
+      });
+    });
+
+    const dayAfter = (stored: Date | null): string => {
+      if (!stored) throw new Error("The published competition has no stored date");
+      return new Date(stored.getTime() + DAY).toISOString();
+    };
+
+    type HeldFieldRow = {
+      field: keyof Awaited<ReturnType<typeof publicFieldsOf>>;
+      value: (before: Awaited<ReturnType<typeof publicFieldsOf>>) => unknown;
+    };
+
+    const HELD_FIELD_ROWS: HeldFieldRow[] = [
+      { field: "title", value: () => NEW_TITLE },
+      { field: "description", value: () => "Deskripsi kompetisi yang diubah." },
+      { field: "category", value: () => "essay" },
+      { field: "location", value: () => "offline" },
+      { field: "registrationStartAt", value: (before) => dayAfter(before.registrationStartAt) },
+      { field: "registrationEndAt", value: (before) => dayAfter(before.registrationEndAt) },
+      { field: "eventStartAt", value: (before) => dayAfter(before.eventStartAt) },
+      { field: "eventEndAt", value: (before) => dayAfter(before.eventEndAt) },
+      { field: "resultAnnouncementAt", value: (before) => dayAfter(before.resultAnnouncementAt) },
+      { field: "allowCancellation", value: () => true },
+      { field: "cancellationCutoffDays", value: () => 3 },
+      { field: "minTeamSize", value: () => 2 },
+      { field: "maxTeamSize", value: () => 5 },
+    ];
+
+    it.each(HELD_FIELD_ROWS)(
+      "refuses a host whose trust staff removed a new $field on a live competition and keeps the stored value",
+      async ({ field, value }) => {
+        await inRollback(async (tx) => {
+          const { host, draft } = await hostWithLiveCompetitionAfterTrustRemoval(tx);
+          const before = await publicFieldsOf(tx, draft);
+
+          const refused = await patchThroughRoute(tx, host, draft, { [field]: value(before) });
+
+          expect(refused.status).toBe(403);
+          expect(refused.body.error?.code).toBe(HELD_REFUSAL_CODE);
+          expect(refused.body.error?.details?.fields).toEqual([field]);
+          expect((await publicFieldsOf(tx, draft))[field]).toEqual(before[field]);
+        });
+      },
+    );
+
+    it("lets a host edit the title of a live competition again once staff raise the trust it lost", async () => {
+      await inRollback(async (tx) => {
+        const { host, draft, operator } = await hostWithLiveCompetitionAfterTrustRemoval(tx);
+
+        const refused = await patchThroughRoute(tx, host, draft, { title: NEW_TITLE });
+
+        expect(refused.status).toBe(403);
+
+        const raised = await raiseThroughRoute(tx, operator, host);
+
+        expect(raised.status).toBe(200);
+        expect(await trustRemovedAtOf(tx, host)).toBeNull();
+
+        const retitled = await patchThroughRoute(tx, host, draft, { title: NEW_TITLE });
+
+        expect(retitled.status).toBe(200);
+        expect((await publicFieldsOf(tx, draft)).title).toBe(NEW_TITLE);
+      });
+    });
+
+    type RoundChangeRow = {
+      change: string;
+      rounds: Array<Record<string, string | null>>;
+    };
+
+    const ROUND_CHANGE_ROWS: RoundChangeRow[] = [
+      { change: "title", rounds: [{ ...ROUND_ONE, title: "Penyisihan Daring" }, ROUND_TWO] },
+      {
+        change: "description",
+        rounds: [{ ...ROUND_ONE, description: "Unggah esai kedua." }, ROUND_TWO],
+      },
+      {
+        change: "platform label",
+        rounds: [{ ...ROUND_ONE, platformLabel: "Microsoft Teams" }, ROUND_TWO],
+      },
+      {
+        change: "start",
+        rounds: [{ ...ROUND_ONE, startsAt: "2030-03-01T03:00:00.000Z" }, ROUND_TWO],
+      },
+      { change: "end", rounds: [{ ...ROUND_ONE, endsAt: "2030-03-03T02:00:00.000Z" }, ROUND_TWO] },
+      { change: "order", rounds: [ROUND_TWO, ROUND_ONE] },
+    ];
+
+    it.each(ROUND_CHANGE_ROWS)(
+      "refuses a host whose trust staff removed rounds with a new $change on a live competition and keeps the rounds",
+      async ({ rounds }) => {
+        await inRollback(async (tx) => {
+          const { host, draft } = await hostWithLiveRoundsAfterTrustRemoval(tx);
+          const before = await roundsOf(tx, draft);
+
+          const refused = await roundsThroughRoute(tx, host, draft, { rounds });
+
+          expect(refused.status).toBe(403);
+          expect(refused.body.error?.code).toBe(HELD_REFUSAL_CODE);
+          expect(refused.body.error?.details?.fields).toEqual(["rounds"]);
+          expect(await roundsOf(tx, draft)).toEqual(before);
+        });
+      },
+    );
+
+    it("lets a host whose trust staff removed resend the stored rounds of a live competition and set the rounds of a draft", async () => {
+      await inRollback(async (tx) => {
+        const { host, workspace, draft } = await hostWithLiveRoundsAfterTrustRemoval(tx);
+
+        const resent = await roundsThroughRoute(tx, host, draft, {
+          rounds: [ROUND_ONE, ROUND_TWO],
+        });
+
+        expect(resent.status).toBe(200);
+        expect(resent.body.rounds?.map((round) => round.title)).toEqual(["Penyisihan", "Final"]);
+
+        const secondDraft = await createPublishableDraft(tx, host, workspace.slug, SECOND_TITLE);
+        const set = await roundsThroughRoute(tx, host, secondDraft, { rounds: [ROUND_ONE] });
+
+        expect(set.status).toBe(200);
+        expect((await roundsOf(tx, secondDraft)).map((round) => round.title)).toEqual([
+          "Penyisihan",
+        ]);
+      });
+    });
+
+    it("refuses a host whose trust staff removed the withdrawal of a live competition and keeps its registration", async () => {
+      await inRollback(async (tx) => {
+        const { host, workspace, draft } = await hostWithLiveCompetitionAfterTrustRemoval(tx);
+        const candidate = await signUpParticipant(tx, OTHER_ADDRESS);
+        const registration = await createIndividualRegistration(candidate, draft, tx);
+
+        const refused = await unpublishThroughRoute(tx, host, workspace, draft);
+
+        expect(refused.status).toBe(403);
+        expect(refused.body.error?.code).toBe(WITHDRAWAL_REFUSAL_CODE);
+        expect(await competitionStatusOf(tx, draft)).toBe("published");
+        expect(await registrationStatusOf(tx, registration.id)).toBe("confirmed");
+      });
+    });
+
+    it("lets staff of the workspace change the rounds and withdraw a live competition after the host's trust was removed", async () => {
+      await inRollback(async (tx) => {
+        const { workspace, draft } = await hostWithLiveRoundsAfterTrustRemoval(tx);
+        const staff = await signUpHost(tx, SECOND_HOST_ADDRESS);
+        await plantMembership(tx, workspace.institutionId, staff, "institution_staff");
+        const candidate = await signUpParticipant(tx, OTHER_ADDRESS);
+        const registration = await createIndividualRegistration(candidate, draft, tx);
+
+        const renamed = await roundsThroughRoute(tx, staff, draft, {
+          rounds: [{ ...ROUND_ONE, title: "Penyisihan Daring" }, ROUND_TWO],
+        });
+
+        expect(renamed.status).toBe(200);
+        expect((await roundsOf(tx, draft)).map((round) => round.title)).toEqual([
+          "Penyisihan Daring",
+          "Final",
+        ]);
+
+        const withdrawn = await unpublishThroughRoute(tx, staff, workspace, draft);
+
+        expect(withdrawn.status).toBe(200);
+        expect(withdrawn.body.cancelledCount).toBe(1);
+        expect(await competitionStatusOf(tx, draft)).toBe("draft");
+        expect(await registrationStatusOf(tx, registration.id)).toBe("cancelled");
+      });
+    });
+
+    it("refuses an owner whose trust staff removed a new account or QRIS in the payment instructions and keeps the stored ones", async () => {
+      await inRollback(async (tx) => {
+        const host = await signUpHost(tx, HOST_ADDRESS);
+        const workspace = await ownWorkspace(tx, host);
+
+        const saved = await paymentInstructionsThroughRoute(tx, host, workspace.slug, BANK_ACCOUNT);
+
+        expect(saved.status).toBe(200);
+        expect(saved.body.instructions?.accountNumber).toBe("1370012345678");
+
+        const operator = await plantOperator(tx, OPERATOR_ADDRESS);
+        const removed = await removeThroughRoute(tx, operator, host, { reason: REASON });
+        expect(removed.status).toBe(200);
+
+        const newAccount = await paymentInstructionsThroughRoute(tx, host, workspace.slug, {
+          ...BANK_ACCOUNT,
+          accountNumber: "9990012345678",
+        });
+
+        expect(newAccount.status).toBe(403);
+        expect(newAccount.body.error?.code).toBe(PAYMENT_REFUSAL_CODE);
+        expect(await instructionsOf(tx, workspace.institutionId)).toEqual({
+          accountNumber: "1370012345678",
+          qrisR2Key: null,
+        });
+
+        const newQris = await paymentInstructionsThroughRoute(tx, host, workspace.slug, {
+          ...BANK_ACCOUNT,
+          qrisR2Key: buildQrisObjectPrefix(workspace.institutionId) + "qris-baru",
+        });
+
+        expect(newQris.status).toBe(403);
+        expect(newQris.body.error?.code).toBe(PAYMENT_REFUSAL_CODE);
+        expect(await instructionsOf(tx, workspace.institutionId)).toEqual({
+          accountNumber: "1370012345678",
+          qrisR2Key: null,
+        });
       });
     });
   },

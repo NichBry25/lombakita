@@ -1782,9 +1782,10 @@ export const InstitutionCompetitionEditShell = ({
     </FormActionBar>
   );
 
-  // The host check sentence sits in the page flow and never in the fixed action bar. Step 5 shows it
-  // beside its button, which shows only while nothing blocks publishing. The whole-page editor keeps
-  // it in view while the host edits, because its button is always on screen.
+  // The host check sentence sits in the page flow and never in the fixed action bar. The last step
+  // of the wizard shows it beside its button, which shows only while nothing blocks publishing. The
+  // whole-page editor keeps it rendered while the host edits, because its publish button stays in
+  // the bar.
   const showsHostCheckNote =
     publishControl.note !== null &&
     isDraft &&

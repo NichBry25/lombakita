@@ -110,6 +110,8 @@ const REFUSAL_COPY: Record<RefusalAction, Partial<Record<string, string>>> = {
       "Kompetisi tidak dapat ditarik selama masih ada bukti transfer yang menunggu verifikasi atau sudah diverifikasi. Verifikasi atau tolak dulu setiap bukti yang menunggu. Kompetisi dengan transfer yang sudah diverifikasi tidak dapat ditarik.",
     competition_unpublish_blocked_after_start:
       "Kompetisi yang sudah dimulai dan masih memiliki peserta tidak dapat ditarik. Ubah data kompetisi sebagai gantinya.",
+    competition_unpublish_blocked_trust_removed:
+      "Status tepercaya akun Anda dicabut staf, jadi kompetisi yang sudah terbit tidak dapat Anda tarik.",
   },
   decision: {
     competition_not_found: "Kompetisi tidak ditemukan.",

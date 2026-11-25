@@ -8,6 +8,7 @@ import { requireAuthenticatedSession } from "@/server/auth/session";
 import { requireOwnerInstitutionBySlug } from "@/server/institution-members/member-service";
 import {
   PaymentInstructionsError,
+  assertPaymentInstructionsSaveNotByRemovedHost,
   loadPaymentInstructionsForInstitution,
   savePaymentInstructions,
 } from "@/server/institutions/payment-instructions-service";
@@ -69,6 +70,7 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
       institutionSlug,
       db,
     );
+    await assertPaymentInstructionsSaveNotByRemovedHost(session.user.id, db);
 
     const payload = await request.json().catch(() => null);
     const body = isRecord(payload) ? payload : {};

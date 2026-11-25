@@ -69,6 +69,7 @@ vi.mock("@/server/async/enqueue", async (importOriginal) => {
     ...actual,
     enqueueCompetitionSearchSync: vi.fn(async () => ({})),
     enqueueCompetitionCancelled: vi.fn(async () => ({})),
+    enqueueRegistrationConfirmed: vi.fn(async () => ({})),
   };
 });
 
@@ -106,6 +107,7 @@ import {
 import { setCompetitionEligibilityForEditor } from "@/server/competitions/competition-eligibility-service";
 import { setCompetitionOrganizerContactForEditor } from "@/server/competitions/competition-organizer-contact-service";
 import { resolveCompetitionPublishReadiness } from "@/server/competitions/competition-publish-readiness";
+import { createIndividualRegistration } from "@/server/registrations/registration-service";
 import { publishOrOpenHostCheck } from "./host-check-service";
 import { POST as publishRoute } from "@/app/api/v1/institutions/[institutionSlug]/competitions/[competitionId]/publish/route";
 import { SESSION_USER_HEADER } from "@/lib/session/session-fetch";
@@ -504,6 +506,15 @@ const competitionStatusOf = async (tx: Database, competitionId: string) => {
   return row.status;
 };
 
+const registrationStatusOf = async (tx: Database, registrationId: string) => {
+  const [row] = await tx
+    .select({ status: schema.competitionRegistrations.status })
+    .from(schema.competitionRegistrations)
+    .where(eq(schema.competitionRegistrations.id, registrationId));
+  if (!row) throw new Error("No registration row");
+  return row.status;
+};
+
 const tierOf = async (tx: Database, userId: string) => {
   const [row] = await tx
     .select({ tier: schema.users.recruiterVerificationTier })
@@ -611,6 +622,7 @@ const expectedClosedCheck = (reason: string) => ({
 const TRUSTED_BY_SIGN_IN_EMAIL = "budi.host@acme.example";
 const UNTRUSTED_HOST_ADDRESS = "rina.free@gmail.com";
 const SECOND_UNTRUSTED_HOST_ADDRESS = "sari.free@gmail.com";
+const CANDIDATE_ADDRESS = "dina.peserta@example.test";
 const FIRST_TITLE = "Lomba Esai Nasional";
 const SECOND_TITLE = "Lomba Poster Digital";
 const GONE_DRAFT_REASON = "Ditutup karena draf tidak lagi tersedia.";
@@ -952,7 +964,7 @@ describe.skipIf(skipWithoutDatabase)("the publish press (rolled back)", () => {
     });
   });
 
-  it("lets staff unpublish a live competition and refuses an institution_member", async () => {
+  it("lets staff unpublish a live competition, which cancels its registration, and refuses an institution_member", async () => {
     await inRollback(async (tx) => {
       const owner = await signUpHost(tx, TRUSTED_BY_SIGN_IN_EMAIL);
       const workspace = await ownWorkspace(tx, owner);
@@ -963,18 +975,22 @@ describe.skipIf(skipWithoutDatabase)("the publish press (rolled back)", () => {
       await plantMembership(tx, workspace.institutionId, staff, "institution_staff");
       const member = await signUpHost(tx, SECOND_UNTRUSTED_HOST_ADDRESS);
       await plantMembership(tx, workspace.institutionId, member, "institution_member");
+      const candidate = await signUpParticipant(tx, CANDIDATE_ADDRESS);
+      const registration = await createIndividualRegistration(candidate, draft, tx);
 
       await expect(unpublishCompetition(member, draft, tx)).rejects.toMatchObject({
         code: "forbidden",
         status: 403,
       });
       expect(await competitionStatusOf(tx, draft)).toBe("published");
+      expect(await registrationStatusOf(tx, registration.id)).toBe("confirmed");
 
       const unpublished = await unpublishCompetition(staff, draft, tx);
 
-      expect(unpublished.cancelledCount).toBe(0);
+      expect(unpublished.cancelledCount).toBe(1);
       expect(unpublished.competition.status).toBe("draft");
       expect(await competitionStatusOf(tx, draft)).toBe("draft");
+      expect(await registrationStatusOf(tx, registration.id)).toBe("cancelled");
     });
   });
 

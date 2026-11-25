@@ -12,6 +12,7 @@ const {
   assertCompetitionAccess,
   hasActiveRegistrationsForCompetition,
   assertPublicFieldsUnchangedByRemovedHost,
+  assertWithdrawalNotByRemovedHost,
   enqueueCompetitionEdited,
   enqueueCompetitionCancelled,
   enqueueCompetitionSearchSync,
@@ -20,6 +21,7 @@ const {
   assertCompetitionAccess: vi.fn(),
   hasActiveRegistrationsForCompetition: vi.fn(),
   assertPublicFieldsUnchangedByRemovedHost: vi.fn(async () => undefined),
+  assertWithdrawalNotByRemovedHost: vi.fn(async () => undefined),
   enqueueCompetitionEdited: vi.fn(),
   enqueueCompetitionCancelled: vi.fn(),
   enqueueCompetitionSearchSync: vi.fn(),
@@ -40,13 +42,14 @@ vi.mock("@/server/competitions/competition-access", async () => {
   const actual = await vi.importActual<typeof import("@/server/competitions/competition-access")>(
     "@/server/competitions/competition-access",
   );
-  // The removal guard reads the account row, which the queued selects of this file do not hold. Its
-  // own db tests drive it.
+  // The removal guards read the account row, which the queued selects of this file do not hold. Their
+  // own db tests drive them.
   return {
     ...actual,
     assertCompetitionAccess,
     hasActiveRegistrationsForCompetition,
     assertPublicFieldsUnchangedByRemovedHost,
+    assertWithdrawalNotByRemovedHost,
   };
 });
 

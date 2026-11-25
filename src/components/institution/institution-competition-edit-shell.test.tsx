@@ -3230,6 +3230,42 @@ describe("InstitutionCompetitionEditShell steps", () => {
       ).toBeTruthy();
     });
 
+    it("tells a host whose trust staff removed that the live competition keeps its rounds", async () => {
+      const storedRound = {
+        title: "Penyisihan",
+        platformLabel: null,
+        startsAt: null,
+        endsAt: null,
+        description: null,
+      };
+      stubFetchRoutes({
+        ...partRoutes(PUBLISHED),
+        [`GET ${COMPETITION_URL}/rounds`]: [() => okJson({ rounds: [storedRound] })],
+        [`PUT ${COMPETITION_URL}/rounds`]: [
+          () => refusedWith("competition_public_edit_blocked_trust_removed"),
+        ],
+      });
+
+      render(shellWithPartsAt(3));
+
+      fireEvent.change(
+        await screen.findByLabelText(/^Nama tahapan(?: \* \(wajib\)| \(opsional\))?$/),
+        { target: { value: "Penyisihan Daring" } },
+      );
+      fireEvent.click(saveButton());
+
+      expect(
+        await screen.findByText(
+          "Tahapan & linimasa belum tersimpan. Status tepercaya akun Anda dicabut staf, jadi isi kompetisi yang sudah terbit tidak dapat Anda ubah. Kontak, pengumuman, bukti transfer, dan hasil tetap dapat Anda kelola.",
+        ),
+      ).toBeTruthy();
+      expect(
+        screen.queryByText(
+          "Tahapan & linimasa belum tersimpan. Gagal menyimpan tahapan. Coba lagi.",
+        ),
+      ).toBeNull();
+    });
+
     it("forgets a server refusal when the reload after a save throws", async () => {
       stubFetchSequence([() => loadOk(BLOCKED), () => patchOk, failingRequest]);
 

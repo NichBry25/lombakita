@@ -252,6 +252,22 @@ export const assertPublicFieldsUnchangedByRemovedHost = async (
   );
 };
 
+// Withdrawing a live competition cancels every registration, so a person whose host trust staff
+// removed does not withdraw one. Other members of the workspace are not bound.
+// Throws CompetitionError 403 competition_unpublish_blocked_trust_removed.
+export const assertWithdrawalNotByRemovedHost = async (
+  actorUserId: string,
+  db: Database = getDb(),
+): Promise<void> => {
+  const trustRemoved = await isHostTrustRemoved(actorUserId, db);
+  if (!trustRemoved) return;
+  throw new CompetitionError(
+    "competition_unpublish_blocked_trust_removed",
+    403,
+    "A host whose trust staff removed cannot withdraw a published competition",
+  );
+};
+
 // Publishing needs the contact participants reach the organiser through. Read here because
 // PUBLIC_COMPETITION_COLUMNS, and so CompetitionRow, leaves the contact columns out.
 // Throws CompetitionError 422 competition_organizer_contact_missing.
