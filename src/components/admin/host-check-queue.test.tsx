@@ -7,6 +7,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { UIPrimitivesProvider } from "@/components/ui/primitives";
+import { NETWORK_ERROR_MESSAGE } from "@/lib/errors/error-copy";
 import { formatRupiah } from "@/lib/finance/payment-display";
 import { HostCheckQueue, type HostCheckQueueItem } from "./host-check-queue";
 
@@ -52,7 +53,7 @@ type SentRequest = { url: string; method: string; body: unknown };
 
 const sent: SentRequest[] = [];
 let queueItems: HostCheckQueueItem[] = [];
-let queueResponses: Array<() => Response> = [];
+let queueResponses: Array<() => Response | Promise<Response>> = [];
 let decisionResponse: () => Response = () => jsonResponse({});
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -401,9 +402,141 @@ describe("what the queue tells the operator when the decision route refuses", ()
       fireEvent.click(screen.getByRole("button", { name: "Setujui" }));
 
       await waitFor(() => {
-        expect(within(screen.getByRole("dialog")).getByRole("alert").textContent).toContain(copy);
+        expect(within(screen.getByRole("alertdialog")).getByRole("alert").textContent).toContain(
+          copy,
+        );
       });
       expect(screen.queryByText(message)).toBeNull();
     },
   );
+});
+
+const GUIDELINE_TRIGGER_NAME = "Pedoman yang tidak dipenuhi (wajib)";
+const NOTE_LABEL = /^Catatan untuk penyelenggara(?: \* \(wajib\)| \(opsional\))?$/;
+
+describe("the turn-down pop-up", () => {
+  it("keeps the turn-down pop-up and the typed note when Escape closes the guideline list", async () => {
+    await showQueue([itemFixture()]);
+    const dialog = openTurnDownDialog();
+    typeNote(dialog, "Nomor kontak tidak aktif.");
+    fireEvent.click(within(dialog).getByRole("button", { name: GUIDELINE_TRIGGER_NAME }));
+
+    fireEvent.keyDown(within(dialog).getByRole("option", { name: KONTAK_TEXT }), {
+      key: "Escape",
+    });
+
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect((within(dialog).getByLabelText(NOTE_LABEL) as HTMLTextAreaElement).value).toBe(
+      "Nomor kontak tidak aktif.",
+    );
+
+    fireEvent.keyDown(within(dialog).getByRole("button", { name: GUIDELINE_TRIGGER_NAME }), {
+      key: "Escape",
+    });
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("marks the guideline list invalid and points it at its error when no item is picked", async () => {
+    await showQueue([itemFixture()]);
+    const dialog = openTurnDownDialog();
+    typeNote(dialog, "Nomor kontak tidak aktif.");
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Tolak" }));
+
+    await within(dialog).findByText("Pilih pedoman yang tidak dipenuhi.");
+    const trigger = within(dialog).getByRole("button", { name: GUIDELINE_TRIGGER_NAME });
+    expect(trigger.getAttribute("aria-invalid")).toBe("true");
+    expect(trigger.getAttribute("aria-describedby")).toBe("host-check-guideline-error");
+    expect(document.getElementById("host-check-guideline-error")?.textContent).toContain(
+      "Pilih pedoman yang tidak dipenuhi.",
+    );
+  });
+
+  it("names the draft and the host in the turn-down pop-up", async () => {
+    await showQueue([itemFixture()]);
+
+    const dialog = openTurnDownDialog();
+
+    expect(
+      within(dialog).getByText(
+        "Draf Lomba Esai Nasional dari Rina Pratama tidak tayang. Penyelenggara membaca pedoman dan catatan ini.",
+      ),
+    ).toBeTruthy();
+  });
+
+  const TURN_DOWN_REFUSALS = [
+    { code: "host_check_guideline_required", copy: "Pilih pedoman yang tidak dipenuhi." },
+    {
+      code: "host_check_guideline_unknown",
+      copy: "Pedoman itu tidak ada dalam daftar. Muat ulang halaman lalu pilih lagi.",
+    },
+    {
+      code: "host_check_note_required",
+      copy: "Isi catatan untuk penyelenggara, paling banyak 1000 karakter.",
+    },
+  ];
+
+  it.each(TURN_DOWN_REFUSALS)(
+    "keeps the turn-down form, its guideline and its note when the decision route refuses with $code",
+    async ({ code, copy }) => {
+      await showQueue([itemFixture()]);
+      decisionResponse = () => jsonResponse({ error: { code, message: "raw server text" } }, 400);
+      const dialog = openTurnDownDialog();
+      pickGuideline(dialog);
+      typeNote(dialog, "Nomor kontak tidak aktif.");
+
+      fireEvent.click(within(dialog).getByRole("button", { name: "Tolak" }));
+
+      await waitFor(() => {
+        expect(within(dialog).getByRole("alert").textContent).toContain(copy);
+      });
+      expect(
+        within(dialog).getByRole("button", {
+          name: `Pedoman yang tidak dipenuhi: ${KONTAK_TEXT} (wajib)`,
+        }),
+      ).toBeTruthy();
+      expect((within(dialog).getByLabelText(NOTE_LABEL) as HTMLTextAreaElement).value).toBe(
+        "Nomor kontak tidak aktif.",
+      );
+      expect(screen.queryByText("raw server text")).toBeNull();
+    },
+  );
+
+  it("says the connection failed inside the turn-down pop-up", async () => {
+    await showQueue([itemFixture()]);
+    decisionResponse = () => {
+      throw new TypeError("network down");
+    };
+    const dialog = openTurnDownDialog();
+    pickGuideline(dialog);
+    typeNote(dialog, "Nomor kontak tidak aktif.");
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Tolak" }));
+
+    await waitFor(() => {
+      expect(within(dialog).getByRole("alert").textContent).toContain(NETWORK_ERROR_MESSAGE);
+    });
+  });
+});
+
+describe("the approval pop-up and the loading queue", () => {
+  it("opens the approval as an alert pop-up with focus on Batal", async () => {
+    await showQueue([itemFixture()]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Setujui dan tayangkan" }));
+
+    expect(screen.getByRole("alertdialog")).toBeTruthy();
+    await waitFor(() => expect(document.activeElement?.textContent).toBe("Batal"));
+  });
+
+  it("marks the loading queue as waiting", () => {
+    queueResponses = [() => new Promise<Response>(() => {})];
+
+    renderQueue();
+
+    const loading = screen.getByRole("status", { name: "Memuat pemeriksaan penyelenggara" });
+    expect(loading.getAttribute("aria-busy")).toBe("true");
+  });
 });

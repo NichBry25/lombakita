@@ -1,6 +1,9 @@
 import { getCompetitionFieldLabel } from "@/lib/competitions/fields";
 import { MAX_PUBLISHED_COMPETITIONS_FOR_PERSONAL } from "@/lib/institutions/reach-caps";
 import type { CompetitionPublishBlockerCode } from "@/server/competitions/competition-publish-readiness";
+import { competitionGuidelineTextOf } from "@/lib/competitions/competition-guidelines";
+import { asSentence } from "@/lib/finance/payment-display";
+import type { HostCheckReadout } from "@/server/host-trust/host-check-service";
 
 // Every Indonesian word the publish control says, in one place, because two shells say it.
 //
@@ -16,7 +19,7 @@ import type { CompetitionPublishBlockerCode } from "@/server/competitions/compet
 // browser. `import type` erases, so the union arrives without the module.
 
 /** Where a reason's link goes. Resolved to an href by `resolvePublishReasonHref`. */
-export type PublishReasonLinkKind = "verification" | "edit" | "recruiter";
+export type PublishReasonLinkKind = "verification" | "edit";
 
 export type PublishBlockerReason = {
   code: CompetitionPublishBlockerCode;
@@ -27,7 +30,7 @@ export type PublishBlockerReason = {
 const REASONS: Record<CompetitionPublishBlockerCode, PublishBlockerReason> = {
   forbidden: {
     code: "forbidden",
-    text: "Hanya pemilik institusi yang dapat menerbitkan kompetisi.",
+    text: "Hanya pemilik dan staf institusi yang dapat menerbitkan kompetisi.",
     link: null,
   },
   // No link: no surface this app renders can turn a published competition back into a draft, so the
@@ -36,15 +39,6 @@ const REASONS: Record<CompetitionPublishBlockerCode, PublishBlockerReason> = {
     code: "competition_invalid_transition",
     text: "Hanya kompetisi berstatus draf yang dapat diterbitkan.",
     link: null,
-  },
-  competition_recruiter_not_trusted: {
-    code: "competition_recruiter_not_trusted",
-    text: "Akun Anda belum menjadi penyelenggara terverifikasi. Selesaikan verifikasi penyelenggara untuk dapat menerbitkan kompetisi.",
-    // There is no dedicated recruiter-verification ROUTE in this app: the verification panel is
-    // rendered on `/recruiter-dashboard` (app/recruiter-dashboard/recruiter-verification-panel.tsx,
-    // mounted by that page). The dashboard is therefore the page the link names — the link's text
-    // says what to do there rather than claiming a page that does not exist.
-    link: { kind: "recruiter", label: "Verifikasi penyelenggara" },
   },
   institution_suspended: {
     code: "institution_suspended",
@@ -104,14 +98,82 @@ export const resolvePublishReasonHref = (
       return `${institution}/verification`;
     case "edit":
       return `${institution}/competitions/${encodeURIComponent(context.competitionSlug)}/edit`;
-    case "recruiter":
-      return "/recruiter-dashboard";
   }
 };
 
 /** Shown when the server refused for a reason this module does not recognise, or named no code. */
 export const PUBLISH_REFUSAL_FALLBACK_TEXT =
   "Kompetisi gagal diterbitkan. Coba lagi atau hubungi dukungan Lombakita.";
+
+const HOST_CHECK_WAIT = "Perkiraan 1x24 jam pada hari kerja.";
+const SEND_FOR_CHECK_LABEL = "Kirim untuk diperiksa";
+
+/** The toast after a press that opened a host check instead of publishing. */
+export const HOST_CHECK_SENT_TOAST_TEXT = `Kompetisi dikirim untuk diperiksa. ${HOST_CHECK_WAIT}`;
+
+// The title of the other draft comes only from the server, which gives it only while the caller
+// still runs that draft's institution.
+const pendingOtherDraftSentence = (competitionTitle: string | undefined): string =>
+  competitionTitle === undefined
+    ? "Kompetisi lain Anda masih diperiksa staf. Tunggu hasilnya sebelum mengirim kompetisi lain."
+    : `Kompetisi "${competitionTitle}" masih diperiksa staf. Tunggu hasilnya sebelum mengirim kompetisi lain.`;
+
+// Every guideline text ends with its own full stop, and a staff note may not.
+const turnedDownSentence = (guidelineItem: string, note: string): string => {
+  const guidelineText = competitionGuidelineTextOf(guidelineItem) ?? guidelineItem;
+  return `Belum dapat tayang. Pedoman: ${guidelineText} Catatan staf: ${asSentence(note)} Perbaiki draf lalu tekan Kirim untuk diperiksa lagi.`;
+};
+
+export type PublishControl = {
+  label: string;
+  pressable: boolean;
+  note: string | null;
+  tone: "info" | "warning";
+};
+
+const PUBLISH_NOW_CONTROL: PublishControl = {
+  label: "Terbitkan",
+  pressable: true,
+  note: null,
+  tone: "info",
+};
+
+/** What the publish button says, whether it can be pressed, and the sentence beside it. */
+export const describePublishControl = (hostCheck: HostCheckReadout | undefined): PublishControl => {
+  if (hostCheck === undefined) return PUBLISH_NOW_CONTROL;
+  switch (hostCheck.state) {
+    case "not_needed":
+      return PUBLISH_NOW_CONTROL;
+    case "needed":
+      return {
+        label: SEND_FOR_CHECK_LABEL,
+        pressable: true,
+        note: `Kompetisi pertama Anda diperiksa staf sebelum tayang. ${HOST_CHECK_WAIT}`,
+        tone: "info",
+      };
+    case "pending":
+      return {
+        label: "Sedang diperiksa",
+        pressable: false,
+        note: `Staf Lombakita sedang memeriksa kompetisi ini. ${HOST_CHECK_WAIT}`,
+        tone: "info",
+      };
+    case "pending_other_draft":
+      return {
+        label: SEND_FOR_CHECK_LABEL,
+        pressable: false,
+        note: pendingOtherDraftSentence(hostCheck.competitionTitle),
+        tone: "info",
+      };
+    case "turned_down":
+      return {
+        label: SEND_FOR_CHECK_LABEL,
+        pressable: true,
+        note: turnedDownSentence(hostCheck.guidelineItem ?? "", hostCheck.note ?? ""),
+        tone: "warning",
+      };
+  }
+};
 
 // Two codes have a TOAST that differs from their REASON, because in both the reason describes a
 // state and the toast describes what the server just told this particular attempt:
@@ -123,6 +185,7 @@ const VALIDATION_FAILED_TOAST_PREFIX = "Data kompetisi belum lengkap";
 export const resolvePublishRefusalToastText = (
   code: string | null | undefined,
   failures?: ReadonlyArray<{ field: string }>,
+  pendingCompetitionTitle?: string,
 ): string => {
   if (code === "competition_publish_validation_failed") {
     const labels = [
@@ -138,6 +201,12 @@ export const resolvePublishRefusalToastText = (
   if (code === "competition_not_found") return "Kompetisi tidak ditemukan.";
   if (code === "competition_invalid_transition") {
     return "Status kompetisi sudah berubah. Muat ulang halaman lalu coba lagi.";
+  }
+  if (code === "host_check_pending_other_draft") {
+    return pendingOtherDraftSentence(pendingCompetitionTitle);
+  }
+  if (code === "host_check_contact_missing") {
+    return "Lengkapi nama dan nomor ponsel di profil Anda sebelum mengirim kompetisi.";
   }
 
   if (typeof code === "string" && Object.prototype.hasOwnProperty.call(REASONS, code)) {

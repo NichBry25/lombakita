@@ -585,7 +585,7 @@ const REMOVAL_URL = "/api/platform-ops/accounts/user_target/host-trust-removal";
 
 const openRemovalDialog = (): HTMLElement => {
   fireEvent.click(screen.getByRole("button", { name: "Cabut status tepercaya" }));
-  return screen.getByRole("dialog");
+  return screen.getByRole("alertdialog");
 };
 
 const typeRemovalReason = (dialog: HTMLElement, reason: string) => {

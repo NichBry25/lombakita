@@ -487,6 +487,7 @@ function HostTrustRemovalAction({ account, onDone }: { account: UserResult; onDo
         openModal({
           title: `Cabut status tepercaya @${account.username}?`,
           wide: true,
+          alert: true,
           formId: HOST_TRUST_REMOVAL_FORM_ID,
           body: <HostTrustRemovalForm onSubmit={removeTrust} />,
           actions: [{ label: "Batal" }, { label: "Cabut", variant: "primary" }],

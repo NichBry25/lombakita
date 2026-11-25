@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { SecondRoleBanner } from "@/components/auth/second-role-banner";
+import { HostStatusCard } from "@/components/host/host-status-card";
 import { Icon, PageHeader } from "@/components/ui";
 import { requireRolePage } from "@/server/auth/page-guard";
 import { getUnverifiedRoles } from "@/server/auth/role-verification";
@@ -8,15 +9,12 @@ import {
   getRecruiterTierForAccount,
   meetsRecruiterTier,
 } from "@/server/auth/recruiter-tier";
-import { getLatestRecruiterVerificationForUser } from "@/server/recruiter-verification/recruiter-verification-service";
+import { readHostStatusForAccount } from "@/server/host-trust/host-check-service";
 import {
   findOwnedPersonalInstitution,
   listUserInstitutionMemberships,
 } from "@/server/institution-workspace/institution-service";
-import { RecruiterVerificationPanel } from "@/app/recruiter-dashboard/recruiter-verification-panel";
 
-// Minimal-proof recruiter dashboard. Hosts the second-role banner and the recruiter trust
-// verification panel (submit / pending / rejected / Trusted).
 export default async function RecruiterDashboardPage() {
   const session = await requireRolePage("recruiter", {
     callbackPath: "/recruiter-dashboard",
@@ -29,13 +27,12 @@ export default async function RecruiterDashboardPage() {
   const unverified = await getUnverifiedRoles(session.user.id);
   const showCandidateBanner = unverified.includes("candidate");
 
-  const [tierState, latestVerification, institutions, personalInstitution] = await Promise.all([
+  const [tierState, hostStatus, institutions, personalInstitution] = await Promise.all([
     getRecruiterTierForAccount(session.user.id),
-    getLatestRecruiterVerificationForUser(session.user.id),
+    readHostStatusForAccount(session.user.id),
     listUserInstitutionMemberships(session.user.id),
     findOwnedPersonalInstitution(session.user.id),
   ]);
-  const isTrusted = tierState?.recruiterVerificationTier === "elevated";
   const canCreateFullInstitution = tierState
     ? meetsRecruiterTier(tierState.recruiterVerificationTier, FULL_INSTITUTION_CREATION_MIN_TIER)
     : false;
@@ -138,35 +135,7 @@ export default async function RecruiterDashboardPage() {
         )}
       </section>
 
-      <RecruiterVerificationPanel
-        userId={session.user.id}
-        isTrusted={isTrusted}
-        submission={
-          latestVerification
-            ? {
-                id: latestVerification.submission.id,
-                status: latestVerification.submission.status,
-                rejectionReason: latestVerification.submission.rejectionReason,
-                resubmissionAllowed: latestVerification.submission.resubmissionAllowed,
-                resubmissionCount: latestVerification.submission.resubmissionCount,
-                fullName: latestVerification.submission.fullName,
-                mobileNumber: latestVerification.submission.mobileNumber,
-                corporateEmail: latestVerification.submission.corporateEmail,
-                vouchedAt: latestVerification.submission.vouchedAt
-                  ? latestVerification.submission.vouchedAt.toISOString()
-                  : null,
-              }
-            : null
-        }
-        documents={
-          latestVerification?.documents.map((d) => ({
-            id: d.id,
-            originalFileName: d.originalFileName,
-            fileSizeBytes: d.fileSizeBytes,
-            createdAt: d.createdAt.toISOString(),
-          })) ?? []
-        }
-      />
+      <HostStatusCard expectedUserId={session.user.id} status={hostStatus} />
     </main>
   );
 }

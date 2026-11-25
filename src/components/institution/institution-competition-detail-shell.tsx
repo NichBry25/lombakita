@@ -27,7 +27,9 @@ import { errorMessageFor } from "@/lib/errors/error-copy";
 import { resolveSessionMismatchMessage, sessionFetch } from "@/lib/session/session-fetch";
 import { capitalizeFirst } from "@/lib/text/capitalize";
 import {
+  describePublishControl,
   getPublishBlockerReason,
+  HOST_CHECK_SENT_TOAST_TEXT,
   resolvePublishReasonHref,
   resolvePublishRefusalToastText,
 } from "@/components/institution/competition-publish-messages";
@@ -135,17 +137,22 @@ const REFUSAL_FALLBACK: Record<RefusalAction, string> = {
 
 const extractError = async (
   response: Response,
-): Promise<{ code?: string; failures?: PublishValidationFailure[] }> => {
+): Promise<{
+  code?: string;
+  failures?: PublishValidationFailure[];
+  pendingCompetitionTitle?: string;
+}> => {
   try {
     const payload = (await response.json()) as {
       error?: {
         code?: string;
-        details?: { failures?: PublishValidationFailure[] };
+        details?: { failures?: PublishValidationFailure[]; pendingCompetitionTitle?: string };
       };
     };
     return {
       code: payload.error?.code,
       failures: payload.error?.details?.failures,
+      pendingCompetitionTitle: payload.error?.details?.pendingCompetitionTitle,
     };
   } catch {
     return {};
@@ -251,7 +258,7 @@ export const InstitutionCompetitionDetailShell = ({
     const url = `/api/v1/institutions/${encodeURIComponent(institutionSlug)}/competitions/${encodeURIComponent(competitionId)}/${action}`;
     const response = await sessionFetch(expectedUserId, url, { method: "POST" });
     if (!response.ok) {
-      const { code, failures } = await extractError(response);
+      const { code, failures, pendingCompetitionTitle } = await extractError(response);
       // A publish refusal is translated from its code, never relayed. The server's message is
       // English and written for a log; the person who pressed the button gets Indonesian.
       if (action === "publish") {
@@ -259,7 +266,7 @@ export const InstitutionCompetitionDetailShell = ({
           ok: false,
           message: resolveSessionMismatchMessage(
             code,
-            resolvePublishRefusalToastText(code, failures),
+            resolvePublishRefusalToastText(code, failures, pendingCompetitionTitle),
           ),
         };
       }
@@ -267,7 +274,12 @@ export const InstitutionCompetitionDetailShell = ({
       const failureText = formatFailures(failures);
       return { ok: false, message: failureText ? `${message} (${failureText})` : message };
     }
-    addToast({ type: "success", message: actionLabel[action] });
+    // A 202 is the host check the press opened instead of publishing.
+    const successMessage =
+      action === "publish" && response.status === 202
+        ? HOST_CHECK_SENT_TOAST_TEXT
+        : actionLabel[action];
+    addToast({ type: "success", message: successMessage });
     void load();
     return { ok: true };
   };
@@ -420,6 +432,11 @@ export const InstitutionCompetitionDetailShell = ({
   const publishBlockers = publishIsBlockedByServer
     ? publishReadiness.blockers.map(getPublishBlockerReason)
     : [];
+  // The host check of this draft names the button and the sentence under it. A readiness the shell
+  // could not refresh names none, so the control falls back to Terbitkan.
+  const publishControl = describePublishControl(
+    readinessIsKnown ? publishReadiness.hostCheck : undefined,
+  );
   // When no date was entered the public page falls back to one derived from the event end; show
   // the organizer the same value, marked as the estimate it is.
   const resolvedAnnouncement = resolveResultAnnouncement(competition);
@@ -654,15 +671,23 @@ export const InstitutionCompetitionDetailShell = ({
                 <Button
                   onClick={() => onAction("publish")}
                   loading={pendingAction === "publish"}
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || !publishControl.pressable}
+                  aria-describedby={
+                    publishControl.note === null ? undefined : "publish-host-check-note"
+                  }
                 >
-                  Terbitkan
+                  {publishControl.label}
                 </Button>
               )}
               <Button variant="outline" onClick={confirmDelete} disabled={isSubmitting}>
                 Hapus
               </Button>
             </div>
+            {!publishIsBlockedByServer && publishControl.note !== null ? (
+              <p className="form-field-aside" id="publish-host-check-note">
+                {publishControl.note}
+              </p>
+            ) : null}
             {/* A disabled control has to say why, and it has to say it in the page rather than only
                 through aria-describedby: the reasons can carry links, and nothing inside a described
                 element is reachable by keyboard. */}

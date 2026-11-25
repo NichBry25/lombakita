@@ -1,6 +1,19 @@
 import { randomUUID } from "node:crypto";
 import { and, desc, eq, gt, isNull, lt, ne, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
+import {
+  CODE_CHECK_UNAVAILABLE_MESSAGE,
+  CODE_EXPIRED_MESSAGE,
+  CODE_LOCKED_MESSAGE,
+  codeInvalidMessage,
+  DAILY_LIMIT_MESSAGE,
+  DOMAIN_TRY_LIMIT_MESSAGE,
+  EMAIL_TAKEN_MESSAGE,
+  FREE_DOMAIN_MESSAGE,
+  INVALID_EMAIL_MESSAGE,
+  NO_CODE_MESSAGE,
+  resendTooSoonMessage,
+} from "@/lib/host-trust/organization-email-messages";
 import { EMAIL_SHAPE, normalizeEmail } from "@/server/auth/credentials-auth";
 import { sendOrganizationEmailCode } from "@/server/auth/email-verification";
 import { ORGANIZATION_EMAIL_DOMAIN_TRY_LIMIT } from "@/server/auth/rate-limit-constants";
@@ -32,17 +45,6 @@ const ORGANIZATION_EMAIL_CODE_ATTEMPT_LIMIT = 5;
 const ORGANIZATION_EMAIL_RESEND_SECONDS = 60;
 const ORGANIZATION_EMAIL_DAILY_SENDS_PER_ADDRESS = 5;
 const ORGANIZATION_EMAIL_DAILY_SENDS_PER_ACCOUNT = 10;
-
-const INVALID_EMAIL_MESSAGE = "Alamat email belum benar. Periksa lagi penulisannya.";
-const DAILY_LIMIT_MESSAGE = "Batas pengiriman kode hari ini sudah tercapai. Coba lagi besok.";
-const NO_CODE_MESSAGE = "Belum ada kode yang aktif. Minta kode terlebih dahulu.";
-const CODE_LOCKED_MESSAGE = "Kode salah 5 kali. Minta kode baru.";
-const DOMAIN_TRY_LIMIT_MESSAGE =
-  "Terlalu banyak percobaan kode untuk domain email ini hari ini. Coba lagi besok.";
-const CODE_CHECK_UNAVAILABLE_MESSAGE =
-  "Kode belum dapat diperiksa saat ini. Tunggu beberapa menit sebelum mencoba lagi, atau minta kode baru.";
-const EMAIL_TAKEN_MESSAGE =
-  "Email ini sudah dipakai akun lain. Satu email organisasi hanya untuk satu akun.";
 
 export type OrganizationEmailErrorCode =
   | "organization_email_invalid"
@@ -87,11 +89,7 @@ const readOrganizationEmailDomainOrRefuse = (email: string): string => {
   }
 
   if (isFreeOrThrowawayEmailDomain(domain)) {
-    throw new OrganizationEmailError(
-      "organization_email_free_domain",
-      422,
-      "Pakai email dengan domain organisasi Anda, bukan email pribadi seperti Gmail atau email sementara.",
-    );
+    throw new OrganizationEmailError("organization_email_free_domain", 422, FREE_DOMAIN_MESSAGE);
   }
   return domain;
 };
@@ -122,7 +120,7 @@ const refuseWhenSendLimitReached = async (
     throw new OrganizationEmailError(
       "organization_email_resend_too_soon",
       429,
-      `Tunggu ${secondsToWait} detik sebelum meminta kode baru.`,
+      resendTooSoonMessage(secondsToWait),
       { retryAfterSeconds: secondsToWait },
     );
   }
@@ -234,11 +232,7 @@ const refuseUnclaimedAttempt = async (db: Database, challengeId: string): Promis
   if (challenge.failedAttempts >= ORGANIZATION_EMAIL_CODE_ATTEMPT_LIMIT) {
     throw new OrganizationEmailError("organization_email_code_locked", 422, CODE_LOCKED_MESSAGE);
   }
-  throw new OrganizationEmailError(
-    "organization_email_code_expired",
-    422,
-    "Kode sudah kedaluwarsa. Minta kode baru.",
-  );
+  throw new OrganizationEmailError("organization_email_code_expired", 422, CODE_EXPIRED_MESSAGE);
 };
 
 const refuseWhenOrganizationEmailTaken = async (
@@ -306,7 +300,7 @@ export const confirmOrganizationEmailCode = async (
     throw new OrganizationEmailError(
       "organization_email_code_invalid",
       422,
-      `Kode tidak cocok. Sisa percobaan: ${attemptsLeft}.`,
+      codeInvalidMessage(attemptsLeft),
       { attemptsLeft },
     );
   }

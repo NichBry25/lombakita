@@ -292,11 +292,17 @@ function HostCheckCard({
   );
 }
 
+// The pop-up covers the card, so it names the draft it turns down.
+const turnDownConsequenceOf = (item: HostCheckQueueItem): string =>
+  `Draf ${item.draft.title} dari ${item.host.fullName} tidak tayang. Penyelenggara membaca pedoman dan catatan ini.`;
+
 // The pop-up footer submits this form. A missing item or note shows its field error and sends
 // nothing.
 function TurnDownForm({
+  consequence,
   onSubmit,
 }: {
+  consequence: string;
   onSubmit: (guidelineItem: string, note: string) => Promise<ModalOutcome>;
 }) {
   const runModalTask = useModalTask();
@@ -316,6 +322,7 @@ function TurnDownForm({
 
   return (
     <form id={TURN_DOWN_FORM_ID} noValidate onSubmit={submit} className="stack-md">
+      <p>{consequence}</p>
       <FormField>
         <FormLabel htmlFor="host-check-guideline" required>
           Pedoman yang tidak dipenuhi
@@ -327,6 +334,8 @@ function TurnDownForm({
           options={GUIDELINE_OPTIONS}
           value={guidelineItem}
           onChange={setGuidelineItem}
+          aria-invalid={showsGuidelineError}
+          aria-describedby={showsGuidelineError ? "host-check-guideline-error" : undefined}
         />
         {showsGuidelineError ? (
           <FormError id="host-check-guideline-error">{GUIDELINE_MISSING_MESSAGE}</FormError>
@@ -417,6 +426,7 @@ export function HostCheckQueue() {
     openModal({
       title: "Setujui dan tayangkan?",
       body: `Akun ini menjadi tepercaya dan draf ${item.draft.title} langsung tayang.`,
+      alert: true,
       actions: [
         { label: "Batal" },
         {
@@ -435,6 +445,7 @@ export function HostCheckQueue() {
       formId: TURN_DOWN_FORM_ID,
       body: (
         <TurnDownForm
+          consequence={turnDownConsequenceOf(item)}
           onSubmit={(guidelineItem, note) =>
             requestDecision(item.id, { decision: "turn_down", guidelineItem, note })
           }
@@ -446,7 +457,12 @@ export function HostCheckQueue() {
 
   if (queue.status === "loading") {
     return (
-      <div className="content-section stack-sm" aria-label="Memuat pemeriksaan penyelenggara">
+      <div
+        className="content-section stack-sm"
+        role="status"
+        aria-busy="true"
+        aria-label="Memuat pemeriksaan penyelenggara"
+      >
         <Skeleton variant="media" />
         <Skeleton variant="media" />
         <Skeleton variant="media" />

@@ -4,6 +4,19 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button, Feedback, FormInput, FormLabel } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import { errorMessageFor, NETWORK_ERROR_MESSAGE } from "@/lib/errors/error-copy";
+import {
+  CODE_CHECK_UNAVAILABLE_MESSAGE,
+  CODE_EXPIRED_MESSAGE,
+  CODE_LOCKED_MESSAGE,
+  codeInvalidMessage,
+  DAILY_LIMIT_MESSAGE,
+  DOMAIN_TRY_LIMIT_MESSAGE,
+  EMAIL_TAKEN_MESSAGE,
+  FREE_DOMAIN_MESSAGE,
+  INVALID_EMAIL_MESSAGE,
+  NO_CODE_MESSAGE,
+  resendTooSoonMessage,
+} from "@/lib/host-trust/organization-email-messages";
 import { sessionFetch } from "@/lib/session/session-fetch";
 
 const CODE_URL = "/api/v1/me/organization-email/code";
@@ -16,23 +29,21 @@ const SEND_FALLBACK = "Kode belum dapat dikirim. Coba lagi beberapa saat.";
 const CONFIRM_FALLBACK = "Kode belum dapat dicocokkan. Coba lagi beberapa saat.";
 
 const ORGANIZATION_EMAIL_ERROR_COPY: Partial<Record<string, string>> = {
-  organization_email_invalid: "Alamat email belum benar. Periksa lagi penulisannya.",
-  organization_email_free_domain:
-    "Pakai email dengan domain organisasi Anda, bukan email pribadi seperti Gmail atau email sementara.",
-  organization_email_daily_limit: "Batas pengiriman kode hari ini sudah tercapai. Coba lagi besok.",
-  organization_email_code_expired: "Kode sudah kedaluwarsa. Minta kode baru.",
-  organization_email_code_locked: "Kode salah 5 kali. Minta kode baru.",
-  organization_email_no_code: "Belum ada kode yang aktif. Minta kode terlebih dahulu.",
-  organization_email_taken:
-    "Email ini sudah dipakai akun lain. Satu email organisasi hanya untuk satu akun.",
+  organization_email_invalid: INVALID_EMAIL_MESSAGE,
+  organization_email_free_domain: FREE_DOMAIN_MESSAGE,
+  organization_email_daily_limit: DAILY_LIMIT_MESSAGE,
+  organization_email_code_expired: CODE_EXPIRED_MESSAGE,
+  organization_email_code_locked: CODE_LOCKED_MESSAGE,
+  organization_email_no_code: NO_CODE_MESSAGE,
+  organization_email_taken: EMAIL_TAKEN_MESSAGE,
 };
 
 // organization_email_code_locked has three causes and the server's sentence names the one that
 // applies. Only a sentence held here is shown, so no other server text reaches the page.
 const CODE_LOCKED_SENTENCES = new Set([
-  "Kode salah 5 kali. Minta kode baru.",
-  "Terlalu banyak percobaan kode untuk domain email ini hari ini. Coba lagi besok.",
-  "Kode belum dapat diperiksa saat ini. Tunggu beberapa menit sebelum mencoba lagi, atau minta kode baru.",
+  CODE_LOCKED_MESSAGE,
+  DOMAIN_TRY_LIMIT_MESSAGE,
+  CODE_CHECK_UNAVAILABLE_MESSAGE,
 ]);
 
 type Refusal = {
@@ -44,11 +55,11 @@ type Refusal = {
 const refusalSentence = (refusal: Refusal | undefined, fallback: string): string => {
   const retryAfterSeconds = refusal?.details?.retryAfterSeconds;
   if (refusal?.code === "organization_email_resend_too_soon" && retryAfterSeconds !== undefined) {
-    return `Tunggu ${retryAfterSeconds} detik sebelum meminta kode baru.`;
+    return resendTooSoonMessage(retryAfterSeconds);
   }
   const attemptsLeft = refusal?.details?.attemptsLeft;
   if (refusal?.code === "organization_email_code_invalid" && attemptsLeft !== undefined) {
-    return `Kode tidak cocok. Sisa percobaan: ${attemptsLeft}.`;
+    return codeInvalidMessage(attemptsLeft);
   }
   const message = refusal?.message;
   const isLocked = refusal?.code === "organization_email_code_locked";
@@ -62,6 +73,9 @@ const readRefusal = async (response: Response): Promise<Refusal | undefined> => 
   const payload = (await response.json().catch(() => null)) as { error?: Refusal } | null;
   return payload?.error;
 };
+
+// The code route normalizes an address the same way before it keys the resend wait on it.
+const normalizedAddress = (typed: string): string => typed.trim().toLowerCase();
 
 // The send button names the next send: the first one, the wait before a resend, or the resend.
 function SendCodeLabel({
@@ -86,9 +100,14 @@ function SendCodeLabel({
 
 type OrganizationEmailFieldProps = {
   expectedUserId: string;
+  // Called after a confirm, with whether that confirm made the account trusted.
+  onConfirmed?: (hostTrusted: boolean) => void;
 };
 
-export function OrganizationEmailField({ expectedUserId }: OrganizationEmailFieldProps) {
+export function OrganizationEmailField({
+  expectedUserId,
+  onConfirmed,
+}: OrganizationEmailFieldProps) {
   const { addToast } = useToast();
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
@@ -99,8 +118,12 @@ export function OrganizationEmailField({ expectedUserId }: OrganizationEmailFiel
   const [now, setNow] = useState(() => Date.now());
   const codeInputRef = useRef<HTMLInputElement>(null);
 
+  // The resend wait holds only the address the last code went to, so a corrected address goes out
+  // at once.
+  const typedAddressWasSent = sentTo !== null && normalizedAddress(email) === sentTo;
+
   const secondsUntilResend =
-    lastSentAt === null
+    lastSentAt === null || !typedAddressWasSent
       ? 0
       : Math.max(0, Math.ceil((lastSentAt + RESEND_COOLDOWN_SECONDS * 1000 - now) / 1000));
 
@@ -117,6 +140,19 @@ export function OrganizationEmailField({ expectedUserId }: OrganizationEmailFiel
     }
   }, [sentTo]);
 
+  // A resend refused as too soon means a code to this address is still live, so the code box opens
+  // with the wait the server named.
+  const openCodeBoxForLiveCode = (refusal: Refusal | undefined): void => {
+    const retryAfterSeconds = refusal?.details?.retryAfterSeconds;
+    if (refusal?.code !== "organization_email_resend_too_soon" || retryAfterSeconds === undefined) {
+      return;
+    }
+    const refusedAt = Date.now();
+    setNow(refusedAt);
+    setLastSentAt(refusedAt - (RESEND_COOLDOWN_SECONDS - retryAfterSeconds) * 1000);
+    setSentTo(normalizedAddress(email));
+  };
+
   const sendCode = async (): Promise<void> => {
     setPendingAction("send");
     try {
@@ -128,6 +164,7 @@ export function OrganizationEmailField({ expectedUserId }: OrganizationEmailFiel
       if (!response.ok) {
         const refusal = await readRefusal(response);
         addToast({ type: "error", message: refusalSentence(refusal, SEND_FALLBACK) });
+        openCodeBoxForLiveCode(refusal);
         return;
       }
       const payload = (await response.json()) as { organizationEmailCode: { email: string } };
@@ -156,8 +193,11 @@ export function OrganizationEmailField({ expectedUserId }: OrganizationEmailFiel
         addToast({ type: "error", message: refusalSentence(refusal, CONFIRM_FALLBACK) });
         return;
       }
-      const payload = (await response.json()) as { organizationEmail: { email: string } };
+      const payload = (await response.json()) as {
+        organizationEmail: { email: string; trustSource: string | null };
+      };
       setConfirmedEmail(payload.organizationEmail.email);
+      onConfirmed?.(payload.organizationEmail.trustSource !== null);
     } catch {
       addToast({ type: "error", message: NETWORK_ERROR_MESSAGE });
     } finally {
@@ -210,7 +250,7 @@ export function OrganizationEmailField({ expectedUserId }: OrganizationEmailFiel
           loading={pendingAction === "send"}
           disabled={secondsUntilResend > 0 || pendingAction === "confirm"}
         >
-          <SendCodeLabel hasSent={lastSentAt !== null} secondsUntilResend={secondsUntilResend} />
+          <SendCodeLabel hasSent={typedAddressWasSent} secondsUntilResend={secondsUntilResend} />
         </Button>
       </form>
 

@@ -230,7 +230,9 @@ const toHostCheckQueueEntry = (
     mobileNumber: row.mobileNumber,
     email: row.email,
     trustRemovedAt: row.trustRemovedAt,
-    trustRemovalReason,
+    // A raise or an approval clears the removal and keeps its audit row, so a reason is given only
+    // while the removal stands.
+    trustRemovalReason: row.trustRemovedAt === null ? null : trustRemovalReason,
   },
   draft: {
     competitionId: row.competitionId,

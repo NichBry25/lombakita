@@ -271,3 +271,129 @@ describe("InstitutionCompetitionDetailShell share panel", () => {
     expect(screen.queryByText("Kompetisi sudah terbit")).toBeNull();
   });
 });
+
+describe("InstitutionCompetitionDetailShell host check", () => {
+  const WAIT_SENTENCE = "Perkiraan 1x24 jam pada hari kerja.";
+  const NEEDED_SENTENCE = `Kompetisi pertama Anda diperiksa staf sebelum tayang. ${WAIT_SENTENCE}`;
+  const PENDING_SENTENCE = `Staf Lombakita sedang memeriksa kompetisi ini. ${WAIT_SENTENCE}`;
+  const SENT_TOAST = `Kompetisi dikirim untuk diperiksa. ${WAIT_SENTENCE}`;
+  const OTHER_DRAFT_SENTENCE =
+    'Kompetisi "Lomba Poster Digital" masih diperiksa staf. Tunggu hasilnya sebelum mengirim kompetisi lain.';
+  const TURNED_DOWN_SENTENCE =
+    "Belum dapat tayang. Pedoman: Penyelenggara mencantumkan kontak yang benar-benar bisa dihubungi peserta. Catatan staf: Nomor kontak tidak aktif. Perbaiki draf lalu tekan Kirim untuk diperiksa lagi.";
+  const GET_COMPETITION = "GET /api/v1/competitions/comp_1";
+  const PUBLISH_POST = "POST /api/v1/institutions/institusi-contoh/competitions/comp_1/publish";
+
+  const readinessWith = (hostCheck: unknown) => ({ canPublish: true, blockers: [], hostCheck });
+
+  const acceptedAsHostCheck = {
+    ok: true,
+    status: 202,
+    json: async () => ({
+      hostCheck: {
+        id: "check_1",
+        status: "pending_review",
+        submittedAt: "2026-11-25T08:00:00.000Z",
+      },
+    }),
+  } as unknown as Response;
+
+  const sendButton = () => screen.getByRole("button", { name: "Kirim untuk diperiksa" });
+
+  it("sends a draft that needs a host check and says it went for checking", async () => {
+    const calls = stubFetchSequence([
+      () => loadOk(readinessWith({ state: "needed" })),
+      () => acceptedAsHostCheck,
+      () => loadOk(readinessWith({ state: "pending" })),
+    ]);
+
+    mount();
+
+    expect(await screen.findByRole("button", { name: "Kirim untuk diperiksa" })).toBeTruthy();
+    expect(screen.getByText(NEEDED_SENTENCE)).toBeTruthy();
+
+    fireEvent.click(sendButton());
+
+    expect(await screen.findByText(SENT_TOAST)).toBeTruthy();
+    expect(screen.queryByText("Kompetisi diterbitkan.")).toBeNull();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Sedang diperiksa" }).hasAttribute("disabled"),
+      ).toBe(true),
+    );
+    expect(calls).toEqual([GET_COMPETITION, PUBLISH_POST, GET_COMPETITION]);
+  });
+
+  it("shows a waiting draft as Sedang diperiksa and sends nothing when it is pressed", async () => {
+    const calls = stubFetchSequence([() => loadOk(readinessWith({ state: "pending" }))]);
+
+    mount();
+
+    const waitingButton = await screen.findByRole("button", { name: "Sedang diperiksa" });
+    expect(waitingButton.hasAttribute("disabled")).toBe(true);
+    expect(waitingButton.getAttribute("aria-describedby")).toBe("publish-host-check-note");
+    expect(screen.getByText(PENDING_SENTENCE)).toBeTruthy();
+
+    fireEvent.click(waitingButton);
+
+    expect(calls).toEqual([GET_COMPETITION]);
+  });
+
+  it("names the draft that holds the host check and keeps the button shut", async () => {
+    stubFetchSequence([
+      () =>
+        loadOk(
+          readinessWith({ state: "pending_other_draft", competitionTitle: "Lomba Poster Digital" }),
+        ),
+    ]);
+
+    mount();
+
+    expect(
+      (await screen.findByRole("button", { name: "Kirim untuk diperiksa" })).hasAttribute(
+        "disabled",
+      ),
+    ).toBe(true);
+    expect(screen.getByText(OTHER_DRAFT_SENTENCE)).toBeTruthy();
+  });
+
+  it("shows the guideline and the staff note of a turned-down draft and lets it be sent again", async () => {
+    stubFetchSequence([
+      () =>
+        loadOk(
+          readinessWith({
+            state: "turned_down",
+            guidelineItem: "kontak-nyata",
+            note: "Nomor kontak tidak aktif",
+          }),
+        ),
+    ]);
+
+    mount();
+
+    expect(await screen.findByText(TURNED_DOWN_SENTENCE)).toBeTruthy();
+    expect(sendButton().hasAttribute("disabled")).toBe(false);
+  });
+
+  it("names the waiting draft when the press is refused for another draft's host check", async () => {
+    stubFetchSequence([
+      () => loadOk(readinessWith({ state: "needed" })),
+      () =>
+        ({
+          ok: false,
+          status: 409,
+          json: async () => ({
+            error: {
+              code: "host_check_pending_other_draft",
+              details: { pendingCompetitionTitle: "Lomba Poster Digital" },
+            },
+          }),
+        }) as unknown as Response,
+    ]);
+
+    mount();
+    fireEvent.click(await screen.findByRole("button", { name: "Kirim untuk diperiksa" }));
+
+    expect(await screen.findByText(OTHER_DRAFT_SENTENCE)).toBeTruthy();
+  });
+});

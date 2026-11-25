@@ -68,6 +68,8 @@ export function VerifyRoleForm({
   const [busy, setBusy] = useState(false);
   const [trustedContinueHref, setTrustedContinueHref] = useState<string | null>(null);
   const trustedNoticeRef = useRef<HTMLDivElement>(null);
+  // Once the Email organisasi is confirmed, the staff check sentence no longer holds for this host.
+  const [organizationEmailConfirmed, setOrganizationEmailConfirmed] = useState(false);
 
   const [fullName, setFullName] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
@@ -174,12 +176,17 @@ export function VerifyRoleForm({
           </>
         ) : null}
 
-        <OrganizationEmailField expectedUserId={expectedUserId} />
+        <OrganizationEmailField
+          expectedUserId={expectedUserId}
+          onConfirmed={() => setOrganizationEmailConfirmed(true)}
+        />
 
-        <p className="form-help">
-          Tanpa email organisasi, kompetisi pertama Anda diperiksa staf sebelum tayang. Perkiraan
-          1x24 jam pada hari kerja.
-        </p>
+        {organizationEmailConfirmed ? null : (
+          <p className="form-help">
+            Tanpa email organisasi yang terkonfirmasi, kompetisi pertama Anda diperiksa staf dulu
+            sebelum tayang. Perkiraan 1x24 jam pada hari kerja.
+          </p>
+        )}
 
         <Button
           type="button"

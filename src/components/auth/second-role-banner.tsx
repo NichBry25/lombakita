@@ -16,7 +16,7 @@ const COPY: Record<VerifiableRole, { headline: string; cta: string }> = {
   },
   recruiter: {
     headline: "Ingin menyelenggarakan kompetisi?",
-    cta: "Daftar sebagai penyelenggara",
+    cta: "Mulai menyelenggarakan",
   },
 };
 

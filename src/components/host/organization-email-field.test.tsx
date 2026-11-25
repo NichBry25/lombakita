@@ -4,6 +4,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { UIPrimitivesProvider } from "@/components/ui/primitives";
 import { NETWORK_ERROR_MESSAGE } from "@/lib/errors/error-copy";
+import {
+  CODE_CHECK_UNAVAILABLE_MESSAGE,
+  CODE_EXPIRED_MESSAGE,
+  CODE_LOCKED_MESSAGE,
+  codeInvalidMessage,
+  DAILY_LIMIT_MESSAGE,
+  DOMAIN_TRY_LIMIT_MESSAGE,
+  EMAIL_TAKEN_MESSAGE,
+  FREE_DOMAIN_MESSAGE,
+  INVALID_EMAIL_MESSAGE,
+  NO_CODE_MESSAGE,
+  resendTooSoonMessage,
+} from "@/lib/host-trust/organization-email-messages";
 import { SESSION_MISMATCH_MESSAGE } from "@/lib/session/session-fetch";
 import { OrganizationEmailField } from "./organization-email-field";
 
@@ -15,7 +28,9 @@ const ADDRESS = "sekretaris@kampus.example";
 const CODE_BOX_LABEL = /^Kode 6 angka(?: \* \(wajib\)| \(opsional\))?$/;
 
 const fetchMock = vi.fn();
-let answerFor: Record<string, () => Response> = {};
+let answerFor: Record<string, () => Response | Promise<Response>> = {};
+
+const neverAnswers = () => new Promise<Response>(() => {});
 
 const jsonResponse = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -34,12 +49,15 @@ const requestTo = (url: string): RequestInit | undefined => {
   return call?.[1] as RequestInit | undefined;
 };
 
-const renderField = () =>
+const renderField = (onConfirmed?: (hostTrusted: boolean) => void) =>
   render(
     <UIPrimitivesProvider>
-      <OrganizationEmailField expectedUserId="user-42" />
+      <OrganizationEmailField expectedUserId="user-42" onConfirmed={onConfirmed} />
     </UIPrimitivesProvider>,
   );
+
+const confirmAnswering = (trustSource: string | null) => () =>
+  jsonResponse(200, { organizationEmail: { email: ADDRESS, trustSource } });
 
 const sendCodeTo = (address: string) => {
   fireEvent.change(screen.getByLabelText(/^Email organisasi(?: \(opsional\))?$/), {
@@ -147,7 +165,7 @@ describe("the Email organisasi field", () => {
     expect(await screen.findByText("Kode tidak cocok. Sisa percobaan: 3.")).toBeTruthy();
   });
 
-  it("says how long to wait when a code was sent too recently", async () => {
+  it("opens the code box for the live code when a code was sent too recently", async () => {
     answerFor[CODE_URL] = refusal(429, "organization_email_resend_too_soon", "raw server text", {
       retryAfterSeconds: 42,
     });
@@ -156,7 +174,130 @@ describe("the Email organisasi field", () => {
     sendCodeTo(ADDRESS);
 
     expect(await screen.findByText("Tunggu 42 detik sebelum meminta kode baru.")).toBeTruthy();
-    expect(screen.queryByLabelText(CODE_BOX_LABEL)).toBeNull();
+    expect(await screen.findByLabelText(CODE_BOX_LABEL)).toBeTruthy();
+    expect(document.getElementById("organization-email-code-help")?.textContent).toBe(
+      "Kode dikirim ke sekretaris@kampus.example dan berlaku 10 menit.",
+    );
+    const sendButton = screen.getByRole("button", { name: /^Kirim/ }) as HTMLButtonElement;
+    expect(sendButton.disabled).toBe(true);
+    expect(sendButton.textContent).toBe("Kirim ulang dalam 42 detik");
+  });
+
+  it("holds the resend only for the address the code went to", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"], shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-11-25T10:00:00.000Z"));
+    answerFor[CODE_URL] = sentCode;
+    renderField();
+    const emailBox = () => screen.getByLabelText(/^Email organisasi(?: \(opsional\))?$/);
+    const sendButton = () => screen.getByRole("button", { name: /^Kirim/ }) as HTMLButtonElement;
+
+    sendCodeTo(ADDRESS);
+    await screen.findByLabelText(CODE_BOX_LABEL);
+    await act(async () => {});
+    fireEvent.change(emailBox(), { target: { value: "humas@kampus.example" } });
+
+    expect(sendButton().disabled).toBe(false);
+    expect(sendButton().textContent).toBe("Kirim kode");
+
+    fireEvent.change(emailBox(), { target: { value: "  Sekretaris@Kampus.EXAMPLE " } });
+
+    expect(sendButton().disabled).toBe(true);
+    expect(sendButton().textContent?.startsWith("Kirim ulang dalam")).toBe(true);
+  });
+
+  it("shows the send busy while the code is being sent", async () => {
+    answerFor[CODE_URL] = neverAnswers;
+    renderField();
+
+    sendCodeTo(ADDRESS);
+
+    const sendButton = await screen.findByRole("button", { name: /^Kirim/ });
+    await waitFor(() => expect(sendButton.getAttribute("aria-busy")).toBe("true"));
+  });
+
+  it("shows Cocokkan kode busy while the code is being checked", async () => {
+    answerFor[CODE_URL] = sentCode;
+    answerFor[CONFIRM_URL] = neverAnswers;
+    renderField();
+
+    sendCodeTo(ADDRESS);
+    await confirmCode("123456");
+
+    const confirmButton = screen.getByRole("button", { name: "Cocokkan kode" });
+    await waitFor(() => expect(confirmButton.getAttribute("aria-busy")).toBe("true"));
+  });
+
+  it("tells the page whether the confirmed Email organisasi trusts the account", async () => {
+    answerFor[CODE_URL] = sentCode;
+    answerFor[CONFIRM_URL] = confirmAnswering("sign_in_email");
+    const trustedCallback = vi.fn();
+    const trustedView = renderField(trustedCallback);
+    sendCodeTo(ADDRESS);
+    await confirmCode("123456");
+    await screen.findByText("Email organisasi sekretaris@kampus.example sudah terkonfirmasi.");
+
+    expect(trustedCallback).toHaveBeenCalledExactlyOnceWith(true);
+    trustedView.unmount();
+
+    answerFor[CONFIRM_URL] = confirmAnswering(null);
+    const untrustedCallback = vi.fn();
+    const untrustedView = renderField(untrustedCallback);
+    sendCodeTo(ADDRESS);
+    await confirmCode("123456");
+    await screen.findByText("Email organisasi sekretaris@kampus.example sudah terkonfirmasi.");
+
+    expect(untrustedCallback).toHaveBeenCalledExactlyOnceWith(false);
+    untrustedView.unmount();
+
+    answerFor[CONFIRM_URL] = refusal(422, "organization_email_code_expired", "raw server text");
+    const refusedCallback = vi.fn();
+    renderField(refusedCallback);
+    sendCodeTo(ADDRESS);
+    await confirmCode("123456");
+    await screen.findByText(CODE_EXPIRED_MESSAGE);
+
+    expect(refusedCallback).not.toHaveBeenCalled();
+  });
+
+  it("shows every refusal in the sentence the server sends for it", async () => {
+    type SendRow = [number, string, Record<string, number> | undefined, string];
+    const sendRows: SendRow[] = [
+      [400, "organization_email_invalid", undefined, INVALID_EMAIL_MESSAGE],
+      [422, "organization_email_free_domain", undefined, FREE_DOMAIN_MESSAGE],
+      [429, "organization_email_daily_limit", undefined, DAILY_LIMIT_MESSAGE],
+      [
+        429,
+        "organization_email_resend_too_soon",
+        { retryAfterSeconds: 42 },
+        resendTooSoonMessage(42),
+      ],
+    ];
+    for (const [status, code, details, expected] of sendRows) {
+      answerFor[CODE_URL] = refusal(status, code, expected, details);
+      const view = renderField();
+      sendCodeTo(ADDRESS);
+      expect(await screen.findByText(expected)).toBeTruthy();
+      view.unmount();
+    }
+
+    const confirmRows: SendRow[] = [
+      [422, "organization_email_code_invalid", { attemptsLeft: 3 }, codeInvalidMessage(3)],
+      [422, "organization_email_code_expired", undefined, CODE_EXPIRED_MESSAGE],
+      [404, "organization_email_no_code", undefined, NO_CODE_MESSAGE],
+      [409, "organization_email_taken", undefined, EMAIL_TAKEN_MESSAGE],
+      [422, "organization_email_code_locked", undefined, CODE_LOCKED_MESSAGE],
+      [422, "organization_email_code_locked", undefined, DOMAIN_TRY_LIMIT_MESSAGE],
+      [422, "organization_email_code_locked", undefined, CODE_CHECK_UNAVAILABLE_MESSAGE],
+    ];
+    for (const [status, code, details, expected] of confirmRows) {
+      answerFor[CODE_URL] = sentCode;
+      answerFor[CONFIRM_URL] = refusal(status, code, expected, details);
+      const view = renderField();
+      sendCodeTo(ADDRESS);
+      await confirmCode("123456");
+      expect(await screen.findByText(expected)).toBeTruthy();
+      view.unmount();
+    }
   });
 
   it("shows the domain-limit sentence the server sends for a locked code", async () => {

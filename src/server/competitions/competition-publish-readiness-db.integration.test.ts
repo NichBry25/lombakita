@@ -424,13 +424,11 @@ describe.skipIf(skipWithoutDatabase)(
       contactGateState.skipGate = false;
     });
 
-    // Readiness never reports the transition code (the endpoint's answer for a published
-    // competition, tested below) or the trust code (the press opens a host check instead).
-    it("covers every blocker code the module declares, except the transition and trust codes", () => {
+    // Readiness never reports the transition code, the endpoint's answer for a published competition, tested below.
+    it("covers every blocker code the module declares, except the transition code", () => {
       const exercised = GATE_CASES.map((gate) => gate.code).sort();
       const reportedByReadiness = COMPETITION_PUBLISH_BLOCKER_CODES.filter(
-        (code) =>
-          code !== "competition_invalid_transition" && code !== "competition_recruiter_not_trusted",
+        (code) => code !== "competition_invalid_transition",
       );
       expect(exercised).toEqual([...reportedByReadiness].sort());
     });

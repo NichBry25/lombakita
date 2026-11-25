@@ -13,6 +13,11 @@ vi.mock("next-auth/react", () => ({ useSession: () => ({ update: vi.fn() }) }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/auth/verify-role" }));
 
 const VERIFY_ROLE_URL = "/api/v1/auth/verify-role";
+const CODE_URL = "/api/v1/me/organization-email/code";
+const CONFIRM_URL = "/api/v1/me/organization-email/confirm";
+const ADDRESS = "sekretaris@kampus.example";
+const STAFF_CHECK_SENTENCE =
+  "Tanpa email organisasi yang terkonfirmasi, kompetisi pertama Anda diperiksa staf dulu sebelum tayang. Perkiraan 1x24 jam pada hari kerja.";
 const REGISTERED_CONTACT = { fullName: "Andi Saputra", phoneNumber: "081234567890" };
 
 const fetchMock = vi.fn();
@@ -263,10 +268,52 @@ describe("the host step form", () => {
     renderHostStepWith(REGISTERED_CONTACT);
 
     expect(screen.getByLabelText(/^Email organisasi(?: \(opsional\))?$/)).toBeTruthy();
+    expect(screen.getByText(STAFF_CHECK_SENTENCE)).toBeTruthy();
+  });
+
+  it("drops the staff check sentence once the Email organisasi is confirmed", async () => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      if (String(input) === CODE_URL) {
+        return jsonResponse(200, {
+          organizationEmailCode: { email: ADDRESS, expiresAt: "2026-11-25T10:10:00.000Z" },
+        });
+      }
+      if (String(input) === CONFIRM_URL) {
+        return jsonResponse(200, { organizationEmail: { email: ADDRESS, trustSource: null } });
+      }
+      throw new Error(`unexpected request: ${String(input)}`);
+    });
+    renderHostStepWith(REGISTERED_CONTACT);
+    expect(screen.getByText(STAFF_CHECK_SENTENCE)).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText(/^Email organisasi(?: \(opsional\))?$/), {
+      target: { value: ADDRESS },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Kirim/ }));
+    fireEvent.change(
+      await screen.findByLabelText(/^Kode 6 angka(?: \* \(wajib\)| \(opsional\))?$/),
+      {
+        target: { value: "123456" },
+      },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Cocokkan kode" }));
+
     expect(
-      screen.getByText(
-        "Tanpa email organisasi, kompetisi pertama Anda diperiksa staf sebelum tayang. Perkiraan 1x24 jam pada hari kerja.",
-      ),
+      await screen.findByText("Email organisasi sekretaris@kampus.example sudah terkonfirmasi."),
     ).toBeTruthy();
+    expect(screen.queryByText(STAFF_CHECK_SENTENCE)).toBeNull();
+  });
+
+  it("shows Mulai menyelenggarakan busy while the host step is sent", async () => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      if (String(input) === VERIFY_ROLE_URL) return new Promise<Response>(() => {});
+      throw new Error(`unexpected request: ${String(input)}`);
+    });
+    renderHostStepWith(REGISTERED_CONTACT);
+
+    fireEvent.click(screen.getByRole("button", { name: "Mulai menyelenggarakan" }));
+
+    const hostButton = screen.getByRole("button", { name: "Mulai menyelenggarakan" });
+    await waitFor(() => expect(hostButton.getAttribute("aria-busy")).toBe("true"));
   });
 });

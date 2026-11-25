@@ -136,6 +136,7 @@ import { setCompetitionEligibilityForEditor } from "@/server/competitions/compet
 import { setCompetitionOrganizerContactForEditor } from "@/server/competitions/competition-organizer-contact-service";
 import { resolveCompetitionPublishReadiness } from "@/server/competitions/competition-publish-readiness";
 import { listHostChecks } from "./host-check-decision-service";
+import { readHostStatusForAccount } from "./host-check-service";
 import { removeHostTrust } from "./host-trust-removal-service";
 import { POST as publishRoute } from "@/app/api/v1/institutions/[institutionSlug]/competitions/[competitionId]/publish/route";
 import { POST as decideRoute } from "@/app/api/platform-ops/host-checks/[checkId]/route";
@@ -284,6 +285,14 @@ const plantTrustRemoval = async (tx: Database, userId: string): Promise<void> =>
   await tx
     .update(schema.users)
     .set({ recruiterVerificationTier: "minimal", hostTrustRemovedAt: new Date() })
+    .where(eq(schema.users.id, userId));
+};
+
+// Planted directly: every writer that clears a removal also trusts the host, so none leaves an open check behind.
+const plantTrustRemovalCleared = async (tx: Database, userId: string): Promise<void> => {
+  await tx
+    .update(schema.users)
+    .set({ hostTrustRemovedAt: null })
     .where(eq(schema.users.id, userId));
 };
 
@@ -1437,6 +1446,90 @@ describe.skipIf(skipWithoutDatabase)("the staff decision on a host check (rolled
       expect(await tierOf(tx, candidate)).toBe("unverified");
       expect(await competitionStatusOf(tx, draft)).toBe("draft");
       expect(await auditRowsOf(tx, candidate)).toEqual([]);
+    });
+  });
+
+  it("reads the host status of the asking account only", async () => {
+    await inRollback(async (tx) => {
+      const owner = await signUpHost(tx, OWNER_ADDRESS);
+      const host = await signUpHost(tx, UNTRUSTED_HOST_ADDRESS);
+      const other = await signUpHost(tx, SECOND_UNTRUSTED_HOST_ADDRESS);
+      await openCheckBy(tx, other, SECOND_TITLE);
+
+      const ownerStatus = await readHostStatusForAccount(owner, tx);
+      const hostStatus = await readHostStatusForAccount(host, tx);
+
+      expect(ownerStatus).toEqual({ state: "trusted" });
+      expect(hostStatus).toEqual({ state: "not_trusted" });
+    });
+  });
+
+  it("reads a waiting host as pending with the title of the draft it sent", async () => {
+    await inRollback(async (tx) => {
+      const host = await signUpHost(tx, UNTRUSTED_HOST_ADDRESS);
+      await openCheckBy(tx, host, FIRST_TITLE);
+
+      const status = await readHostStatusForAccount(host, tx);
+
+      expect(status).toEqual({ state: "pending", competitionTitle: FIRST_TITLE });
+    });
+  });
+
+  it("names no draft in the host status once the host left the workspace of the waiting draft", async () => {
+    await inRollback(async (tx) => {
+      const owner = await signUpHost(tx, SECOND_UNTRUSTED_HOST_ADDRESS);
+      const ownerWorkspace = await ownWorkspace(tx, owner);
+      const draft = await createPublishableDraft(tx, owner, ownerWorkspace.slug, FIRST_TITLE);
+      const host = await signUpHost(tx, UNTRUSTED_HOST_ADDRESS);
+      await ownWorkspace(tx, host);
+      await plantMembership(tx, ownerWorkspace.institutionId, host, "institution_staff");
+      const pressed = await pressOn(tx, host, ownerWorkspace, draft);
+      expect(pressed.status).toBe(202);
+      const membershipId = await membershipIdOf(tx, ownerWorkspace.institutionId, host);
+      await removeMember(owner, ownerWorkspace.slug, membershipId, tx);
+
+      const status = await readHostStatusForAccount(host, tx);
+
+      expect(status).toEqual({ state: "pending" });
+    });
+  });
+
+  it("reads a removed host as removed, a removed host who waits as pending, and a raised host as trusted", async () => {
+    await inRollback(async (tx) => {
+      const host = await signUpHost(tx, OWNER_ADDRESS);
+      const operator = await plantOperator(tx, OPERATOR_ADDRESS);
+      await removeHostTrust(operator, host, "Hadiah tidak sesuai.", tx);
+
+      expect(await readHostStatusForAccount(host, tx)).toEqual({ state: "trust_removed" });
+
+      await openCheckBy(tx, host, FIRST_TITLE);
+
+      expect(await readHostStatusForAccount(host, tx)).toEqual({
+        state: "pending",
+        competitionTitle: FIRST_TITLE,
+      });
+
+      const raised = await raiseThroughRoute(tx, operator, host);
+      expect(raised.status).toBe(200);
+
+      expect(await readHostStatusForAccount(host, tx)).toEqual({ state: "trusted" });
+    });
+  });
+
+  it("gives the queue no removal reason once the host's removal no longer stands", async () => {
+    await inRollback(async (tx) => {
+      const host = await signUpHost(tx, UNTRUSTED_HOST_ADDRESS);
+      const operator = await plantOperator(tx, OPERATOR_ADDRESS);
+      const raised = await raiseThroughRoute(tx, operator, host);
+      expect(raised.status).toBe(200);
+      await removeHostTrust(operator, host, "Hadiah tidak sesuai.", tx);
+      const { checkId } = await openCheckBy(tx, host, FIRST_TITLE);
+      await plantTrustRemovalCleared(tx, host);
+
+      const entry = (await listHostChecks(tx)).find((queued) => queued.id === checkId);
+
+      expect(entry?.host.trustRemovedAt).toBe(null);
+      expect(entry?.host.trustRemovalReason).toBe(null);
     });
   });
 });

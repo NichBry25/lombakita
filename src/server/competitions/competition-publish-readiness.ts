@@ -54,9 +54,6 @@ export const COMPETITION_PUBLISH_BLOCKER_CODES = [
   "competition_institution_not_verified",
   "competition_personal_individual_only",
   "competition_personal_publish_limit",
-  // The publish path's last gate. This read never reports it: the press opens a host check instead,
-  // and hostCheck says so.
-  "competition_recruiter_not_trusted",
 ] as const;
 
 export type CompetitionPublishBlockerCode = (typeof COMPETITION_PUBLISH_BLOCKER_CODES)[number];

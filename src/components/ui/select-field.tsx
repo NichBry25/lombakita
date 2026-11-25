@@ -18,6 +18,9 @@ type SelectFieldProps = {
   optional?: boolean;
   id?: string;
   className?: string;
+  // Marks the trigger invalid and names the element that says why, as FormInput takes them.
+  "aria-invalid"?: boolean;
+  "aria-describedby"?: string;
 };
 
 // Brand-styled form dropdown. Shares the accessible listbox interaction of FilterDropdown
@@ -34,6 +37,8 @@ export function SelectField({
   optional = false,
   id,
   className,
+  "aria-invalid": ariaInvalid,
+  "aria-describedby": ariaDescribedBy,
 }: SelectFieldProps) {
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -134,6 +139,8 @@ export function SelectField({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={markedAccessibleLabel}
+        aria-invalid={ariaInvalid}
+        aria-describedby={ariaDescribedBy}
         disabled={disabled}
         onClick={() => (open ? setOpen(false) : openMenu())}
         onKeyDown={onTriggerKeyDown}

@@ -59,7 +59,11 @@ export default async function OwnerProfilePage() {
                 profile.recruiterVerified,
               ) && (
                 <VerifyOtherRoleButton
-                  unverifiedRoleLabel={profile.candidateVerified ? "Penyelenggara" : "Kandidat"}
+                  label={
+                    profile.candidateVerified
+                      ? "Mulai menyelenggarakan"
+                      : "Verifikasi sebagai Kandidat"
+                  }
                 />
               )}
               <ButtonLink

@@ -11,6 +11,7 @@ import {
   competitions,
   institutionMemberships,
   recruiterVerificationSubmissions,
+  users,
 } from "@/server/db/schema";
 import {
   GONE_DRAFT_CLOSE_REASON,
@@ -47,6 +48,11 @@ export type OpenedHostCheck = { id: string; status: "pending_review"; submittedA
 export type PublishPressResult =
   | { outcome: "published"; competition: CompetitionRow }
   | { outcome: "host_check_opened"; hostCheck: OpenedHostCheck };
+
+export type HostStatusName = "trusted" | "pending" | "trust_removed" | "not_trusted";
+
+// What the host dashboard says about the account's own trust.
+export type HostStatus = { state: HostStatusName; competitionTitle?: string };
 
 type HostCheckContact = { fullName: string; mobileNumber: string };
 
@@ -345,4 +351,30 @@ export const readHostCheckStateForActor = async (
     guidelineItem: decision.guidelineItem,
     note: decision.note ?? undefined,
   };
+};
+
+// An open check outranks a standing removal, because the host waits on that check either way. The
+// title of the waiting draft follows the rule of readTitleOfDraftTheActorRuns.
+export const readHostStatusForAccount = async (
+  userId: string,
+  db: Database = getDb(),
+): Promise<HostStatus> => {
+  const [account] = await db
+    .select({
+      tier: users.recruiterVerificationTier,
+      trustRemovedAt: users.hostTrustRemovedAt,
+    })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  if (account?.tier === "elevated") return { state: "trusted" };
+
+  const open = await readOpenHostCheckOnLiveDraft(db, userId);
+  if (open) {
+    const title = await readTitleOfDraftTheActorRuns(db, userId, open.competitionId);
+    return title === null ? { state: "pending" } : { state: "pending", competitionTitle: title };
+  }
+
+  if (account !== undefined && account.trustRemovedAt !== null) return { state: "trust_removed" };
+  return { state: "not_trusted" };
 };
