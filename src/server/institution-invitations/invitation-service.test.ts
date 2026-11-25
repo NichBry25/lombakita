@@ -456,17 +456,30 @@ describe("createInstitutionInvitation — resolution + dual-channel enqueue", ()
     ).rejects.toMatchObject({ code: "invitation_invalid_identifier", httpStatus: 400 });
   });
 
-  it("Step 6.5f.1: a personal institution cannot invite — 403 invitation_personal_institution", async () => {
-    const { db, insertValues } = makeCreateDb([PERSONAL_ADMIN_ROW], CREATE_RETURNING);
-    await expect(
-      createInstitutionInvitation(
-        "owner_1",
-        "pribadi",
-        { invitedIdentifier: "x@e.com", invitedRole: "institution_staff" },
-        db as never,
-      ),
-    ).rejects.toMatchObject({ code: "invitation_personal_institution", httpStatus: 403 });
-    expect(insertValues).not.toHaveBeenCalled();
+  it("lets the owner of a personal workspace invite staff", async () => {
+    enqueueInstitutionInvitationDispatch.mockResolvedValue(undefined);
+    const { db, insertValues } = makeCreateDb(
+      [PERSONAL_ADMIN_ROW, [{ id: "target_u" }], [], []],
+      CREATE_RETURNING,
+    );
+
+    const result = await createInstitutionInvitation(
+      "owner_1",
+      "pribadi",
+      { invitedIdentifier: "x@e.com", invitedRole: "institution_staff" },
+      db as never,
+    );
+
+    expect(result).toEqual(CREATE_RETURNING[0]);
+    expect(insertValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        institutionId: "inst_p",
+        invitedRole: "institution_staff",
+        status: "pending",
+        targetUserId: "target_u",
+      }),
+    );
+    expect(enqueueInstitutionInvitationDispatch).toHaveBeenCalled();
   });
 
   it("dual-channel: invite still succeeds when the dispatch enqueue throws", async () => {

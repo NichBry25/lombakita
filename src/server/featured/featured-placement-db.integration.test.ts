@@ -70,11 +70,10 @@ const seedPlatformOps = async (tx: Tx): Promise<string> => {
   return row!.id;
 };
 
-// A `company` institution: personal institutions are refused for featuring before the write, which
-// would end a test on the wrong refusal.
 const seedPublishedCompetition = async (
   tx: Tx,
   label: string,
+  institutionType: "company" | "personal" = "company",
 ): Promise<{ institutionId: string; competitionId: string }> => {
   const id = uniqueSuffix();
   const [institution] = await tx
@@ -82,7 +81,7 @@ const seedPublishedCompetition = async (
     .values({
       displayName: `Featured fixture ${label}`,
       slug: `featured-${label}-${id}`,
-      institutionType: "company",
+      institutionType,
     })
     .returning({ id: institutions.id });
 
@@ -172,6 +171,32 @@ describe.skipIf(skipWithoutDatabase)(
           {
             actorUserId: operatorId,
             targetInstitutionId: unrelated.institutionId,
+            eventType: FEATURED_SET_EVENT,
+          },
+        ]);
+      });
+    });
+
+    it("features a published competition of a personal workspace, with one audit row naming it", async () => {
+      await inRollback(async (tx) => {
+        const operatorId = await seedPlatformOps(tx);
+        const personal = await seedPublishedCompetition(tx, "personal", "personal");
+
+        await setFeaturedPlacement(
+          operatorId,
+          personal.competitionId,
+          { isFeatured: true, featuredOrder: 3 },
+          tx,
+        );
+
+        expect(await readPlacement(tx, personal.competitionId)).toEqual({
+          isFeatured: true,
+          featuredOrder: 3,
+        });
+        expect(await auditRowsBy(tx, operatorId)).toEqual([
+          {
+            actorUserId: operatorId,
+            targetInstitutionId: personal.institutionId,
             eventType: FEATURED_SET_EVENT,
           },
         ]);

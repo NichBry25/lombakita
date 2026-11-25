@@ -10,7 +10,6 @@ const mocks = vi.hoisted(() => ({
   isAdmin: vi.fn(),
   isOwner: vi.fn(),
   lookup: vi.fn(),
-  institutionType: vi.fn(),
   readiness: vi.fn(),
 }));
 
@@ -29,9 +28,6 @@ vi.mock("@/server/institution-members/member-service", () => ({
 }));
 vi.mock("@/server/competitions/competition-service", () => ({
   getCompetitionIdByInstitutionAndSlug: mocks.lookup,
-}));
-vi.mock("@/server/institution-workspace/institution-service", () => ({
-  loadInstitutionTypeBySlug: mocks.institutionType,
 }));
 vi.mock("@/server/competitions/competition-publish-readiness", () => ({
   resolveCompetitionPublishReadiness: mocks.readiness,
@@ -80,7 +76,6 @@ beforeEach(() => {
   mocks.session.mockResolvedValue(recruiterSession());
   mocks.isOwner.mockResolvedValue(true);
   mocks.lookup.mockResolvedValue("competition-id");
-  mocks.institutionType.mockResolvedValue("school");
   mocks.readiness.mockResolvedValue({ ready: false });
 });
 

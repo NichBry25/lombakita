@@ -17,8 +17,6 @@ import {
   isInstitutionAdminBySlug,
   isInstitutionOwnerBySlug,
 } from "@/server/institution-members/member-service";
-import { loadInstitutionTypeBySlug } from "@/server/institution-workspace/institution-service";
-import { isPersonalInstitutionType } from "@/server/institution-workspace/institution-type";
 
 type Props = {
   params: Promise<{ institutionSlug: string; competitionSlug: string }>;
@@ -53,8 +51,6 @@ export default async function InstitutionCompetitionEditPage({ params, searchPar
     throw error;
   }
 
-  const isPersonal = isPersonalInstitutionType(await loadInstitutionTypeBySlug(institutionSlug));
-
   // The first paint's answer. The shell refreshes it from the competition read after every save,
   // which is what makes the control reflect the state that was just written rather than the state
   // the form was opened on.
@@ -66,7 +62,6 @@ export default async function InstitutionCompetitionEditPage({ params, searchPar
       competitionId={competitionId}
       expectedUserId={session.user.id}
       initialPublishReadiness={publishReadiness}
-      isPersonal={isPersonal}
       step={step}
       stepChildren={{
         1: <CompetitionTagsEditor competitionId={competitionId} expectedUserId={session.user.id} />,

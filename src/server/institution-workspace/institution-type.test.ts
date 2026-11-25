@@ -5,7 +5,6 @@ import type { InstitutionType } from "@/server/db/schema";
 import {
   isInstitutionType,
   isPersonalInstitutionType,
-  MAX_PUBLISHED_COMPETITIONS_FOR_PERSONAL,
   PERSONAL_INSTITUTION_TYPE,
 } from "@/server/institution-workspace/institution-type";
 
@@ -28,8 +27,7 @@ describe("institution-type predicates", () => {
     expect(isInstitutionType(42)).toBe(false);
   });
 
-  it("reach-cap constants are locked", () => {
-    expect(MAX_PUBLISHED_COMPETITIONS_FOR_PERSONAL).toBe(2);
+  it("the personal type constant is locked", () => {
     expect(PERSONAL_INSTITUTION_TYPE).toBe("personal");
   });
 });

@@ -7,9 +7,7 @@ import {
   institutionMemberships,
   institutions,
   users,
-  type InstitutionType,
 } from "@/server/db/schema";
-import { isPersonalInstitutionType } from "@/server/institution-workspace/institution-type";
 import { logger } from "@/lib/logger";
 import { COMPETITIONS_CHANGING_RETRY_MESSAGE } from "@/lib/errors/error-copy";
 import { MEMBER_ROLES } from "@/server/competitions/competition-access";
@@ -43,15 +41,9 @@ const requireAdminInstitution = async (
   userId: string,
   institutionSlug: string,
   db: Database,
-): Promise<{
-  institutionId: string;
-  institutionType: InstitutionType | null;
-}> => {
+): Promise<{ institutionId: string }> => {
   const [row] = await db
-    .select({
-      institutionId: institutions.id,
-      institutionType: institutions.institutionType,
-    })
+    .select({ institutionId: institutions.id })
     .from(institutions)
     .innerJoin(
       institutionMemberships,
@@ -122,21 +114,7 @@ export const createInstitutionInvitation = async (
   db: Database = getDb(),
 ): Promise<{ id: string; invitedEmail: string; expiresAt: Date }> => {
   const input: InvitationCreateInput = parseInvitationCreateInput(payload);
-  const { institutionId, institutionType } = await requireAdminInstitution(
-    userId,
-    institutionSlug,
-    db,
-  );
-
-  // A personal institution is single-member: it cannot invite staff or members.
-  // No-op for full or legacy institutions (NULL type).
-  if (isPersonalInstitutionType(institutionType)) {
-    throw new InstitutionInvitationError(
-      "invitation_personal_institution",
-      403,
-      "A personal institution cannot invite staff or members",
-    );
-  }
+  const { institutionId } = await requireAdminInstitution(userId, institutionSlug, db);
 
   await assertInvitationNotByRemovedHost(userId, input.invitedRole, db);
 

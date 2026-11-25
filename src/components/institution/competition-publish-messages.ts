@@ -1,5 +1,4 @@
 import { getCompetitionFieldLabel } from "@/lib/competitions/fields";
-import { MAX_PUBLISHED_COMPETITIONS_FOR_PERSONAL } from "@/lib/institutions/reach-caps";
 import type { CompetitionPublishBlockerCode } from "@/server/competitions/competition-publish-readiness";
 import { competitionGuidelineTextOf } from "@/lib/competitions/competition-guidelines";
 import { asSentence } from "@/lib/finance/payment-display";
@@ -64,18 +63,6 @@ const REASONS: Record<CompetitionPublishBlockerCode, PublishBlockerReason> = {
     code: "competition_institution_not_verified",
     text: "Kompetisi berbayar hanya dapat diterbitkan oleh institusi yang sudah terverifikasi.",
     link: { kind: "verification", label: "Ajukan verifikasi" },
-  },
-  competition_personal_individual_only: {
-    code: "competition_personal_individual_only",
-    text: "Institusi pribadi hanya dapat menjalankan kompetisi individu.",
-    link: null,
-  },
-  competition_personal_publish_limit: {
-    code: "competition_personal_publish_limit",
-    // The cap is IMPORTED. A literal here would be a second definition of the number the server
-    // enforces, and the sentence would keep promising a limit the server had stopped applying.
-    text: `Institusi pribadi dapat memiliki paling banyak ${MAX_PUBLISHED_COMPETITIONS_FOR_PERSONAL} kompetisi yang diterbitkan.`,
-    link: null,
   },
 };
 

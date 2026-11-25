@@ -2,8 +2,6 @@ import { redirect } from "next/navigation";
 import { InstitutionTeamShell } from "@/components/institution/institution-team-shell";
 import { requireRolePage } from "@/server/auth/page-guard";
 import { isInstitutionAdminBySlug } from "@/server/institution-members/member-service";
-import { loadInstitutionTypeBySlug } from "@/server/institution-workspace/institution-service";
-import { isPersonalInstitutionType } from "@/server/institution-workspace/institution-type";
 
 type InstitutionTeamPageProps = {
   params: Promise<{ institutionSlug: string }>;
@@ -23,13 +21,5 @@ export default async function InstitutionTeamPage({ params }: InstitutionTeamPag
     redirect("/");
   }
 
-  const isPersonal = isPersonalInstitutionType(await loadInstitutionTypeBySlug(institutionSlug));
-
-  return (
-    <InstitutionTeamShell
-      institutionSlug={institutionSlug}
-      actorUserId={session.user.id}
-      isPersonal={isPersonal}
-    />
-  );
+  return <InstitutionTeamShell institutionSlug={institutionSlug} actorUserId={session.user.id} />;
 }

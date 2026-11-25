@@ -10,7 +10,6 @@ import {
   assertCompetitionHasOrganizerContact,
   assertInstitutionNotSuspended,
   assertInstitutionVerified,
-  assertPersonalCompetitionPublishable,
   type CompetitionAccessResult,
 } from "@/server/competitions/competition-access";
 import { CompetitionError, validatePublishChecklist } from "@/server/competitions/competition-core";
@@ -50,8 +49,6 @@ export const COMPETITION_PUBLISH_BLOCKER_CODES = [
   "competition_organizer_contact_missing",
   "competition_audience_missing",
   "competition_institution_not_verified",
-  "competition_personal_individual_only",
-  "competition_personal_publish_limit",
 ] as const;
 
 export type CompetitionPublishBlockerCode = (typeof COMPETITION_PUBLISH_BLOCKER_CODES)[number];
@@ -159,22 +156,6 @@ export const resolveCompetitionPublishReadiness = async (
   if (isPaidCompetition(pricing.feeAmount)) {
     await collectGate(() => assertInstitutionVerified(competition.institutionId, db), blockers);
   }
-
-  // One gate, two codes: the personal reach cap re-asserts individual-only and then counts
-  // published competitions, so a non-individual mode reports `individual_only` and stops there —
-  // exactly as it does on the publish path, where the count is never reached either.
-  await collectGate(
-    () =>
-      assertPersonalCompetitionPublishable(
-        {
-          id: competition.id,
-          institutionId: competition.institutionId,
-          mode: competition.mode,
-        },
-        db,
-      ),
-    blockers,
-  );
 
   const hostCheck = await readHostCheckStateForActor(actorUserId, competition, db);
   return { canPublish: blockers.length === 0, blockers, hostCheck };

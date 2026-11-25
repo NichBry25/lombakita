@@ -34,11 +34,11 @@ const OPS_ACTOR_ID = "ops_1";
 // Everything runs in one transaction that serves its reads in call order: the acting account, the
 // competition, then the four reads of the institution-relationship check.
 const makeSelectDb = (
-  row: { id: string; status: string; institutionType?: string | null } | null,
+  row: { id: string; status: string } | null,
   extras: { actorRow?: SelectRows[number] | null; relationshipReads?: SelectRows[] } = {},
 ) => {
   const actorRow = extras.actorRow === undefined ? operatorActorRow(OPS_ACTOR_ID) : extras.actorRow;
-  const competitionRows = row ? [{ institutionType: null, institutionId: "inst_1", ...row }] : [];
+  const competitionRows = row ? [{ institutionId: "inst_1", ...row }] : [];
   const updateChain = {
     set: vi.fn().mockReturnThis(),
     where: vi.fn().mockResolvedValue(undefined),
@@ -109,23 +109,6 @@ describe("setFeaturedPlacement", () => {
     expect(error).toMatchObject({ code: "competition_not_published", status: 409 });
   });
 
-  it("throws competition_personal_not_featurable (409) when owned by a personal institution", async () => {
-    const { db } = makeSelectDb({
-      id: "comp_1",
-      status: "published",
-      institutionType: "personal",
-    });
-    const error = await setFeaturedPlacement(
-      OPS_ACTOR_ID,
-      "comp_1",
-      { isFeatured: true, featuredOrder: 1 },
-      db,
-    ).catch((e: unknown) => e);
-
-    expect(error).toBeInstanceOf(FeaturedPlacementError);
-    expect(error).toMatchObject({ code: "competition_personal_not_featurable", status: 409 });
-  });
-
   // Featured placement is the front-page slot and a monetized surface, so the audit trail — not a
   // server log line — has to answer who put a competition there and who took it off.
   it("audits a set against the owning institution, carrying the competition in metadata", async () => {
@@ -163,17 +146,6 @@ describe("setFeaturedPlacement", () => {
       setFeaturedPlacement(OPS_ACTOR_ID, "comp_1", { isFeatured: true, featuredOrder: 1 }, db),
     ).rejects.toMatchObject({ code: "competition_not_published" });
     expect(insertChain.values).not.toHaveBeenCalled();
-  });
-
-  it("allows featuring a competition owned by a legacy (NULL-type) institution", async () => {
-    const { db } = makeSelectDb({ id: "comp_1", status: "published", institutionType: null });
-    const result = await setFeaturedPlacement(
-      OPS_ACTOR_ID,
-      "comp_1",
-      { isFeatured: true, featuredOrder: 1 },
-      db,
-    );
-    expect(result).toEqual({ isFeatured: true, featuredOrder: 1 });
   });
 
   it("succeeds for published competition and returns isFeatured + featuredOrder", async () => {

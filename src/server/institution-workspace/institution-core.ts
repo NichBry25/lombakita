@@ -41,7 +41,7 @@ export type InstitutionWorkspaceShell = {
   displayName: string;
   slug: string;
   status: InstitutionStatus;
-  // "personal" for the capped single-member type; a full subtype for every other institution.
+  // The kind the host picked on the create form.
   // Never null — institution_type is NOT NULL and set at creation.
   institutionType: InstitutionType;
   // Short free-text description, editable in settings for every type. Null when unset.

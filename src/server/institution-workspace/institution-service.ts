@@ -823,24 +823,6 @@ export const updateInstitutionProfileForOwnerBySlug = async (
 
 // Logo and banner upload live in institution-media-service.ts.
 
-// Resolve an institution's type by slug for owner-or-staff UI surfaces
-// that decide whether to hide personal-only affordances (the competition mode selector and the
-// staff-invite form). Returns null for a full/legacy institution or a slug that does not resolve;
-// callers treat null as "not personal" and fall back to the full UI. Server-side guards remain the
-// authoritative enforcement; this only drives the affordance hide.
-export const loadInstitutionTypeBySlug = async (
-  institutionSlug: string,
-  db: Database = getDb(),
-): Promise<InstitutionType | null> => {
-  const normalized = normalizeInstitutionSlug(institutionSlug);
-  const [row] = await db
-    .select({ institutionType: institutions.institutionType })
-    .from(institutions)
-    .where(eq(institutions.slug, normalized))
-    .limit(1);
-  return row?.institutionType ?? null;
-};
-
 export type InstitutionVerificationSummary = {
   institutionId: string;
   institutionType: InstitutionType;

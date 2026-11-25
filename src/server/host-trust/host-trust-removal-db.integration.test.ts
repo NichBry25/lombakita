@@ -1644,7 +1644,6 @@ const WORKSPACE_DETAILS = {
   institutionType: "campus_organization",
 };
 
-// A personal workspace refuses every invitation, so these tests need a full one.
 const fullWorkspace = async (tx: Database, ownerId: string): Promise<Workspace> => {
   const workspace = await createInstitutionWorkspaceForUser(ownerId, WORKSPACE_DETAILS, tx);
   return { institutionId: workspace.institutionId, slug: workspace.slug };
@@ -1818,6 +1817,26 @@ describe.skipIf(skipWithoutDatabase)(
 
         expect(invited.status).toBe(201);
         expect(await invitedRolesOf(tx, workspace.institutionId)).toEqual(["institution_member"]);
+      });
+    });
+
+    it("refuses a host whose trust staff removed an invitation as staff from a personal workspace and writes no invitation", async () => {
+      await inRollback(async (tx) => {
+        const host = await signUpHost(tx, HOST_ADDRESS);
+        const workspace = await ownWorkspace(tx, host);
+        const operator = await plantOperator(tx, OPERATOR_ADDRESS);
+        const removed = await removeThroughRoute(tx, operator, host, { reason: REASON });
+        await signUpHost(tx, THIRD_HOST_ADDRESS);
+
+        const invited = await inviteThroughRoute(tx, host, workspace.slug, {
+          invitedIdentifier: THIRD_HOST_ADDRESS,
+          invitedRole: "institution_staff",
+        });
+
+        expect(removed.status).toBe(200);
+        expect(invited.status).toBe(403);
+        expect(invited.body.error?.code).toBe(INVITATION_REFUSAL_CODE);
+        expect(await invitedRolesOf(tx, workspace.institutionId)).toEqual([]);
       });
     });
 
