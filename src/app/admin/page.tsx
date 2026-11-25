@@ -22,12 +22,6 @@ const ADMIN_LINKS = [
     icon: "check" as const,
   },
   {
-    href: "/admin/recruiter-verification",
-    label: "Verifikasi rekruter",
-    description: "Tinjau permohonan Rekruter Terpercaya dalam antrean prioritas.",
-    icon: "user" as const,
-  },
-  {
     href: "/admin/host-checks",
     label: "Pemeriksaan penyelenggara",
     description: "Periksa kompetisi pertama penyelenggara yang belum tepercaya.",

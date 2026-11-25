@@ -77,10 +77,7 @@ import {
   verifyEmailCodeAndSetPassword,
 } from "@/server/auth/credentials-auth";
 import { elevateRecruiterTier } from "@/server/recruiter-tier/recruiter-tier-service";
-import {
-  listRecruiterVerificationQueue,
-  reviewRecruiterVerification,
-} from "@/server/recruiter-verification/recruiter-verification-service";
+import { decideHostCheck, listHostChecks } from "@/server/host-trust/host-check-decision-service";
 import { POST as registerRoute } from "@/app/api/v1/auth/register/route";
 
 const ADDRESS = "rina.code@example.test";
@@ -689,14 +686,12 @@ describe.skipIf(skipWithoutDatabase)("verifying an email address by code (real d
       if (!strangerRequest) throw new Error("No recruiter request after the host sign-up");
       const operatorId = await seedOperator(tx);
       const queueEntriesOfAccount = async () =>
-        (await listRecruiterVerificationQueue(tx)).filter(
-          (entry) => entry.submission.userId === accountId,
-        );
+        (await listHostChecks(tx)).filter((entry) => entry.host.userId === accountId);
 
       expect(await queueEntriesOfAccount()).toHaveLength(0);
       await expect(
-        reviewRecruiterVerification(operatorId, strangerRequest.id, "approve", null, { db: tx }),
-      ).rejects.toMatchObject({ code: "recruiter_verification_not_found" });
+        decideHostCheck(operatorId, strangerRequest.id, { decision: "approve" }, tx),
+      ).rejects.toMatchObject({ code: "host_check_not_found" });
       await expect(elevateRecruiterTier(operatorId, accountId, tx)).rejects.toMatchObject({
         code: "tier_target_email_not_verified",
       });

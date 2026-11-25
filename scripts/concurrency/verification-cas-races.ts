@@ -1,5 +1,5 @@
 /**
- * INST-VERIF-T2 and REVISION-T2 — live proof of the two compare-and-set races in the verification
+ * INST-VERIF-T2 and HOST-CHECK-T2 — live proof of the two compare-and-set races in the verification
  * surfaces. These are NOT lock races: there is no advisory lock, the guard is a WHERE clause pinning
  * the status the decision was made against, and the loser must be told its snapshot went stale
  * rather than silently overwriting the winner.
@@ -10,9 +10,10 @@
  * loser must get `verification_transition_conflict` (409) — a code distinct from
  * `verification_invalid_transition` precisely because the request was well-formed.
  *
- * REVISION-T2: a recruiter withdraws their queued submission (CAS `pending_review -> draft`) as a
- * reviewer records a verdict on it. Whichever commits first wins; the other must not apply a verdict
- * to a withdrawn submission, nor withdraw one already decided.
+ * HOST-CHECK-T2: two staff members decide one host check at the same moment, one approving it and
+ * one turning it down (`decideHostCheck`). Both compare-and-set on the check's `pending_review`
+ * status. Exactly one decision lands, the loser gets `host_check_already_decided` (409), and the
+ * tier and the one decision audit row match the winner.
  *
  * THE BARRIER. Both races need the two transactions to have read the row BEFORE either commits;
  * left to chance they often run sequentially and prove nothing while passing. A third connection
@@ -21,6 +22,10 @@
  * the barrier releases, one UPDATE wins the row and the other re-evaluates its WHERE against the
  * committed new version and matches nothing. If the racers cannot be observed blocking, the check
  * FAILS rather than falling through to a pass.
+ *
+ * In HOST-CHECK-T2 the second racer parks one step earlier, on the host's users row that the first
+ * racer locks before its UPDATE. Once the first commits, the second's UPDATE reads the check again,
+ * so the compare-and-set on its status still decides.
  *
  * Usage: node --import tsx scripts/concurrency/verification-cas-races.ts
  * Exit code: 0 when every assertion holds; 1 on a lost update or a wrong error.
@@ -48,8 +53,7 @@ const main = async (): Promise<void> => {
     await import("@/server/institution-verification/verification-service");
   const { reviewVerificationSubmission } =
     await import("@/server/institution-verification/submission-service");
-  const { reviewRecruiterVerification, withdrawRecruiterVerification } =
-    await import("@/server/recruiter-verification/recruiter-verification-service");
+  const { decideHostCheck } = await import("@/server/host-trust/host-check-decision-service");
 
   const { check, failureCount } = createChecker();
   const createdUserIds: string[] = [];
@@ -136,15 +140,16 @@ const main = async (): Promise<void> => {
 
   const seedUser = async (
     prefix: string,
-    columns: { role?: string; recruiterTier?: string } = {},
+    columns: { role?: string; recruiterTier?: string; hostStep?: boolean } = {},
   ): Promise<string> => {
     const id = randomUUID();
     const tag = id.slice(0, 8);
     const role = columns.role ?? "candidate";
     const tier = columns.recruiterTier ?? "unverified";
+    const hostStep = columns.hostStep ?? false;
     await client`
-      INSERT INTO users (id, email, username, role, candidate_verified_at, recruiter_verification_tier, email_verified)
-      VALUES (${id}, ${`${prefix}_${tag}@example.test`}, ${`${prefix}_${tag}`}, ${role}, now(), ${tier}, now())
+      INSERT INTO users (id, email, username, role, candidate_verified_at, recruiter_verification_tier, email_verified, recruiter_verified_at)
+      VALUES (${id}, ${`${prefix}_${tag}@example.test`}, ${`${prefix}_${tag}`}, ${role}, now(), ${tier}, now(), CASE WHEN ${hostStep}::boolean THEN now() ELSE NULL END)
     `;
     createdUserIds.push(id);
     return id;
@@ -242,85 +247,134 @@ const main = async (): Promise<void> => {
     }
   };
 
-  // ---- REVISION-T2 ---------------------------------------------------------
+  // ---- HOST-CHECK-T2 -------------------------------------------------------
 
-  const runWithdrawVersusVerdict = async (): Promise<void> => {
+  // Two staff members decide one host check at once. Alternating which takes the lock first exercises both endings, an approval refused by a turn-down and a turn-down refused by an approval.
+  const runApproveVersusTurnDown = async (): Promise<void> => {
     console.log(
-      `\n[revision] ${ITERATIONS} iterations, applicant withdraw vs reviewer verdict (CAS)`,
+      `\n[host-check] ${ITERATIONS} iterations, staff approve vs staff turn-down on one host check (CAS)`,
     );
     for (let i = 0; i < ITERATIONS; i += 1) {
-      const applicantId = await seedUser("casrev_app", { recruiterTier: "minimal" });
-      const reviewerId = await seedUser("casrev_ops", { role: "platform_ops" });
+      const hostId = await seedUser("cashc_host", {
+        role: "recruiter",
+        recruiterTier: "minimal",
+        hostStep: true,
+      });
+      const approverId = await seedUser("cashc_ops_a", { role: "platform_ops" });
+      const turnDownerId = await seedUser("cashc_ops_b", { role: "platform_ops" });
+      const tag = hostId.slice(0, 8);
 
-      const submission = oneRow(
+      const institution = oneRow(
         await client<{ id: string }[]>`
-        INSERT INTO recruiter_verification_submissions (user_id, full_name, mobile_number, status)
-        VALUES (${applicantId}, 'Uji Balapan', '+628100000000', 'pending_review')
+        INSERT INTO institutions (display_name, slug, institution_type)
+        VALUES (${`CAS Host ${tag}`}, ${`cashc-${tag}`}, 'personal')
         RETURNING id
       `,
-        "submission",
+        "institution",
+      );
+      createdInstitutionIds.push(institution.id);
+
+      await client`
+        INSERT INTO institution_memberships (institution_id, user_id, membership_role, status)
+        VALUES (${institution.id}, ${hostId}, 'institution_owner', 'active')
+      `;
+
+      const draft = oneRow(
+        await client<{ id: string }[]>`
+        INSERT INTO competitions (institution_id, created_by_user_id, slug, title, status)
+        VALUES (${institution.id}, ${hostId}, ${`cashc-comp-${tag}`}, ${`Host Check ${tag}`}, 'draft')
+        RETURNING id
+      `,
+        "draft",
       );
 
-      const withdraw = () => withdrawRecruiterVerification(applicantId, db);
-      const approve = () =>
-        reviewRecruiterVerification(reviewerId, submission.id, "approve", null, { db });
+      const hostCheck = oneRow(
+        await client<{ id: string }[]>`
+        INSERT INTO recruiter_verification_submissions
+          (user_id, full_name, mobile_number, status, competition_id)
+        VALUES (${hostId}, 'Uji Balapan', '+628100000000', 'pending_review', ${draft.id})
+        RETURNING id
+      `,
+        "hostCheck",
+      );
 
-      // Alternating exercises both legal endings — the applicant pulling the submission out from
-      // under a verdict, and a verdict landing before the withdrawal.
-      const withdrawFirst = i % 2 === 0;
+      const approve = () => decideHostCheck(approverId, hostCheck.id, { decision: "approve" }, db);
+      const turnDown = () =>
+        decideHostCheck(
+          turnDownerId,
+          hostCheck.id,
+          {
+            decision: "turn_down",
+            guidelineItem: "kontak-nyata",
+            note: "Kontak penyelenggara tidak dapat dihubungi.",
+          },
+          db,
+        );
+
+      const approveFirst = i % 2 === 0;
       const { outcome, barrierHeld } = await raceBehindRowLock(
         (tx) =>
-          tx`SELECT id FROM recruiter_verification_submissions WHERE id = ${submission.id} FOR UPDATE`,
-        withdrawFirst ? withdraw : approve,
-        withdrawFirst ? approve : withdraw,
+          tx`SELECT id FROM recruiter_verification_submissions WHERE id = ${hostCheck.id} FOR UPDATE`,
+        approveFirst ? approve : turnDown,
+        approveFirst ? turnDown : approve,
       );
 
       const finalRow = oneRow(
-        await client<
-          {
-            status: string;
-            reviewer_user_id: string | null;
-            reviewed_at: Date | null;
-          }[]
-        >`
-        SELECT status, reviewer_user_id, reviewed_at
-        FROM recruiter_verification_submissions WHERE id = ${submission.id}
+        await client<{ status: string; reviewer_user_id: string | null }[]>`
+        SELECT status, reviewer_user_id FROM recruiter_verification_submissions WHERE id = ${hostCheck.id}
       `,
         "finalRow",
       );
-      const applicant = oneRow(
+      const host = oneRow(
         await client<{ recruiter_verification_tier: string }[]>`
-        SELECT recruiter_verification_tier FROM users WHERE id = ${applicantId}
+        SELECT recruiter_verification_tier FROM users WHERE id = ${hostId}
       `,
-        "applicant",
+        "host",
       );
+      const auditRows = await client<{ event_type: string }[]>`
+        SELECT event_type FROM platform_ops_audit_logs
+        WHERE target_user_id = ${hostId}
+          AND event_type IN ('host_check.approved', 'host_check.turned_down')
+        ORDER BY created_at ASC
+      `;
+      const events = auditRows.map((row) => row.event_type);
 
-      // The two legal end states. A withdrawn submission must carry no verdict and must not have
-      // elevated the applicant; an approved one must carry its reviewer.
-      const withdrawnCleanly =
-        finalRow.status === "draft" &&
-        finalRow.reviewer_user_id === null &&
-        finalRow.reviewed_at === null &&
-        applicant.recruiter_verification_tier === "minimal";
-      const approvedCleanly =
-        finalRow.status === "approved" &&
-        finalRow.reviewer_user_id === reviewerId &&
-        applicant.recruiter_verification_tier === "elevated";
-
-      const loserCode = outcome.failCodes[0];
-      const loserIsExpected =
-        loserCode === "recruiter_verification_not_found" ||
-        loserCode === "recruiter_verification_already_reviewed";
+      const winner = approveFirst
+        ? {
+            status: "approved",
+            reviewer: approverId,
+            tier: "elevated",
+            event: "host_check.approved",
+          }
+        : {
+            status: "rejected",
+            reviewer: turnDownerId,
+            tier: "minimal",
+            event: "host_check.turned_down",
+          };
+      const endStateMatchesWinner =
+        finalRow.status === winner.status &&
+        finalRow.reviewer_user_id === winner.reviewer &&
+        host.recruiter_verification_tier === winner.tier &&
+        events.length === 1 &&
+        events[0] === winner.event;
+      const reviewerLabel =
+        finalRow.reviewer_user_id === approverId
+          ? "approver"
+          : finalRow.reviewer_user_id === turnDownerId
+            ? "turn-downer"
+            : "other";
 
       check(
         barrierHeld &&
           outcome.ok === 1 &&
           outcome.failCodes.length === 1 &&
-          loserIsExpected &&
+          outcome.failCodes[0] === "host_check_already_decided" &&
+          outcome.failStatuses[0] === 409 &&
           outcome.other.length === 0 &&
-          (withdrawFirst ? withdrawnCleanly : approvedCleanly),
-        `iter ${i} (${withdrawFirst ? "withdraw first" : "verdict first"}): ${describeOutcome(outcome)} barrier=${barrierHeld} final=${finalRow.status} reviewer=${finalRow.reviewer_user_id ? "set" : "null"} tier=${applicant.recruiter_verification_tier}` +
-          ` [want: barrier=true ok=1, loser refused, end state a clean ${withdrawFirst ? "draft" : "approval"}]`,
+          endStateMatchesWinner,
+        `iter ${i} (${approveFirst ? "approve first" : "turn-down first"}): ${describeOutcome(outcome)} barrier=${barrierHeld} final=${finalRow.status} reviewer=${reviewerLabel} tier=${host.recruiter_verification_tier} audit=[${events.join(",")}]` +
+          ` [want: barrier=true ok=1 loser=host_check_already_decided(409) and the status, reviewer, tier and one audit row of the ${approveFirst ? "approval" : "turn-down"}]`,
       );
     }
   };
@@ -341,13 +395,13 @@ const main = async (): Promise<void> => {
   try {
     await assertReadCommitted(client);
     await runInstitutionRevokeVersusApprove();
-    await runWithdrawVersusVerdict();
+    await runApproveVersusTurnDown();
   } finally {
     await cleanup();
     await client.end();
   }
 
-  finish(failureCount(), "INST-VERIF-T2 + REVISION-T2");
+  finish(failureCount(), "INST-VERIF-T2 + HOST-CHECK-T2");
 };
 
 main().catch((error) => {

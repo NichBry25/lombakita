@@ -17,12 +17,13 @@
  * operator running the Stage 9 checklist.
  *
  * WHAT TRAVELS A PRODUCTION PATH. The MFA factors (`startMfaEnrolment` → `confirmMfaEnrolment`,
- * which also mints recovery codes and writes `mfa.enrolled`), and the two verification reviews
- * (`reviewRecruiterVerification`, which on approval is what elevates a recruiter's tier and writes
- * `recruiter_verification.approved`, one story in the audit log rather than two). The raw writes are the
+ * which also mints recovery codes and writes `mfa.enrolled`), and the two host check decisions
+ * (`decideHostCheck`, which on approval is what elevates a host's tier and writes
+ * `host_check.approved`, one story in the audit log rather than two). The raw writes are the
  * account rows and the factor reset that makes re-enrolment possible.
  */
 import type { Sql } from "postgres";
+import type { HostCheckDecisionInput } from "@/server/host-trust/host-check-decision-service";
 
 export type OperatorAccount = {
   id: string;
@@ -166,41 +167,38 @@ export const enrolOperatorFactors = async (
 };
 
 export type ReviewService = {
-  reviewRecruiterVerification: (
-    reviewerUserId: string,
-    submissionId: string,
-    decision: "approve" | "reject",
-    rejectionReason: string | null,
+  decideHostCheck: (
+    staffUserId: string,
+    checkId: string,
+    input: HostCheckDecisionInput,
   ) => Promise<unknown>;
 };
 
-/** The reviews the matrix leaves pending for an operator to decide. */
-export const OPERATOR_REVIEWS = Object.freeze([
-  { submissionId: "seed-rvs-elev", decision: "approve", reason: null },
-  {
-    submissionId: "seed-rvs-rej",
-    decision: "reject",
-    reason: "Nomor tidak dapat dihubungi dan dokumen tidak jelas.",
-  },
-] as const);
+// The host checks the matrix leaves pending for an operator to decide.
+export const OPERATOR_REVIEWS: readonly { submissionId: string; input: HostCheckDecisionInput }[] =
+  Object.freeze([
+    { submissionId: "seed-rvs-elev", input: { decision: "approve" } },
+    {
+      submissionId: "seed-rvs-rej",
+      input: {
+        decision: "turn_down",
+        guidelineItem: "kontak-nyata",
+        note: "Nomor tidak dapat dihubungi dan dokumen tidak jelas.",
+      },
+    },
+  ]);
 
 /**
- * Decides the two pending reviews as `seed-user-ops`, through the production review path.
+ * Decides the two pending host checks as `seed-user-ops`, through the production decision path.
  *
  * Approval is what elevates `seed-user-rec-elev`: the service flips the tier and writes
- * `recruiter_verification.approved` in the same transaction, so the audit log says the account was
- * elevated by document review, which is what the seeded submission says happened. A submission
- * already decided by an earlier run is left alone; the end state is asserted afterwards either way.
+ * `host_check.approved` in the same transaction. A check an earlier run already closed is left
+ * alone; the end state is asserted afterwards either way.
  */
 export const performOperatorReviews = async (sql: Sql, services: ReviewService): Promise<void> => {
   for (const review of OPERATOR_REVIEWS) {
     try {
-      await services.reviewRecruiterVerification(
-        OPERATOR_ACTOR_ID,
-        review.submissionId,
-        review.decision,
-        review.reason,
-      );
+      await services.decideHostCheck(OPERATOR_ACTOR_ID, review.submissionId, review.input);
     } catch (error) {
       if (!isAlreadyReviewed(error)) {
         throw error;
@@ -215,7 +213,7 @@ const isAlreadyReviewed = (error: unknown): boolean =>
   typeof error === "object" &&
   error !== null &&
   "code" in error &&
-  error.code === "recruiter_verification_already_reviewed";
+  error.code === "host_check_already_decided";
 
 /**
  * The end state, not the absence of an error. `elevated` gates full-institution creation and

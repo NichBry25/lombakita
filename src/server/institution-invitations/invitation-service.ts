@@ -85,13 +85,33 @@ const assertInvitationNotByRemovedHost = async (
   invitedRole: InvitationCreateInput["invitedRole"],
   db: Database,
 ): Promise<void> => {
-  if (!MEMBER_ROLES.includes(invitedRole)) return;
+  if (invitedRole === "institution_member") return;
   const trustRemoved = await isHostTrustRemoved(actorUserId, db);
   if (!trustRemoved) return;
   throw new InstitutionInvitationError(
     "invitation_blocked_trust_removed",
     403,
     "A host whose trust staff removed cannot invite an owner or staff member",
+  );
+};
+
+// An owner or staff invitation sent before staff removed the inviter's host trust would still hand
+// that role to an account the inviter may control. A member invitation grants no operational access,
+// so it stays open. An invitation whose inviter row is gone has no inviter to hold.
+// Throws InstitutionInvitationError 403 invitation_inviter_trust_removed.
+const assertInvitationNotFromRemovedHost = async (
+  invitedRole: InvitationCreateInput["invitedRole"],
+  inviterUserId: string | null,
+  db: Database,
+): Promise<void> => {
+  if (invitedRole === "institution_member") return;
+  if (inviterUserId === null) return;
+  const trustRemoved = await isHostTrustRemoved(inviterUserId, db);
+  if (!trustRemoved) return;
+  throw new InstitutionInvitationError(
+    "invitation_inviter_trust_removed",
+    403,
+    "Staff removed the inviting host's trust, so this owner or staff invitation cannot be taken",
   );
 };
 
@@ -392,6 +412,12 @@ export const acceptInstitutionInvitationForUser = async (
         "Invitee holds a place in a running competition of this institution and cannot accept an owner or staff invitation",
       );
     }
+
+    await assertInvitationNotFromRemovedHost(
+      invitation.invitedRole,
+      invitation.invitedByUserId,
+      tx,
+    );
 
     if (existingMembership) {
       // The role comes from the NEW invitation, not the retained row: someone removed as staff and

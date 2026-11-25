@@ -35,6 +35,8 @@ const INVITE_ERROR_COPY: Partial<Record<string, string>> = {
   invitation_already_member: "Anda sudah menjadi anggota institusi ini.",
   member_holds_competition_place: INVITEE_HOLDS_PLACE_MESSAGE,
   invitation_accept_retry: COMPETITIONS_CHANGING_RETRY_MESSAGE,
+  invitation_inviter_trust_removed:
+    "Status tepercaya akun pengundang dicabut staf Lombakita, jadi undangan sebagai pemilik atau staf ini tidak dapat diterima. Minta pemilik atau staf lain di ruang kerja itu mengirim undangan baru, atau hubungi staf Lombakita.",
   account_deactivated: "Data akun ini sudah dihapus. Tindakan ini tidak tersedia.",
   team_not_found: "Tim ini sudah tidak ada. Muat ulang halaman.",
   team_not_forming: "Tim ini sudah tidak menerima anggota baru.",

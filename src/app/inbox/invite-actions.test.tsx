@@ -70,3 +70,34 @@ describe("the inbox actions of a team invitation", () => {
     ).toBeTruthy();
   });
 });
+
+describe("the inbox actions of an institution invitation", () => {
+  it("says an owner or staff invitation from a host whose trust staff removed cannot be taken", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ error: { code: "invitation_inviter_trust_removed" } }), {
+          status: 403,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <UIPrimitivesProvider>
+        <InboxInviteActions kind="institution" invitationId="inv-1" expectedUserId="user-1" />
+      </UIPrimitivesProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Terima" }));
+    await screen.findByText("Terima undangan?");
+    const confirmButtons = screen.getAllByRole("button", { name: "Terima" });
+    fireEvent.click(confirmButtons[confirmButtons.length - 1]!);
+
+    expect(
+      await screen.findByText(
+        "Status tepercaya akun pengundang dicabut staf Lombakita, jadi undangan sebagai pemilik atau staf ini tidak dapat diterima. Minta pemilik atau staf lain di ruang kerja itu mengirim undangan baru, atau hubungi staf Lombakita.",
+      ),
+    ).toBeTruthy();
+    const [requestedUrl] = fetchMock.mock.calls[0] as unknown[];
+    expect(requestedUrl).toBe("/api/v1/me/invitations/institution/inv-1/accept");
+  });
+});

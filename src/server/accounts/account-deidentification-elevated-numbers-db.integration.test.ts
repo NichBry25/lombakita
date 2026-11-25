@@ -3,11 +3,13 @@
 // Which host sign-up numbers a deletion clears, against a real Postgres: every sign-up of an
 // elevated account, the approved ones of any other (DEC-0274).
 //
-// Every row is built through the production writers, so the guard under test runs on what those
-// writers really store: the sign-up through `submitRecruiterVerification`, a rejection through
-// `reviewRecruiterVerification`, the raise through `elevateRecruiterTier` and each contact through
-// `setCompetitionOrganizerContactForEditor`. Only users, institutions, memberships and competitions
-// are inserted, because no writer creates them in a shape these tests need.
+// Every row that a writer still exists for is built through it: the raise through
+// `elevateRecruiterTier` and each contact through `setCompetitionOrganizerContactForEditor`. The
+// sign-up rows are planted. The rejected and draft rows stand for older host requests, which no path
+// writes any more, and the pending row is a host check on the host's own draft, planted because the
+// press that opens one needs a publishable draft this file does not build. The raise closes that
+// check as approved. Users, institutions, memberships and competitions are inserted, because no
+// writer creates them in a shape these tests need.
 //
 // Nothing commits. Each test runs in a transaction that is always rolled back, and the action is
 // handed a shim whose `transaction` opens a savepoint on that connection, as in
@@ -49,11 +51,6 @@ import {
 } from "@/server/accounts/account-deidentification-service";
 import type { Database } from "@/server/db/client";
 import { setCompetitionOrganizerContactForEditor } from "@/server/competitions/competition-organizer-contact-service";
-import {
-  reviewRecruiterVerification,
-  submitRecruiterVerification,
-  withdrawRecruiterVerification,
-} from "@/server/recruiter-verification/recruiter-verification-service";
 import { elevateRecruiterTier } from "@/server/recruiter-tier/recruiter-tier-service";
 
 const client = TEST_DATABASE_URL ? postgres(TEST_DATABASE_URL, { max: 1 }) : null;
@@ -178,22 +175,18 @@ const fileSignup = async (
   operatorId: string,
   status: SignupStatus,
   mobileNumber: string,
+  competitionId: string,
 ): Promise<void> => {
-  const submission = await submitRecruiterVerification(
-    host.id,
-    { fullName: "Penyelenggara Uji", mobileNumber, corporateEmail: null },
-    asDatabase(tx),
-  );
-
-  if (status === "rejected") {
-    await reviewRecruiterVerification(operatorId, submission.id, "reject", "nomor tidak cocok", {
-      db: asDatabase(tx),
-    });
-  }
-
-  if (status === "draft") {
-    await withdrawRecruiterVerification(host.id, asDatabase(tx));
-  }
+  await tx.insert(recruiterVerificationSubmissions).values({
+    userId: host.id,
+    fullName: "Penyelenggara Uji",
+    mobileNumber,
+    status,
+    competitionId: status === "pending_review" ? competitionId : null,
+    ...(status === "rejected"
+      ? { reviewerUserId: operatorId, reviewedAt: new Date(), rejectionReason: "nomor tidak cocok" }
+      : {}),
+  });
 };
 
 const setContactThroughEditor = async (
@@ -240,7 +233,7 @@ const buildScenario = async (
 
   const hostNumber = newNationalNumber();
   const unrelatedNumber = newNationalNumber();
-  await fileSignup(tx, host, operatorId, status, typedAsSignup(hostNumber));
+  await fileSignup(tx, host, operatorId, status, typedAsSignup(hostNumber), ownCompetition);
 
   if (raiseToElevated) {
     await elevateRecruiterTier(operatorId, host.id, asDatabase(tx));
@@ -333,7 +326,7 @@ describe.skipIf(skipWithoutDatabase)("the sign-up numbers a deletion clears, rea
 
           expect(before).toEqual({
             tier: "elevated",
-            signups: [status],
+            signups: [status === "pending_review" ? "approved" : status],
             own: { kind: "whatsapp", value: storedAsDial(scenario.hostNumber) },
             other: { kind: "phone", value: storedAsDial(scenario.hostNumber) },
           });

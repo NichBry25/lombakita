@@ -248,7 +248,7 @@ const assertRoleGrantNotByRemovedHost = async (
   newRole: InstitutionMembershipRole,
   db: Database,
 ): Promise<void> => {
-  if (!MEMBER_ROLES.includes(newRole)) return;
+  if (newRole === "institution_member") return;
   const trustRemoved = await isHostTrustRemoved(actorUserId, db);
   if (!trustRemoved) return;
   throw new MemberError(

@@ -28,14 +28,13 @@ const databaseUrl = resolveSeedDatabaseUrl(
 
 /** Loaded after the environment is read; see the note in `seed-test-matrix.ts`. */
 const loadApplicationServices = async () => {
-  const [factorService, totp, base32, review, dbClient, queue, r2] = await Promise.all([
+  const [factorService, totp, base32, hostCheckDecision, dbClient, queue] = await Promise.all([
     import("@/server/auth/mfa/factor-service"),
     import("@/server/auth/mfa/totp"),
     import("@/server/auth/mfa/base32"),
-    import("@/server/recruiter-verification/recruiter-verification-service"),
+    import("@/server/host-trust/host-check-decision-service"),
     import("@/server/db/client"),
     import("@/server/async/queue"),
-    import("@/server/storage/r2.client"),
   ]);
 
   return {
@@ -43,33 +42,10 @@ const loadApplicationServices = async () => {
     confirmMfaEnrolment: factorService.confirmMfaEnrolment,
     generateTotpCode: totp.generateTotpCode,
     base32Decode: base32.base32Decode,
-    reviewRecruiterVerification: review.reviewRecruiterVerification,
+    decideHostCheck: hostCheckDecision.decideHostCheck,
     closeDbConnection: dbClient.closeDbConnection,
     closeAsyncQueueConnections: queue.closeAsyncQueueConnections,
-    isR2Available: r2.isR2Available,
   };
-};
-
-/**
- * Says out loud which object store the reviews below will reach.
- *
- * A review sweeps the submission's own R2 prefix post-commit, deleting objects no row references.
- * NO GUARD LAYER SEES R2: the disposability check reads the database's identity and the
- * environment, and the deploy gate declares no canonical bucket per environment to compare
- * `R2_BUCKET` against, so nothing here can refuse a production bucket in a local `.env.local`. Until
- * that identity exists (LAUNCH-D71), the honest thing is to name the target at every run rather
- * than sweep it silently.
- */
-const discloseObjectStoreReach = (isR2Available: () => boolean): void => {
-  if (!isR2Available()) {
-    console.log("  object store: not configured; the post-review sweep is a no-op");
-    return;
-  }
-
-  console.log(
-    `  object store: bucket "${process.env.R2_BUCKET}" at ${process.env.R2_ENDPOINT}. The ` +
-      "post-review sweep WILL reach it, and no guard checks which bucket that is",
-  );
 };
 
 const assertMatrixSeedHasRun = async (sql: import("postgres").Sql): Promise<void> => {
@@ -94,7 +70,6 @@ const main = async (): Promise<void> => {
     await assertSeedTargetIsDisposable(sql, databaseUrl);
     console.log("  target is disposable; seeding operator accounts");
 
-    discloseObjectStoreReach(services.isR2Available);
     await assertMatrixSeedHasRun(sql);
 
     const hundredDaysAgo = new Date(Date.now() - 100 * 24 * 60 * 60 * 1000);

@@ -213,7 +213,7 @@ export const requirePaymentInstructions = async (
 // Throws PaymentInstructionsError 403 payment_instructions_blocked_trust_removed.
 const assertPaymentInstructionsSaveNotByRemovedHost = async (
   actorUserId: string,
-  db: Database = getDb(),
+  db: Database,
 ): Promise<void> => {
   const trustRemoved = await isHostTrustRemoved(actorUserId, db);
   if (!trustRemoved) return;

@@ -1432,7 +1432,7 @@ export const r2UploadModules = (root = process.cwd()): string[] => {
 export type R2Prefix = {
   prefix: string;
   scope: "user" | "institution" | "competition" | "registration";
-  /** The module whose presigned PUT writes under this prefix. */
+  /** The module whose presigned PUT writes under this prefix, or that still sweeps a prefix nothing writes. */
   module: string;
   /**
    * Columns holding the exact object key, as `table.column`. Empty when no row records the key, and

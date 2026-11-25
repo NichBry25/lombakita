@@ -120,15 +120,14 @@ export const institutionInvitationStatusEnum = pgEnum("institution_invitation_st
 ]);
 
 // Recruiter verification tier.
-// Per-account tier dimension that refines the recruiter role's capability surface. Auto-granted
-// to `minimal` at recruiter signup; only `platform_ops` can lift an account to `elevated` (manual
-// review at launch — there is no mechanical verification flow). The tier only rises, except
-// that the database allows elevated to minimal inside a transaction that set
-// lombakita.trust_removal to its own transaction id.
-//   unverified — schema default for backfilled rows + non-recruiter accounts. Not reachable
-//                naturally for recruiter signups (signup auto-grants `minimal` atomically).
-//   minimal    — auto-granted on `?as=recruiter` signup. Satisfies the opportunity-creation gate.
-//   elevated   — manually granted by platform_ops via PATCH /api/platform-ops/accounts/[id]/recruiter-tier.
+// Per-account tier dimension that refines the recruiter role's capability surface. The tier only
+// rises, except that the database allows elevated to minimal inside a transaction that set
+// lombakita.trust_removal to its own transaction id (the staff trust removal).
+//   unverified: schema default. Every sign-up starts here, and an account without the host step stays.
+//   minimal:    written by the host step together with recruiter_verified_at. Satisfies the
+//               opportunity-creation gate.
+//   elevated:   a trusted host, by a confirmed Email organisasi or sign-in email on an organisation
+//               domain, a staff approval of a host check, or the staff raise.
 export const recruiterVerificationTierEnum = pgEnum("recruiter_verification_tier", [
   "unverified",
   "minimal",
@@ -256,7 +255,7 @@ export const users = pgTable(
     }),
     // Recruiter tier dimension. Placed on `users` (not a
     // parallel table) so it sits adjacent to the per-role verification timestamps and shares
-    // their lifecycle. Non-null with default `unverified`; recruiter signup writes `minimal`
+    // their lifecycle. Non-null with default `unverified`; the host step writes `minimal`
     // atomically alongside `recruiterVerifiedAt`. See `assertRecruiterTier` for the read path.
     recruiterVerificationTier: recruiterVerificationTierEnum("recruiter_verification_tier")
       .notNull()
@@ -1782,12 +1781,10 @@ export const institutionVerificationDocuments = pgTable(
   (table) => [index("institution_verification_documents_submission_id_idx").on(table.submissionId)],
 );
 
-// Recruiter trust verification — a recruiter account submits a lightweight affiliation form
-// (full name, mobile number, optional corporate email, optional proof documents) reviewed by
-// platform ops. Approval elevates users.recruiter_verification_tier to `elevated` ("Trusted
-// Recruiter"), which gates competition publishing and full-institution creation. The three
-// priority signals (vouched_at, email_domain_flag, document presence) order the review queue
-// only — human review is always the gate.
+// Host checks, and the older host requests they replaced. A host check is a row with competition_id
+// set: the first publish press of a host who is not trusted opens it, and a staff approval trusts
+// the account and publishes that draft. A row with competition_id null is an older host request,
+// kept until the account is deleted. No path opens or approves one any more.
 export const recruiterVerificationSubmissions = pgTable(
   "recruiter_verification_submissions",
   {
@@ -1805,8 +1802,7 @@ export const recruiterVerificationSubmissions = pgTable(
     // true = corporate_email uses a non-personal-provider domain, false = known personal
     // provider (e.g. @gmail.com), NULL = no corporate email declared.
     emailDomainFlag: boolean("email_domain_flag"),
-    // Set when the submitter accepts an owner/staff invitation from an institution that has a
-    // Trusted (elevated-tier) owner — the strongest queue-priority signal.
+    // Not written any more. Rows vouched before host checks replaced host requests keep their value.
     vouchedAt: timestamp("vouched_at", { mode: "date", withTimezone: true }),
     status: verificationSubmissionStatusEnum("status").notNull().default("pending_review"),
     reviewerUserId: text("reviewer_user_id").references(() => users.id, { onDelete: "set null" }),
