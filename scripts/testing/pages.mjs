@@ -278,9 +278,8 @@ export const PAGES = [
     id: "44-verify-role-recruiter",
     as: "candA",
     path: "/auth/verify-role?as=recruiter",
-    label: "Second-role verification entry",
+    label: "Host step, Mulai menyelenggarakan kompetisi",
   },
-  { id: "45-verify-tier", as: "candA", path: "/auth/verify-tier", label: "Tier verification stub" },
   { id: "46-post-login", as: "candA", path: "/auth/post-login", label: "Post-login forwarder" },
   {
     id: "47-candidate-on-institution",
@@ -511,7 +510,7 @@ export const PAGES = [
     id: "71-recruiter-dashboard-min",
     as: "recMin",
     path: "/recruiter-dashboard",
-    label: "Recruiter dashboard — minimal tier, pending review",
+    label: "Host dashboard, a host check waiting on its draft",
   },
   {
     id: "72-personal-institution-board",
@@ -535,13 +534,13 @@ export const PAGES = [
     id: "75-recruiter-dashboard-rejected",
     as: "recRej",
     path: "/recruiter-dashboard",
-    label: "Recruiter dashboard — verification rejected + reason",
+    label: "Host dashboard, not trusted after a staff turn-down",
   },
   {
     id: "76-recruiter-dashboard-draft",
     as: "recDraft",
     path: "/recruiter-dashboard",
-    label: "Recruiter dashboard — withdrawn draft warning",
+    label: "Host dashboard, not trusted, with the Email organisasi field",
   },
   {
     id: "77-inbox-recruiter-invite",
@@ -593,12 +592,6 @@ export const PAGES = [
     as: "ops",
     path: "/admin/featured",
     label: "Featured placement controls",
-  },
-  {
-    id: "85-admin-recruiter-verification",
-    as: "ops",
-    path: "/admin/recruiter-verification",
-    label: "Recruiter verification queue",
   },
   {
     id: "85b-admin-host-checks",

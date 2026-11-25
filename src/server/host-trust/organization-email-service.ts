@@ -28,7 +28,7 @@ import { hostOrganizationEmails, organizationEmailChallenges, users } from "@/se
 import {
   extractEmailDomain,
   holdsOnlyPrintableAscii,
-  isFreeOrThrowawayEmailDomain,
+  isNeverOrganizationEmailDomain,
   organizationDomainOf,
 } from "@/server/host-trust/email-domain";
 import {
@@ -88,7 +88,7 @@ const readOrganizationEmailDomainOrRefuse = (email: string): string => {
     throw new OrganizationEmailError("organization_email_invalid", 400, INVALID_EMAIL_MESSAGE);
   }
 
-  if (isFreeOrThrowawayEmailDomain(domain)) {
+  if (isNeverOrganizationEmailDomain(domain)) {
     throw new OrganizationEmailError("organization_email_free_domain", 422, FREE_DOMAIN_MESSAGE);
   }
   return domain;

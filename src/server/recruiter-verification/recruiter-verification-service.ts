@@ -2,7 +2,7 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/recruiter-verification/recruiter-verification-service");
 
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { logger } from "@/lib/logger";
 import { getDb, type Database } from "@/server/db/client";
 import {
@@ -15,16 +15,17 @@ import { deleteObject, isR2Available, listObjects } from "@/server/storage/r2.cl
 // nothing uploads new ones. What remains here is the sweep of the objects under a request's prefix
 // that no document row names.
 
-// The window the request form gave a presigned PUT. A sweep that respects age leaves an object
-// younger than this alone.
+// The window an older host request's presigned PUT was valid for. A sweep that respects age leaves
+// an object younger than this alone.
 const PRESIGNED_UPLOAD_EXPIRY_SECONDS = 300;
 
-// The statuses in which the request form let the account change its documents, so the only ones
+// The statuses in which an older host request could still change its documents, so the only ones
 // whose prefix can hold an object no row names.
 const EDITABLE_SUBMISSION_STATUSES = ["draft", "rejected"] as const;
 
-// The account's request whose objects the account sweep reads: a draft wins over a rejected row, and
-// among rejected rows the most recent wins. Null when the account has none.
+// The account's older host request whose objects the account sweep reads: a draft wins over a
+// rejected row, and among rejected rows the most recent wins. A host check names its draft and is
+// never chosen, because only older host requests held uploads. Null when the account has none.
 const findEditableSubmissionIdForUser = async (
   userId: string,
   db: Database,
@@ -36,6 +37,7 @@ const findEditableSubmissionIdForUser = async (
       and(
         eq(recruiterVerificationSubmissions.userId, userId),
         inArray(recruiterVerificationSubmissions.status, [...EDITABLE_SUBMISSION_STATUSES]),
+        isNull(recruiterVerificationSubmissions.competitionId),
       ),
     )
     .orderBy(

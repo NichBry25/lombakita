@@ -6,6 +6,7 @@ import {
   extractEmailDomain,
   holdsOnlyPrintableAscii,
   isFreeOrThrowawayEmailDomain,
+  isNeverOrganizationEmailDomain,
   organizationDomainOf,
 } from "./email-domain";
 import { PERSONAL_EMAIL_DOMAINS } from "@/server/institution-verification/verification-requirements";
@@ -118,6 +119,21 @@ describe("email domains", () => {
     expect(isFreeOrThrowawayEmailDomain("ui.ac.id")).toBe(false);
     expect(isFreeOrThrowawayEmailDomain("co.id")).toBe(false);
     expect(isFreeOrThrowawayEmailDomain("gmail.com.acme.example")).toBe(false);
+  });
+
+  it.each(["seed.lombakita.local", "x.invalid", "intranet.localhost"])(
+    "never reads %s as an organization domain",
+    (domain) => {
+      expect(isNeverOrganizationEmailDomain(domain)).toBe(true);
+      expect(isFreeOrThrowawayEmailDomain(domain)).toBe(false);
+    },
+  );
+
+  it("still reads a domain under example or test as an organization domain", () => {
+    expect(isNeverOrganizationEmailDomain("acme.example")).toBe(false);
+    expect(isNeverOrganizationEmailDomain("example.test")).toBe(false);
+    expect(isNeverOrganizationEmailDomain("gmail.com")).toBe(true);
+    expect(isNeverOrganizationEmailDomain("Seed.Lombakita.LOCAL")).toBe(true);
   });
 
   it("holds the vendored list as unique lower-case domains", () => {

@@ -46,8 +46,8 @@ export class RecruiterTierElevationError extends Error {
 // so route tests can pin against the same value the implementation uses.
 export const ELEVATION_TARGET_TIER: RecruiterVerificationTier = "elevated";
 
-// Audit event type for a manual elevation, distinct from `recruiter_verification.approved` so a
-// reader can tell whether the account went through document review or was elevated directly.
+// Audit event type for a manual elevation, distinct from `host_check.approved` so a reader can tell
+// whether staff approved a host check or raised the account directly.
 export const RECRUITER_TIER_ELEVATED_EVENT = "recruiter_tier.elevated";
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
@@ -118,9 +118,9 @@ export const elevateRecruiterTier = async (
   // matches zero rows and reports `changed: false`.
   //
   // The audit row is written in the same transaction as the flip, and only when the flip actually
-  // lands, so the trail records elevations that happened and never one that lost a race. This
-  // manual path carries the same audit weight as an approval through the review queue — the two
-  // routes reach an identical end state and must be equally visible.
+  // lands, so the trail records elevations that happened and never one that lost a race. The raise
+  // carries the same audit weight as a host check approval, because both reach the same tier and
+  // must be equally visible.
   const outcome = await db.transaction(async (tx) => {
     const actor = await resolvePlatformOpsActor(tx, actorUserId);
 
@@ -223,9 +223,8 @@ export const elevateRecruiterTier = async (
     });
   }
 
-  // This manual path bypasses the review flow's terminal orphan sweep, so run it here: reclaim any
-  // upload the account left behind on its still-pending submission. Best-effort — never blocks the
-  // elevation it follows.
+  // Reclaims any upload an older host request of this account left with no document row. Best
+  // effort, never blocks the elevation it follows.
   await sweepOrphanedObjectsForAccount(accountId, db);
 
   return { accountId, tier: ELEVATION_TARGET_TIER, changed: true };

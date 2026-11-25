@@ -215,7 +215,7 @@ const main = async (): Promise<void> => {
         username: "seed_rec_elev",
         candAt: null,
         recAt: d(-90),
-        // `minimal`, which is what recruiter signup actually writes, NOT the `elevated` this row
+        // `minimal`, which is what the host step actually writes, NOT the `elevated` this row
         // used to claim. Elevation is not a column a recruiter is created holding; it is an act
         // platform ops perform and it writes an audit row. This account reaches `elevated` when
         // the operator seed (`npm run db:seed:operators`) approves the host check `seed-rvs-elev`
@@ -1068,7 +1068,7 @@ const main = async (): Promise<void> => {
         slug: "seed-personal-draft",
         title: "Kuis Spesial Rina (Draf)",
         description:
-          "Draf lengkap siap terbit — uji otomatis: publish HARUS ditolak (tier minimal).",
+          "Draf lengkap siap terbit (data uji): pemeriksaan penyelenggaranya menunggu staf.",
         status: "draft",
         category: "quiz",
         mode: "individual",
@@ -1914,6 +1914,8 @@ const main = async (): Promise<void> => {
       reviewer: string | null;
       competition?: string;
     };
+    // A host check names its draft. The rows with no draft are older host requests, written closed
+    // the way migration 0071 leaves them, because a migrated database holds no open one.
     const rvs: RvsSeed[] = [
       {
         id: "seed-rvs-min",
@@ -1931,6 +1933,24 @@ const main = async (): Promise<void> => {
         submittedAt: d(-2),
         reviewedAt: null,
         reviewer: null,
+        competition: "seed-comp-personal-draft",
+      },
+      {
+        id: "seed-rvs-min-old",
+        user: "seed-user-rec-min",
+        fullName: "Rina Wijaya",
+        mobile: "+6281200001111",
+        corporateEmail: null,
+        emailFlag: null,
+        vouchedAt: null,
+        status: "rejected",
+        rejectionReason: "Ditutup karena alur penyelenggara berubah.",
+        resubAllowed: false,
+        resubCount: 0,
+        firstAt: d(-30),
+        submittedAt: d(-30),
+        reviewedAt: d(0),
+        reviewer: null,
       },
       {
         id: "seed-rvs-dual",
@@ -1940,13 +1960,13 @@ const main = async (): Promise<void> => {
         corporateEmail: "dina@seedcorp.example",
         emailFlag: true,
         vouchedAt: d(-1),
-        status: "pending_review",
-        rejectionReason: null,
-        resubAllowed: true,
+        status: "rejected",
+        rejectionReason: "Ditutup karena alur penyelenggara berubah.",
+        resubAllowed: false,
         resubCount: 0,
         firstAt: d(-1),
         submittedAt: d(-1),
-        reviewedAt: null,
+        reviewedAt: d(0),
         reviewer: null,
       },
       {
@@ -1993,13 +2013,13 @@ const main = async (): Promise<void> => {
         corporateEmail: null,
         emailFlag: null,
         vouchedAt: null,
-        status: "draft",
-        rejectionReason: null,
-        resubAllowed: true,
+        status: "rejected",
+        rejectionReason: "Ditutup karena alur penyelenggara berubah.",
+        resubAllowed: false,
         resubCount: 0,
         firstAt: d(-8),
         submittedAt: d(-8),
-        reviewedAt: null,
+        reviewedAt: d(0),
         reviewer: null,
       },
     ];
@@ -2027,10 +2047,10 @@ const main = async (): Promise<void> => {
     await sql`
       INSERT INTO recruiter_verification_documents (id, submission_id, r2_key, original_file_name,
         file_size_bytes, content_type)
-      VALUES ('seed-rvd-1', 'seed-rvs-min',
-        'recruiter-verification/seed-user-rec-min/seed-rvs-min/seed-file',
+      VALUES ('seed-rvd-1', 'seed-rvs-min-old',
+        'recruiter-verification/seed-user-rec-min/seed-rvs-min-old/seed-file',
         'surat-keterangan-kerja.pdf', 145678, 'application/pdf')
-      ON CONFLICT (id) DO NOTHING
+      ON CONFLICT (id) DO UPDATE SET submission_id = EXCLUDED.submission_id, r2_key = EXCLUDED.r2_key
     `;
 
     // ------------------------------ institution verification submissions

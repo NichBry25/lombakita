@@ -97,7 +97,10 @@ const main = async () => {
     await page.fill("#auth-email", "calon.baru@seed.lombakita.local");
     await page.fill("#auth-password", PASSWORD);
     await clickText(page, "Lanjut");
-    await capture("role-picker", "unknown email → name + role picker (signup branch)");
+    await capture(
+      "signup-form",
+      "unknown email → sign-up form with no role question (signup branch)",
+    );
   });
 
   await runFlow(browser, "login-wrong-password", null, async (page, capture) => {
@@ -194,24 +197,28 @@ const main = async () => {
   });
 
   // ---------------------------------------------------------------- recruiter flows
-  await runFlow(browser, "publish-blocked-minimal", "recMin", async (page, capture) => {
+  // seed-rvs-min waits on this draft, so the control reads Sedang diperiksa and offers no press. A
+  // draft with no open check offers Kirim untuk diperiksa, and a trusted account Terbitkan.
+  await runFlow(browser, "host-check-press", "recMin", async (page, capture) => {
     await visit(page, "/recruiter-dashboard");
-    await capture("dashboard-minimal", "minimal-tier recruiter dashboard: pending trust review");
+    await capture(
+      "dashboard-pending",
+      "host dashboard: Status penyelenggara names the draft waiting for its host check",
+    );
     await visit(page, "/institution/seed-rec-min/competitions/seed-personal-draft");
-    await capture("draft-detail", "complete draft under a personal institution");
-    const publish = page.getByRole("button", { name: /^terbitkan$/i }).first();
-    if (await publish.count()) {
-      await publish.click();
+    await capture("draft-detail", "the draft its host check names, with the control it offers");
+    const sendForCheck = page.getByRole("button", { name: "Kirim untuk diperiksa", exact: true });
+    const publish = page.getByRole("button", { name: "Terbitkan", exact: true });
+    const press = (await sendForCheck.count()) > 0 ? sendForCheck.first() : publish.first();
+    if (await press.count()) {
+      await press.click();
       await page.waitForTimeout(800);
       await capture(
-        "publish-attempt",
-        "reaction to publishing without Trusted status (should refuse)",
+        "after-press",
+        "reaction to the press: a host check opens, or the account publishes",
       );
     } else {
-      await capture(
-        "publish-control-absent",
-        "publish control not offered to a minimal-tier recruiter",
-      );
+      await capture("press-withheld", "no press offered: this draft's host check is waiting");
     }
   });
 
@@ -281,15 +288,15 @@ const main = async () => {
   });
 
   // ---------------------------------------------------------------- ops flows
-  await runFlow(browser, "ops-recruiter-verification", "ops", async (page, capture) => {
-    await visit(page, "/admin/recruiter-verification");
-    await capture("queue", "recruiter verification queue: pending + rejected, docs, attempt count");
-    const reject = page.getByRole("button", { name: /tolak/i }).first();
-    if (await reject.count()) {
-      await reject.click();
+  await runFlow(browser, "ops-host-checks", "ops", async (page, capture) => {
+    await visit(page, "/admin/host-checks");
+    await capture("queue", "staff host check queue: host name, phone, email and the draft");
+    const turnDown = page.getByRole("button", { name: "Tolak", exact: true }).first();
+    if (await turnDown.count()) {
+      await turnDown.click();
       await capture(
-        "reject-modal",
-        "reject modal with reason + 'allow resubmission' default-checked",
+        "turn-down-dialog",
+        "turn-down dialog: Pedoman yang tidak dipenuhi and a required Catatan untuk penyelenggara",
       );
     }
   });

@@ -6,7 +6,7 @@ import { hostOrganizationEmails, users } from "@/server/db/schema";
 import {
   extractEmailDomain,
   holdsOnlyPrintableAscii,
-  isFreeOrThrowawayEmailDomain,
+  isNeverOrganizationEmailDomain,
 } from "@/server/host-trust/email-domain";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
@@ -57,7 +57,7 @@ const holdsConfirmedSignInEmailOnOrganizationDomain = async (
   if (!holdsOnlyPrintableAscii(signInEmail)) return false;
 
   const domain = extractEmailDomain(signInEmail);
-  if (domain === null || isFreeOrThrowawayEmailDomain(domain)) return false;
+  if (domain === null || isNeverOrganizationEmailDomain(domain)) return false;
 
   // Recording the address needs this account's own row free and the address held by no one, so a
   // row of either kind means trustHostInTransaction could not record it.

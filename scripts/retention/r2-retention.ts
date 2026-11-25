@@ -426,8 +426,8 @@ const main = async (): Promise<void> => {
     `REC-R01  age-guarded sweep keeps a fresh orphan — upload window still open (got ${afterAgeGuarded.length})`,
   );
 
-  // Terminal sweep: the review has happened, nothing more is coming, so an unreferenced object is
-  // unambiguously abandoned.
+  // Without the age guard, as for a request that can receive no more uploads: an unreferenced
+  // object is abandoned whatever its age.
   await sweepOrphanedSubmissionObjects(
     recruiterId,
     verificationSubmission.id,

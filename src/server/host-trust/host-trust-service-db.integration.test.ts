@@ -376,6 +376,18 @@ describe.skipIf(skipWithoutDatabase)("host trust (real database)", () => {
       });
     });
 
+    it("does not trust a host whose sign-in email is under .local, as every seed account's is", async () => {
+      await inRollback(async (tx) => {
+        const userId = await signUpLegacyHost(tx, "budi.host@seed.lombakita.local");
+
+        expect(await resolveAutomaticTrustSource(tx, userId)).toBeNull();
+        expect(await trustHostInTransaction(tx, userId)).toBeNull();
+
+        expect(await tierOf(tx, userId)).toBe("minimal");
+        expect(await organizationEmailRowsOf(tx, userId)).toEqual([]);
+      });
+    });
+
     it("trusts a host by its Email organisasi when its sign-in email is free", async () => {
       await inRollback(async (tx) => {
         const userId = await signUpHost(tx, "rina.free@gmail.com");
@@ -745,6 +757,28 @@ describe.skipIf(skipWithoutDatabase)("host trust (real database)", () => {
         expect(await recruiterVerifiedAtOf(tx, userId)).toBeInstanceOf(Date);
         expect(await organizationEmailRowsOf(tx, userId)).toEqual([]);
         expect(await hostRequestRowsOf(tx, userId)).toEqual([]);
+      });
+    });
+
+    it("keeps a participant whose sign-in email is under .local untrusted at the host step", async () => {
+      await inRollback(async (tx) => {
+        const userId = await signUpParticipant(tx, "rina.host@seed.lombakita.local");
+
+        const response = await takeHostStepThroughRoute(
+          tx,
+          userId,
+          "rina.host@seed.lombakita.local",
+        );
+
+        expect(response.status).toBe(200);
+        expect(await response.json()).toEqual({
+          verified: "recruiter",
+          redirectTo: dashboardPathForRole("recruiter"),
+          hostTrusted: false,
+        });
+        expect(await tierOf(tx, userId)).toBe("minimal");
+        expect(await recruiterVerifiedAtOf(tx, userId)).toBeInstanceOf(Date);
+        expect(await organizationEmailRowsOf(tx, userId)).toEqual([]);
       });
     });
 

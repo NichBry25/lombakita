@@ -1708,8 +1708,8 @@ export type NotificationRecord = typeof notifications.$inferSelect;
 // An institution owner submits identity documents to platform ops for review. On approval,
 // verification_status transitions to verified; on upgrade (personal → full), the type flip and
 // display_name persistence happen in the same transaction.
-// `draft` is used by recruiter verification only: a submission the applicant has withdrawn from
-// the review queue in order to revise it. Institution verification never writes it.
+// `draft` stays for older host request rows. No path writes it, and institution verification never
+// writes it.
 export const verificationSubmissionStatusEnum = pgEnum("verification_submission_status", [
   "draft",
   "pending_review",
@@ -1796,8 +1796,7 @@ export const recruiterVerificationSubmissions = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     fullName: text("full_name").notNull(),
     mobileNumber: text("mobile_number").notNull(),
-    // Optional declared work email — may differ from the login email. Ownership is NOT proven
-    // at MVP; it informs email_domain_flag and admin cross-checking only.
+    // The work email an older host request declared, never proven. No path writes it any more.
     corporateEmail: text("corporate_email"),
     // true = corporate_email uses a non-personal-provider domain, false = known personal
     // provider (e.g. @gmail.com), NULL = no corporate email declared.
@@ -1806,25 +1805,21 @@ export const recruiterVerificationSubmissions = pgTable(
     vouchedAt: timestamp("vouched_at", { mode: "date", withTimezone: true }),
     status: verificationSubmissionStatusEnum("status").notNull().default("pending_review"),
     reviewerUserId: text("reviewer_user_id").references(() => users.id, { onDelete: "set null" }),
-    // Reason for the most recent rejection. Retained across a reopen so the reviewer of a
-    // resubmission can see what the previous verdict objected to.
+    // The staff note of a turned-down host check, or the reason a row was closed without a staff
+    // decision.
     rejectionReason: text("rejection_reason"),
-    // Whether the recruiter may reopen this submission after a rejection. Set by the reviewer at
-    // rejection time and reversible from the platform-ops queue.
+    // Whether an older host request could be reopened after a rejection. A host check never reopens,
+    // so every close and staff decision writes false.
     resubmissionAllowed: boolean("resubmission_allowed").notNull().default(true),
-    // How many times the recruiter has reopened this submission after a rejection. 0 = the account
-    // has never been rejected; the review queue reads it to distinguish a first application from a
-    // resubmission.
+    // How many times an older host request was reopened after a rejection. No path writes it any
+    // more.
     resubmissionCount: integer("resubmission_count").notNull().default(0),
-    // When this account FIRST entered the review queue. Written once at creation and never
-    // touched again — this is what the queue orders by, so revising and resending does not cost
-    // the applicant their place in line.
+    // When the row was first sent. The staff queue orders by submitted_at, not by this.
     firstSubmittedAt: timestamp("first_submitted_at", { mode: "date", withTimezone: true })
       .defaultNow()
       .notNull(),
-    // When the submission was most recently sent for review. Bumped on every withdraw-resubmit and
-    // every reopen-after-rejection, so a reviewer can see how fresh the current attempt is. It does
-    // NOT affect queue order.
+    // When the row was last sent: the publish press that opened a host check, or the last send of an
+    // older host request. The staff queue orders host checks by it, oldest first.
     submittedAt: timestamp("submitted_at", { mode: "date", withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -1836,9 +1831,8 @@ export const recruiterVerificationSubmissions = pgTable(
   },
   (table) => [
     index("recruiter_verification_submissions_user_id_idx").on(table.userId),
-    // At most one OPEN submission per account, where open means awaiting review or withdrawn for
-    // revision. Covering both prevents an account holding a draft and a queued submission at once.
-    // rejected/approved history rows are unaffected.
+    // At most one open row per account: an open host check, or an older host request that a publish
+    // press has not closed yet. Rejected and approved rows are unaffected.
     uniqueIndex("recruiter_verification_submissions_user_pending_unique_idx")
       .on(table.userId)
       .where(sql`${table.status} in ('draft', 'pending_review')`),
@@ -1849,9 +1843,8 @@ export const recruiterVerificationSubmissions = pgTable(
   ],
 );
 
-// Optional affiliation-proof files attached to a recruiter verification submission. Free-form
-// evidence (employment letter, staff ID, etc.) — no per-type requirements; original_file_name
-// is the reviewer-facing label.
+// Proof files of older host requests. Nothing uploads new ones, and they stay until the account is
+// deleted.
 export const recruiterVerificationDocuments = pgTable(
   "recruiter_verification_documents",
   {

@@ -392,13 +392,70 @@ const main = async (): Promise<void> => {
     );
   };
 
+  // What the cleanup left, counted by the ids this run created. A delete that removed less than it
+  // should then fails the run instead of leaving rows on the database unannounced.
+  const assertFixturesRemoved = async (): Promise<void> => {
+    if (createdUserIds.length === 0 && createdInstitutionIds.length === 0) return;
+
+    const survivors = oneRow(
+      await client<
+        {
+          users: number;
+          institutions: number;
+          memberships: number;
+          competitions: number;
+          host_checks: number;
+          institution_submissions: number;
+          audit_rows: number;
+        }[]
+      >`
+        SELECT
+          (SELECT count(*) FROM users WHERE id = ANY(${client.array(createdUserIds)}))::int AS users,
+          (SELECT count(*) FROM institutions WHERE id = ANY(${client.array(createdInstitutionIds)}))::int AS institutions,
+          (SELECT count(*) FROM institution_memberships WHERE user_id = ANY(${client.array(createdUserIds)}) OR institution_id = ANY(${client.array(createdInstitutionIds)}))::int AS memberships,
+          (SELECT count(*) FROM competitions WHERE institution_id = ANY(${client.array(createdInstitutionIds)}))::int AS competitions,
+          (SELECT count(*) FROM recruiter_verification_submissions WHERE user_id = ANY(${client.array(createdUserIds)}))::int AS host_checks,
+          (SELECT count(*) FROM institution_verification_submissions WHERE institution_id = ANY(${client.array(createdInstitutionIds)}))::int AS institution_submissions,
+          (SELECT count(*) FROM platform_ops_audit_logs WHERE actor_user_id = ANY(${client.array(createdUserIds)}) OR target_user_id = ANY(${client.array(createdUserIds)}))::int AS audit_rows
+      `,
+      "survivors",
+    );
+    const survivorCounts = Object.entries(survivors);
+    const total = survivorCounts.reduce((sum, [, count]) => sum + count, 0);
+    const listed = survivorCounts.map(([table, count]) => `${table} ${count}`).join(", ");
+    check(
+      total === 0,
+      `every fixture row this run seeded is removed on exit${total === 0 ? "" : `: ${total} survived (${listed})`}`,
+    );
+  };
+
+  // finally does not run on a signal, so an interrupted run would leave its rows behind. SIGINT and
+  // SIGTERM are caught here. SIGKILL cannot be.
+  const handleSignal = (signal: NodeJS.Signals, exitCode: number): void => {
+    process.once(signal, () => {
+      console.log(`\n${signal} received, removing fixtures before exit`);
+      void cleanup()
+        .catch((error) => console.error("cleanup after signal failed:", error))
+        .finally(() => {
+          void client.end().finally(() => process.exit(exitCode));
+        });
+    });
+  };
+
+  handleSignal("SIGINT", 130);
+  handleSignal("SIGTERM", 143);
+
   try {
     await assertReadCommitted(client);
     await runInstitutionRevokeVersusApprove();
     await runApproveVersusTurnDown();
   } finally {
-    await cleanup();
-    await client.end();
+    try {
+      await cleanup();
+    } finally {
+      await assertFixturesRemoved();
+      await client.end();
+    }
   }
 
   finish(failureCount(), "INST-VERIF-T2 + HOST-CHECK-T2");

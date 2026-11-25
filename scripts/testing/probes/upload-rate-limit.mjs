@@ -1,7 +1,7 @@
 /*
  * Rule 36 probes for MANUAL-D57, the shared presigned-upload budget.
  *
- * Twelve entry points mint presigned PUT URLs into this platform's R2 bucket, and the budget is one
+ * Eleven entry points mint presigned PUT URLs into this platform's R2 bucket, and the budget is one
  * counter across all of them. The limiter is a function call at the top of a request handler, and
  * the harm it exists to prevent is a URL being handed out — so there are two ways for it to be
  * wrong while everything still looks right:
@@ -14,10 +14,10 @@
  *
  * CLASS C — route gates. The detector is that the SERVICE IS NOT CALLED, never the status alone.
  *
- * THREE GUARD LOCATIONS, BOTH DIRECTIONS EACH, WHICH IS SIX PROBES. The eight call sites are three
- * shapes: six direct routes (one shape, five copies) and two wrappers (`runOwnedUploadUrl` in
+ * THREE GUARD LOCATIONS, BOTH DIRECTIONS EACH, WHICH IS SIX PROBES. The seven call sites are three
+ * shapes: five direct routes (one shape, four copies) and two wrappers (`runOwnedUploadUrl` in
  * profile-file-http.ts and institution-media-http.ts, each serving several routes). Each guard
- * location is probed directly; that every one of the twelve CALL SITES carries the call, and
+ * location is probed directly; that every one of the eleven CALL SITES carries the call, and
  * carries it before its own presign, is asserted mechanically over the whole table by
  * src/server/storage/upload-rate-limit-wiring.test.ts, which names the entry point that broke.
  *
@@ -59,7 +59,7 @@ const AVATAR_TEST = "src/app/api/v1/users/me/profile/uploads/avatar/upload-url/r
 const LOGO_TEST =
   "src/app/api/v1/institutions/[institutionSlug]/profile/logo/upload-url/route.test.ts";
 
-/** The guard block as each of the six direct routes writes it. */
+/** The guard block as each of the five direct routes writes it. */
 const GUARD = `    const limited = await assertUploadUrlAllowed(session.user.id);
     if (limited) return limited;
 
@@ -109,7 +109,7 @@ const REACHED_MINT = /× .*does not mint an upload URL for a request the budget 
 
 /**
  * The same direct route read as SOURCE rather than exercised as behaviour, which is what makes the
- * wiring scan non-vacuous. Only this file's two rows of the twelve-entry table can fail from a
+ * wiring scan non-vacuous. Only this file's two rows of the eleven-entry table can fail from a
  * mutation applied here, so each detector names the case it expects rather than accepting any red.
  *
  * The quotes are load-bearing. vitest wraps an `it.each` case's interpolated `$name` in single

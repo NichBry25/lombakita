@@ -349,6 +349,19 @@ describe.skipIf(skipWithoutDatabase)("Email organisasi code (real database)", ()
       });
     });
 
+    it("refuses an address under .local as no organization's and writes nothing", async () => {
+      await inRollback(async (tx) => {
+        const accountA = await signUpParticipant(tx, "rina.peserta@acme.example");
+
+        const refusal = await refusalOf(issue(tx, accountA, "humas@kampus.local"));
+
+        expect(refusal.code).toBe("organization_email_free_domain");
+        expect(refusal.status).toBe(422);
+        expect(await challengeRowsOf(tx, accountA)).toEqual([]);
+        expect(mocks.organizationCodes).toEqual([]);
+      });
+    });
+
     it("refuses a second send by the same account to the same address within 60 seconds", async () => {
       await inRollback(async (tx) => {
         const accountA = await signUpParticipant(tx, "rina.peserta@acme.example");

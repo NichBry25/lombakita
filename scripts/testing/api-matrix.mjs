@@ -425,22 +425,48 @@ const main = async () => {
   );
 
   // ---- recruiter / institution scoping ------------------------------------
-  const rvOwn = await apiFetch("/api/v1/recruiter/me/verification", { cookie: sessions.recMin });
+  // The Email organisasi routes. Each refusal comes before any write: a malformed address is refused
+  // by its shape, an operational account by the role gate, and a confirm with no code sent by the
+  // missing challenge.
+  const orgCodeMalformed = await apiFetch("/api/v1/me/organization-email/code", {
+    method: "POST",
+    cookie: sessions.recMin,
+    headers: { "X-Expected-User-Id": USERS.recMin.id },
+    json: { email: "bukan-email" },
+  });
   record(
     "REC-01",
-    "Recruiter sees own verification submission",
-    "200 pending_review",
-    `${rvOwn.status} ${rvOwn.body?.verification?.submission?.status}`,
-    rvOwn.status === 200 && rvOwn.body?.verification?.submission?.status === "pending_review",
+    "Email organisasi code refused for a malformed address",
+    "400 organization_email_invalid",
+    `${orgCodeMalformed.status} ${errorCode(orgCodeMalformed)}`,
+    refusedWith(orgCodeMalformed, 400, "organization_email_invalid"),
   );
 
-  const rvAsCand = await apiFetch("/api/v1/recruiter/me/verification", { cookie: sessions.candA });
+  const orgCodeAsOps = await apiFetch("/api/v1/me/organization-email/code", {
+    method: "POST",
+    cookie: sessions.ops,
+    json: { email: "bukan-email" },
+  });
   record(
     "REC-02",
-    "Recruiter verification refused for candidate",
-    "403",
-    `${rvAsCand.status}`,
-    rvAsCand.status === 403,
+    "Email organisasi code refused for an operational account",
+    "403 forbidden",
+    `${orgCodeAsOps.status} ${errorCode(orgCodeAsOps)}`,
+    refusedWith(orgCodeAsOps, 403, "forbidden"),
+  );
+
+  const orgConfirmNoCode = await apiFetch("/api/v1/me/organization-email/confirm", {
+    method: "POST",
+    cookie: sessions.recDraft,
+    headers: { "X-Expected-User-Id": USERS.recDraft.id },
+    json: { code: "123456" },
+  });
+  record(
+    "REC-03",
+    "Email organisasi confirm refused when no code was sent",
+    "404 organization_email_no_code",
+    `${orgConfirmNoCode.status} ${errorCode(orgConfirmNoCode)}`,
+    refusedWith(orgConfirmNoCode, 404, "organization_email_no_code"),
   );
 
   const compListOwner = await apiFetch(`/api/v1/institutions/${INST.a.slug}/competitions`, {
@@ -595,6 +621,8 @@ const main = async () => {
   );
 
   // publish gates
+  // seed-rvs-min is the open host check of this very draft, so the press answers it again and writes
+  // nothing: a sign-in email under .local trusts no one, and the open row is returned, not inserted.
   const publishMinimal = await apiFetch(
     `/api/v1/institutions/${INST.p.slug}/competitions/${COMP.personalDraft.id}/publish`,
     {
@@ -605,10 +633,10 @@ const main = async () => {
   );
   record(
     "GATE-01",
-    "Publish refused for minimal-tier recruiter (Trusted gate)",
-    "403",
-    `${publishMinimal.status}`,
-    publishMinimal.status === 403,
+    "Publish press of an untrusted host answers the open host check of its draft",
+    "202 seed-rvs-min",
+    `${publishMinimal.status} ${publishMinimal.body?.hostCheck?.id}`,
+    publishMinimal.status === 202 && publishMinimal.body?.hostCheck?.id === "seed-rvs-min",
     bodySnippet(publishMinimal.body).slice(0, 100),
   );
 
@@ -661,39 +689,51 @@ const main = async () => {
   );
 
   // ---- platform ops --------------------------------------------------------
-  const opsQueue = await apiFetch("/api/platform-ops/recruiter-verification/pending", {
+  const opsHostChecks = await apiFetch("/api/platform-ops/host-checks", {
     cookie: sessions.ops,
   });
-  // FULL NAMES, matched whole. "Rina" is a substring of any name containing it, and "Dodi" —
-  // the one that must be ABSENT — would report a leak from any unrelated field that happened to
-  // contain those four letters.
-  const queueHasApplicant = (name) => bodyHasValue(opsQueue.body, name);
+  // FULL NAMES, matched whole. The queue carries each host's name from its host check row.
+  const queueHasHost = (name) => bodyHasValue(opsHostChecks.body, name);
   record(
     "OPS-01",
-    "Recruiter verification queue (pending + rejected visible)",
-    "200 + Rina Wijaya + Raka Nugraha",
-    `${opsQueue.status}`,
-    opsQueue.status === 200 &&
-      queueHasApplicant("Rina Wijaya") &&
-      queueHasApplicant("Raka Nugraha"),
+    "Host check queue lists the open check on a live draft",
+    "200 + Rina Wijaya",
+    `${opsHostChecks.status}`,
+    opsHostChecks.status === 200 && queueHasHost("Rina Wijaya"),
+  );
+  const listedWithoutOpenCheck = ["Dina Kusuma", "Dodi Firmansyah", "Raka Nugraha"].filter(
+    queueHasHost,
   );
   record(
     "OPS-02",
-    "Withdrawn draft invisible to ops queue",
-    "no Dodi Firmansyah",
-    queueHasApplicant("Dodi Firmansyah") ? "Dodi visible" : "hidden",
-    !queueHasApplicant("Dodi Firmansyah"),
+    "Host check queue leaves out older host requests and closed checks",
+    "200 + no Dina Kusuma, Dodi Firmansyah or Raka Nugraha",
+    `${opsHostChecks.status} ${listedWithoutOpenCheck.join(", ") || "none listed"}`,
+    opsHostChecks.status === 200 && listedWithoutOpenCheck.length === 0,
   );
 
-  const opsQueueAsRec = await apiFetch("/api/platform-ops/recruiter-verification/pending", {
+  const opsHostChecksAsRec = await apiFetch("/api/platform-ops/host-checks", {
     cookie: sessions.recElev,
   });
   record(
     "OPS-03",
-    "Ops queue refused for recruiter",
-    "403",
-    `${opsQueueAsRec.status}`,
-    opsQueueAsRec.status === 403,
+    "Host check queue refused for a host",
+    "403 forbidden",
+    `${opsHostChecksAsRec.status} ${errorCode(opsHostChecksAsRec)}`,
+    refusedWith(opsHostChecksAsRec, 403, "forbidden"),
+  );
+
+  const decideAsRec = await apiFetch("/api/platform-ops/host-checks/seed-rvs-min", {
+    method: "POST",
+    cookie: sessions.recElev,
+    json: { decision: "approve" },
+  });
+  record(
+    "OPS-11",
+    "Host check decision refused for a host",
+    "403 forbidden",
+    `${decideAsRec.status} ${errorCode(decideAsRec)}`,
+    refusedWith(decideAsRec, 403, "forbidden"),
   );
 
   const instVerifQueue = await apiFetch("/api/platform-ops/verification/pending", {
@@ -792,9 +832,23 @@ const main = async () => {
       verifyRoleDupNoProfile.body?.error?.code === "role_already_verified",
   );
 
-  // ---- publish checklist (distinct from the tier gate above) ----------------
-  // GATE-01 proves an under-tier recruiter is refused before the checklist runs. This is the other
-  // half: a Trusted recruiter, an incomplete draft, and a refusal that names what is missing.
+  // The host step answers an account that already holds the host role before it writes anything.
+  const hostStepDup = await apiFetch("/api/v1/auth/verify-role", {
+    method: "POST",
+    cookie: sessions.recMin,
+    headers: { "X-Expected-User-Id": USERS.recMin.id },
+    json: { role: "recruiter" },
+  });
+  record(
+    "OPS-12",
+    "Host step refused for an account that already holds the host role",
+    "409 role_already_verified",
+    `${hostStepDup.status} ${errorCode(hostStepDup)}`,
+    refusedWith(hostStepDup, 409, "role_already_verified"),
+  );
+
+  // ---- publish checklist -------------------------------------------------------
+  // A trusted host, an incomplete draft, and a refusal that names what is missing.
   const publishIncomplete = await apiFetch(
     `/api/v1/institutions/${INST.a.slug}/competitions/${COMP.draft.id}/publish`,
     {

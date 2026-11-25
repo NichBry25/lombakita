@@ -259,6 +259,22 @@ describe("acceptInstitutionInvitationForUser — CCR-08 verification gate at acc
     expect(tx.insert).not.toHaveBeenCalled();
   });
 
+  it("names the host step as the next step when a candidate-only account takes a staff invitation", async () => {
+    const tx = makeTx([[baseInvitation({ invitedRole: "institution_staff" })]]);
+    await expect(
+      acceptInstitutionInvitationForUser(
+        INVITATION_ID,
+        TARGET_USER,
+        ["candidate"],
+        makeDb(tx) as never,
+      ),
+    ).rejects.toMatchObject({
+      code: "invitation_role_verification_required",
+      httpStatus: 403,
+      redirectTo: "/auth/verify-role?as=recruiter",
+    });
+  });
+
   it("blocks a candidate-only account from an institution_owner invite", async () => {
     const tx = makeTx([[baseInvitation({ invitedRole: "institution_owner" })]]);
     await expect(

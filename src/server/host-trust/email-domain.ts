@@ -74,6 +74,23 @@ export const isFreeOrThrowawayEmailDomain = (domain: string): boolean => {
   return candidates.some(isListedDomain);
 };
 
+// Last labels no mail can reach, so an address under them can never be shown to be an
+// organisation's. The seed signs every account in under .local. The reserved names example and test
+// stay organisation domains, because test fixtures use them as organisations and no real person
+// receives mail there.
+const UNREACHABLE_LAST_LABELS: ReadonlySet<string> = new Set(["local", "invalid", "localhost"]);
+
+const endsInUnreachableLabel = (domain: string): boolean => {
+  const labels = domain.toLowerCase().split(".");
+  const lastLabel = labels[labels.length - 1] ?? "";
+  return UNREACHABLE_LAST_LABELS.has(lastLabel);
+};
+
+// Whether an address on this domain can never make its holder a trusted host: a free provider, a
+// throwaway service, or a name no mail reaches.
+export const isNeverOrganizationEmailDomain = (domain: string): boolean =>
+  isFreeOrThrowawayEmailDomain(domain) || endsInUnreachableLabel(domain);
+
 // The domain whose code tries count together for one organization, read from a domain that
 // extractEmailDomain returned. Under an unlisted second-level suffix it is the suffix itself.
 export const organizationDomainOf = (domain: string): string => {

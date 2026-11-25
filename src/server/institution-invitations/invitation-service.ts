@@ -358,7 +358,7 @@ export const acceptInstitutionInvitationForUser = async (
           "invitation_role_verification_required",
           403,
           "Accepting this invitation requires a recruiter-verified account",
-          "/verify/recruiter",
+          "/auth/verify-role?as=recruiter",
         );
       }
     }
