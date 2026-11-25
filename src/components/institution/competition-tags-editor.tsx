@@ -8,6 +8,7 @@ import {
   useCompetitionEditorPart,
   type CompetitionPartSaveResult,
 } from "@/components/institution/competition-editor-parts";
+import { PUBLIC_EDIT_HELD_AFTER_TRUST_REMOVAL_REASON } from "@/lib/competitions/publish-locks";
 import { ALLOWED_COMPETITION_TAGS } from "@/lib/competitions/tags";
 import { errorMessageFor } from "@/lib/errors/error-copy";
 import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
@@ -17,6 +18,7 @@ const SAVE_ERROR_COPY: Partial<Record<string, string>> = {
   competition_tags_invalid_payload:
     "Permintaan tidak dapat diproses. Muat ulang halaman lalu coba lagi.",
   competition_tags_invalid_value: "Pilih tag dari daftar yang tersedia.",
+  competition_public_edit_blocked_trust_removed: PUBLIC_EDIT_HELD_AFTER_TRUST_REMOVAL_REASON,
 };
 
 const SAVE_FALLBACK = "Gagal menyimpan tag. Coba lagi.";

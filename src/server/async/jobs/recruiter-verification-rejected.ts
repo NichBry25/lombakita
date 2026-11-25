@@ -15,6 +15,7 @@ import { sendRecruiterVerificationRejectedEmail } from "@/server/notifications/n
 import { writeInboxNotificationSafely } from "@/server/notifications/inbox-write";
 import { NOTIFICATION_TYPES } from "@/server/notifications/notification-types";
 import { competitionGuidelineTextOf } from "@/lib/competitions/competition-guidelines";
+import { asSentence } from "@/lib/finance/payment-display";
 
 export type RecruiterVerificationRejectedJob = Job<
   RecruiterVerificationRejectedPayload,
@@ -43,7 +44,7 @@ const buildHostCheckTurnDownNotice = (guidelineItem: string, note: string): Reje
   const guidelineText = competitionGuidelineTextOf(guidelineItem) ?? guidelineItem;
   return {
     title: "Kompetisi Anda belum dapat tayang",
-    body: `Pedoman: ${guidelineText} Catatan staf: ${note} Perbaiki draf lalu tekan Kirim untuk diperiksa lagi.`,
+    body: `Pedoman: ${guidelineText} Catatan staf: ${asSentence(note)} Perbaiki draf lalu tekan Kirim untuk diperiksa lagi.`,
   };
 };
 

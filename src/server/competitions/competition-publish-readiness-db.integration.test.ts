@@ -380,17 +380,6 @@ const GATE_CASES: GateCase[] = [
     expectedHttpStatus: 422,
   },
   {
-    code: "competition_paid_publish_owner_only",
-    // Staff of a verified institution pressing a paid draft: only an owner puts a price live.
-    seed: (tx) =>
-      seedFixture(tx, {
-        actorRole: "institution_staff",
-        feeAmount: 50_000,
-        verificationStatus: "verified",
-      }),
-    expectedHttpStatus: 403,
-  },
-  {
     code: "competition_institution_not_verified",
     // The charging gate (DEC-0158): paid, under an institution that is not verified.
     seed: (tx) => seedFixture(tx, { feeAmount: 50_000 }),
@@ -490,6 +479,31 @@ describe.skipIf(skipWithoutDatabase)("a competition that can publish", () => {
       // so an unverified organizer publishing a free competition must not be blocked anywhere —
       // least of all by the control that is supposed to predict the server.
       const fixture = await seedFixture(tx, { feeAmount: null });
+
+      const readiness = await readinessFor(fixture.actorUserId, fixture.competitionId, tx);
+      expect(readiness.blockers).toEqual([]);
+      expect(readiness.canPublish).toBe(true);
+
+      const published = await publishViaRoute(fixture, fixture.actorUserId, tx);
+      expect(published.status).toBe(200);
+      expect(published.code).toBeNull();
+
+      const [row] = await tx
+        .select({ status: competitions.status })
+        .from(competitions)
+        .where(eq(competitions.id, fixture.competitionId))
+        .limit(1);
+      expect(row?.status).toBe("published");
+    });
+  });
+
+  it("reports canPublish for staff on a paid draft of a verified institution, and the endpoint publishes it", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx, {
+        actorRole: "institution_staff",
+        feeAmount: 50_000,
+        verificationStatus: "verified",
+      });
 
       const readiness = await readinessFor(fixture.actorUserId, fixture.competitionId, tx);
       expect(readiness.blockers).toEqual([]);

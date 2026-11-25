@@ -23,6 +23,7 @@ import {
   MAX_SLUG_LENGTH,
   normalizeCompetitionSlug,
   PATCH_FIELDS,
+  PUBLIC_FIELDS_HELD_AFTER_TRUST_REMOVAL,
   resolveTeamSizesForMode,
   TEAM_MODE_MIN_SIZE,
   assertCompetitionTimelineChronological,
@@ -53,7 +54,7 @@ import {
   assertCompetitionRead,
   assertInstitutionNotSuspended,
   assertInstitutionVerified,
-  assertPaidCompetitionPublisherIsOwner,
+  assertPublicFieldsUnchangedByRemovedHost,
   assertPersonalCompetitionPublishable,
   assertPersonalInstitutionIndividualMode,
   hasActiveRegistrationsForCompetition,
@@ -125,7 +126,7 @@ const deriveSlugBaseFromTitle = (title: string): string => {
 // by a different institution — returns 404 to avoid leaking cross-tenant existence.
 //
 // This helper does NOT enforce actor membership or role. The caller must still authorize through
-// assertCompetitionAccess at the level its action needs: member to publish, admin to unpublish.
+// assertCompetitionAccess at the level its action needs: member to publish and to unpublish.
 export const assertCompetitionInInstitution = async (
   institutionSlug: string,
   competitionId: string,
@@ -580,6 +581,20 @@ const closeMovedByPatch = (
   return patch.registrationEndAt;
 };
 
+// The held public fields this patch would change on the stored competition. A field sent with its
+// stored value changes nothing, so a form that resends it is not refused.
+const publicFieldsChangedByPatch = (
+  competition: CompetitionRow,
+  patch: CompetitionPatchInput,
+): string[] => {
+  const row = competition as unknown as Record<string, unknown>;
+  const patchRecord = patch as Record<string, unknown>;
+  return PUBLIC_FIELDS_HELD_AFTER_TRUST_REMOVAL.filter(
+    (field) =>
+      field in patchRecord && !immutableCompetitionValuesEqual(patchRecord[field], row[field]),
+  );
+};
+
 // Writes a published edit only onto the row it was judged against. Every writer of a competition
 // sets updatedAt, so a row another request changed since this one read it matches nothing. The
 // judged value came through a JavaScript Date, which keeps milliseconds, so the stored value is cut
@@ -837,6 +852,8 @@ export const updateCompetitionDraft = async (
   // Published competitions are edited in place through the classifier, which judges each change by
   // its field and direction.
   if (competition.status === "published") {
+    const changedPublicFields = publicFieldsChangedByPatch(competition, patch);
+    await assertPublicFieldsUnchangedByRemovedHost(actorUserId, changedPublicFields, db);
     return updatePublishedCompetition(competition, patch, db);
   }
 
@@ -1002,9 +1019,8 @@ export const transitionCompetitionStatus = async (
   targetStatus: CompetitionStatus,
   db: Database = getDb(),
 ): Promise<StatusTransitionResult> => {
-  // Owners and institution_staff publish. A paid draft is held to an owner below.
-  const access = await assertCompetitionAccess(actorUserId, competitionId, "member", db);
-  const { competition, membershipRole } = access;
+  // Owners and institution_staff publish, a paid draft included.
+  const { competition } = await assertCompetitionAccess(actorUserId, competitionId, "member", db);
 
   // Same-status transitions are rejected as invalid: ALLOWED_TRANSITIONS does not contain any
   // from===to edge (e.g. published → published).
@@ -1076,7 +1092,6 @@ export const transitionCompetitionStatus = async (
     const pricing = await loadCompetitionPricing(competitionId, db);
 
     if (isPaidCompetition(pricing.feeAmount)) {
-      assertPaidCompetitionPublisherIsOwner(membershipRole);
       await assertInstitutionVerified(competition.institutionId, db);
     }
 
@@ -1177,7 +1192,7 @@ export const unpublishCompetition = async (
   db: Database = getDb(),
   now?: Date,
 ): Promise<UnpublishCompetitionResult> => {
-  await assertCompetitionAccess(actorUserId, competitionId, "admin", db);
+  await assertCompetitionAccess(actorUserId, competitionId, "member", db);
 
   const result = await db.transaction(async (tx) => {
     await acquireCompetitionParticipationLock(tx, competitionId);

@@ -14,7 +14,7 @@ import {
   type InstitutionType,
   type InstitutionVerificationStatus,
 } from "@/server/db/schema";
-import { isPublishTrustSatisfied } from "@/server/host-trust/publish-trust";
+import { isHostTrustRemoved, isPublishTrustSatisfied } from "@/server/host-trust/publish-trust";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 import { CompetitionError } from "@/server/competitions/competition-core";
 import {
@@ -29,7 +29,7 @@ assertServerOnly("server/competitions/competition-access");
 //   "admin"  — only active institution_owner in the owning institution
 // institution_member is excluded: no operational access to competition surfaces.
 // Mutating routes (PATCH fields, DELETE) require "member".
-// Publishing requires "member", and a paid draft an owner. Unpublishing requires "admin".
+// Publishing and unpublishing require "member".
 export type CompetitionAccessLevel = "member" | "admin";
 
 // Output projection for every public competition response. fee_amount, fee_currency, and
@@ -232,17 +232,23 @@ export const assertPublishTrustSatisfied = async (
   }
 };
 
-// A paid draft goes live by an institution owner only, because only an owner sets its price
-// (competition-fee-service.ts) and going live opens charging.
-// Throws CompetitionError 403 competition_paid_publish_owner_only otherwise.
-export const assertPaidCompetitionPublisherIsOwner = (
-  membershipRole: InstitutionMembershipRole | null,
-): void => {
-  if (membershipRole === "institution_owner") return;
+// After staff remove a person's host trust, that person still runs a live competition but no longer
+// changes what the public reads on it. Other members of the workspace are not bound. The caller
+// passes only the held fields its write would change, so an unchanged value goes through.
+// Throws CompetitionError 403 competition_public_edit_blocked_trust_removed.
+export const assertPublicFieldsUnchangedByRemovedHost = async (
+  actorUserId: string,
+  changedPublicFields: readonly string[],
+  db: Database = getDb(),
+): Promise<void> => {
+  if (changedPublicFields.length === 0) return;
+  const trustRemoved = await isHostTrustRemoved(actorUserId, db);
+  if (!trustRemoved) return;
   throw new CompetitionError(
-    "competition_paid_publish_owner_only",
+    "competition_public_edit_blocked_trust_removed",
     403,
-    "A paid competition is published by an institution owner only",
+    "A host whose trust staff removed cannot change what the public reads on a published competition",
+    { fields: [...changedPublicFields] },
   );
 };
 

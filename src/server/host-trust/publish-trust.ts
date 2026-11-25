@@ -55,3 +55,16 @@ export const isPublishTrustSatisfied = async (
   if (actor.hostTrustRemovedAt !== null) return false;
   return institutionHasTrustedOwner(institutionId, db);
 };
+
+// Whether staff removed this account's host trust and no later staff raise or approval restored it.
+export const isHostTrustRemoved = async (
+  userId: string,
+  db: Database = getDb(),
+): Promise<boolean> => {
+  const [account] = await db
+    .select({ hostTrustRemovedAt: users.hostTrustRemovedAt })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  return account !== undefined && account.hostTrustRemovedAt !== null;
+};

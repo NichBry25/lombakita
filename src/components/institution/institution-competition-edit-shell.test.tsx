@@ -817,6 +817,38 @@ describe("InstitutionCompetitionEditShell after publish", () => {
       dialog: null,
     });
   });
+
+  it("tells a host whose trust staff removed that the live competition keeps its public fields", async () => {
+    stubFetchSequence([
+      loadPublishedTeam,
+      () => failedJson({ error: { code: "competition_public_edit_blocked_trust_removed" } }),
+    ]);
+    mount();
+    await screen.findByRole("button", { name: "Simpan" });
+
+    fireEvent.change(screen.getByLabelText(/Pendaftaran berakhir/), {
+      target: {
+        value: toLocalInput(
+          new Date(new Date(PUBLISHED_TEAM.registrationEndAt).getTime() + 4 * DAY),
+        ),
+      },
+    });
+    fireEvent.click(saveButton());
+    const toast = await screen.findByText(
+      "Status tepercaya akun Anda dicabut staf, jadi isi kompetisi yang sudah terbit tidak dapat Anda ubah. Kontak, pengumuman, bukti transfer, dan hasil tetap dapat Anda kelola.",
+    );
+
+    expect({
+      toast: toast.textContent,
+      fallback: screen.queryByText("Perubahan gagal disimpan. Coba lagi."),
+      dialog: screen.queryByRole("alertdialog"),
+    }).toEqual({
+      toast:
+        "Status tepercaya akun Anda dicabut staf, jadi isi kompetisi yang sudah terbit tidak dapat Anda ubah. Kontak, pengumuman, bukti transfer, dan hasil tetap dapat Anda kelola.",
+      fallback: null,
+      dialog: null,
+    });
+  });
 });
 
 describe("InstitutionCompetitionEditShell publish readiness", () => {

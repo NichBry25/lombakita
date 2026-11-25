@@ -116,6 +116,11 @@ describe("the host status card", () => {
     expect(screen.getByRole("heading", { name: "Status penyelenggara" })).toBeTruthy();
     expect(screen.getByText(NOT_TRUSTED_SENTENCE)).toBeTruthy();
     expect(screen.getByLabelText(EMAIL_FIELD_LABEL)).toBeTruthy();
+    expect(
+      screen.queryByText(
+        "Kompetisi di ruang kerja yang pemiliknya tepercaya tetap langsung tayang.",
+      ),
+    ).toBeNull();
   });
 
   it("turns trusted when the confirmed Email organisasi trusts the account", async () => {
@@ -145,5 +150,16 @@ describe("the host status card", () => {
     ).toBeTruthy();
     expect(screen.getByText(NOT_TRUSTED_SENTENCE)).toBeTruthy();
     expect(screen.queryByText(TRUSTED_SENTENCE)).toBeNull();
+  });
+
+  it("says that competitions in a workspace with a trusted owner still go live at once", () => {
+    renderCard({ state: "not_trusted", runsTrustedWorkspace: true });
+
+    expect(screen.getByRole("heading", { name: "Status penyelenggara" })).toBeTruthy();
+    expect(screen.getByText(NOT_TRUSTED_SENTENCE)).toBeTruthy();
+    expect(
+      screen.getByText("Kompetisi di ruang kerja yang pemiliknya tepercaya tetap langsung tayang."),
+    ).toBeTruthy();
+    expect(screen.getByLabelText(EMAIL_FIELD_LABEL)).toBeTruthy();
   });
 });

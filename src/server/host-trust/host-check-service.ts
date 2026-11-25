@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, isNotNull, isNull, notExists, or, sql } from "drizzle-orm";
 import {
   assertCompetitionAccess,
+  MEMBER_ROLES,
   type CompetitionRow,
 } from "@/server/competitions/competition-access";
 import { CompetitionError } from "@/server/competitions/competition-core";
@@ -51,8 +52,13 @@ export type PublishPressResult =
 
 export type HostStatusName = "trusted" | "pending" | "trust_removed" | "not_trusted";
 
-// What the host dashboard says about the account's own trust.
-export type HostStatus = { state: HostStatusName; competitionTitle?: string };
+// What the host dashboard says about the account's own trust. runsTrustedWorkspace is set for an
+// untrusted account that runs a workspace where its press publishes at once.
+export type HostStatus = {
+  state: HostStatusName;
+  competitionTitle?: string;
+  runsTrustedWorkspace?: true;
+};
 
 type HostCheckContact = { fullName: string; mobileNumber: string };
 
@@ -353,6 +359,25 @@ export const readHostCheckStateForActor = async (
   };
 };
 
+// Asks the publish predicate for every workspace the account runs as an active owner or staff member,
+// so the card says what a press there would do.
+const runsWorkspaceWithTrustedOwner = async (db: Database, userId: string): Promise<boolean> => {
+  const runs = await db
+    .select({ institutionId: institutionMemberships.institutionId })
+    .from(institutionMemberships)
+    .where(
+      and(
+        eq(institutionMemberships.userId, userId),
+        eq(institutionMemberships.status, "active"),
+        inArray(institutionMemberships.membershipRole, MEMBER_ROLES),
+      ),
+    );
+  for (const { institutionId } of runs) {
+    if (await isPublishTrustSatisfied(userId, institutionId, db)) return true;
+  }
+  return false;
+};
+
 // An open check outranks a standing removal, because the host waits on that check either way. The
 // title of the waiting draft follows the rule of readTitleOfDraftTheActorRuns.
 export const readHostStatusForAccount = async (
@@ -376,5 +401,8 @@ export const readHostStatusForAccount = async (
   }
 
   if (account !== undefined && account.trustRemovedAt !== null) return { state: "trust_removed" };
+  if (await runsWorkspaceWithTrustedOwner(db, userId)) {
+    return { state: "not_trusted", runsTrustedWorkspace: true };
+  }
   return { state: "not_trusted" };
 };

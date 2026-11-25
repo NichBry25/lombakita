@@ -1532,4 +1532,26 @@ describe.skipIf(skipWithoutDatabase)("the staff decision on a host check (rolled
       expect(entry?.host.trustRemovalReason).toBe(null);
     });
   });
+
+  it("reads an untrusted staff member of a workspace with a trusted owner as not trusted in a trusted workspace, an institution_member of it as not trusted alone, and the staff member alone once the membership ends", async () => {
+    await inRollback(async (tx) => {
+      const owner = await signUpHost(tx, OWNER_ADDRESS);
+      const ownerWorkspace = await ownWorkspace(tx, owner);
+      const host = await signUpHost(tx, UNTRUSTED_HOST_ADDRESS);
+      await plantMembership(tx, ownerWorkspace.institutionId, host, "institution_staff");
+      const member = await signUpHost(tx, SECOND_UNTRUSTED_HOST_ADDRESS);
+      await plantMembership(tx, ownerWorkspace.institutionId, member, "institution_member");
+
+      const hostStatus = await readHostStatusForAccount(host, tx);
+      const memberStatus = await readHostStatusForAccount(member, tx);
+
+      expect(hostStatus).toEqual({ state: "not_trusted", runsTrustedWorkspace: true });
+      expect(memberStatus).toEqual({ state: "not_trusted" });
+
+      const membershipId = await membershipIdOf(tx, ownerWorkspace.institutionId, host);
+      await removeMember(owner, ownerWorkspace.slug, membershipId, tx);
+
+      expect(await readHostStatusForAccount(host, tx)).toEqual({ state: "not_trusted" });
+    });
+  });
 });

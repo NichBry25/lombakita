@@ -12,6 +12,7 @@ import { COMPETITION_AUDIENCE_OPTIONS, normalizeAudience } from "@/lib/competiti
 import {
   COMPETITION_AUDIENCE_CANNOT_BE_EMPTIED_REASON,
   COMPETITION_CHANGED_DURING_EDIT_REASON,
+  PUBLIC_EDIT_HELD_AFTER_TRUST_REMOVAL_REASON,
 } from "@/lib/competitions/publish-locks";
 import { errorMessageFor } from "@/lib/errors/error-copy";
 import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
@@ -25,6 +26,7 @@ const SAVE_ERROR_COPY: Partial<Record<string, string>> = {
     "Informasi kelayakan terlalu panjang. Persingkat lalu coba lagi.",
   competition_changed_during_edit: COMPETITION_CHANGED_DURING_EDIT_REASON,
   competition_audience_cannot_be_emptied: COMPETITION_AUDIENCE_CANNOT_BE_EMPTIED_REASON,
+  competition_public_edit_blocked_trust_removed: PUBLIC_EDIT_HELD_AFTER_TRUST_REMOVAL_REASON,
 };
 
 const audienceKey = (values: readonly CompetitionAudience[]): string => values.join(",");

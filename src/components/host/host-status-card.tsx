@@ -10,6 +10,8 @@ const WAIT_SENTENCE = "Perkiraan 1x24 jam pada hari kerja.";
 const NOT_TRUSTED_SENTENCE = `Kompetisi pertama Anda diperiksa staf sebelum tayang. ${WAIT_SENTENCE} Konfirmasi email organisasi agar langsung tayang.`;
 const TRUST_REMOVED_SENTENCE =
   "Status tepercaya akun Anda dicabut staf. Kompetisi berikutnya diperiksa staf sebelum tayang.";
+const TRUSTED_WORKSPACE_SENTENCE =
+  "Kompetisi di ruang kerja yang pemiliknya tepercaya tetap langsung tayang.";
 
 // The server gives the title of the waiting draft only while the host still runs its institution.
 const pendingSentence = (competitionTitle: string | undefined): string =>
@@ -62,6 +64,9 @@ export function HostStatusCard({ expectedUserId, status }: HostStatusCardProps) 
       {state === "not_trusted" ? (
         <div className="stack-md">
           <p className="muted-copy">{NOT_TRUSTED_SENTENCE}</p>
+          {status.runsTrustedWorkspace ? (
+            <p className="muted-copy">{TRUSTED_WORKSPACE_SENTENCE}</p>
+          ) : null}
           <OrganizationEmailField expectedUserId={expectedUserId} onConfirmed={onConfirmed} />
         </div>
       ) : null}

@@ -100,7 +100,7 @@ const REFUSAL_COPY: Record<RefusalAction, Partial<Record<string, string>>> = {
   },
   unpublish: {
     competition_not_found: "Kompetisi tidak ditemukan.",
-    forbidden: "Hanya pemilik institusi yang dapat menarik kompetisi.",
+    forbidden: "Hanya pemilik dan staf institusi yang dapat menarik kompetisi.",
     competition_invalid_transition:
       "Status kompetisi sudah berubah. Muat ulang halaman lalu coba lagi.",
     competition_already_cancelled: "Kompetisi ini sudah dibatalkan.",

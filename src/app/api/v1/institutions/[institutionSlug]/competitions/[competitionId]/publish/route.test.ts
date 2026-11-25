@@ -256,14 +256,26 @@ describe("POST .../unpublish", () => {
     expect(response.status).toBe(422);
   });
 
-  it("returns 403 when institution_staff attempts to unpublish", async () => {
-    requireAuthenticatedSession.mockResolvedValue(staffSession);
+  it("returns 403 when an institution_member attempts to unpublish", async () => {
+    requireAuthenticatedSession.mockResolvedValue(memberSession);
     assertCompetitionInInstitution.mockResolvedValue(undefined);
     unpublishCompetition.mockRejectedValue(
-      new AccessError("forbidden", 403, "institution_owner access required"),
+      new AccessError("forbidden", 403, "Institution owner/staff access required"),
     );
     const response = await UNPUBLISH(makeRequest(), makeParams("lk-univ", "comp_1"));
     expect(response.status).toBe(403);
+  });
+
+  it("returns 200 when institution_staff unpublishes", async () => {
+    requireAuthenticatedSession.mockResolvedValue(staffSession);
+    assertCompetitionInInstitution.mockResolvedValue(undefined);
+    unpublishCompetition.mockResolvedValue({
+      competition: { ...baseCompetition, status: "draft" },
+      cancelledCount: 0,
+    });
+    const response = await UNPUBLISH(makeRequest(), makeParams("lk-univ", "comp_1"));
+    expect(response.status).toBe(200);
+    expect(unpublishCompetition).toHaveBeenCalledWith("staff_1", "comp_1");
   });
 
   it("returns 409 and never reaches the unpublish when the expected user is another account", async () => {

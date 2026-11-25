@@ -5,7 +5,11 @@ assertServerOnly("server/competitions/competition-eligibility-service");
 import { and, eq, isNull, or, sql } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
 import { competitions, type CompetitionAudience } from "@/server/db/schema";
-import { assertCompetitionAccess } from "@/server/competitions/competition-access";
+import {
+  assertCompetitionAccess,
+  assertPublicFieldsUnchangedByRemovedHost,
+  type CompetitionRow,
+} from "@/server/competitions/competition-access";
 import { CompetitionError } from "@/server/competitions/competition-core";
 import { isCompetitionAudience, normalizeAudience } from "@/lib/competitions/audiences";
 import {
@@ -137,6 +141,32 @@ const buildRefusalForUnsavedEligibility = async (
   );
 };
 
+// The eligibility note and the audience are public on a live competition, so a host whose trust
+// staff removed keeps them as they are there. A save that resends the stored values goes through.
+// The note is written on every save, so it is compared on every save. The audience is compared only
+// when the save carries it.
+const assertEligibilityUnchangedByRemovedHost = async (
+  actorUserId: string,
+  competition: CompetitionRow,
+  eligibilityNote: string | null,
+  audience: CompetitionAudience[] | null | undefined,
+  db: Database,
+): Promise<void> => {
+  if (competition.status !== "published") return;
+  const [stored] = await db
+    .select({ eligibilityNote: competitions.eligibilityNote, audience: competitions.audience })
+    .from(competitions)
+    .where(eq(competitions.id, competition.id));
+  const changedFields: string[] = [];
+  const storedNote = stored?.eligibilityNote ?? null;
+  if (eligibilityNote !== storedNote) changedFields.push("eligibilityNote");
+  const storedAudienceKey = (stored?.audience ?? []).join(",");
+  const nextAudienceKey = (audience ?? []).join(",");
+  const audienceChanges = audience !== undefined && storedAudienceKey !== nextAudienceKey;
+  if (audienceChanges) changedFields.push("audience");
+  await assertPublicFieldsUnchangedByRemovedHost(actorUserId, changedFields, db);
+};
+
 export const setCompetitionEligibilityForEditor = async (
   actorUserId: string,
   competitionId: string,
@@ -147,6 +177,13 @@ export const setCompetitionEligibilityForEditor = async (
   const eligibilityNote = parseEligibilityNote(payload);
   const audience = parseEligibilityAudience(payload);
   const isEmptyingAudience = audience === null;
+  await assertEligibilityUnchangedByRemovedHost(
+    actorUserId,
+    competition,
+    eligibilityNote,
+    audience,
+    db,
+  );
 
   const [saved] = await db
     .update(competitions)

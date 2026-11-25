@@ -933,7 +933,7 @@ describe.skipIf(skipWithoutDatabase)("the publish press (rolled back)", () => {
     });
   });
 
-  it("refuses staff a paid draft of a trusted owner with no host check, and lets the owner publish it", async () => {
+  it("lets staff publish a paid draft of a trusted owner with no host check", async () => {
     await inRollback(async (tx) => {
       const owner = await signUpHost(tx, TRUSTED_BY_SIGN_IN_EMAIL);
       const workspace = await ownWorkspace(tx, owner);
@@ -943,21 +943,16 @@ describe.skipIf(skipWithoutDatabase)("the publish press (rolled back)", () => {
       const staff = await signUpHost(tx, UNTRUSTED_HOST_ADDRESS);
       await plantMembership(tx, workspace.institutionId, staff, "institution_staff");
 
-      const refused = await pressOn(tx, staff, workspace, draft);
+      const pressed = await pressOn(tx, staff, workspace, draft);
 
-      expect(refused.status).toBe(403);
-      expect(refused.body.error?.code).toBe("competition_paid_publish_owner_only");
-      expect(await competitionStatusOf(tx, draft)).toBe("draft");
-      expect(await hostCheckRowsOf(tx, staff)).toEqual([]);
-
-      const published = await pressOn(tx, owner, workspace, draft);
-
-      expect(published.status).toBe(200);
+      expect(pressed.status).toBe(200);
+      expect(pressed.body.competition?.status).toBe("published");
       expect(await competitionStatusOf(tx, draft)).toBe("published");
+      expect(await hostCheckRowsOf(tx, staff)).toEqual([]);
     });
   });
 
-  it("keeps unpublishing to owners after staff may publish", async () => {
+  it("lets staff unpublish a live competition and refuses an institution_member", async () => {
     await inRollback(async (tx) => {
       const owner = await signUpHost(tx, TRUSTED_BY_SIGN_IN_EMAIL);
       const workspace = await ownWorkspace(tx, owner);
@@ -966,12 +961,20 @@ describe.skipIf(skipWithoutDatabase)("the publish press (rolled back)", () => {
       expect(ownerPress.status).toBe(200);
       const staff = await signUpHost(tx, UNTRUSTED_HOST_ADDRESS);
       await plantMembership(tx, workspace.institutionId, staff, "institution_staff");
+      const member = await signUpHost(tx, SECOND_UNTRUSTED_HOST_ADDRESS);
+      await plantMembership(tx, workspace.institutionId, member, "institution_member");
 
-      await expect(unpublishCompetition(staff, draft, tx)).rejects.toMatchObject({
+      await expect(unpublishCompetition(member, draft, tx)).rejects.toMatchObject({
         code: "forbidden",
         status: 403,
       });
       expect(await competitionStatusOf(tx, draft)).toBe("published");
+
+      const unpublished = await unpublishCompetition(staff, draft, tx);
+
+      expect(unpublished.cancelledCount).toBe(0);
+      expect(unpublished.competition.status).toBe("draft");
+      expect(await competitionStatusOf(tx, draft)).toBe("draft");
     });
   });
 
@@ -1241,7 +1244,7 @@ describe.skipIf(skipWithoutDatabase)("the publish press (rolled back)", () => {
     });
   });
 
-  it("refuses untrusted staff a paid draft of an untrusted owner with no host check", async () => {
+  it("sends untrusted staff on a paid draft of an untrusted owner to a host check", async () => {
     await inRollback(async (tx) => {
       const owner = await signUpHost(tx, SECOND_UNTRUSTED_HOST_ADDRESS);
       const workspace = await ownWorkspace(tx, owner);
@@ -1253,9 +1256,8 @@ describe.skipIf(skipWithoutDatabase)("the publish press (rolled back)", () => {
 
       const pressed = await pressOn(tx, staff, workspace, draft);
 
-      expect(pressed.status).toBe(403);
-      expect(pressed.body.error?.code).toBe("competition_paid_publish_owner_only");
-      expect(await hostCheckRowsOf(tx, staff)).toEqual([]);
+      expect(pressed.status).toBe(202);
+      expect(await openHostChecksOf(tx, staff)).toEqual([expectedOpenCheck(draft)]);
       expect(await competitionStatusOf(tx, draft)).toBe("draft");
     });
   });

@@ -70,6 +70,33 @@ describe("processRecruiterVerificationRejectedJob", () => {
     });
   });
 
+  it("ends a staff note without a full stop with one, in the inbox and in the email", async () => {
+    mockGetDb.mockReturnValue({ select: makeSequencedSelect([[USER_ROW]]) });
+    mockSendRecruiterVerificationRejectedEmail.mockResolvedValue(undefined);
+    mockWriteNotification.mockResolvedValue(undefined);
+
+    await processRecruiterVerificationRejectedJob(
+      rejectedJob({
+        ...turnDownData("kontak-nyata"),
+        rejectionReason: "Nomor kontak tidak aktif",
+      }),
+    );
+
+    expect(mockWriteNotification).toHaveBeenCalledWith(
+      expect.anything(),
+      "u_1",
+      "recruiter_verification_rejected",
+      TURN_DOWN_TITLE,
+      TURN_DOWN_BODY,
+    );
+    expect(mockSendRecruiterVerificationRejectedEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        hostCheckTurnDown: { title: TURN_DOWN_TITLE, body: TURN_DOWN_BODY },
+        rejectionReason: "Nomor kontak tidak aktif",
+      }),
+    );
+  });
+
   it("keeps the request rejection words when no guideline item is named", async () => {
     mockGetDb.mockReturnValue({ select: makeSequencedSelect([[USER_ROW]]) });
     mockSendRecruiterVerificationRejectedEmail.mockResolvedValue(undefined);

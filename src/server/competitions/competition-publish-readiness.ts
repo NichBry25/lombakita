@@ -10,7 +10,6 @@ import {
   assertCompetitionHasOrganizerContact,
   assertInstitutionNotSuspended,
   assertInstitutionVerified,
-  assertPaidCompetitionPublisherIsOwner,
   assertPersonalCompetitionPublishable,
   type CompetitionAccessResult,
 } from "@/server/competitions/competition-access";
@@ -50,7 +49,6 @@ export const COMPETITION_PUBLISH_BLOCKER_CODES = [
   "competition_publish_validation_failed",
   "competition_organizer_contact_missing",
   "competition_audience_missing",
-  "competition_paid_publish_owner_only",
   "competition_institution_not_verified",
   "competition_personal_individual_only",
   "competition_personal_publish_limit",
@@ -116,7 +114,7 @@ export const resolveCompetitionPublishReadiness = async (
     throw error;
   }
 
-  const { competition, membershipRole } = access;
+  const { competition } = access;
 
   // A published competition has no publish control, so there is no refusal to explain. The publish
   // endpoint still refuses it with `competition_invalid_transition`; only this read stays silent.
@@ -159,7 +157,6 @@ export const resolveCompetitionPublishReadiness = async (
   // unverified institution and must not be described as if it were.
   const pricing = await loadCompetitionPricing(competitionId, db);
   if (isPaidCompetition(pricing.feeAmount)) {
-    await collectGate(async () => assertPaidCompetitionPublisherIsOwner(membershipRole), blockers);
     await collectGate(() => assertInstitutionVerified(competition.institutionId, db), blockers);
   }
 

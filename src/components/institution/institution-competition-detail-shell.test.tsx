@@ -397,3 +397,37 @@ describe("InstitutionCompetitionDetailShell host check", () => {
     expect(await screen.findByText(OTHER_DRAFT_SENTENCE)).toBeTruthy();
   });
 });
+
+describe("InstitutionCompetitionDetailShell withdrawal", () => {
+  it("says that owners and staff may withdraw when the server refuses the withdrawal as forbidden", async () => {
+    const withdrawableCompetition = {
+      ...PUBLISHED_COMPETITION,
+      participantConfirmationAt: new Date(now() + 5 * DAY).toISOString(),
+    };
+    const refusedAsForbidden = {
+      ok: false,
+      status: 403,
+      json: async () => ({ error: { code: "forbidden" } }),
+    } as unknown as Response;
+    const calls = stubFetchSequence([
+      () => loadOk(BLOCKED, withdrawableCompetition),
+      () => refusedAsForbidden,
+    ]);
+
+    mount();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Tarik" }));
+    const dialog = await screen.findByRole("alertdialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Tarik" }));
+
+    expect(
+      await within(dialog).findByText(
+        "Hanya pemilik dan staf institusi yang dapat menarik kompetisi.",
+      ),
+    ).toBeTruthy();
+    expect(calls).toEqual([
+      "GET /api/v1/competitions/comp_1",
+      "POST /api/v1/institutions/institusi-contoh/competitions/comp_1/unpublish",
+    ]);
+  });
+});

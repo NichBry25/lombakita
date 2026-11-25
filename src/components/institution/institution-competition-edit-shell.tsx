@@ -94,6 +94,7 @@ import {
   CLOSE_WAITS_FOR_TRANSFER_REVIEW_REASON,
   COMPETITION_CHANGED_DURING_EDIT_REASON,
   isPublishLockedField,
+  PUBLIC_EDIT_HELD_AFTER_TRUST_REMOVAL_REASON,
   PUBLISH_LOCK_REASONS,
   type PublishLockedField,
 } from "@/lib/competitions/publish-locks";
@@ -184,6 +185,7 @@ const REFUSAL_COPY: Record<RefusalAction, Partial<Record<string, string>>> = {
       "Institusi personal hanya dapat menjalankan kompetisi mode individu.",
     competition_slug_taken:
       "Slug ini sudah dipakai kompetisi lain di institusi ini. Pilih slug lain.",
+    competition_public_edit_blocked_trust_removed: PUBLIC_EDIT_HELD_AFTER_TRUST_REMOVAL_REASON,
   },
 };
 

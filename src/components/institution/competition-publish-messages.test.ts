@@ -31,7 +31,6 @@ const BLOCKER_CODES: CompetitionPublishBlockerCode[] = [
   "competition_publish_validation_failed",
   "competition_organizer_contact_missing",
   "competition_audience_missing",
-  "competition_paid_publish_owner_only",
   "competition_institution_not_verified",
   "competition_personal_individual_only",
   "competition_personal_publish_limit",
@@ -65,7 +64,6 @@ const SERVER_REFUSAL_MESSAGES = [
   "Cannot transition competition from 'draft' to 'published'",
   "Publishing requires an organizer contact",
   "Publishing requires an audience (Untuk)",
-  "A paid competition is published by an institution owner only",
   "Another draft of this account is waiting for its host check",
   "A host check needs a name and a phone number, and this account has neither",
 ];
@@ -82,8 +80,6 @@ describe("publish blocker reasons", () => {
         "Kontak untuk peserta belum diisi. Isi nomor WhatsApp, nomor telepon, atau email yang dapat dihubungi peserta.",
       competition_audience_missing:
         "Untuk siapa kompetisi ini belum diisi. Pilih minimal satu pilihan Untuk di bagian Kelayakan.",
-      competition_paid_publish_owner_only:
-        "Kompetisi berbayar hanya dapat diterbitkan oleh pemilik institusi.",
       competition_institution_not_verified:
         "Kompetisi berbayar hanya dapat diterbitkan oleh institusi yang sudah terverifikasi.",
       competition_personal_individual_only:
@@ -105,7 +101,6 @@ describe("publish blocker reasons", () => {
       competition_publish_validation_failed: null,
       competition_organizer_contact_missing: "Isi kontak",
       competition_audience_missing: "Isi Untuk",
-      competition_paid_publish_owner_only: null,
       competition_institution_not_verified: "Ajukan verifikasi",
       competition_personal_individual_only: null,
       competition_personal_publish_limit: null,

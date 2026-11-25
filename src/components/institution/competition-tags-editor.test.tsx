@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { UIPrimitivesProvider } from "@/components/ui/primitives";
 import { ALLOWED_COMPETITION_TAGS } from "@/lib/competitions/tags";
-import { CompetitionTagsEditor } from "./competition-tags-editor";
+import { CompetitionTagsEditor, saveCompetitionTags } from "./competition-tags-editor";
 import {
   CompetitionEditorPartsContext,
   type CompetitionPartSaveResult,
@@ -112,5 +112,28 @@ describe("CompetitionTagsEditor", () => {
     ).toBeTruthy();
     expect(screen.queryAllByRole("checkbox")).toEqual([]);
     expect(lastReportedPart()?.isDirty).toBe(false);
+  });
+
+  it("says a host whose trust staff removed keeps the tags of a live competition", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              error: { code: "competition_public_edit_blocked_trust_removed", message: "x" },
+            }),
+            { status: 403 },
+          ),
+      ),
+    );
+
+    const result = await saveCompetitionTags("org_1", "comp_1", [FIRST_TAG]);
+
+    expect(result).toEqual({
+      ok: false,
+      errorMessage:
+        "Status tepercaya akun Anda dicabut staf, jadi isi kompetisi yang sudah terbit tidak dapat Anda ubah. Kontak, pengumuman, bukti transfer, dan hasil tetap dapat Anda kelola.",
+    });
   });
 });

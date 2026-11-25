@@ -74,6 +74,7 @@ vi.mock("@/server/async/enqueue", async (importOriginal) => {
     ...actual,
     enqueueCompetitionSearchSync: vi.fn(async () => ({})),
     enqueueCompetitionCancelled: vi.fn(async () => ({})),
+    enqueueCompetitionEdited: vi.fn(async () => ({})),
     enqueueRecruiterVerificationApproved: mocks.enqueueApproved,
     enqueueHostTrustRemoved: mocks.enqueueRemoved,
   };
@@ -136,6 +137,7 @@ import {
 } from "@/server/competitions/competition-service";
 import { setCompetitionEligibilityForEditor } from "@/server/competitions/competition-eligibility-service";
 import { setCompetitionOrganizerContactForEditor } from "@/server/competitions/competition-organizer-contact-service";
+import { setCompetitionPaymentWindow } from "@/server/competitions/competition-fee-service";
 import {
   confirmOrganizationEmailCode,
   issueOrganizationEmailCode,
@@ -147,6 +149,9 @@ import {
   submitRecruiterVerification,
 } from "@/server/recruiter-verification/recruiter-verification-service";
 import { POST as publishRoute } from "@/app/api/v1/institutions/[institutionSlug]/competitions/[competitionId]/publish/route";
+import { PATCH as patchCompetitionRoute } from "@/app/api/v1/competitions/[competitionId]/route";
+import { PUT as eligibilityRoute } from "@/app/api/v1/competitions/[competitionId]/eligibility/route";
+import { PUT as tagsRoute } from "@/app/api/v1/competitions/[competitionId]/tags/route";
 import { POST as removalRoute } from "@/app/api/platform-ops/accounts/[accountId]/host-trust-removal/route";
 import {
   processHostTrustRemovedJob,
@@ -405,6 +410,137 @@ const removeThroughRoute = async (
   return { status: response.status, body: parsed };
 };
 
+// Planted directly: a stand-in for the invitation flow, which this file does not drive.
+const plantMembership = async (
+  tx: Database,
+  institutionId: string,
+  userId: string,
+  membershipRole: "institution_staff" | "institution_member",
+): Promise<void> => {
+  await tx.insert(schema.institutionMemberships).values({
+    institutionId,
+    userId,
+    membershipRole,
+    status: "active",
+  });
+};
+
+// Planted directly: a stand-in for the owner's price setting, which this file does not drive.
+const plantPaidPrice = async (tx: Database, competitionId: string): Promise<void> => {
+  await tx
+    .update(schema.competitions)
+    .set({ feeAmount: 50_000, feeCurrency: "IDR" })
+    .where(eq(schema.competitions.id, competitionId));
+};
+
+const publishAsHost = async (
+  tx: Database,
+  hostId: string,
+): Promise<{ workspace: Workspace; draft: string }> => {
+  const workspace = await ownWorkspace(tx, hostId);
+  const draft = await createPublishableDraft(tx, hostId, workspace.slug, FIRST_TITLE);
+  const pressed = await pressOn(tx, hostId, workspace, draft);
+  if (pressed.status !== 200) throw new Error("the press did not publish");
+  return { workspace, draft };
+};
+
+type EditBody = {
+  competition?: { title: string };
+  eligibilityNote?: string | null;
+  audience?: string[] | null;
+  tags?: string[];
+  error?: { code: string; details?: { fields?: string[] } };
+};
+
+type EditRoute = (
+  request: Request,
+  context: { params: Promise<{ competitionId: string }> },
+) => Promise<Response>;
+
+const sendEditThroughRoute = async (
+  route: EditRoute,
+  tx: Database,
+  actorUserId: string,
+  competitionId: string,
+  request: { method: "PATCH" | "PUT"; path: string; body: unknown },
+): Promise<{ status: number; body: EditBody }> => {
+  routeState.transaction = tx;
+  routeState.actorUserId = actorUserId;
+  const httpRequest = new Request(
+    `http://localhost/api/v1/competitions/${competitionId}${request.path}`,
+    {
+      method: request.method,
+      headers: { [SESSION_USER_HEADER]: actorUserId, "content-type": "application/json" },
+      body: JSON.stringify(request.body),
+    },
+  );
+  const response = await route(httpRequest, { params: Promise.resolve({ competitionId }) });
+  const parsed = (await response.json()) as EditBody;
+  return { status: response.status, body: parsed };
+};
+
+const patchThroughRoute = (
+  tx: Database,
+  actorUserId: string,
+  competitionId: string,
+  body: unknown,
+) =>
+  sendEditThroughRoute(patchCompetitionRoute, tx, actorUserId, competitionId, {
+    method: "PATCH",
+    path: "",
+    body,
+  });
+
+const eligibilityThroughRoute = (
+  tx: Database,
+  actorUserId: string,
+  competitionId: string,
+  body: unknown,
+) =>
+  sendEditThroughRoute(eligibilityRoute, tx, actorUserId, competitionId, {
+    method: "PUT",
+    path: "/eligibility",
+    body,
+  });
+
+const tagsThroughRoute = (
+  tx: Database,
+  actorUserId: string,
+  competitionId: string,
+  body: unknown,
+) =>
+  sendEditThroughRoute(tagsRoute, tx, actorUserId, competitionId, {
+    method: "PUT",
+    path: "/tags",
+    body,
+  });
+
+const publicFieldsOf = async (tx: Database, competitionId: string) => {
+  const [row] = await tx
+    .select({
+      title: schema.competitions.title,
+      registrationEndAt: schema.competitions.registrationEndAt,
+      allowCancellation: schema.competitions.allowCancellation,
+      cancellationCutoffDays: schema.competitions.cancellationCutoffDays,
+      audience: schema.competitions.audience,
+      eligibilityNote: schema.competitions.eligibilityNote,
+      organizerContactValue: schema.competitions.organizerContactValue,
+      paymentWindowDays: schema.competitions.paymentWindowDays,
+    })
+    .from(schema.competitions)
+    .where(eq(schema.competitions.id, competitionId));
+  if (!row) throw new Error("No competition row");
+  return row;
+};
+
+const tagsOf = async (tx: Database, competitionId: string): Promise<string[]> => {
+  const rows = await tx
+    .select({ tag: schema.competitionTags.tag })
+    .from(schema.competitionTags)
+    .where(eq(schema.competitionTags.competitionId, competitionId));
+  return rows.map((row) => row.tag).sort();
+};
+
 const runRemovalJob = (payload: unknown) =>
   processHostTrustRemovedJob({
     id: "job_removal",
@@ -634,3 +770,193 @@ describe.skipIf(skipWithoutDatabase)("the staff removal of a host's trust (rolle
     });
   });
 });
+
+const NEW_TITLE = "Lomba Esai Nasional Terbaru";
+const HELD_REFUSAL_CODE = "competition_public_edit_blocked_trust_removed";
+
+// A trusted host publishes through the real press, then staff remove its trust through the real
+// removal route, so the account is the one the guard has to hold.
+const hostWithLiveCompetitionAfterTrustRemoval = async (
+  tx: Database,
+): Promise<{ host: string; workspace: Workspace; draft: string }> => {
+  const host = await signUpHost(tx, HOST_ADDRESS);
+  const { workspace, draft } = await publishAsHost(tx, host);
+  const operator = await plantOperator(tx, OPERATOR_ADDRESS);
+  const removed = await removeThroughRoute(tx, operator, host, { reason: REASON });
+  expect(removed.status).toBe(200);
+  return { host, workspace, draft };
+};
+
+describe.skipIf(skipWithoutDatabase)(
+  "what a host whose trust staff removed may change on a live competition (rolled back)",
+  () => {
+    it("refuses a host whose trust staff removed a new title, close date or cancellation policy on a live competition and keeps them", async () => {
+      await inRollback(async (tx) => {
+        const { host, draft } = await hostWithLiveCompetitionAfterTrustRemoval(tx);
+        const before = await publicFieldsOf(tx, draft);
+        const storedClose = before.registrationEndAt;
+        if (!storedClose) throw new Error("The published competition has no close date");
+
+        const retitled = await patchThroughRoute(tx, host, draft, { title: NEW_TITLE });
+
+        expect(retitled.status).toBe(403);
+        expect(retitled.body.error?.code).toBe(HELD_REFUSAL_CODE);
+        expect(retitled.body.error?.details?.fields).toEqual(["title"]);
+        expect((await publicFieldsOf(tx, draft)).title).toBe(FIRST_TITLE);
+
+        const laterClose = new Date(storedClose.getTime() + 2 * DAY).toISOString();
+        const moved = await patchThroughRoute(tx, host, draft, { registrationEndAt: laterClose });
+
+        expect(moved.status).toBe(403);
+        expect(moved.body.error?.code).toBe(HELD_REFUSAL_CODE);
+        expect(moved.body.error?.details?.fields).toEqual(["registrationEndAt"]);
+        expect((await publicFieldsOf(tx, draft)).registrationEndAt).toEqual(storedClose);
+
+        const cancellable = await patchThroughRoute(tx, host, draft, {
+          allowCancellation: true,
+          cancellationCutoffDays: 3,
+        });
+
+        expect(cancellable.status).toBe(403);
+        expect(cancellable.body.error?.code).toBe(HELD_REFUSAL_CODE);
+        expect(cancellable.body.error?.details?.fields).toEqual([
+          "allowCancellation",
+          "cancellationCutoffDays",
+        ]);
+        const after = await publicFieldsOf(tx, draft);
+        expect(after.allowCancellation).toBe(false);
+        expect(after.cancellationCutoffDays).toBeNull();
+      });
+    });
+
+    it("refuses a host whose trust staff removed a new audience or eligibility note on a live competition, and saves the stored ones", async () => {
+      await inRollback(async (tx) => {
+        const { host, draft } = await hostWithLiveCompetitionAfterTrustRemoval(tx);
+
+        const widened = await eligibilityThroughRoute(tx, host, draft, {
+          eligibilityNote: null,
+          audience: ["umum", "mahasiswa"],
+        });
+
+        expect(widened.status).toBe(403);
+        expect(widened.body.error?.code).toBe(HELD_REFUSAL_CODE);
+        expect(widened.body.error?.details?.fields).toEqual(["audience"]);
+        expect((await publicFieldsOf(tx, draft)).audience).toEqual(["umum"]);
+
+        const noted = await eligibilityThroughRoute(tx, host, draft, {
+          eligibilityNote: "Terbuka untuk semua jenjang.",
+          audience: ["umum"],
+        });
+
+        expect(noted.status).toBe(403);
+        expect(noted.body.error?.code).toBe(HELD_REFUSAL_CODE);
+        expect(noted.body.error?.details?.fields).toEqual(["eligibilityNote"]);
+        expect((await publicFieldsOf(tx, draft)).eligibilityNote).toBeNull();
+
+        const resent = await eligibilityThroughRoute(tx, host, draft, {
+          eligibilityNote: null,
+          audience: ["umum"],
+        });
+
+        expect(resent.status).toBe(200);
+        const after = await publicFieldsOf(tx, draft);
+        expect(after.eligibilityNote).toBeNull();
+        expect(after.audience).toEqual(["umum"]);
+      });
+    });
+
+    it("lets a host whose trust staff removed change the contact and resend unchanged public values of a live competition", async () => {
+      await inRollback(async (tx) => {
+        const { host, draft } = await hostWithLiveCompetitionAfterTrustRemoval(tx);
+
+        const contact = await setCompetitionOrganizerContactForEditor(
+          host,
+          draft,
+          { kind: "whatsapp", value: "081211112222" },
+          tx,
+        );
+
+        expect(contact).toEqual({ kind: "whatsapp", value: "6281211112222" });
+        expect((await publicFieldsOf(tx, draft)).organizerContactValue).toBe("6281211112222");
+
+        const resent = await patchThroughRoute(tx, host, draft, { title: FIRST_TITLE });
+
+        expect(resent.status).toBe(200);
+        expect(resent.body.competition?.title).toBe(FIRST_TITLE);
+      });
+    });
+
+    it("lets another member of the workspace change the title of a live competition after the host's trust was removed", async () => {
+      await inRollback(async (tx) => {
+        const { workspace, draft } = await hostWithLiveCompetitionAfterTrustRemoval(tx);
+        const staff = await signUpHost(tx, SECOND_HOST_ADDRESS);
+        await plantMembership(tx, workspace.institutionId, staff, "institution_staff");
+
+        const retitled = await patchThroughRoute(tx, staff, draft, { title: NEW_TITLE });
+
+        expect(retitled.status).toBe(200);
+        expect((await publicFieldsOf(tx, draft)).title).toBe(NEW_TITLE);
+      });
+    });
+
+    it("lets a host whose trust staff removed edit the title, the audience and the tags of a draft", async () => {
+      await inRollback(async (tx) => {
+        const host = await signUpHost(tx, HOST_ADDRESS);
+        const workspace = await ownWorkspace(tx, host);
+        const draft = await createPublishableDraft(tx, host, workspace.slug, FIRST_TITLE);
+        const operator = await plantOperator(tx, OPERATOR_ADDRESS);
+        const removed = await removeThroughRoute(tx, operator, host, { reason: REASON });
+        expect(removed.status).toBe(200);
+
+        const retitled = await patchThroughRoute(tx, host, draft, { title: NEW_TITLE });
+        expect(retitled.status).toBe(200);
+
+        const widened = await eligibilityThroughRoute(tx, host, draft, {
+          eligibilityNote: null,
+          audience: ["umum", "mahasiswa"],
+        });
+        expect(widened.status).toBe(200);
+        const after = await publicFieldsOf(tx, draft);
+        expect(after.title).toBe(NEW_TITLE);
+        expect(after.audience).toEqual(["umum", "mahasiswa"]);
+
+        const tagged = await tagsThroughRoute(tx, host, draft, { tags: ["Esai"] });
+        expect(tagged.status).toBe(200);
+        expect(await tagsOf(tx, draft)).toEqual(["Esai"]);
+      });
+    });
+
+    it("refuses a host whose trust staff removed new tags on a live competition, and saves the stored set", async () => {
+      await inRollback(async (tx) => {
+        const { host, draft } = await hostWithLiveCompetitionAfterTrustRemoval(tx);
+
+        const added = await tagsThroughRoute(tx, host, draft, { tags: ["Esai", "Debat"] });
+
+        expect(added.status).toBe(403);
+        expect(added.body.error?.code).toBe(HELD_REFUSAL_CODE);
+        expect(added.body.error?.details?.fields).toEqual(["tags"]);
+        expect(await tagsOf(tx, draft)).toEqual([]);
+
+        const resent = await tagsThroughRoute(tx, host, draft, { tags: [] });
+
+        expect(resent.status).toBe(200);
+        expect(resent.body.tags).toEqual([]);
+      });
+    });
+
+    it("lets a host whose trust staff removed move the payment window of a live paid competition", async () => {
+      await inRollback(async (tx) => {
+        const host = await signUpHost(tx, HOST_ADDRESS);
+        const { draft } = await publishAsHost(tx, host);
+        await plantPaidPrice(tx, draft);
+        const operator = await plantOperator(tx, OPERATOR_ADDRESS);
+        const removed = await removeThroughRoute(tx, operator, host, { reason: REASON });
+        expect(removed.status).toBe(200);
+
+        await expect(setCompetitionPaymentWindow(host, draft, 5, tx)).resolves.toBeUndefined();
+
+        expect((await publicFieldsOf(tx, draft)).paymentWindowDays).toBe(5);
+      });
+    });
+  },
+);

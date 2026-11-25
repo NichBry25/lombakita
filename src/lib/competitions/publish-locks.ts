@@ -40,3 +40,6 @@ export const COMPETITION_CHANGED_DURING_EDIT_REASON =
 
 export const COMPETITION_AUDIENCE_CANNOT_BE_EMPTIED_REASON =
   "Untuk tidak bisa dikosongkan setelah kompetisi terbit. Biarkan minimal satu pilihan.";
+
+export const PUBLIC_EDIT_HELD_AFTER_TRUST_REMOVAL_REASON =
+  "Status tepercaya akun Anda dicabut staf, jadi isi kompetisi yang sudah terbit tidak dapat Anda ubah. Kontak, pengumuman, bukti transfer, dan hasil tetap dapat Anda kelola.";
