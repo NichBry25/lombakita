@@ -1,5 +1,4 @@
 // Pedoman kompetisi. A staff turn-down of a host check stores the code, so a code never changes.
-// The sentences are a draft whose wording is still to be approved on the built page.
 export const COMPETITION_GUIDELINE_CODES = [
   "kontak-nyata",
   "hadiah-jujur",

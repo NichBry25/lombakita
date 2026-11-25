@@ -5,7 +5,7 @@ assertServerOnly("server/async/jobs/recruiter-verification-approved");
 import { and, desc, eq, isNull } from "drizzle-orm";
 import type { Job } from "bullmq";
 import { getDb, type Database } from "@/server/db/client";
-import { competitions, institutions, users } from "@/server/db/schema";
+import { competitions, institutionMemberships, institutions, users } from "@/server/db/schema";
 import { logger } from "@/lib/logger";
 import {
   ASYNC_JOB_NAMES,
@@ -14,6 +14,7 @@ import {
 import { sendRecruiterVerificationApprovedEmail } from "@/server/notifications/notification-email";
 import { writeInboxNotificationSafely } from "@/server/notifications/inbox-write";
 import { NOTIFICATION_TYPES } from "@/server/notifications/notification-types";
+import { runsInstitutionOfCompetition } from "@/server/host-trust/host-check-drafts";
 
 export type RecruiterVerificationApprovedJob = Job<
   RecruiterVerificationApprovedPayload,
@@ -42,6 +43,7 @@ const findNewestDraftOf = async (db: Database, userId: string) => {
     })
     .from(competitions)
     .innerJoin(institutions, eq(institutions.id, competitions.institutionId))
+    .innerJoin(institutionMemberships, runsInstitutionOfCompetition(userId))
     .where(
       and(
         eq(competitions.createdByUserId, userId),
@@ -55,7 +57,7 @@ const findNewestDraftOf = async (db: Database, userId: string) => {
   return draft ?? null;
 };
 
-const findLiveCompetition = async (db: Database, competitionId: string) => {
+const findLiveCompetition = async (db: Database, userId: string, competitionId: string) => {
   const [competition] = await db
     .select({
       title: competitions.title,
@@ -65,14 +67,15 @@ const findLiveCompetition = async (db: Database, competitionId: string) => {
     })
     .from(competitions)
     .innerJoin(institutions, eq(institutions.id, competitions.institutionId))
+    .innerJoin(institutionMemberships, runsInstitutionOfCompetition(userId))
     .where(and(eq(competitions.id, competitionId), isNull(competitions.deletedAt)))
     .limit(1);
 
   return competition ?? null;
 };
 
-// The staff raise. The newest draft is read when the job runs, so the notice points at what the
-// host has at that moment.
+// The staff raise. The newest draft is read when the job runs, so the notice points at what the host
+// has at that moment, and only at a draft of an institution the host still runs as owner or staff.
 const buildTrustRaiseNotice = async (db: Database, userId: string): Promise<ApprovalNotice> => {
   const draft = await findNewestDraftOf(db, userId);
   if (!draft) {
@@ -90,12 +93,14 @@ const buildTrustRaiseNotice = async (db: Database, userId: string): Promise<Appr
 };
 
 // A host check approval. The competition is read when the job runs, so the notice says whether the
-// approval's publish went through.
+// approval's publish went through. A draft of an institution the host no longer runs as owner or
+// staff is not named.
 const buildHostCheckApprovalNotice = async (
   db: Database,
+  userId: string,
   competitionId: string,
 ): Promise<ApprovalNotice> => {
-  const competition = await findLiveCompetition(db, competitionId);
+  const competition = await findLiveCompetition(db, userId, competitionId);
   if (competition?.status === "published") {
     return {
       title: HOST_CHECK_APPROVED_TITLE,
@@ -144,7 +149,7 @@ export const processRecruiterVerificationApprovedJob = async (
   const notice =
     competitionId === undefined
       ? await buildTrustRaiseNotice(db, userId)
-      : await buildHostCheckApprovalNotice(db, competitionId);
+      : await buildHostCheckApprovalNotice(db, userId, competitionId);
 
   // Dual-channel (DEC-0076): in-app row written FIRST, isolated and swallowed. The email block keeps
   // its rethrow-for-retry semantics so the row lands regardless of email outcome.

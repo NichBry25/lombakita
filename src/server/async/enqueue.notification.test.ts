@@ -18,6 +18,7 @@ import {
   enqueuePaymentOutcome,
   enqueueRecruiterVerificationApproved,
   enqueueRecruiterVerificationRejected,
+  enqueueHostTrustRemoved,
 } from "@/server/async/enqueue";
 
 const makeQueue = () => ({
@@ -268,6 +269,27 @@ describe("enqueueRecruiterVerificationRejected", () => {
         epoch: 1700000000001,
       },
       { jobId: "recruiter.verification.rejected__sub_1__1700000000001" },
+    );
+  });
+});
+
+describe("enqueueHostTrustRemoved", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("carries the reason on the payload and keys the job by account and time", async () => {
+    const queue = makeQueue();
+    getAsyncQueue.mockReturnValue(queue);
+
+    await enqueueHostTrustRemoved({
+      userId: "u_1",
+      reason: "Kontak palsu di beberapa kompetisi.",
+      epoch: 1700000000000,
+    });
+
+    expect(queue.add).toHaveBeenCalledWith(
+      ASYNC_JOB_NAMES.hostTrustRemoved,
+      { userId: "u_1", reason: "Kontak palsu di beberapa kompetisi.", epoch: 1700000000000 },
+      { jobId: "host.trust.removed__u_1__1700000000000" },
     );
   });
 });

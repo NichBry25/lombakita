@@ -15,13 +15,14 @@ import {
   type RecruiterVerificationTier,
 } from "@/server/auth/recruiter-tier";
 import { sweepOrphanedObjectsForAccount } from "@/server/recruiter-verification/recruiter-verification-service";
-import { closeOpenHostCheckAsApproved } from "@/server/host-trust/host-check-service";
+import { closeOpenHostCheckAsApproved } from "@/server/host-trust/host-check-decision-service";
 import { assertAccountNotDeactivated } from "@/server/accounts/deactivated-account";
 
 assertServerOnly("server/recruiter-tier/recruiter-tier-service");
 
 // Platform-ops manual tier raise. The only target is `elevated`. A raise also clears a staff trust
-// removal and closes the account's open host check as approved, without publishing its draft.
+// removal and closes the account's open host check as approved, naming it in the audit row, without
+// publishing its draft.
 
 export type TierElevationErrorCode =
   | "tier_invalid_payload"
@@ -186,7 +187,7 @@ export const elevateRecruiterTier = async (
       return { changed: false, actorUserId: actor.userId, from: current.recruiterVerificationTier };
     }
 
-    await closeOpenHostCheckAsApproved(tx, accountId, actor.userId);
+    const closedHostCheckId = await closeOpenHostCheckAsApproved(tx, accountId, actor.userId);
 
     await recordOperatorAuditEntry(tx, actor, {
       targetUserId: accountId,
@@ -195,6 +196,7 @@ export const elevateRecruiterTier = async (
         from: current.recruiterVerificationTier,
         to: ELEVATION_TARGET_TIER,
         clearedTrustRemoval: emailState.hostTrustRemovedAt !== null,
+        closedHostCheckId,
       },
     });
 

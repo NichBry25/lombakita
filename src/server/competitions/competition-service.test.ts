@@ -501,8 +501,8 @@ describe("getCompetitionIdByInstitutionAndSlug", () => {
 // A personal institution is never document-verified — it has no documents, and it is excluded
 // from the platform-ops verification queue for exactly that reason. These tests pin the
 // consequence that matters: excluding it costs it no capability it would otherwise have. Publishing
-// a FREE competition is gated on the ACCOUNT-level Trusted Recruiter check plus the personal reach
-// cap, and reads nothing about the institution's verification_status.
+// a FREE competition is gated on host trust, the actor's or a trusted owner's, plus the personal
+// reach cap, and reads nothing about the institution's verification_status.
 //
 // That does NOT mean assertInstitutionVerified has no caller on this path. It does, and the
 // distinction is the whole of DEC-0158. transitionCompetitionStatus calls it whenever the
@@ -602,7 +602,7 @@ describe("personal institution publish — capability is independent of institut
 
     expect(result.competition.status).toBe("published");
     expect(capturedUpdates[0]).toMatchObject({ status: "published" });
-    // The account-level trust gate is what authorizes this publish.
+    // The host trust gate, the actor's or a trusted owner's, is what authorizes this publish.
     expect(assertPublishTrustSatisfied).toHaveBeenCalledTimes(1);
     expect(assertPublishTrustSatisfied).toHaveBeenCalledWith("user_1", "inst_1", db);
     expect(assertCompetitionAccess).toHaveBeenCalledWith("user_1", "comp_1", "member", db);

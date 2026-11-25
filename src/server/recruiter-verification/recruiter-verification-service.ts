@@ -862,9 +862,14 @@ export const reviewRecruiterVerification = async (
     if (decision === "approve") {
       // Idempotent elevation: no row comes back when the account was already elevated, by the tier
       // setting or another review, and then it did not just become penyelenggara terverifikasi.
+      // The approval is a staff decision to trust, so it also clears a staff trust removal.
       const elevatedRows = await tx
         .update(users)
-        .set({ recruiterVerificationTier: "elevated", updatedAt: sql`now()` })
+        .set({
+          recruiterVerificationTier: "elevated",
+          hostTrustRemovedAt: null,
+          updatedAt: sql`now()`,
+        })
         .where(and(eq(users.id, flipped.userId), ne(users.recruiterVerificationTier, "elevated")))
         .returning({ id: users.id });
       accountElevated = elevatedRows.length > 0;

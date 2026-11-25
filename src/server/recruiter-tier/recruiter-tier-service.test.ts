@@ -13,7 +13,7 @@ const {
   getRecruiterTierForAccount: vi.fn(),
   mockSweepForAccount: vi.fn().mockResolvedValue(undefined),
   mockEnqueueApproved: vi.fn().mockResolvedValue(undefined),
-  mockCloseOpenHostCheck: vi.fn().mockResolvedValue(undefined),
+  mockCloseOpenHostCheck: vi.fn().mockResolvedValue("check_9"),
 }));
 
 vi.mock("@/server/db/client", () => ({ getDb: mockGetDb }));
@@ -31,7 +31,7 @@ vi.mock("@/server/recruiter-verification/recruiter-verification-service", () => 
 vi.mock("@/server/async/enqueue", () => ({
   enqueueRecruiterVerificationApproved: mockEnqueueApproved,
 }));
-vi.mock("@/server/host-trust/host-check-service", () => ({
+vi.mock("@/server/host-trust/host-check-decision-service", () => ({
   closeOpenHostCheckAsApproved: mockCloseOpenHostCheck,
 }));
 
@@ -205,7 +205,12 @@ describe("elevateRecruiterTier", () => {
       actorUserId: "ops_1",
       targetUserId: "u1",
       eventType: RECRUITER_TIER_ELEVATED_EVENT,
-      metadata: { from: "minimal", to: "elevated", clearedTrustRemoval: false },
+      metadata: {
+        from: "minimal",
+        to: "elevated",
+        clearedTrustRemoval: false,
+        closedHostCheckId: "check_9",
+      },
     });
     // Flip and audit row must land together or not at all.
     expect(db.transaction).toHaveBeenCalledTimes(1);
@@ -224,7 +229,12 @@ describe("elevateRecruiterTier", () => {
 
     expect(insertChain.values).toHaveBeenCalledWith(
       expect.objectContaining({
-        metadata: { from: "minimal", to: "elevated", clearedTrustRemoval: true },
+        metadata: {
+          from: "minimal",
+          to: "elevated",
+          clearedTrustRemoval: true,
+          closedHostCheckId: "check_9",
+        },
       }),
     );
   });

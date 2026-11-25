@@ -5,7 +5,7 @@ import {
   decideHostCheck,
   HostCheckDecisionError,
   type HostCheckDecisionInput,
-} from "@/server/host-trust/host-check-service";
+} from "@/server/host-trust/host-check-decision-service";
 import { OperatorActorError } from "@/server/platform-ops/operator-actor";
 
 type RouteContext = { params: Promise<{ checkId: string }> };

@@ -368,6 +368,41 @@ export const sendRecruiterVerificationApprovedEmail = async (options: {
   });
 };
 
+// The notice of a staff trust removal: the notice's title as subject, its body and the dashboard.
+export const sendHostTrustRemovedEmail = async (options: {
+  toEmail: string;
+  recipientId: string;
+  title: string;
+  body: string;
+}): Promise<void> => {
+  const delivery = resolveNotificationDelivery("host_trust_removed", options.toEmail);
+
+  if (!delivery) {
+    return;
+  }
+
+  const { apiKey, from } = delivery;
+
+  const resend = new Resend(apiKey);
+  const { error } = await resend.emails.send({
+    from,
+    to: options.toEmail,
+    subject: options.title,
+    text: [options.body, "", `Buka dasbor Anda di ${resolveBaseUrl()}/recruiter-dashboard.`].join(
+      "\n",
+    ),
+  });
+
+  if (error) {
+    throwEmailSendFailure("host_trust_removed", error);
+  }
+
+  logger.info("notification.sent", {
+    event: "host.trust.removed",
+    recipientId: options.recipientId,
+  });
+};
+
 // A participant is asked for a document. The email carries the ask, the deadline and where to go —
 // enough to act on without signing in first to find out what is wanted.
 export const sendRegistrationDocumentRequestedEmail = async (options: {

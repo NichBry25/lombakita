@@ -302,6 +302,20 @@ export const enqueueRecruiterVerificationApproved = async (input: {
   });
 };
 
+// Keyed by the account and the removal time, so each removal notifies once. Fire-and-forget from the
+// removal; callers must catch errors.
+export const enqueueHostTrustRemoved = async (input: {
+  userId: string;
+  reason: string;
+  epoch: number;
+}): Promise<EnqueueAsyncJobResult<typeof ASYNC_JOB_NAMES.hostTrustRemoved>> => {
+  return enqueueAsyncJob({
+    jobName: ASYNC_JOB_NAMES.hostTrustRemoved,
+    idempotencyKey: `${input.userId}__${input.epoch}`,
+    payload: { userId: input.userId, reason: input.reason, epoch: input.epoch },
+  });
+};
+
 // Participant document verification — a named participant is asked for a named document. Keyed by
 // request id plus the request timestamp, so raising a fresh request against the same participant
 // months later notifies again while a true double-enqueue of one request dedups. Fire-and-forget

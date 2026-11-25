@@ -33,6 +33,7 @@ import {
   sendPaymentOutcomeEmail,
   sendRecruiterVerificationApprovedEmail,
   sendRecruiterVerificationRejectedEmail,
+  sendHostTrustRemovedEmail,
 } from "@/server/notifications/notification-email";
 
 describe("sendRegistrationConfirmedEmail", () => {
@@ -392,6 +393,22 @@ describe("recruiter verification notices", () => {
     expect(call.subject).toBe("Kompetisi Anda belum dapat tayang");
     expect(call.text).toBe(
       "Pedoman: X Catatan staf: Y\n\nBuka dasbor Anda di https://lombakita.local/recruiter-dashboard.",
+    );
+  });
+
+  it("trust removal email carries the notice's title and body and the dashboard", async () => {
+    await sendHostTrustRemovedEmail({
+      toEmail: "delivered@resend.dev",
+      recipientId: "u_1",
+      title: "Status tepercaya Anda dicabut",
+      body: "Alasan: X Kompetisi yang sudah tayang tetap tayang. Kompetisi berikutnya diperiksa staf sebelum tayang.",
+    });
+
+    const call = sendEmailMock.mock.calls[0]![0] as Record<string, string>;
+    expect(call.to).toBe("delivered@resend.dev");
+    expect(call.subject).toBe("Status tepercaya Anda dicabut");
+    expect(call.text).toBe(
+      "Alasan: X Kompetisi yang sudah tayang tetap tayang. Kompetisi berikutnya diperiksa staf sebelum tayang.\n\nBuka dasbor Anda di https://lombakita.local/recruiter-dashboard.",
     );
   });
 });

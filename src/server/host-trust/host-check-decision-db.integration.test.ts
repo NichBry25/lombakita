@@ -7,7 +7,7 @@
 // only where this file does not drive its writer, and each such helper says so.
 
 import { randomUUID } from "node:crypto";
-import { TransactionRollbackError, eq, sql } from "drizzle-orm";
+import { TransactionRollbackError, and, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -125,6 +125,7 @@ import {
 } from "@/server/auth/credentials-auth";
 import { markRoleAsVerified } from "@/server/auth/role-verification";
 import { createPersonalInstitutionForUser } from "@/server/institution-workspace/institution-service";
+import { changeMemberRole, removeMember } from "@/server/institution-members/member-service";
 import {
   createCompetitionDraft,
   softDeleteCompetitionDraft,
@@ -133,7 +134,7 @@ import {
 import { setCompetitionEligibilityForEditor } from "@/server/competitions/competition-eligibility-service";
 import { setCompetitionOrganizerContactForEditor } from "@/server/competitions/competition-organizer-contact-service";
 import { resolveCompetitionPublishReadiness } from "@/server/competitions/competition-publish-readiness";
-import { listHostChecks } from "./host-check-service";
+import { listHostChecks } from "./host-check-decision-service";
 import { POST as publishRoute } from "@/app/api/v1/institutions/[institutionSlug]/competitions/[competitionId]/publish/route";
 import { POST as decideRoute } from "@/app/api/platform-ops/host-checks/[checkId]/route";
 import { PATCH as raiseRoute } from "@/app/api/platform-ops/accounts/[accountId]/recruiter-tier/route";
@@ -284,7 +285,7 @@ const plantTrustRemoval = async (tx: Database, userId: string): Promise<void> =>
     .where(eq(schema.users.id, userId));
 };
 
-// Planted directly: an open host request without a draft, which no path writes now.
+// Planted directly: an open host request without a draft, as the old request flow wrote it.
 const plantOpenRequestWithoutDraft = async (tx: Database, userId: string): Promise<string> => {
   const [row] = await tx
     .insert(schema.recruiterVerificationSubmissions)
@@ -482,6 +483,63 @@ const inboxOf = (tx: Database, userId: string) =>
     .from(schema.notifications)
     .where(eq(schema.notifications.userId, userId));
 
+const createIncompleteDraft = async (
+  tx: Database,
+  authorId: string,
+  institutionSlug: string,
+  title: string,
+): Promise<string> => {
+  const draft = await createCompetitionDraft(
+    authorId,
+    {
+      institutionSlug,
+      title,
+      description: "Deskripsi kompetisi untuk pengujian.",
+      slug: null,
+    },
+    tx,
+  );
+  return draft.id;
+};
+
+// Planted directly: a stand-in for an invitation the person took up, which this file does not drive.
+const plantMembership = async (
+  tx: Database,
+  institutionId: string,
+  userId: string,
+  membershipRole: "institution_staff" | "institution_member",
+): Promise<void> => {
+  await tx.insert(schema.institutionMemberships).values({
+    institutionId,
+    userId,
+    membershipRole,
+    status: "active",
+  });
+};
+
+const membershipIdOf = async (
+  tx: Database,
+  institutionId: string,
+  userId: string,
+): Promise<string> => {
+  const [row] = await tx
+    .select({ id: schema.institutionMemberships.id })
+    .from(schema.institutionMemberships)
+    .where(
+      and(
+        eq(schema.institutionMemberships.institutionId, institutionId),
+        eq(schema.institutionMemberships.userId, userId),
+      ),
+    );
+  if (!row) throw new Error("No membership row");
+  return row.id;
+};
+
+// Planted directly: a stand-in for an account de-identification, which this file does not drive.
+const plantAccountDeactivated = async (tx: Database, userId: string): Promise<void> => {
+  await tx.update(schema.users).set({ status: "deactivated" }).where(eq(schema.users.id, userId));
+};
+
 const openCheckBy = async (
   tx: Database,
   host: string,
@@ -558,6 +616,8 @@ const NOTE = "Nomor kontak tidak aktif.";
 const TURN_DOWN = { decision: "turn_down", guidelineItem: "kontak-nyata", note: NOTE };
 const APPROVE = { decision: "approve" };
 const KONTAK_TEXT = "Penyelenggara mencantumkan kontak yang benar-benar bisa dihubungi peserta.";
+const FALLBACK_BODY = "Akun Anda kini tepercaya. Kompetisi yang Anda terbitkan langsung tayang.";
+const RAISE_FALLBACK_BODY = "Anda sekarang dapat menerbitkan kompetisi dari dasbor penyelenggara.";
 
 describe.skipIf(skipWithoutDatabase)("the staff decision on a host check (rolled back)", () => {
   it("approves a host check the press opened, publishes its draft as the host and trusts the host", async () => {
@@ -588,12 +648,26 @@ describe.skipIf(skipWithoutDatabase)("the staff decision on a host check (rolled
         reviewerUserId: operator,
       });
       expect((await hostCheckRowOf(tx, otherCheck)).status).toBe("pending_review");
-      expect(await auditRowsOf(tx, host)).toEqual([
+      expect(
+        (await auditRowsOf(tx, host)).filter((row) => row.eventType === "host_check.approved"),
+      ).toEqual([
         {
           actorUserId: operator,
           eventType: "host_check.approved",
           reason: null,
           metadata: { checkId, competitionId: draft },
+        },
+      ]);
+      expect(
+        (await auditRowsOf(tx, host)).filter(
+          (row) => row.eventType === "host_check.approval_publish",
+        ),
+      ).toEqual([
+        {
+          actorUserId: operator,
+          eventType: "host_check.approval_publish",
+          reason: null,
+          metadata: { checkId, competitionId: draft, published: true },
         },
       ]);
       expect(mocks.enqueueApproved).toHaveBeenCalledWith({
@@ -763,7 +837,8 @@ describe.skipIf(skipWithoutDatabase)("the staff decision on a host check (rolled
       expect(second.body.error?.code).toBe("host_check_already_decided");
       expect((await hostCheckRowOf(tx, checkId)).status).toBe("approved");
       expect(await tierOf(tx, host)).toBe("elevated");
-      expect((await auditRowsOf(tx, host)).map((row) => row.eventType)).toEqual([
+      expect((await auditRowsOf(tx, host)).map((row) => row.eventType).sort()).toEqual([
+        "host_check.approval_publish",
         "host_check.approved",
       ]);
       expect(mocks.enqueueRejected).not.toHaveBeenCalled();
@@ -792,6 +867,11 @@ describe.skipIf(skipWithoutDatabase)("the staff decision on a host check (rolled
       const byUnknown = await decideThroughRoute(tx, operator, randomUUID(), APPROVE);
 
       expect(byUnknown.status).toBe(404);
+
+      const byMalformed = await decideThroughRoute(tx, operator, "not-a-uuid", APPROVE);
+
+      expect(byMalformed.status).toBe(404);
+      expect(byMalformed.body.error?.code).toBe("host_check_not_found");
     });
   });
 
@@ -826,6 +906,18 @@ describe.skipIf(skipWithoutDatabase)("the staff decision on a host check (rolled
       });
       expect(await competitionStatusOf(tx, draft)).toBe("draft");
       expect(await tierOf(tx, host)).toBe("elevated");
+      expect(
+        (await auditRowsOf(tx, host)).filter(
+          (row) => row.eventType === "host_check.approval_publish",
+        ),
+      ).toEqual([
+        {
+          actorUserId: operator,
+          eventType: "host_check.approval_publish",
+          reason: null,
+          metadata: { checkId, competitionId: draft, published: false },
+        },
+      ]);
 
       await runApprovalJob(mocks.enqueueApproved.mock.calls[0]![0]);
 
@@ -895,7 +987,12 @@ describe.skipIf(skipWithoutDatabase)("the staff decision on a host check (rolled
           actorUserId: operator,
           eventType: "recruiter_tier.elevated",
           reason: null,
-          metadata: { from: "minimal", to: "elevated", clearedTrustRemoval: true },
+          metadata: {
+            from: "minimal",
+            to: "elevated",
+            clearedTrustRemoval: true,
+            closedHostCheckId: secondCheck,
+          },
         },
       ]);
       expect(mocks.enqueueApproved).toHaveBeenCalledWith({
@@ -1031,6 +1128,216 @@ describe.skipIf(skipWithoutDatabase)("the staff decision on a host check (rolled
           .filter((entry) => [hostA, hostB].includes(entry.host.userId))
           .map((entry) => entry.id),
       ).toEqual([checkA]);
+    });
+  });
+
+  it("names no draft in the approval notice of a host whose staff membership ended while the check was open", async () => {
+    await inRollback(async (tx) => {
+      const owner = await signUpHost(tx, SECOND_UNTRUSTED_HOST_ADDRESS);
+      const ownerWorkspace = await ownWorkspace(tx, owner);
+      const draft = await createPublishableDraft(tx, owner, ownerWorkspace.slug, FIRST_TITLE);
+      const host = await signUpHost(tx, UNTRUSTED_HOST_ADDRESS);
+      await ownWorkspace(tx, host);
+      await plantMembership(tx, ownerWorkspace.institutionId, host, "institution_staff");
+      const pressed = await pressOn(tx, host, ownerWorkspace, draft);
+      expect(pressed.status).toBe(202);
+      const checkId = pressed.body.hostCheck!.id;
+      const membershipId = await membershipIdOf(tx, ownerWorkspace.institutionId, host);
+      await removeMember(owner, ownerWorkspace.slug, membershipId, tx);
+      const operator = await plantOperator(tx, OPERATOR_ADDRESS);
+
+      const answered = await decideThroughRoute(tx, operator, checkId, APPROVE);
+
+      expect(answered.body).toEqual({
+        hostCheck: { id: checkId, userId: host, status: "approved", published: false },
+      });
+      expect(await competitionStatusOf(tx, draft)).toBe("draft");
+
+      await runApprovalJob(mocks.enqueueApproved.mock.calls[0]![0]);
+
+      expect(await inboxOf(tx, host)).toEqual([
+        { title: "Kompetisi Anda lolos pemeriksaan", body: FALLBACK_BODY },
+      ]);
+      expect(mocks.sendApprovedEmail).toHaveBeenCalledWith({
+        toEmail: UNTRUSTED_HOST_ADDRESS,
+        recipientId: host,
+        title: "Kompetisi Anda lolos pemeriksaan",
+        body: FALLBACK_BODY,
+        path: "/recruiter-dashboard",
+      });
+    });
+  });
+
+  it("names no draft in the approval notice of a host moved down to institution_member while the check was open", async () => {
+    await inRollback(async (tx) => {
+      const owner = await signUpHost(tx, SECOND_UNTRUSTED_HOST_ADDRESS);
+      const ownerWorkspace = await ownWorkspace(tx, owner);
+      const draft = await createPublishableDraft(tx, owner, ownerWorkspace.slug, FIRST_TITLE);
+      const host = await signUpHost(tx, UNTRUSTED_HOST_ADDRESS);
+      await plantMembership(tx, ownerWorkspace.institutionId, host, "institution_staff");
+      const pressed = await pressOn(tx, host, ownerWorkspace, draft);
+      expect(pressed.status).toBe(202);
+      const checkId = pressed.body.hostCheck!.id;
+      const membershipId = await membershipIdOf(tx, ownerWorkspace.institutionId, host);
+      await changeMemberRole(owner, ownerWorkspace.slug, membershipId, "institution_member", tx);
+      const operator = await plantOperator(tx, OPERATOR_ADDRESS);
+
+      const answered = await decideThroughRoute(tx, operator, checkId, APPROVE);
+
+      expect(answered.body).toEqual({
+        hostCheck: { id: checkId, userId: host, status: "approved", published: false },
+      });
+      expect(await competitionStatusOf(tx, draft)).toBe("draft");
+
+      await runApprovalJob(mocks.enqueueApproved.mock.calls[0]![0]);
+
+      expect(await inboxOf(tx, host)).toEqual([
+        { title: "Kompetisi Anda lolos pemeriksaan", body: FALLBACK_BODY },
+      ]);
+      expect(mocks.sendApprovedEmail).toHaveBeenCalledWith({
+        toEmail: UNTRUSTED_HOST_ADDRESS,
+        recipientId: host,
+        title: "Kompetisi Anda lolos pemeriksaan",
+        body: FALLBACK_BODY,
+        path: "/recruiter-dashboard",
+      });
+    });
+  });
+
+  it("names no draft in the raise notice of a host whose staff membership ended", async () => {
+    await inRollback(async (tx) => {
+      const owner = await signUpHost(tx, SECOND_UNTRUSTED_HOST_ADDRESS);
+      const ownerWorkspace = await ownWorkspace(tx, owner);
+      const host = await signUpHost(tx, UNTRUSTED_HOST_ADDRESS);
+      await ownWorkspace(tx, host);
+      await plantMembership(tx, ownerWorkspace.institutionId, host, "institution_staff");
+      await createIncompleteDraft(tx, host, ownerWorkspace.slug, FIRST_TITLE);
+      const membershipId = await membershipIdOf(tx, ownerWorkspace.institutionId, host);
+      await removeMember(owner, ownerWorkspace.slug, membershipId, tx);
+      const operator = await plantOperator(tx, OPERATOR_ADDRESS);
+
+      const raised = await raiseThroughRoute(tx, operator, host);
+
+      expect(raised.status).toBe(200);
+
+      await runApprovalJob(mocks.enqueueApproved.mock.calls[0]![0]);
+
+      expect(await inboxOf(tx, host)).toEqual([
+        { title: "Akun Anda kini penyelenggara tepercaya", body: RAISE_FALLBACK_BODY },
+      ]);
+      expect(mocks.sendApprovedEmail).toHaveBeenCalledWith({
+        toEmail: UNTRUSTED_HOST_ADDRESS,
+        recipientId: host,
+        title: "Akun Anda kini penyelenggara tepercaya",
+        body: RAISE_FALLBACK_BODY,
+        path: "/recruiter-dashboard",
+      });
+    });
+  });
+
+  it("names no draft in the raise notice of a host moved down to institution_member", async () => {
+    await inRollback(async (tx) => {
+      const owner = await signUpHost(tx, SECOND_UNTRUSTED_HOST_ADDRESS);
+      const ownerWorkspace = await ownWorkspace(tx, owner);
+      const host = await signUpHost(tx, UNTRUSTED_HOST_ADDRESS);
+      await plantMembership(tx, ownerWorkspace.institutionId, host, "institution_staff");
+      await createIncompleteDraft(tx, host, ownerWorkspace.slug, FIRST_TITLE);
+      const membershipId = await membershipIdOf(tx, ownerWorkspace.institutionId, host);
+      await changeMemberRole(owner, ownerWorkspace.slug, membershipId, "institution_member", tx);
+      const operator = await plantOperator(tx, OPERATOR_ADDRESS);
+
+      const raised = await raiseThroughRoute(tx, operator, host);
+
+      expect(raised.status).toBe(200);
+
+      await runApprovalJob(mocks.enqueueApproved.mock.calls[0]![0]);
+
+      expect(await inboxOf(tx, host)).toEqual([
+        { title: "Akun Anda kini penyelenggara tepercaya", body: RAISE_FALLBACK_BODY },
+      ]);
+      expect(mocks.sendApprovedEmail).toHaveBeenCalledWith({
+        toEmail: UNTRUSTED_HOST_ADDRESS,
+        recipientId: host,
+        title: "Akun Anda kini penyelenggara tepercaya",
+        body: RAISE_FALLBACK_BODY,
+        path: "/recruiter-dashboard",
+      });
+    });
+  });
+
+  it("closes a host check whose draft was deleted when staff approve it, with no trust, no publish and no notice", async () => {
+    await inRollback(async (tx) => {
+      const host = await signUpHost(tx, UNTRUSTED_HOST_ADDRESS);
+      const { draft, checkId } = await openCheckBy(tx, host, FIRST_TITLE);
+      await softDeleteCompetitionDraft(host, draft, tx);
+      const operator = await plantOperator(tx, OPERATOR_ADDRESS);
+
+      const answered = await decideThroughRoute(tx, operator, checkId, APPROVE);
+
+      expect(answered.status).toBe(200);
+      expect(answered.body).toEqual({
+        hostCheck: { id: checkId, userId: host, status: "rejected", published: false },
+      });
+      expect(await hostCheckRowOf(tx, checkId)).toEqual({
+        status: "rejected",
+        rejectionReason: "Ditutup karena draf tidak lagi tersedia.",
+        guidelineItem: null,
+        resubmissionAllowed: false,
+        reviewedAt: expect.any(Date),
+        reviewerUserId: operator,
+      });
+      expect(await tierOf(tx, host)).toBe("minimal");
+      expect(await auditRowsOf(tx, host)).toEqual([
+        {
+          actorUserId: operator,
+          eventType: "host_check.closed_without_draft",
+          reason: null,
+          metadata: { checkId, competitionId: draft },
+        },
+      ]);
+      expect(mocks.enqueueApproved).not.toHaveBeenCalled();
+      expect(mocks.enqueueRejected).not.toHaveBeenCalled();
+    });
+  });
+
+  it("refuses a decision on the host check of a de-identified account and changes nothing", async () => {
+    await inRollback(async (tx) => {
+      const host = await signUpHost(tx, UNTRUSTED_HOST_ADDRESS);
+      const { draft, checkId } = await openCheckBy(tx, host, FIRST_TITLE);
+      await plantAccountDeactivated(tx, host);
+      const operator = await plantOperator(tx, OPERATOR_ADDRESS);
+
+      const answered = await decideThroughRoute(tx, operator, checkId, APPROVE);
+
+      expect(answered.status).toBe(409);
+      expect(answered.body.error?.code).toBe("account_deactivated");
+      expect((await hostCheckRowOf(tx, checkId)).status).toBe("pending_review");
+      expect(await tierOf(tx, host)).toBe("minimal");
+      expect(await competitionStatusOf(tx, draft)).toBe("draft");
+      expect(await auditRowsOf(tx, host)).toEqual([]);
+    });
+  });
+
+  it("refuses to approve the host check of an account without the host role and changes nothing", async () => {
+    await inRollback(async (tx) => {
+      const owner = await signUpHost(tx, SECOND_UNTRUSTED_HOST_ADDRESS);
+      const ownerWorkspace = await ownWorkspace(tx, owner);
+      const draft = await createPublishableDraft(tx, owner, ownerWorkspace.slug, FIRST_TITLE);
+      const candidate = await signUpParticipant(tx, OTHER_ADDRESS);
+      await plantMembership(tx, ownerWorkspace.institutionId, candidate, "institution_staff");
+      const pressed = await pressOn(tx, candidate, ownerWorkspace, draft);
+      expect(pressed.status).toBe(202);
+      const checkId = pressed.body.hostCheck!.id;
+      const operator = await plantOperator(tx, OPERATOR_ADDRESS);
+
+      const answered = await decideThroughRoute(tx, operator, checkId, APPROVE);
+
+      expect(answered.status).toBe(422);
+      expect(answered.body.error?.code).toBe("host_check_target_not_host");
+      expect((await hostCheckRowOf(tx, checkId)).status).toBe("pending_review");
+      expect(await tierOf(tx, candidate)).toBe("unverified");
+      expect(await competitionStatusOf(tx, draft)).toBe("draft");
+      expect(await auditRowsOf(tx, candidate)).toEqual([]);
     });
   });
 });

@@ -17,7 +17,7 @@ const { requireSessionRole, decideHostCheck, HostCheckDecisionError } = vi.hoist
 }));
 
 vi.mock("@/server/auth/session", () => ({ requireSessionRole }));
-vi.mock("@/server/host-trust/host-check-service", () => ({
+vi.mock("@/server/host-trust/host-check-decision-service", () => ({
   decideHostCheck,
   HostCheckDecisionError,
 }));

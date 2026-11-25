@@ -9,7 +9,7 @@ const { requireSessionRole, listHostChecks } = vi.hoisted(() => ({
 }));
 
 vi.mock("@/server/auth/session", () => ({ requireSessionRole }));
-vi.mock("@/server/host-trust/host-check-service", () => ({ listHostChecks }));
+vi.mock("@/server/host-trust/host-check-decision-service", () => ({ listHostChecks }));
 
 import { GET } from "./route";
 

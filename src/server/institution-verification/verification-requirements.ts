@@ -16,7 +16,7 @@ export const DOCUMENT_TYPE_LABELS: Record<string, string> = {
 };
 
 // `personal` carries no documents: a personal institution is its owner, and the owner is vetted by
-// the account-level Trusted Recruiter review. createVerificationSubmission refuses a personal
+// host trust. createVerificationSubmission refuses a personal
 // institution outright, so this entry exists only to keep the map exhaustive over InstitutionType.
 export const REQUIRED_DOCUMENTS_BY_TYPE: Record<InstitutionType, readonly string[]> = {
   personal: [],

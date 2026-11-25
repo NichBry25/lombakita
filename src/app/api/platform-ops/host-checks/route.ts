@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { toAccessDeniedResponse } from "@/server/auth/access-core";
 import { requireSessionRole } from "@/server/auth/session";
-import { listHostChecks } from "@/server/host-trust/host-check-service";
+import { listHostChecks } from "@/server/host-trust/host-check-decision-service";
 
 // GET: the staff host check queue, open checks on live drafts, oldest first. platform_ops only, with
 // the MFA the role gate enforces. It reads only and acts on no account, so it carries no Rule 16

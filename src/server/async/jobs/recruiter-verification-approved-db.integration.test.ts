@@ -106,6 +106,13 @@ describe.skipIf(skipWithoutDatabase)(
           })
           .returning({ id: institutions.id });
         const institutionId = institution!.id;
+        // Planted directly: the host runs this institution as its owner.
+        await tx.insert(schema.institutionMemberships).values({
+          institutionId,
+          userId: hostU,
+          membershipRole: "institution_owner",
+          status: "active",
+        });
 
         await tx.insert(competitions).values([
           {
@@ -190,6 +197,13 @@ describe.skipIf(skipWithoutDatabase)(
           })
           .returning({ id: institutions.id });
         const institutionId = institution!.id;
+        // Planted directly: the host runs this institution as its owner.
+        await tx.insert(schema.institutionMemberships).values({
+          institutionId,
+          userId: hostU,
+          membershipRole: "institution_owner",
+          status: "active",
+        });
 
         const [published] = await tx
           .insert(competitions)

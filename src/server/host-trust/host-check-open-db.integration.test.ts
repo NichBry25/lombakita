@@ -321,7 +321,7 @@ const plantInstitutionVerified = async (tx: Database, institutionId: string): Pr
     .where(eq(schema.institutions.id, institutionId));
 };
 
-// Planted directly: an open host request without a draft, which no path writes now.
+// Planted directly: an open host request without a draft, as the old request flow wrote it.
 const plantOpenRequestWithoutDraft = async (tx: Database, userId: string): Promise<string> => {
   const [row] = await tx
     .insert(schema.recruiterVerificationSubmissions)

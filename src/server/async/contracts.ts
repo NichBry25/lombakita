@@ -34,6 +34,7 @@ export const ASYNC_JOB_NAMES = {
   teamCloseCheck: "team.close.check",
   teamJoinReminder: "team.join.reminder",
   teamCancelledBelowMinimum: "team.cancelled.below_minimum",
+  hostTrustRemoved: "host.trust.removed",
 } as const;
 
 export type AsyncJobName = (typeof ASYNC_JOB_NAMES)[keyof typeof ASYNC_JOB_NAMES];
@@ -131,6 +132,14 @@ export type RecruiterVerificationRejectedPayload = {
 export type RecruiterVerificationApprovedPayload = {
   userId: string;
   competitionId?: string;
+  epoch: number;
+};
+
+// Staff removed a host's trust. The reason travels on the payload, as a turn-down's note does, so
+// the notice says what staff wrote at the time. epoch makes each removal its own notice.
+export type HostTrustRemovedPayload = {
+  userId: string;
+  reason: string;
   epoch: number;
 };
 
@@ -294,6 +303,7 @@ export type AsyncJobPayloadByName = {
   [ASYNC_JOB_NAMES.teamCloseCheck]: TeamCloseCheckPayload;
   [ASYNC_JOB_NAMES.teamJoinReminder]: TeamJoinReminderPayload;
   [ASYNC_JOB_NAMES.teamCancelledBelowMinimum]: TeamCancelledBelowMinimumPayload;
+  [ASYNC_JOB_NAMES.hostTrustRemoved]: HostTrustRemovedPayload;
 };
 
 export const ASYNC_JOB_QUEUE_BY_NAME = {
@@ -330,4 +340,5 @@ export const ASYNC_JOB_QUEUE_BY_NAME = {
   [ASYNC_JOB_NAMES.teamCloseCheck]: ASYNC_QUEUE_NAMES.infrastructure,
   [ASYNC_JOB_NAMES.teamJoinReminder]: ASYNC_QUEUE_NAMES.notifications,
   [ASYNC_JOB_NAMES.teamCancelledBelowMinimum]: ASYNC_QUEUE_NAMES.notifications,
+  [ASYNC_JOB_NAMES.hostTrustRemoved]: ASYNC_QUEUE_NAMES.notifications,
 } as const satisfies Record<AsyncJobName, AsyncQueueName>;

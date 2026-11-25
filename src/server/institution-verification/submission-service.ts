@@ -179,7 +179,7 @@ const resolveOwnerInstitution = async (
 };
 
 // Submits a document verification request for a full institution. Verification is credibility-only:
-// it does not gate publishing (that gates on the account-level Trusted Recruiter status), it does
+// it does not gate publishing (that gates on host trust), it does
 // not change an institution's reach, and it never changes an institution's type — the type is fixed
 // at creation. The required documents are those of the institution's own type. Returns presigned PUT
 // URLs so the client can upload directly to R2.
@@ -209,8 +209,8 @@ export const createVerificationSubmission = async (
     db,
   );
 
-  // A personal institution is the person, and the person is verified through the account-level
-  // Trusted Recruiter review — there is nothing separate to document here. Reaching a full type is
+  // A personal institution is the person, and the person is judged through host trust, so there is
+  // nothing separate to document here. Reaching a full type is
   // the self-service upgrade, not a document submission.
   if (isPersonalInstitutionType(institutionType)) {
     throw new SubmissionError(

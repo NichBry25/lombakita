@@ -340,7 +340,8 @@ const takeHostStepThroughRoute = async (
 };
 
 // Planted directly: an elevated tier without the host role, which no path writes (the staff raise
-// refuses an account without the host role) and which the host step must not lower.
+// and a host check approval refuse an account without the host role), and which the host step must
+// not lower.
 const plantElevatedTierWithoutHostRole = async (tx: Database, userId: string): Promise<void> => {
   await tx
     .update(schema.users)

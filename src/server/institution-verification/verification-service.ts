@@ -75,7 +75,7 @@ export type VerifyResult = {
 const PAGE_SIZE = 20;
 
 // A personal institution has no document verification: it IS its owner, and that owner is vetted
-// by the account-level Trusted Recruiter review. `createVerificationSubmission` refuses one
+// by host trust. `createVerificationSubmission` refuses one
 // outright, so a personal row could only ever sit in this queue as a permanently inert entry an
 // operator has no evidence to act on. Excluded from both the page query and the count so
 // pagination and the total agree. A personal→full upgrade resets verification_status, so an
