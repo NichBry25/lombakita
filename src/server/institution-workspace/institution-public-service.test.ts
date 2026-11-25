@@ -84,7 +84,6 @@ describe("getPublicInstitution", () => {
       isVerified: true,
       logoUrl: "https://r2.example/get/institution-logos/inst_1/logo.png",
       bannerUrl: "https://r2.example/get/institution-banners/inst_1/banner.jpg",
-      personalOwnerUsername: null,
     });
     expect(institution?.socialLinks).toEqual([{ platform: "linkedin", url: "https://li/x" }]);
   });
@@ -97,31 +96,37 @@ describe("getPublicInstitution", () => {
     ).toBe(false);
   });
 
-  // A personal institution's page is a redirect to its owner, so the caller needs the username and
-  // nothing else — imagery and contact details would only be rendered by a page that never renders.
-  it("returns the owner username for a personal institution and withholds its detail", async () => {
+  it("returns the public face of a personal workspace with its own images and links", async () => {
     const db = makeDb([
       [
         institutionRow({
           institutionType: "personal",
-          slug: "alice",
-          displayName: null,
-          logoR2Key: null,
-          bannerR2Key: null,
+          slug: "lomba-budi",
+          displayName: "Lomba Budi",
+          verificationStatus: "pending_verification",
         }),
       ],
+      [{ platform: "instagram", url: "https://ig.example/lomba-budi" }],
     ]);
 
-    const institution = await getPublicInstitution("alice", ANONYMOUS_INSTITUTION_VIEWER, db);
+    const institution = await getPublicInstitution("lomba-budi", ANONYMOUS_INSTITUTION_VIEWER, db);
 
     expect(institution).toMatchObject({
+      slug: "lomba-budi",
+      name: "Lomba Budi",
       institutionType: "personal",
-      personalOwnerUsername: "alice",
-      logoUrl: null,
-      bannerUrl: null,
+      isVerified: false,
+      logoUrl: "https://r2.example/get/institution-logos/inst_1/logo.png",
+      bannerUrl: "https://r2.example/get/institution-banners/inst_1/banner.jpg",
+      contactName: null,
       contactEmail: null,
+      contactPhone: null,
+      contactDisclosure: { kind: "hidden" },
     });
-    expect(institution?.socialLinks).toEqual([]);
+    expect(institution?.socialLinks).toEqual([
+      { platform: "instagram", url: "https://ig.example/lomba-budi" },
+    ]);
+    expect(institution).not.toHaveProperty("personalOwnerUsername");
   });
 
   // Suspension used to be a JavaScript check on the returned row, and this asserted the returned
