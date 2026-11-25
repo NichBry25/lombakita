@@ -5,8 +5,8 @@
 // its link, and its toast.
 //
 // The load-bearing test here is the last one. The server's refusal messages are English sentences
-// written for a log — "Publishing requires a Trusted Recruiter account — complete recruiter
-// verification first" — and the endpoint returns them alongside the code. A shell that relayed
+// written for a log, such as "Publishing requires a trusted host, or a trusted owner of the
+// institution", and the endpoint returns them alongside the code. A shell that relayed
 // `error.message` would look correct in every single-code assertion above and hand an Indonesian
 // user an English log line. So the set of texts this module can produce is checked against the set
 // the server can send, and the two must not intersect.
@@ -37,7 +37,7 @@ const BLOCKER_CODES: CompetitionPublishBlockerCode[] = [
 ];
 
 // The refusal messages the server actually sends, quoted from the functions the publish path calls:
-// assertCompetitionAccess (competition-access.ts:162,165), assertActorIsTrustedRecruiter (:215),
+// assertCompetitionAccess (competition-access.ts:162,165), assertPublishTrustSatisfied (:215),
 // assertInstitutionNotSuspended (:302), transitionCompetitionStatus (competition-service.ts:889),
 // assertInstitutionVerified (competition-access.ts:274), assertPersonalCompetitionPublishable
 // (:342, :391), assertCompetitionInInstitution (competition-service.ts:133),
@@ -46,7 +46,7 @@ const BLOCKER_CODES: CompetitionPublishBlockerCode[] = [
 const SERVER_REFUSAL_MESSAGES = [
   "Institution owner/staff access required",
   "institution_owner access required",
-  "Publishing requires a Trusted Recruiter account — complete recruiter verification first",
+  "Publishing requires a trusted host, or a trusted owner of the institution",
   "This institution has been suspended by platform ops",
   "Cannot publish: 3 validation issue(s) — see details.failures",
   "Institusi harus terverifikasi sebelum dapat memungut biaya pendaftaran. Kompetisi gratis tetap dapat dipublikasikan.",

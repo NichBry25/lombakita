@@ -96,6 +96,7 @@ import {
   NEW_INSTITUTION_DEFAULT_STATUS,
   createPersonalInstitutionForUser,
 } from "@/server/institution-workspace/institution-service";
+import { changeMemberRole } from "@/server/institution-members/member-service";
 import {
   createCompetitionDraft,
   softDeleteCompetitionDraft,
@@ -387,6 +388,110 @@ const plantHostWithoutParticipantDetails = async (tx: Database): Promise<string>
     })
     .returning({ id: schema.users.id });
   if (!row) throw new Error("No user row");
+  return row.id;
+};
+
+// Planted directly: another account's open host check, which only that account's press writes.
+const plantOpenCheck = async (
+  tx: Database,
+  userId: string,
+  competitionId: string,
+): Promise<string> => {
+  const [row] = await tx
+    .insert(schema.recruiterVerificationSubmissions)
+    .values({
+      userId,
+      competitionId,
+      fullName: "Dina Lestari",
+      mobileNumber: "0819876543",
+      status: "pending_review",
+    })
+    .returning({ id: schema.recruiterVerificationSubmissions.id });
+  if (!row) throw new Error("No host check row");
+  return row.id;
+};
+
+// Planted directly: an approved host request without a draft, as older accounts hold.
+const plantApprovedRequestWithoutDraft = async (tx: Database, userId: string): Promise<string> => {
+  const [row] = await tx
+    .insert(schema.recruiterVerificationSubmissions)
+    .values({
+      userId,
+      fullName: "Rina Pratama",
+      mobileNumber: "0812345678",
+      status: "approved",
+      reviewedAt: new Date(),
+    })
+    .returning({ id: schema.recruiterVerificationSubmissions.id });
+  if (!row) throw new Error("No host request row");
+  return row.id;
+};
+
+// Planted directly: a stand-in for the editor's mode change, which this file does not drive.
+const plantTeamMode = async (tx: Database, competitionId: string): Promise<void> => {
+  await tx
+    .update(schema.competitions)
+    .set({ mode: "team", minTeamSize: 2, maxTeamSize: 4 })
+    .where(eq(schema.competitions.id, competitionId));
+};
+
+const createDraftMissing = async (
+  tx: Database,
+  authorId: string,
+  institutionSlug: string,
+  title: string,
+  missing: "contact" | "audience",
+): Promise<string> => {
+  const draft = await createCompetitionDraft(
+    authorId,
+    {
+      institutionSlug,
+      title,
+      description: "Deskripsi kompetisi untuk pengujian.",
+      slug: null,
+      category: "hackathon",
+      mode: "individual",
+      ...validTimeline(),
+    },
+    tx,
+  );
+  await updateCompetitionDraft(authorId, draft.id, { location: "online" }, tx);
+  if (missing === "contact") {
+    await setCompetitionEligibilityForEditor(authorId, draft.id, { audience: ["umum"] }, tx);
+  }
+  if (missing === "audience") {
+    await setCompetitionOrganizerContactForEditor(
+      authorId,
+      draft.id,
+      { kind: "whatsapp", value: "081298765432" },
+      tx,
+    );
+  }
+  return draft.id;
+};
+
+const submissionRowsOf = (tx: Database, userIds: string[]) =>
+  tx
+    .select()
+    .from(schema.recruiterVerificationSubmissions)
+    .where(inArray(schema.recruiterVerificationSubmissions.userId, userIds))
+    .orderBy(schema.recruiterVerificationSubmissions.id);
+
+const membershipIdOf = async (
+  tx: Database,
+  institutionId: string,
+  userId: string,
+): Promise<string> => {
+  const [row] = await tx
+    .select({ id: schema.institutionMemberships.id })
+    .from(schema.institutionMemberships)
+    .where(
+      and(
+        eq(schema.institutionMemberships.institutionId, institutionId),
+        eq(schema.institutionMemberships.userId, userId),
+      ),
+    );
+  if (!row) throw new Error("No membership row");
   return row.id;
 };
 
@@ -1018,6 +1123,155 @@ describe.skipIf(skipWithoutDatabase)("the publish press (rolled back)", () => {
           note: "Nomor kontak tidak aktif.",
         },
       });
+    });
+  });
+
+  it("leaves every host check row of other accounts alone when a host presses publish, and reads none of them", async () => {
+    await inRollback(async (tx) => {
+      const owner = await signUpHost(tx, TRUSTED_BY_SIGN_IN_EMAIL);
+      const ownerWorkspace = await ownWorkspace(tx, owner);
+      const goneDraft = await createPublishableDraft(
+        tx,
+        owner,
+        ownerWorkspace.slug,
+        "Lomba Fotografi Alam",
+      );
+      const liveDraft = await createPublishableDraft(tx, owner, ownerWorkspace.slug, SECOND_TITLE);
+      await softDeleteCompetitionDraft(owner, goneDraft, tx);
+      const withLegacy = await signUpParticipant(tx, "dina.lama@example.test");
+      await plantOpenRequestWithoutDraft(tx, withLegacy);
+      const withGone = await signUpParticipant(tx, "eko.lama@example.test");
+      await plantOpenCheck(tx, withGone, goneDraft);
+      const withLive = await signUpParticipant(tx, "fajar@example.test");
+      await plantOpenCheck(tx, withLive, liveDraft);
+      const withTurnDown = await signUpParticipant(tx, "gita@example.test");
+      await plantStaffTurnDown(tx, withTurnDown, liveDraft, new Date("2099-01-01T00:00:00Z"));
+      const others = [withLegacy, withGone, withLive, withTurnDown];
+      const before = await submissionRowsOf(tx, others);
+      const host = await signUpHost(tx, UNTRUSTED_HOST_ADDRESS);
+      const workspace = await ownWorkspace(tx, host);
+      const draft = await createPublishableDraft(tx, host, workspace.slug, FIRST_TITLE);
+
+      expect(await readinessOf(tx, host, draft)).toEqual(NEEDED_READINESS);
+
+      const pressed = await pressOn(tx, host, workspace, draft);
+
+      expect(pressed.status).toBe(202);
+      expect(await submissionRowsOf(tx, others)).toEqual(before);
+      expect(await readinessOf(tx, host, draft)).toEqual({
+        canPublish: true,
+        blockers: [],
+        hostCheck: { state: "pending" },
+      });
+    });
+  });
+
+  it("names no draft of a workspace where the host was moved down to institution_member, in the refusal and in readiness", async () => {
+    await inRollback(async (tx) => {
+      const owner = await signUpHost(tx, SECOND_UNTRUSTED_HOST_ADDRESS);
+      const ownerWorkspace = await ownWorkspace(tx, owner);
+      const theirs = await createPublishableDraft(tx, owner, ownerWorkspace.slug, FIRST_TITLE);
+      const host = await signUpHost(tx, UNTRUSTED_HOST_ADDRESS);
+      const hostWorkspace = await ownWorkspace(tx, host);
+      const mine = await createPublishableDraft(tx, host, hostWorkspace.slug, SECOND_TITLE);
+      await plantMembership(tx, ownerWorkspace.institutionId, host, "institution_staff");
+      const sent = await pressOn(tx, host, ownerWorkspace, theirs);
+      expect(sent.status).toBe(202);
+      const membershipId = await membershipIdOf(tx, ownerWorkspace.institutionId, host);
+      await changeMemberRole(owner, ownerWorkspace.slug, membershipId, "institution_member", tx);
+
+      const pressed = await pressOn(tx, host, hostWorkspace, mine);
+
+      expect(pressed.status).toBe(409);
+      expect(pressed.body.error?.code).toBe("host_check_pending_other_draft");
+      expect(pressed.body.error?.details).toBeUndefined();
+      expect(await readinessOf(tx, host, mine)).toEqual({
+        canPublish: true,
+        blockers: [],
+        hostCheck: { state: "pending_other_draft" },
+      });
+    });
+  });
+
+  it("keeps an approved host request without a draft approved when the host presses publish", async () => {
+    await inRollback(async (tx) => {
+      const host = await signUpHost(tx, UNTRUSTED_HOST_ADDRESS);
+      const approvedId = await plantApprovedRequestWithoutDraft(tx, host);
+      const workspace = await ownWorkspace(tx, host);
+      const draft = await createPublishableDraft(tx, host, workspace.slug, FIRST_TITLE);
+
+      const pressed = await pressOn(tx, host, workspace, draft);
+
+      expect(pressed.status).toBe(202);
+      expect(await hostCheckRowOf(tx, approvedId)).toEqual({
+        status: "approved",
+        rejectionReason: null,
+        guidelineItem: null,
+        resubmissionAllowed: true,
+        reviewedAt: expect.any(Date),
+      });
+    });
+  });
+
+  it("answers a draft without an organizer contact with the contact refusal and opens no host check", async () => {
+    await inRollback(async (tx) => {
+      const host = await signUpHost(tx, UNTRUSTED_HOST_ADDRESS);
+      const workspace = await ownWorkspace(tx, host);
+      const draft = await createDraftMissing(tx, host, workspace.slug, FIRST_TITLE, "contact");
+
+      const pressed = await pressOn(tx, host, workspace, draft);
+
+      expect(pressed.status).toBe(422);
+      expect(pressed.body.error?.code).toBe("competition_organizer_contact_missing");
+      expect(await hostCheckRowsOf(tx, host)).toEqual([]);
+    });
+  });
+
+  it("answers a draft without an audience with the audience refusal and opens no host check", async () => {
+    await inRollback(async (tx) => {
+      const host = await signUpHost(tx, UNTRUSTED_HOST_ADDRESS);
+      const workspace = await ownWorkspace(tx, host);
+      const draft = await createDraftMissing(tx, host, workspace.slug, FIRST_TITLE, "audience");
+
+      const pressed = await pressOn(tx, host, workspace, draft);
+
+      expect(pressed.status).toBe(422);
+      expect(pressed.body.error?.code).toBe("competition_audience_missing");
+      expect(await hostCheckRowsOf(tx, host)).toEqual([]);
+    });
+  });
+
+  it("refuses untrusted staff a paid draft of an untrusted owner with no host check", async () => {
+    await inRollback(async (tx) => {
+      const owner = await signUpHost(tx, SECOND_UNTRUSTED_HOST_ADDRESS);
+      const workspace = await ownWorkspace(tx, owner);
+      const draft = await createPublishableDraft(tx, owner, workspace.slug, FIRST_TITLE);
+      await plantPaidPrice(tx, draft);
+      await plantInstitutionVerified(tx, workspace.institutionId);
+      const staff = await signUpHost(tx, UNTRUSTED_HOST_ADDRESS);
+      await plantMembership(tx, workspace.institutionId, staff, "institution_staff");
+
+      const pressed = await pressOn(tx, staff, workspace, draft);
+
+      expect(pressed.status).toBe(403);
+      expect(pressed.body.error?.code).toBe("competition_paid_publish_owner_only");
+      expect(await hostCheckRowsOf(tx, staff)).toEqual([]);
+      expect(await competitionStatusOf(tx, draft)).toBe("draft");
+    });
+  });
+
+  it("answers a team draft of a personal workspace with the personal refusal and opens no host check", async () => {
+    await inRollback(async (tx) => {
+      const host = await signUpHost(tx, UNTRUSTED_HOST_ADDRESS);
+      const workspace = await ownWorkspace(tx, host);
+      const draft = await createPublishableDraft(tx, host, workspace.slug, FIRST_TITLE);
+      await plantTeamMode(tx, draft);
+
+      const pressed = await pressOn(tx, host, workspace, draft);
+
+      expect(pressed.status).toBe(422);
+      expect(pressed.body.error?.code).toBe("competition_personal_individual_only");
+      expect(await hostCheckRowsOf(tx, host)).toEqual([]);
     });
   });
 });

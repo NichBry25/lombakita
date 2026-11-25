@@ -101,10 +101,11 @@ import { elevateRecruiterTier } from "@/server/recruiter-tier/recruiter-tier-ser
 import { extractEmailDomain } from "./email-domain";
 import {
   automaticTrustEligibility,
-  isPublishTrustSatisfied,
   resolveAutomaticTrustSource,
   trustHostInTransaction,
+  wouldTrustHostAutomatically,
 } from "./host-trust-service";
+import { isPublishTrustSatisfied } from "./publish-trust";
 import {
   confirmOrganizationEmailCode,
   issueOrganizationEmailCode,
@@ -530,7 +531,8 @@ describe.skipIf(skipWithoutDatabase)("host trust (real database)", () => {
         await plantOrganizationEmail(tx, accountA, "dina@acme.example");
         await signUpParticipant(tx, "dina@acme.example");
 
-        expect(await resolveAutomaticTrustSource(tx, accountA)).toBe("sign_in_email");
+        expect(await resolveAutomaticTrustSource(tx, accountA)).toBeNull();
+        expect(await wouldTrustHostAutomatically(tx, accountA)).toBe(false);
         expect(await trustHostInTransaction(tx, accountA)).toBeNull();
 
         expect(await tierOf(tx, accountA)).toBe("minimal");
@@ -614,6 +616,36 @@ describe.skipIf(skipWithoutDatabase)("host trust (real database)", () => {
           .update(schema.users)
           .set({ suspendedAt: new Date() })
           .where(eq(schema.users.id, owner));
+
+        expect(await isPublishTrustSatisfied(actor, workspace, tx)).toBe(false);
+      });
+    });
+
+    it("is not satisfied by the actor's own trust while the actor is suspended", async () => {
+      await inRollback(async (tx) => {
+        const owner = await signUpLegacyHost(tx, "owner.one@acme.example");
+        const workspace = await ownWorkspace(tx, owner);
+        const actor = await signUpLegacyHost(tx, "actor@acme.example");
+        await trustByStaff(tx, actor);
+        await tx
+          .update(schema.users)
+          .set({ suspendedAt: new Date() })
+          .where(eq(schema.users.id, actor));
+
+        expect(await isPublishTrustSatisfied(actor, workspace, tx)).toBe(false);
+      });
+    });
+
+    it("is not satisfied by the actor's own trust while the actor is deactivated", async () => {
+      await inRollback(async (tx) => {
+        const owner = await signUpLegacyHost(tx, "owner.one@acme.example");
+        const workspace = await ownWorkspace(tx, owner);
+        const actor = await signUpLegacyHost(tx, "actor@acme.example");
+        await trustByStaff(tx, actor);
+        await tx
+          .update(schema.users)
+          .set({ status: "deactivated" })
+          .where(eq(schema.users.id, actor));
 
         expect(await isPublishTrustSatisfied(actor, workspace, tx)).toBe(false);
       });

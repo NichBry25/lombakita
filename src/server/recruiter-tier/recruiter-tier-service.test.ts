@@ -2,13 +2,19 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { mockGetDb, getRecruiterTierForAccount, mockSweepForAccount, mockEnqueueApproved } =
-  vi.hoisted(() => ({
-    mockGetDb: vi.fn(),
-    getRecruiterTierForAccount: vi.fn(),
-    mockSweepForAccount: vi.fn().mockResolvedValue(undefined),
-    mockEnqueueApproved: vi.fn().mockResolvedValue(undefined),
-  }));
+const {
+  mockGetDb,
+  getRecruiterTierForAccount,
+  mockSweepForAccount,
+  mockEnqueueApproved,
+  mockCloseOpenHostCheck,
+} = vi.hoisted(() => ({
+  mockGetDb: vi.fn(),
+  getRecruiterTierForAccount: vi.fn(),
+  mockSweepForAccount: vi.fn().mockResolvedValue(undefined),
+  mockEnqueueApproved: vi.fn().mockResolvedValue(undefined),
+  mockCloseOpenHostCheck: vi.fn().mockResolvedValue(undefined),
+}));
 
 vi.mock("@/server/db/client", () => ({ getDb: mockGetDb }));
 vi.mock("@/server/runtime/assert-server-only", () => ({ assertServerOnly: vi.fn() }));
@@ -24,6 +30,9 @@ vi.mock("@/server/recruiter-verification/recruiter-verification-service", () => 
 }));
 vi.mock("@/server/async/enqueue", () => ({
   enqueueRecruiterVerificationApproved: mockEnqueueApproved,
+}));
+vi.mock("@/server/host-trust/host-check-service", () => ({
+  closeOpenHostCheckAsApproved: mockCloseOpenHostCheck,
 }));
 
 import {
@@ -49,7 +58,12 @@ const RESOLVED_ACTOR: ActorRow = { id: "ops_1", role: "platform_ops", suspendedA
 const buildUpdateDb = ({
   flippedRows = [{ id: "u1" }],
   actorRows = [RESOLVED_ACTOR],
-}: { flippedRows?: { id: string }[]; actorRows?: ActorRow[] } = {}) => {
+  hostTrustRemovedAt = null,
+}: {
+  flippedRows?: { id: string }[];
+  actorRows?: ActorRow[];
+  hostTrustRemovedAt?: Date | null;
+} = {}) => {
   // Every read inside the transaction comes through this chain: the actor resolution and the
   // address check, which are awaited, and the de-identified-account guard, which takes its row with
   // `.for("update")`. What `limit` returns is therefore both a promise and carries one.
@@ -60,7 +74,11 @@ const buildUpdateDb = ({
       for: vi.fn().mockResolvedValue([{ status: "active" }]),
       then: (onFulfilled: (rows: ActorRow[]) => unknown) =>
         Promise.resolve(
-          actorRows.map((row) => ({ ...row, emailVerified: new Date("2026-01-01T00:00:00Z") })),
+          actorRows.map((row) => ({
+            ...row,
+            emailVerified: new Date("2026-01-01T00:00:00Z"),
+            hostTrustRemovedAt,
+          })),
         ).then(onFulfilled),
     }),
   };
@@ -175,16 +193,40 @@ describe("elevateRecruiterTier", () => {
     expect(updateChain.set).toHaveBeenCalled();
     // The manual elevation path runs the orphan sweep it would otherwise bypass.
     expect(mockSweepForAccount).toHaveBeenCalledWith("u1", db);
+    expect(updateChain.set).toHaveBeenCalledWith({
+      recruiterVerificationTier: "elevated",
+      hostTrustRemovedAt: null,
+      updatedAt: expect.anything(),
+    });
+    expect(mockCloseOpenHostCheck).toHaveBeenCalledWith(expect.anything(), "u1", "ops_1");
     // This path reaches the same end state as a review-queue approval, so it owes the same audit
     // row — otherwise a self-elevation via the API leaves no trace an operator would ever see.
     expect(insertChain.values).toHaveBeenCalledWith({
       actorUserId: "ops_1",
       targetUserId: "u1",
       eventType: RECRUITER_TIER_ELEVATED_EVENT,
-      metadata: { from: "minimal", to: "elevated" },
+      metadata: { from: "minimal", to: "elevated", clearedTrustRemoval: false },
     });
     // Flip and audit row must land together or not at all.
     expect(db.transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it("records a cleared trust removal in the audit row of the raise", async () => {
+    getRecruiterTierForAccount.mockResolvedValue({
+      recruiterVerified: true,
+      recruiterVerificationTier: "minimal",
+    });
+    const { db, insertChain } = buildUpdateDb({
+      hostTrustRemovedAt: new Date("2026-11-01T00:00:00Z"),
+    });
+
+    await elevateRecruiterTier("ops_1", "u1", db as never);
+
+    expect(insertChain.values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: { from: "minimal", to: "elevated", clearedTrustRemoval: true },
+      }),
+    );
   });
 
   it("sends nothing when the audit write fails after the tier changed", async () => {
@@ -248,6 +290,7 @@ describe("elevateRecruiterTier", () => {
     expect(updateChain.set).not.toHaveBeenCalled();
     // No elevation happened, so no sweep runs on the idempotent fast-path.
     expect(mockSweepForAccount).not.toHaveBeenCalled();
+    expect(mockCloseOpenHostCheck).not.toHaveBeenCalled();
   });
 
   it("notifies the host when the tier really changes", async () => {

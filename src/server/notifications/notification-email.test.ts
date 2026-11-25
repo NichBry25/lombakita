@@ -348,27 +348,20 @@ describe("recruiter verification notices", () => {
     sendEmailMock.mockResolvedValue({ data: { id: "email_1" }, error: null });
   });
 
-  it("approval email links the newest draft", async () => {
+  it("approval email carries the notice's title, body and link", async () => {
     await sendRecruiterVerificationApprovedEmail({
       toEmail: "delivered@resend.dev",
       recipientId: "u_1",
-      draft: { title: "Lomba Esai", path: "/institution/budi/competitions/lomba-esai" },
+      title: "Kompetisi Anda lolos pemeriksaan",
+      body: 'Akun Anda kini tepercaya dan "Lomba Esai" sudah tayang.',
+      path: "/competitions/budi/lomba-esai",
     });
 
     const call = sendEmailMock.mock.calls[0]![0] as Record<string, string>;
-    expect(call.subject).toBe("Anda kini penyelenggara terverifikasi");
-    expect(call.text).toContain("https://lombakita.local/institution/budi/competitions/lomba-esai");
-  });
-
-  it("approval email links the dashboard without a draft", async () => {
-    await sendRecruiterVerificationApprovedEmail({
-      toEmail: "delivered@resend.dev",
-      recipientId: "u_1",
-      draft: null,
-    });
-
-    const call = sendEmailMock.mock.calls[0]![0] as Record<string, string>;
-    expect(call.text).toContain("https://lombakita.local/recruiter-dashboard");
+    expect(call.subject).toBe("Kompetisi Anda lolos pemeriksaan");
+    expect(call.text).toBe(
+      'Akun Anda kini tepercaya dan "Lomba Esai" sudah tayang.\n\nhttps://lombakita.local/competitions/budi/lomba-esai',
+    );
   });
 
   it("rejection email names penyelenggara terverifikasi", async () => {
@@ -381,5 +374,24 @@ describe("recruiter verification notices", () => {
 
     const call = sendEmailMock.mock.calls[0]![0] as Record<string, string>;
     expect(call.subject).toBe("Permohonan penyelenggara terverifikasi ditolak");
+  });
+
+  it("turn-down email carries the notice's title and body and the dashboard", async () => {
+    await sendRecruiterVerificationRejectedEmail({
+      toEmail: "delivered@resend.dev",
+      recipientId: "u_1",
+      rejectionReason: "Nomor kontak tidak aktif.",
+      resubmissionAllowed: false,
+      hostCheckTurnDown: {
+        title: "Kompetisi Anda belum dapat tayang",
+        body: "Pedoman: X Catatan staf: Y",
+      },
+    });
+
+    const call = sendEmailMock.mock.calls[0]![0] as Record<string, string>;
+    expect(call.subject).toBe("Kompetisi Anda belum dapat tayang");
+    expect(call.text).toBe(
+      "Pedoman: X Catatan staf: Y\n\nBuka dasbor Anda di https://lombakita.local/recruiter-dashboard.",
+    );
   });
 });

@@ -111,22 +111,28 @@ export type TeamInvitationDispatchPayload = {
   rawToken: string;
 };
 
-// Recruiter trust verification rejected. The reason and the reopen decision are carried on the
-// payload rather than re-read at job-run time: the recruiter may reopen the submission before the
-// job runs, at which point the row no longer reflects the verdict this notification is about.
-// `epoch` is the rejection timestamp folded into the idempotency key (DEC-0081) so each distinct
-// rejection of the same submission produces its own notification.
+// Recruiter trust verification rejected, or a host check turned down. The reason and the reopen
+// choice are carried on the payload rather than re-read at job-run time: the row may change before
+// the job runs. `epoch` is the decision timestamp folded into the idempotency key (DEC-0081) so each
+// distinct decision on the same row produces its own notification.
 export type RecruiterVerificationRejectedPayload = {
   submissionId: string;
   userId: string;
   rejectionReason: string;
   resubmissionAllowed: boolean;
+  // Present for a staff turn-down of a host check: the guideline item the draft did not meet.
+  guidelineItem?: string;
   epoch: number;
 };
 
-// Account-level approval to publish, from a review or the manual tier setting. epoch makes each
-// enqueue unique; the callers send one only when the account's tier really changed.
-export type RecruiterVerificationApprovedPayload = { userId: string; epoch: number };
+// Account-level approval to publish, from the staff raise, a review or a host check approval. A host
+// check approval names its competition, which the job reads when it runs. epoch makes each enqueue
+// unique.
+export type RecruiterVerificationApprovedPayload = {
+  userId: string;
+  competitionId?: string;
+  epoch: number;
+};
 
 // Participant document verification. Both payloads carry their content rather than a pointer, for
 // the same reason the recruiter rejection does: by the time the worker runs the request may have

@@ -10,7 +10,7 @@ import type { CompetitionRow } from "@/server/competitions/competition-access";
 
 const {
   assertCompetitionAccess,
-  assertActorIsTrustedRecruiter,
+  assertPublishTrustSatisfied,
   assertInstitutionNotSuspended,
   assertCompetitionHasOrganizerContact,
   assertCompetitionHasAudience,
@@ -19,7 +19,7 @@ const {
   enqueueCompetitionCancelled,
 } = vi.hoisted(() => ({
   assertCompetitionAccess: vi.fn(),
-  assertActorIsTrustedRecruiter: vi.fn(),
+  assertPublishTrustSatisfied: vi.fn(),
   assertInstitutionNotSuspended: vi.fn(),
   assertCompetitionHasOrganizerContact: vi.fn(),
   assertCompetitionHasAudience: vi.fn(),
@@ -41,7 +41,7 @@ vi.mock("@/server/competitions/competition-access", async () => {
   return {
     ...actual,
     assertCompetitionAccess,
-    assertActorIsTrustedRecruiter,
+    assertPublishTrustSatisfied,
     assertInstitutionNotSuspended,
     assertCompetitionHasOrganizerContact,
     assertCompetitionHasAudience,
@@ -153,7 +153,7 @@ describe("F2 — same-status transitions return 422", () => {
     );
   });
 
-  it("does not call assertActorIsTrustedRecruiter on same-status draft → draft", async () => {
+  it("does not call assertPublishTrustSatisfied on same-status draft → draft", async () => {
     assertCompetitionAccess.mockResolvedValue({
       competition: baseCompetition({ status: "draft" }),
       membershipRole: "institution_owner",
@@ -162,7 +162,7 @@ describe("F2 — same-status transitions return 422", () => {
     await expect(
       transitionCompetitionStatus("user_1", "comp_1", "draft", stubDb),
     ).rejects.toBeInstanceOf(CompetitionError);
-    expect(assertActorIsTrustedRecruiter).not.toHaveBeenCalled();
+    expect(assertPublishTrustSatisfied).not.toHaveBeenCalled();
   });
 });
 
@@ -274,7 +274,7 @@ describe("F5-5 — publish rejects team competition with minTeamSize < 2 (Step 6
       }),
       membershipRole: "institution_owner",
     });
-    assertActorIsTrustedRecruiter.mockResolvedValue(undefined);
+    assertPublishTrustSatisfied.mockResolvedValue(undefined);
     assertInstitutionNotSuspended.mockResolvedValue(undefined);
 
     await expect(
@@ -301,11 +301,11 @@ describe("F5-5 — publish rejects team competition with minTeamSize < 2 (Step 6
       }),
       membershipRole: "institution_owner",
     });
-    assertActorIsTrustedRecruiter.mockRejectedValue(
+    assertPublishTrustSatisfied.mockRejectedValue(
       new CompetitionError(
         "competition_recruiter_not_trusted",
         403,
-        "Publishing requires a Trusted Recruiter account — complete recruiter verification first",
+        "Publishing requires a trusted host, or a trusted owner of the institution",
       ),
     );
     assertInstitutionNotSuspended.mockResolvedValue(undefined);
@@ -316,7 +316,7 @@ describe("F5-5 — publish rejects team competition with minTeamSize < 2 (Step 6
       code: "competition_publish_validation_failed",
       httpStatus: 422,
     });
-    expect(assertActorIsTrustedRecruiter).not.toHaveBeenCalled();
+    expect(assertPublishTrustSatisfied).not.toHaveBeenCalled();
   });
 
   it("validatePublishChecklist passes for an otherwise-identical team competition with minTeamSize=2", async () => {
@@ -594,7 +594,7 @@ describe("personal institution publish — capability is independent of institut
       competition: publishableDraft(),
       membershipRole: "institution_owner",
     });
-    assertActorIsTrustedRecruiter.mockResolvedValue(undefined);
+    assertPublishTrustSatisfied.mockResolvedValue(undefined);
     assertInstitutionNotSuspended.mockResolvedValue(undefined);
     const { db, capturedUpdates } = makePersonalPublishDb(1);
 
@@ -603,8 +603,8 @@ describe("personal institution publish — capability is independent of institut
     expect(result.competition.status).toBe("published");
     expect(capturedUpdates[0]).toMatchObject({ status: "published" });
     // The account-level trust gate is what authorizes this publish.
-    expect(assertActorIsTrustedRecruiter).toHaveBeenCalledTimes(1);
-    expect(assertActorIsTrustedRecruiter).toHaveBeenCalledWith("user_1", "inst_1", db);
+    expect(assertPublishTrustSatisfied).toHaveBeenCalledTimes(1);
+    expect(assertPublishTrustSatisfied).toHaveBeenCalledWith("user_1", "inst_1", db);
     expect(assertCompetitionAccess).toHaveBeenCalledWith("user_1", "comp_1", "member", db);
   });
 
@@ -613,7 +613,7 @@ describe("personal institution publish — capability is independent of institut
       competition: publishableDraft(),
       membershipRole: "institution_owner",
     });
-    assertActorIsTrustedRecruiter.mockResolvedValue(undefined);
+    assertPublishTrustSatisfied.mockResolvedValue(undefined);
     assertInstitutionNotSuspended.mockResolvedValue(undefined);
     const { db } = makePersonalPublishDb(2);
 
@@ -628,7 +628,7 @@ describe("personal institution publish — capability is independent of institut
       membershipRole: "institution_owner",
     });
     assertInstitutionNotSuspended.mockResolvedValue(undefined);
-    assertActorIsTrustedRecruiter.mockRejectedValue(
+    assertPublishTrustSatisfied.mockRejectedValue(
       new CompetitionError(
         "competition_recruiter_not_trusted",
         403,
@@ -641,9 +641,9 @@ describe("personal institution publish — capability is independent of institut
       transitionCompetitionStatus("user_1", "comp_1", "published", db),
     ).rejects.toMatchObject({ code: "competition_recruiter_not_trusted", httpStatus: 403 });
     expect(capturedUpdates).toEqual([]);
-    expect(assertActorIsTrustedRecruiter).toHaveBeenCalledWith("user_1", "inst_1", db);
+    expect(assertPublishTrustSatisfied).toHaveBeenCalledWith("user_1", "inst_1", db);
     expect(assertInstitutionNotSuspended.mock.invocationCallOrder[0]!).toBeLessThan(
-      assertActorIsTrustedRecruiter.mock.invocationCallOrder[0]!,
+      assertPublishTrustSatisfied.mock.invocationCallOrder[0]!,
     );
   });
 });

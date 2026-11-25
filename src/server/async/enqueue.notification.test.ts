@@ -17,6 +17,7 @@ import {
   enqueuePaymentProofSubmitted,
   enqueuePaymentOutcome,
   enqueueRecruiterVerificationApproved,
+  enqueueRecruiterVerificationRejected,
 } from "@/server/async/enqueue";
 
 const makeQueue = () => ({
@@ -199,6 +200,74 @@ describe("enqueueRecruiterVerificationApproved", () => {
       ASYNC_JOB_NAMES.recruiterVerificationApproved,
       { userId: "u_1", epoch: 1700000000000 },
       { jobId: "recruiter.verification.approved__u_1__1700000000000" },
+    );
+  });
+
+  it("carries the competition of a host check approval on the payload", async () => {
+    const queue = makeQueue();
+    getAsyncQueue.mockReturnValue(queue);
+
+    await enqueueRecruiterVerificationApproved({
+      userId: "u_1",
+      competitionId: "comp_1",
+      epoch: 1700000000000,
+    });
+
+    expect(queue.add).toHaveBeenCalledWith(
+      ASYNC_JOB_NAMES.recruiterVerificationApproved,
+      { userId: "u_1", competitionId: "comp_1", epoch: 1700000000000 },
+      { jobId: "recruiter.verification.approved__u_1__1700000000000" },
+    );
+  });
+});
+
+describe("enqueueRecruiterVerificationRejected", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("carries the guideline item of a host check turn-down, and leaves it out of a request rejection", async () => {
+    const queue = makeQueue();
+    getAsyncQueue.mockReturnValue(queue);
+
+    await enqueueRecruiterVerificationRejected({
+      submissionId: "check_1",
+      userId: "u_1",
+      rejectionReason: "Nomor kontak tidak aktif.",
+      resubmissionAllowed: false,
+      guidelineItem: "kontak-nyata",
+      epoch: 1700000000000,
+    });
+    await enqueueRecruiterVerificationRejected({
+      submissionId: "sub_1",
+      userId: "u_1",
+      rejectionReason: "Dokumen tidak jelas",
+      resubmissionAllowed: true,
+      epoch: 1700000000001,
+    });
+
+    expect(queue.add).toHaveBeenNthCalledWith(
+      1,
+      ASYNC_JOB_NAMES.recruiterVerificationRejected,
+      {
+        submissionId: "check_1",
+        userId: "u_1",
+        rejectionReason: "Nomor kontak tidak aktif.",
+        resubmissionAllowed: false,
+        guidelineItem: "kontak-nyata",
+        epoch: 1700000000000,
+      },
+      { jobId: "recruiter.verification.rejected__check_1__1700000000000" },
+    );
+    expect(queue.add).toHaveBeenNthCalledWith(
+      2,
+      ASYNC_JOB_NAMES.recruiterVerificationRejected,
+      {
+        submissionId: "sub_1",
+        userId: "u_1",
+        rejectionReason: "Dokumen tidak jelas",
+        resubmissionAllowed: true,
+        epoch: 1700000000001,
+      },
+      { jobId: "recruiter.verification.rejected__sub_1__1700000000001" },
     );
   });
 });

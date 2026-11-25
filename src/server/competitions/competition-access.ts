@@ -14,7 +14,7 @@ import {
   type InstitutionType,
   type InstitutionVerificationStatus,
 } from "@/server/db/schema";
-import { isPublishTrustSatisfied } from "@/server/host-trust/host-trust-service";
+import { isPublishTrustSatisfied } from "@/server/host-trust/publish-trust";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 import { CompetitionError } from "@/server/competitions/competition-core";
 import {
@@ -217,7 +217,7 @@ export const isCompetitionHost = async (
 // effect on the next request. The caller passes the institution id of the competition row that
 // assertCompetitionAccess loaded, because isPublishTrustSatisfied reads no membership of the actor.
 // Throws CompetitionError 403 competition_recruiter_not_trusted otherwise.
-export const assertActorIsTrustedRecruiter = async (
+export const assertPublishTrustSatisfied = async (
   actorUserId: string,
   institutionId: string,
   db: Database = getDb(),
@@ -227,7 +227,7 @@ export const assertActorIsTrustedRecruiter = async (
     throw new CompetitionError(
       "competition_recruiter_not_trusted",
       403,
-      "Publishing requires a Trusted Recruiter account — complete recruiter verification first",
+      "Publishing requires a trusted host, or a trusted owner of the institution",
     );
   }
 };
@@ -300,8 +300,8 @@ export const assertCompetitionHasAudience = async (
 //
 // Verification gates the right to CHARGE MONEY, never the right to publish. An unverified
 // institution runs free competitions and publishes them normally; what it may not do is take
-// payment. Publishing is gated separately by assertActorIsTrustedRecruiter, the account-level trust
-// gate, which is why this is not on the generic publish path.
+// payment. Publishing is gated separately by assertPublishTrustSatisfied, the trust of the actor or
+// of an owner of the institution, which is why this is not on the generic publish path.
 //
 // Revocation is read live through this call rather than snapshotted, so an institution whose
 // verification is withdrawn stops being able to enable charging immediately. That is a CREDIBILITY

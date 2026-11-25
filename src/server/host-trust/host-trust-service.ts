@@ -1,8 +1,8 @@
-import { and, eq, inArray, isNotNull, isNull, ne, sql, type SQL } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, ne, or, sql, type SQL } from "drizzle-orm";
 import { SELF_SERVICE_ROLES } from "@/lib/access/roles";
 import { normalizeEmail } from "@/server/auth/credentials-auth";
-import { getDb, type Database } from "@/server/db/client";
-import { hostOrganizationEmails, institutionMemberships, users } from "@/server/db/schema";
+import type { Database } from "@/server/db/client";
+import { hostOrganizationEmails, users } from "@/server/db/schema";
 import {
   extractEmailDomain,
   holdsOnlyPrintableAscii,
@@ -59,14 +59,16 @@ const holdsConfirmedSignInEmailOnOrganizationDomain = async (
   const domain = extractEmailDomain(signInEmail);
   if (domain === null || isFreeOrThrowawayEmailDomain(domain)) return false;
 
-  const [otherAccountHoldingItAsOrganizationEmail] = await tx
+  // Recording the address needs this account's own row free and the address held by no one, so a
+  // row of either kind means trustHostInTransaction could not record it.
+  const [blockingOrganizationEmail] = await tx
     .select({ userId: hostOrganizationEmails.userId })
     .from(hostOrganizationEmails)
     .where(
-      and(ne(hostOrganizationEmails.userId, userId), eq(hostOrganizationEmails.email, signInEmail)),
+      or(eq(hostOrganizationEmails.userId, userId), eq(hostOrganizationEmails.email, signInEmail)),
     )
     .limit(1);
-  return otherAccountHoldingItAsOrganizationEmail === undefined;
+  return blockingOrganizationEmail === undefined;
 };
 
 export const resolveAutomaticTrustSource = async (
@@ -78,6 +80,36 @@ export const resolveAutomaticTrustSource = async (
   return null;
 };
 
+type AutomaticTrustCandidate = { email: string; source: AutomaticTrustSource };
+
+// The account and the source trustHostInTransaction would trust, read without writing. Null when
+// the account is not eligible or no source holds.
+const readAutomaticTrustCandidate = async (
+  tx: Database,
+  userId: string,
+): Promise<AutomaticTrustCandidate | null> => {
+  const [eligibleAccount] = await tx
+    .select({ email: users.email })
+    .from(users)
+    .where(and(eq(users.id, userId), automaticTrustEligibility))
+    .limit(1);
+  if (!eligibleAccount) return null;
+
+  const source = await resolveAutomaticTrustSource(tx, userId);
+  if (source === null) return null;
+  return { email: eligibleAccount.email, source };
+};
+
+// Whether the press's own trust step would trust this account now. It reads what
+// trustHostInTransaction reads before it writes, so readiness and the press give one answer.
+export const wouldTrustHostAutomatically = async (
+  db: Database,
+  userId: string,
+): Promise<boolean> => {
+  const candidate = await readAutomaticTrustCandidate(db, userId);
+  return candidate !== null;
+};
+
 // Writes the trust and, for the sign-in email source, the Email organisasi row. Returns the source
 // that trusted the account, or null when nothing was written. Writes no audit row and sends no
 // notice. A conflicting row ends in null and never a unique violation, which would abort the
@@ -86,18 +118,11 @@ export const trustHostInTransaction = async (
   tx: Database,
   userId: string,
 ): Promise<AutomaticTrustSource | null> => {
-  const [eligibleAccount] = await tx
-    .select({ id: users.id, email: users.email })
-    .from(users)
-    .where(and(eq(users.id, userId), automaticTrustEligibility))
-    .limit(1);
-  if (!eligibleAccount) return null;
+  const candidate = await readAutomaticTrustCandidate(tx, userId);
+  if (candidate === null) return null;
 
-  const source = await resolveAutomaticTrustSource(tx, userId);
-  if (source === null) return null;
-
-  if (source === "sign_in_email") {
-    const email = normalizeEmail(eligibleAccount.email);
+  if (candidate.source === "sign_in_email") {
+    const email = normalizeEmail(candidate.email);
     const recordedRows = await tx
       .insert(hostOrganizationEmails)
       .values({
@@ -118,51 +143,5 @@ export const trustHostInTransaction = async (
     .returning({ id: users.id });
   if (trustedRows.length === 0) return null;
 
-  return source;
-};
-
-// True when an active institution_owner of the institution is a trusted host whose account is active and not suspended.
-const institutionHasTrustedOwner = async (
-  institutionId: string,
-  db: Database,
-): Promise<boolean> => {
-  const [row] = await db
-    .select({ id: institutionMemberships.id })
-    .from(institutionMemberships)
-    .innerJoin(users, eq(users.id, institutionMemberships.userId))
-    .where(
-      and(
-        eq(institutionMemberships.institutionId, institutionId),
-        eq(institutionMemberships.membershipRole, "institution_owner"),
-        eq(institutionMemberships.status, "active"),
-        eq(users.recruiterVerificationTier, "elevated"),
-        eq(users.status, "active"),
-        isNull(users.suspendedAt),
-      ),
-    )
-    .limit(1);
-
-  return row !== undefined;
-};
-
-// Does not check that the actor belongs to the institution. Callers run assertCompetitionAccess
-// first and pass the institution id of the competition row it loaded.
-export const isPublishTrustSatisfied = async (
-  actorUserId: string,
-  institutionId: string,
-  db: Database = getDb(),
-): Promise<boolean> => {
-  const [actor] = await db
-    .select({
-      tier: users.recruiterVerificationTier,
-      hostTrustRemovedAt: users.hostTrustRemovedAt,
-    })
-    .from(users)
-    .where(eq(users.id, actorUserId))
-    .limit(1);
-  if (!actor) return false;
-
-  if (actor.tier === "elevated") return true;
-  if (actor.hostTrustRemovedAt !== null) return false;
-  return institutionHasTrustedOwner(institutionId, db);
+  return candidate.source;
 };

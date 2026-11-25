@@ -46,7 +46,7 @@ import { moveOpenTeamInvitationsToClose } from "@/server/teams/team-invitation-e
 import { disbandEveryTeamOfCompetition } from "@/server/teams/team-service";
 import { markCompetitionRegistrationsPublicationClosed } from "@/server/registrations/registration-service";
 import {
-  assertActorIsTrustedRecruiter,
+  assertPublishTrustSatisfied,
   assertCompetitionAccess,
   assertCompetitionHasAudience,
   assertCompetitionHasOrganizerContact,
@@ -124,8 +124,8 @@ const deriveSlugBaseFromTitle = (title: string): string => {
 // mismatch — institution slug unknown, competition missing/soft-deleted, or competition owned
 // by a different institution — returns 404 to avoid leaking cross-tenant existence.
 //
-// This helper does NOT enforce actor membership or role. The caller must still invoke
-// transitionCompetitionStatus (which runs assertCompetitionAccess admin) to authorize.
+// This helper does NOT enforce actor membership or role. The caller must still authorize through
+// assertCompetitionAccess at the level its action needs: member to publish, admin to unpublish.
 export const assertCompetitionInInstitution = async (
   institutionSlug: string,
   competitionId: string,
@@ -1090,7 +1090,7 @@ export const transitionCompetitionStatus = async (
 
     // Last, so an untrusted host's press opens a host check only for a draft that passes every
     // other check.
-    await assertActorIsTrustedRecruiter(actorUserId, competition.institutionId, db);
+    await assertPublishTrustSatisfied(actorUserId, competition.institutionId, db);
   }
 
   // This function writes only draft → published. Unpublish (published → draft) is

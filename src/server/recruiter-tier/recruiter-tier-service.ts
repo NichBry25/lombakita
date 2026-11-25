@@ -15,16 +15,13 @@ import {
   type RecruiterVerificationTier,
 } from "@/server/auth/recruiter-tier";
 import { sweepOrphanedObjectsForAccount } from "@/server/recruiter-verification/recruiter-verification-service";
+import { closeOpenHostCheckAsApproved } from "@/server/host-trust/host-check-service";
 import { assertAccountNotDeactivated } from "@/server/accounts/deactivated-account";
 
 assertServerOnly("server/recruiter-tier/recruiter-tier-service");
 
-// Platform-ops manual tier elevation.
-//
-// The endpoint is intentionally minimal: only `elevated` is accepted as a target. Other
-// tier transitions are not allowed at launch (no demotion, no setting back to `minimal`).
-// There is no mechanical/automated elevation path; this endpoint is the only
-// path to `elevated` at launch.
+// Platform-ops manual tier raise. The only target is `elevated`. A raise also clears a staff trust
+// removal and closes the account's open host check as approved, without publishing its draft.
 
 export type TierElevationErrorCode =
   | "tier_invalid_payload"
@@ -153,7 +150,7 @@ export const elevateRecruiterTier = async (
     // A recruiter sign-up before its address is proven may be a stranger's,
     // and verification never lowers the tier.
     const [emailState] = await tx
-      .select({ emailVerified: users.emailVerified })
+      .select({ emailVerified: users.emailVerified, hostTrustRemovedAt: users.hostTrustRemovedAt })
       .from(users)
       .where(eq(users.id, accountId))
       .limit(1);
@@ -174,6 +171,7 @@ export const elevateRecruiterTier = async (
       .update(users)
       .set({
         recruiterVerificationTier: ELEVATION_TARGET_TIER,
+        hostTrustRemovedAt: null,
         updatedAt: sql`now()`,
       })
       .where(
@@ -188,10 +186,16 @@ export const elevateRecruiterTier = async (
       return { changed: false, actorUserId: actor.userId, from: current.recruiterVerificationTier };
     }
 
+    await closeOpenHostCheckAsApproved(tx, accountId, actor.userId);
+
     await recordOperatorAuditEntry(tx, actor, {
       targetUserId: accountId,
       eventType: RECRUITER_TIER_ELEVATED_EVENT,
-      metadata: { from: current.recruiterVerificationTier, to: ELEVATION_TARGET_TIER },
+      metadata: {
+        from: current.recruiterVerificationTier,
+        to: ELEVATION_TARGET_TIER,
+        clearedTrustRemoval: emailState.hostTrustRemovedAt !== null,
+      },
     });
 
     return { changed: true, actorUserId: actor.userId, from: current.recruiterVerificationTier };
