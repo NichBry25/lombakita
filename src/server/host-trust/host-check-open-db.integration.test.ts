@@ -95,7 +95,7 @@ import {
 import { markRoleAsVerified } from "@/server/auth/role-verification";
 import {
   NEW_INSTITUTION_DEFAULT_STATUS,
-  createPersonalInstitutionForUser,
+  createInstitutionWorkspaceForUser,
 } from "@/server/institution-workspace/institution-service";
 import { changeMemberRole } from "@/server/institution-members/member-service";
 import {
@@ -196,8 +196,19 @@ const signUpLegacyHost = async (tx: Database, address: string): Promise<string> 
 
 type Workspace = { institutionId: string; slug: string };
 
+// A name per owner gives each owner its own slug, so test files running at once never wait on one
+// another's uncommitted slug.
+const personalWorkspaceDetails = (ownerId: string) => ({
+  displayName: `Ruang Kerja ${ownerId.slice(0, 8)}`,
+  institutionType: "personal",
+});
+
 const ownWorkspace = async (tx: Database, ownerId: string): Promise<Workspace> => {
-  const workspace = await createPersonalInstitutionForUser(ownerId, tx);
+  const workspace = await createInstitutionWorkspaceForUser(
+    ownerId,
+    personalWorkspaceDetails(ownerId),
+    tx,
+  );
   return { institutionId: workspace.institutionId, slug: workspace.slug };
 };
 

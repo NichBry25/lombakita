@@ -51,12 +51,12 @@ export const isRecruiterTier = (value: unknown): value is RecruiterVerificationT
 // this file rather than inline-passing a string literal.
 export const OPPORTUNITY_CREATION_MIN_TIER: RecruiterVerificationTier = "minimal";
 
-// Institution-creation tier gates. These are distinct from
-// OPPORTUNITY_CREATION_MIN_TIER (which gates competition creation and is unchanged here).
-//   personal institution — a minimal-tier recruiter may self-create one capped personal institution.
-//   full institution     — creating a full/standard institution now requires `elevated` (tightened
-//                          from the prior "any recruiter-verified" gate).
-export const PERSONAL_INSTITUTION_CREATION_MIN_TIER: RecruiterVerificationTier = "minimal";
+// Institution-creation tier gates, distinct from OPPORTUNITY_CREATION_MIN_TIER (which gates
+// competition creation).
+//   INSTITUTION_CREATION_MIN_TIER       the create route, for every kind.
+//   FULL_INSTITUTION_CREATION_MIN_TIER  read by the host dashboard, which offers the create form at
+//                                       this tier, and by the verification page.
+export const INSTITUTION_CREATION_MIN_TIER: RecruiterVerificationTier = "minimal";
 export const FULL_INSTITUTION_CREATION_MIN_TIER: RecruiterVerificationTier = "elevated";
 
 export type RecruiterTierFailureReason =

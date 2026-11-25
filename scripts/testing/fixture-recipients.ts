@@ -56,7 +56,7 @@ export const GOVERNED_FIXTURE_FILES = Object.freeze([
   "scripts/seed-test-matrix.ts",
   "scripts/retention/r2-retention.ts",
   "scripts/concurrency/mfa-factor-races.ts",
-  "scripts/concurrency/upgrade-owner-cap.ts",
+  "scripts/concurrency/owner-cap-personal-kind.ts",
   "scripts/concurrency/finance-idempotency-races.ts",
   "scripts/concurrency/competition-participation.ts",
   "scripts/concurrency/verification-cas-races.ts",

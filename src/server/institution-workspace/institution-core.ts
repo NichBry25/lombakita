@@ -6,9 +6,8 @@ import type {
   InstitutionType,
 } from "@/server/db/schema";
 import {
-  FULL_INSTITUTION_TYPES,
-  isFullInstitutionType,
-  type FullInstitutionType,
+  INSTITUTION_TYPES,
+  isInstitutionType,
 } from "@/server/institution-workspace/institution-type";
 import { RESERVED_WORDS } from "@/lib/username/reserved-words";
 
@@ -60,9 +59,8 @@ export type InstitutionWorkspaceShell = {
 export type InstitutionWorkspaceCreateInput = {
   displayName: string;
   slug: string | null;
-  // A full institution declares its subtype at creation. `personal` is not accepted here — a
-  // personal institution is created through POST /api/v1/institutions/personal.
-  institutionType: FullInstitutionType;
+  // Every kind is allowed here, `personal` included, and the kind is fixed at creation.
+  institutionType: InstitutionType;
 };
 
 export type InstitutionWorkspaceSettingsPatch = {
@@ -85,9 +83,7 @@ type InstitutionWorkspaceInputErrorCode =
   | "institution_slug_reserved"
   | "institution_display_name_reserved"
   | "recruiter_institution_limit_reached"
-  // A recruiter may hold at most one personal institution.
-  | "personal_institution_already_exists"
-  // A full institution's slug shares one flat namespace with usernames; it may not take a slug an
+  // An institution's slug shares one flat namespace with usernames, so it may not take a slug an
   // existing user's username already occupies.
   | "institution_slug_conflicts_with_username"
   // Thrown by the shared de-identified-account guard, not by this module: creating an institution
@@ -331,12 +327,10 @@ export const parseInstitutionWorkspaceCreateInput = (
     );
   }
 
-  // Only the four full subtypes are valid here. `personal` (and any unrecognized value) is rejected —
-  // a personal institution has its own create path.
-  if (!isFullInstitutionType(record.institutionType)) {
+  if (!isInstitutionType(record.institutionType)) {
     throw new InstitutionWorkspaceInputError(
       "institution_invalid_value",
-      `institutionType must be one of: ${FULL_INSTITUTION_TYPES.join(", ")}`,
+      `institutionType must be one of: ${INSTITUTION_TYPES.join(", ")}`,
       { fields: ["institutionType"] },
     );
   }

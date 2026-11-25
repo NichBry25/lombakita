@@ -22,21 +22,20 @@ describe("getInstitutionDisplayName", () => {
     ).toBe("Yayasan Cendekia");
   });
 
-  it("derives a personal institution name from the owner username, ignoring any stored value", () => {
+  it("a typed personal name shows on the workspace shell and a stored legacy name wins", () => {
+    expect(
+      getInstitutionDisplayName(
+        { displayName: "Lomba Budi", institutionType: "personal" },
+        { username: "budi" },
+      ),
+    ).toBe("Lomba Budi");
+
     expect(
       getInstitutionDisplayName(
         { displayName: null, institutionType: "personal" },
-        { username: "owneruser" },
+        { username: "budi" },
       ),
-    ).toBe("owneruser's Institution");
-
-    // A stray stored value must never leak — the derived name is authoritative for personal.
-    expect(
-      getInstitutionDisplayName(
-        { displayName: "leftover", institutionType: "personal" },
-        { username: "owneruser" },
-      ),
-    ).toBe("owneruser's Institution");
+    ).toBe("budi's Institution");
   });
 
   it("falls back to a stable placeholder for a personal institution with no resolved owner", () => {

@@ -1,15 +1,7 @@
-import { and, count, eq, inArray, ne, sql, type SQL } from "drizzle-orm";
+import { and, count, eq, inArray, sql } from "drizzle-orm";
 import { AccessError } from "@/server/auth/access-core";
-import { enqueueCompetitionSearchSync } from "@/server/async/enqueue";
-import { logger } from "@/lib/logger";
-import {
-  FULL_INSTITUTION_CREATION_MIN_TIER,
-  getRecruiterTierForAccount,
-  meetsRecruiterTier,
-} from "@/server/auth/recruiter-tier";
 import { getDb, type Database } from "@/server/db/client";
 import {
-  competitions,
   institutionMemberships,
   institutionSocialLinks,
   institutions,
@@ -28,19 +20,14 @@ import {
   buildInstitutionSlugCandidate,
   deriveInstitutionSlugBase,
   normalizeInstitutionSlug,
-  parseInstitutionDescription,
-  parseInstitutionDisplayName,
   parseInstitutionSlugParam,
   parseInstitutionWorkspaceCreateInput,
   parseInstitutionWorkspaceSettingsPatch,
   type InstitutionWorkspaceShell,
 } from "@/server/institution-workspace/institution-core";
 import {
-  assertInstitutionTypeTransition,
   isPersonalInstitutionType,
-  MAX_PERSONAL_INSTITUTIONS_PER_RECRUITER,
   PERSONAL_INSTITUTION_TYPE,
-  type FullInstitutionType,
 } from "@/server/institution-workspace/institution-type";
 import {
   getInstitutionDisplayName,
@@ -80,14 +67,14 @@ const OWNER_ROLE = "institution_owner";
 const STAFF_ROLE = "institution_staff";
 const ACTIVE_MEMBERSHIP_STATUS = "active";
 
-// Accepts either a top-level Database handle or a transaction handle, so slug-sync helpers can run
-// inside a caller-owned transaction (the profile username-update path) or standalone.
+// Accepts either a top-level Database handle or a transaction handle, so a lookup or the username
+// check can run inside a caller-owned transaction (the profile save) or standalone.
 type DbOrTx = Database | Parameters<Parameters<Database["transaction"]>[0]>[0];
 
 type InstitutionWorkspaceRow = {
   institutionId: string;
-  // Nullable: NULL for a personal institution (no stored name). The shell's resolved displayName is
-  // computed from this + the owner username via getInstitutionDisplayName.
+  // Nullable: a personal institution may store no name. The shell's resolved name comes from
+  // getInstitutionDisplayName.
   institutionDisplayName: string | null;
   institutionSlug: string;
   institutionStatus: InstitutionWorkspaceShell["status"];
@@ -101,9 +88,9 @@ type InstitutionWorkspaceRow = {
   membershipJoinedAt: Date;
 };
 
-// The shell's displayName is the RESOLVED user-facing name: for a personal institution it derives
-// from the owner username; for full/legacy it is the stored value. `ownerUsername` is the username
-// of this institution's owner (the requester on owner-scoped reads; the loaded creator on create).
+// The shell's displayName is the RESOLVED user-facing name (getInstitutionDisplayName): the stored
+// name, or for a personal institution that stores none, a name derived from `ownerUsername`, the
+// username of this institution's owner on owner-scoped reads.
 const mapInstitutionWorkspace = (
   row: InstitutionWorkspaceRow,
   ownerUsername: string | null,
@@ -329,21 +316,10 @@ const countActiveOperationalMembers = async (
   return new Map(rows.map((row) => [row.institutionId, row.value]));
 };
 
-// "is full/standard" SQL predicate: anything that is not personal. institution_type is NOT NULL,
-// so a plain inequality is exact. The mirror of eq(institutions.institutionType,
-// PERSONAL_INSTITUTION_TYPE) used for the "is personal" probe.
-const FULL_INSTITUTION_TYPE_CONDITION = ne(institutions.institutionType, PERSONAL_INSTITUTION_TYPE);
-
-// Counts the institutions this user actively owns (active institution_owner membership), filtered
-// by an extra institution-type condition. Single source of truth for every owner-scoped count:
-//   full-institution limit  → FULL_INSTITUTION_TYPE_CONDITION (personal excluded)
-//   one-personal-per-recruiter → eq(institutionType, 'personal')
-//   upgrade limit re-check  → FULL_INSTITUTION_TYPE_CONDITION AND id <> upgrading-institution
-const countOwnedInstitutionsWhere = async (
-  userId: string,
-  extraCondition: SQL | undefined,
-  db: Database,
-): Promise<number> => {
+// Counts the institutions this user actively owns (active institution_owner membership), of every
+// kind. The one count behind the per-owner cap, read by the fast pre-check and by the re-check under
+// the owner lock.
+const countOwnedInstitutions = async (userId: string, db: Database): Promise<number> => {
   const rows = await db
     .select({ value: count() })
     .from(institutionMemberships)
@@ -353,16 +329,15 @@ const countOwnedInstitutionsWhere = async (
         eq(institutionMemberships.userId, userId),
         eq(institutionMemberships.membershipRole, OWNER_ROLE),
         eq(institutionMemberships.status, ACTIVE_MEMBERSHIP_STATUS),
-        extraCondition,
       ),
     );
   return rows[0]?.value ?? 0;
 };
 
-// The 409 a caller sees when the full-institution cap is reached. Built in one place so the fast
-// app-layer pre-check and the in-transaction re-check behind the owner lock throw a byte-identical
-// error — a caller cannot tell which guard tripped.
-const buildFullInstitutionLimitError = (): InstitutionWorkspaceInputError =>
+// The 409 a caller sees when the cap is reached. Built in one place so the fast app-layer pre-check
+// and the in-transaction re-check behind the owner lock throw a byte-identical error, and a caller
+// cannot tell which guard tripped.
+const buildInstitutionLimitError = (): InstitutionWorkspaceInputError =>
   new InstitutionWorkspaceInputError(
     "recruiter_institution_limit_reached",
     `Recruiter may own at most ${MAX_INSTITUTIONS_PER_RECRUITER} institutions`,
@@ -370,63 +345,30 @@ const buildFullInstitutionLimitError = (): InstitutionWorkspaceInputError =>
     409,
   );
 
-// The 409 a caller sees when the one-personal-per-recruiter cap is reached. Same pre-check /
-// in-transaction parity as the full-institution error above.
-const buildPersonalInstitutionLimitError = (): InstitutionWorkspaceInputError =>
-  new InstitutionWorkspaceInputError(
-    "personal_institution_already_exists",
-    "You already have a personal institution. Only one is allowed per account.",
-    undefined,
-    409,
-  );
-
-// The owner-cap re-check applied INSIDE the insert transaction, behind acquireOwnerCapLock — the true
-// guard against a concurrent same-owner create slipping past the fast pre-check. `typeCondition` and
-// `max` reproduce the exact semantics of the caller's pre-check (full excludes personal via
-// FULL_INSTITUTION_TYPE_CONDITION; personal counts only institution_type = 'personal'), and
-// `buildLimitError` returns the same 409 the pre-check throws.
-type OwnerCapGuard = {
-  typeCondition: SQL | undefined;
-  max: number;
-  buildLimitError: () => InstitutionWorkspaceInputError;
-};
-
 // Slug-collision-retrying insert of an institution row plus its institution_owner membership, in a
-// single transaction. Shared by the full and personal create paths. They differ in:
-//   - displayName: a non-null name for full; NULL for personal (name derives from owner username).
-//   - institutionType: null (legacy/undeclared full) vs "personal" (capped personal type).
-//   - slugBase: the full path derives it from the display name (or an explicit user slug); the
-//     personal path derives it from the owner username (no name or slug is supplied).
-// `ownerUsername` is threaded only so the returned shell can resolve a personal institution's name.
+// single transaction. The slug is the one the user typed, or else derives from the display name.
 type InsertInstitutionParams = {
-  displayName: string | null;
+  displayName: string;
   explicitSlug: string | null;
-  slugBaseSource: string;
-  ownerUsername: string | null;
 };
 
 const insertInstitutionWithOwner = async (
   userId: string,
   params: InsertInstitutionParams,
   institutionType: InstitutionType,
-  capGuard: OwnerCapGuard,
   db: Database,
 ): Promise<InstitutionWorkspaceShell> => {
-  const baseSlug = params.explicitSlug ?? deriveInstitutionSlugBase(params.slugBaseSource);
+  const baseSlug = params.explicitSlug ?? deriveInstitutionSlugBase(params.displayName);
 
   for (let attempt = 0; attempt < MAX_SLUG_ATTEMPTS; attempt += 1) {
     const candidateSlug = buildInstitutionSlugCandidate(baseSlug, attempt);
 
     // Flat-namespace guard (Fix C extended to the suffixed candidate). createInstitutionWorkspaceForUser
-    // already checked the BASE slug against usernames; this re-checks each SUFFIXED candidate the slug
-    // collision retry produces (e.g. a username `acme_2` would occupy slug `acme-2`). Bump the suffix on a
-    // username collision so the loop converges on a slug clear of both institutions.slug AND users.username.
-    // Skipped on the personal path: a personal slug derives from the owner's OWN username and would always
-    // match itself. Exhaustion falls through to the shared "slug is not available" throw below.
-    if (
-      !isPersonalInstitutionType(institutionType) &&
-      (await institutionSlugCollidesWithUsername(candidateSlug, db))
-    ) {
+    // already checked the BASE slug against usernames. This re-checks each SUFFIXED candidate the slug
+    // collision retry produces (a username `acme_2` would occupy slug `acme-2`) and bumps the suffix on
+    // a username collision, so the loop converges on a slug clear of both institutions.slug AND
+    // users.username. Exhaustion falls through to the shared "slug is not available" throw below.
+    if (await institutionSlugCollidesWithUsername(candidateSlug, db)) {
       continue;
     }
 
@@ -437,15 +379,15 @@ const insertInstitutionWithOwner = async (
         // lock and before anything is counted or written.
         await assertAccountNotDeactivated(tx, userId, InstitutionDeactivatedError);
 
-        // Serialize same-owner cap-guarded mutations, then re-count the owner's qualifying
+        // Serialize same-owner cap-guarded mutations, then re-count every one of the owner's
         // institutions UNDER the lock: this is the true cap guard. A plain count (in or out of the
         // transaction) cannot see a concurrent same-owner insert under READ COMMITTED — see
         // acquireOwnerCapLock. The fast pre-check in the caller stays as the friendly-409 path.
         await acquireOwnerCapLock(tx, userId);
 
-        const ownedCount = await countOwnedInstitutionsWhere(userId, capGuard.typeCondition, tx);
-        if (ownedCount >= capGuard.max) {
-          throw capGuard.buildLimitError();
+        const ownedCount = await countOwnedInstitutions(userId, tx);
+        if (ownedCount >= MAX_INSTITUTIONS_PER_RECRUITER) {
+          throw buildInstitutionLimitError();
         }
 
         const [institutionRow] = await tx
@@ -495,7 +437,7 @@ const insertInstitutionWithOwner = async (
             ...institutionRow,
             ...membershipRow,
           },
-          params.ownerUsername,
+          null,
         );
       });
     } catch (error) {
@@ -559,29 +501,24 @@ const isInstitutionSlugUniqueViolation = (error: unknown): boolean => {
   return false;
 };
 
-// Full-institution creation. The recruiter-tier gate (`elevated`) is enforced in
-// the route layer via assertRecruiterTier; this service owns the per-recruiter limit. The limit
-// count EXCLUDES personal-typed institutions (FULL_INSTITUTION_TYPE_CONDITION) — a recruiter at the
-// full limit can still hold a personal institution, and a personal institution never consumes a
-// full slot. The created row's institution_type is the subtype chosen on the create form
-// (company | foundation | university | campus_organization) — never undeclared.
+// Workspace creation for every kind. The recruiter-tier gate is enforced in the route layer via
+// assertRecruiterTier, and this service owns the per-owner limit, which counts every institution the
+// user actively owns, whatever its kind. The created row carries the kind and the name chosen on the
+// create form.
 export const createInstitutionWorkspaceForUser = async (
   userId: string,
   payload: unknown,
   db: Database = getDb(),
 ): Promise<InstitutionWorkspaceShell> => {
-  // Count active institution_owner memberships for this recruiter, excluding
-  // personal-typed institutions. Scoped to this user only — another recruiter at
-  // their limit is unaffected.
-  const ownedCount = await countOwnedInstitutionsWhere(userId, FULL_INSTITUTION_TYPE_CONDITION, db);
+  const ownedCount = await countOwnedInstitutions(userId, db);
 
   if (ownedCount >= MAX_INSTITUTIONS_PER_RECRUITER) {
-    throw buildFullInstitutionLimitError();
+    throw buildInstitutionLimitError();
   }
 
   // Service-layer NOT NULL invariant (replaces the loosened DB constraint from migration 0031):
   // parseInstitutionWorkspaceCreateInput requires a 2–160 char displayName and throws
-  // institution_invalid_value on a missing / empty / non-string value, so a full institution can
+  // institution_invalid_value on a missing / empty / non-string value, so an institution can
   // never be created without a stored display name.
   const input = parseInstitutionWorkspaceCreateInput(payload);
 
@@ -602,90 +539,14 @@ export const createInstitutionWorkspaceForUser = async (
 
   return insertInstitutionWithOwner(
     userId,
-    {
-      displayName: input.displayName,
-      explicitSlug: input.slug,
-      slugBaseSource: input.displayName,
-      // Full institution: the stored display name is authoritative; the owner username is unused.
-      ownerUsername: null,
-    },
+    { displayName: input.displayName, explicitSlug: input.slug },
     input.institutionType,
-    {
-      typeCondition: FULL_INSTITUTION_TYPE_CONDITION,
-      max: MAX_INSTITUTIONS_PER_RECRUITER,
-      buildLimitError: buildFullInstitutionLimitError,
-    },
     db,
   );
 };
 
-// Loads the creator's current username — both the slug base and the read-time display name for a
-// personal institution derive from it. Only ever called for an authenticated session user.
-const loadOwnerUsername = async (userId: string, db: Database): Promise<string> => {
-  const [row] = await db
-    .select({ username: users.username })
-    .from(users)
-    .where(eq(users.id, userId))
-    .limit(1);
-
-  if (!row) {
-    throw new Error("Account not found while creating a personal institution");
-  }
-  return row.username;
-};
-
-// Lightweight personal institution creation. The recruiter-tier gate (now `minimal`)
-// is enforced in the route layer; this service owns the one-personal-per-recruiter invariant. The
-// created row is institution_type='personal' and the creator becomes its sole institution_owner.
-// The personal reach caps (≤2 published competitions, individual-only, no featured, no staff/member
-// invites) are enforced at the respective gates by reading institution_type — not stored here.
-//
-// There is NO name input: a personal institution stores display_name = NULL and its name derives
-// from the owner username at read time. The slug also derives from the owner username through the
-// shared slug-uniqueness / collision-suffix path, so the common case is /institution/<username>.
-//
-// A personal institution is created with verification_status = 'pending_verification' (the schema
-// default, same as full). The personal verification gate is KTP-only at MVP and asynchronous; the
-// KTP capture, submission surface, and review flow live elsewhere. This path records
-// the semantics only — it does not capture or review KTP.
-export const createPersonalInstitutionForUser = async (
-  userId: string,
-  db: Database = getDb(),
-): Promise<InstitutionWorkspaceShell> => {
-  const personalCount = await countOwnedInstitutionsWhere(
-    userId,
-    eq(institutions.institutionType, PERSONAL_INSTITUTION_TYPE),
-    db,
-  );
-
-  if (personalCount >= MAX_PERSONAL_INSTITUTIONS_PER_RECRUITER) {
-    throw buildPersonalInstitutionLimitError();
-  }
-
-  const ownerUsername = await loadOwnerUsername(userId, db);
-
-  return insertInstitutionWithOwner(
-    userId,
-    {
-      displayName: null,
-      explicitSlug: null,
-      slugBaseSource: ownerUsername,
-      ownerUsername,
-    },
-    PERSONAL_INSTITUTION_TYPE,
-    {
-      typeCondition: eq(institutions.institutionType, PERSONAL_INSTITUTION_TYPE),
-      max: MAX_PERSONAL_INSTITUTIONS_PER_RECRUITER,
-      buildLimitError: buildPersonalInstitutionLimitError,
-    },
-    db,
-  );
-};
-
-// A personal institution's slug is derived from its owner's username, so a username change must
-// rewrite the slug to keep /institution/<username>/... resolvable. Returns the personal institution
-// the user actively owns (id + current slug), or null when the user has none — candidate accounts
-// and recruiters without a personal institution have nothing to rewrite.
+// Returns a personal institution the user actively owns (id and current slug), or null when the user
+// owns none.
 export const findOwnedPersonalInstitution = async (
   userId: string,
   db: DbOrTx = getDb(),
@@ -708,24 +569,19 @@ export const findOwnedPersonalInstitution = async (
   return row ?? null;
 };
 
-// True when an institution OTHER than `excludeInstitutionId` already holds the slug a username would
-// normalize to. The caller's own personal institution is excluded because it is the row that the
-// rename will overwrite — it must not block itself. Backs the Fix-B username-change guard (no
-// exclusion needed there beyond the actor's own personal institution).
+// True when any institution already holds the slug a username would normalize to. Usernames and
+// institution slugs share one namespace, and no institution is excluded: a user's own workspace keeps
+// its slug when the username changes, so taking that slug as a username is a conflict too.
 export const usernameCollidesWithInstitutionSlug = async (
   newUsername: string,
-  excludeInstitutionId: string | null,
   db: DbOrTx = getDb(),
 ): Promise<boolean> => {
   const candidateSlug = deriveInstitutionSlugBase(newUsername);
-  const condition = excludeInstitutionId
-    ? and(eq(institutions.slug, candidateSlug), ne(institutions.id, excludeInstitutionId))
-    : eq(institutions.slug, candidateSlug);
 
   const [row] = await db
     .select({ id: institutions.id })
     .from(institutions)
-    .where(condition)
+    .where(eq(institutions.slug, candidateSlug))
     .limit(1);
 
   return Boolean(row);
@@ -738,7 +594,7 @@ export const usernameCollidesWithInstitutionSlug = async (
 // slug is that slug with `-`→`_`. Converting the proposed slug back into username space and matching
 // it against the indexed users.username column is therefore the apples-to-apples comparison the spec
 // requires (and the index-friendly mirror of usernameCollidesWithInstitutionSlug, which converts in
-// the other direction). Creating a new full institution moves no existing name, so there is no
+// the other direction). Creating a new institution moves no existing name, so there is no
 // exclusion carve-out — any username match is a real conflict.
 export const institutionSlugCollidesWithUsername = async (
   proposedSlug: string,
@@ -753,290 +609,6 @@ export const institutionSlugCollidesWithUsername = async (
     .limit(1);
 
   return Boolean(row);
-};
-
-// Rewrites a personal institution's slug to follow a new owner username, returning the ids of its
-// published competitions so the caller can re-sync their cached institutionSlug in the search index.
-// Reuses the same deriveInstitutionSlugBase + buildInstitutionSlugCandidate path as creation, but
-// resolves collisions by query (not insert-and-catch): this runs inside a caller-owned transaction,
-// where a failed statement would abort the whole transaction rather than allow a retry. The
-// institutions_slug_unique_idx remains the final backstop — a concurrent grab of the chosen slug
-// fails the UPDATE and rolls the caller's transaction back, leaving the username unchanged.
-export const rewritePersonalInstitutionSlugForUsername = async (
-  institutionId: string,
-  newUsername: string,
-  db: DbOrTx,
-): Promise<string[]> => {
-  const baseSlug = deriveInstitutionSlugBase(newUsername);
-
-  let resolvedSlug: string | null = null;
-  for (let attempt = 0; attempt < MAX_SLUG_ATTEMPTS; attempt += 1) {
-    const candidate = buildInstitutionSlugCandidate(baseSlug, attempt);
-    const [taken] = await db
-      .select({ id: institutions.id })
-      .from(institutions)
-      .where(and(eq(institutions.slug, candidate), ne(institutions.id, institutionId)))
-      .limit(1);
-
-    if (!taken) {
-      resolvedSlug = candidate;
-      break;
-    }
-  }
-
-  if (resolvedSlug === null) {
-    throw new InstitutionWorkspaceInputError(
-      "institution_invalid_value",
-      "slug is not available. Please try another slug",
-      { fields: ["slug"] },
-    );
-  }
-
-  await db
-    .update(institutions)
-    .set({ slug: resolvedSlug, updatedAt: sql`now()` })
-    .where(eq(institutions.id, institutionId));
-
-  const publishedRows = await db
-    .select({ id: competitions.id })
-    .from(competitions)
-    .where(
-      and(eq(competitions.institutionId, institutionId), eq(competitions.status, "published")),
-    );
-
-  return publishedRows.map((row) => row.id);
-};
-
-export type InstitutionUpgradeErrorCode =
-  | "institution_not_found"
-  | "institution_upgrade_forbidden"
-  | "institution_upgrade_tier_insufficient"
-  | "institution_upgrade_limit_reached"
-  | "institution_upgrade_conflict"
-  | "institution_upgrade_slug_unavailable";
-
-export class InstitutionUpgradeError extends Error {
-  constructor(
-    public readonly code: InstitutionUpgradeErrorCode,
-    public readonly status: 403 | 404 | 409,
-    message: string,
-  ) {
-    super(message);
-    this.name = "InstitutionUpgradeError";
-  }
-}
-
-export type UpgradeInstitutionTypeResult = {
-  institutionId: string;
-  previousType: InstitutionType | null;
-  institutionType: FullInstitutionType;
-  displayName: string;
-  slug: string;
-  previousSlug: string;
-  resyncCompetitionIds: string[];
-};
-
-// Resolves a free institution slug for `institutionId` derived from `baseSlug`, excluding the row
-// itself. Collisions are resolved by query rather than insert-and-catch: this runs inside a
-// caller-owned transaction, where a failed statement aborts the whole transaction instead of
-// allowing a retry (the same constraint rewritePersonalInstitutionSlugForUsername works under).
-// Each candidate is also checked against users.username — institution slugs and usernames share one
-// flat namespace. The institutions_slug_unique_idx remains the final backstop: a concurrent grab of
-// the chosen slug fails the UPDATE and rolls the caller's transaction back.
-const resolveFreeInstitutionSlug = async (
-  baseSlug: string,
-  institutionId: string,
-  tx: DbOrTx,
-): Promise<string | null> => {
-  for (let attempt = 0; attempt < MAX_SLUG_ATTEMPTS; attempt += 1) {
-    const candidate = buildInstitutionSlugCandidate(baseSlug, attempt);
-
-    const [taken] = await tx
-      .select({ id: institutions.id })
-      .from(institutions)
-      .where(and(eq(institutions.slug, candidate), ne(institutions.id, institutionId)))
-      .limit(1);
-
-    if (taken) {
-      continue;
-    }
-
-    if (await institutionSlugCollidesWithUsername(candidate, tx)) {
-      continue;
-    }
-
-    return candidate;
-  }
-
-  return null;
-};
-
-// One-directional personal→full (or legacy-NULL→full) type upgrade, owner-initiated and
-// self-service. The upgrade is a declaration, not a review: it flips the type immediately and
-// leaves the institution unverified, because document verification is a separate, credibility-only
-// system that does not gate publishing (publishing gates on host trust, the actor's or a trusted
-// owner's). In a single transaction it:
-//   1. serializes same-owner cap-guarded mutations (acquireOwnerCapLock) BEFORE any count,
-//   2. asserts the actor holds the elevated recruiter tier (FULL_INSTITUTION_CREATION_MIN_TIER),
-//   3. asserts the actor is an active institution_owner of the target institution,
-//   4. runs the fail-closed type-transition guard (assertInstitutionTypeTransition),
-//   5. re-checks the recruiter's full-institution count INCLUDING the about-to-become-full
-//      institution against MAX_INSTITUTIONS_PER_RECRUITER,
-//   6. re-derives the slug from the official name, freeing the owner-username slug the personal
-//      institution held,
-//   7. atomically writes type + display_name + slug with a compare-and-set on the snapshot type.
-//
-// display_name is written in the same statement as the type flip because
-// institutions_display_name_type_chk requires a non-null display_name for every non-personal row —
-// flipping the type without it violates the CHECK constraint.
-//
-// The personal reach caps are derived live from institution_type, so the flip IS the cap release;
-// there is no separate stored cap to clear. Returns the ids of the institution's published
-// competitions so the caller can re-sync their cached institutionSlug in the search index.
-export const upgradeInstitutionType = async (
-  actorUserId: string,
-  institutionId: string,
-  nextType: FullInstitutionType,
-  displayNameInput: unknown,
-  descriptionInput: unknown,
-  db: Database = getDb(),
-): Promise<UpgradeInstitutionTypeResult> => {
-  const displayName = parseInstitutionDisplayName(displayNameInput);
-  // Optional: a provided description is written on upgrade; when omitted/blank (null) the existing
-  // personal-institution description is preserved rather than cleared.
-  const description = parseInstitutionDescription(descriptionInput);
-
-  return db.transaction(async (tx) => {
-    // 1. Serialize same-owner cap-guarded mutations before counting. The count below ranges over the
-    // owner's OTHER institution rows, so gating the UPDATE on the target row alone cannot fence it:
-    // two concurrent upgrades for the same owner would each snapshot a count blind to the other's
-    // uncommitted flip and both pass the cap. See acquireOwnerCapLock.
-    await acquireOwnerCapLock(tx, actorUserId);
-
-    // 2. Elevated recruiter tier required.
-    const tierState = await getRecruiterTierForAccount(actorUserId, tx);
-    if (
-      !tierState ||
-      !tierState.recruiterVerified ||
-      !meetsRecruiterTier(tierState.recruiterVerificationTier, FULL_INSTITUTION_CREATION_MIN_TIER)
-    ) {
-      throw new InstitutionUpgradeError(
-        "institution_upgrade_tier_insufficient",
-        403,
-        `Upgrading an institution requires the '${FULL_INSTITUTION_CREATION_MIN_TIER}' recruiter tier`,
-      );
-    }
-
-    // 3. Load the institution and confirm the actor is an active institution_owner of it.
-    const [row] = await tx
-      .select({
-        institutionType: institutions.institutionType,
-        slug: institutions.slug,
-        ownerMembershipId: institutionMemberships.id,
-      })
-      .from(institutions)
-      .leftJoin(
-        institutionMemberships,
-        and(
-          eq(institutionMemberships.institutionId, institutions.id),
-          eq(institutionMemberships.userId, actorUserId),
-          eq(institutionMemberships.membershipRole, OWNER_ROLE),
-          eq(institutionMemberships.status, ACTIVE_MEMBERSHIP_STATUS),
-        ),
-      )
-      .where(eq(institutions.id, institutionId))
-      .limit(1);
-
-    if (!row) {
-      throw new InstitutionUpgradeError("institution_not_found", 404, "Institution not found");
-    }
-    if (!row.ownerMembershipId) {
-      throw new InstitutionUpgradeError(
-        "institution_upgrade_forbidden",
-        403,
-        "Active institution_owner access is required to upgrade this institution",
-      );
-    }
-
-    const currentType = row.institutionType;
-
-    // 4. Fail-closed transition guard (throws InstitutionTypeTransitionError on any illegal pair).
-    assertInstitutionTypeTransition(currentType, nextType);
-
-    // 5. Limit re-check INCLUDING the upgrading institution: count existing full institutions the
-    // actor owns EXCLUDING this one; adding this one back must not exceed the limit.
-    const existingFullCount = await countOwnedInstitutionsWhere(
-      actorUserId,
-      and(FULL_INSTITUTION_TYPE_CONDITION, ne(institutions.id, institutionId)),
-      tx,
-    );
-    if (existingFullCount + 1 > MAX_INSTITUTIONS_PER_RECRUITER) {
-      throw new InstitutionUpgradeError(
-        "institution_upgrade_limit_reached",
-        409,
-        `Upgrading would exceed the limit of ${MAX_INSTITUTIONS_PER_RECRUITER} full institutions`,
-      );
-    }
-
-    // 6. Re-derive the slug from the official name. A personal institution's slug is its owner's
-    // username; carrying that onto a named institution would squat the owner's own namespace
-    // permanently and force any replacement personal institution onto a `<username>-2` slug.
-    const resolvedSlug = await resolveFreeInstitutionSlug(
-      deriveInstitutionSlugBase(displayName),
-      institutionId,
-      tx,
-    );
-    if (resolvedSlug === null) {
-      throw new InstitutionUpgradeError(
-        "institution_upgrade_slug_unavailable",
-        409,
-        "No available URL could be derived from this institution name. Try a different name",
-      );
-    }
-
-    // 7. Atomic write with a compare-and-set on the snapshot type (guards against a concurrent type
-    // change between the read above and this write). verification_status resets to the unverified
-    // default: the upgraded institution is a different entity from the personal one and has had no
-    // documents reviewed under its new type. currentType is never null (institution_type is NOT NULL).
-    const [updated] = await tx
-      .update(institutions)
-      .set({
-        institutionType: nextType,
-        displayName,
-        slug: resolvedSlug,
-        ...(description !== null ? { description } : {}),
-        verificationStatus: "pending_verification",
-        verifiedAt: null,
-        updatedAt: sql`now()`,
-      })
-      .where(and(eq(institutions.id, institutionId), eq(institutions.institutionType, currentType)))
-      .returning({ institutionId: institutions.id });
-
-    if (!updated) {
-      throw new InstitutionUpgradeError(
-        "institution_upgrade_conflict",
-        409,
-        "Institution type was modified concurrently — reload and retry the upgrade",
-      );
-    }
-
-    const publishedRows = await tx
-      .select({ id: competitions.id })
-      .from(competitions)
-      .where(
-        and(eq(competitions.institutionId, institutionId), eq(competitions.status, "published")),
-      );
-
-    return {
-      institutionId: updated.institutionId,
-      previousType: currentType,
-      institutionType: nextType,
-      displayName,
-      slug: resolvedSlug,
-      previousSlug: row.slug,
-      resyncCompetitionIds: publishedRows.map((competition) => competition.id),
-    };
-  });
 };
 
 export const getInstitutionWorkspaceForOwnerBySlug = async (
@@ -1068,12 +640,6 @@ export const updateInstitutionWorkspaceForOwnerBySlug = async (
     throw await buildInstitutionWorkspaceAccessDeniedError(userId, normalizedLookupSlug, db);
   }
 
-  // A personal institution stores no display name and its slug derives from the owner username, so
-  // neither a displayName nor a slug patch is persisted on the personal path — both fields are
-  // read-only there (the slug changes only when the username changes). The settings UI renders both
-  // read-only as well; this is the authoritative server-side enforcement.
-  const isPersonal = isPersonalInstitutionType(current.institutionType ?? null);
-
   const updates: {
     displayName?: string;
     slug?: string;
@@ -1081,20 +647,14 @@ export const updateInstitutionWorkspaceForOwnerBySlug = async (
     updatedAt?: ReturnType<typeof sql>;
   } = {};
 
-  if (
-    !isPersonal &&
-    patch.displayName !== undefined &&
-    patch.displayName !== current.institutionDisplayName
-  ) {
+  if (patch.displayName !== undefined && patch.displayName !== current.institutionDisplayName) {
     updates.displayName = patch.displayName;
   }
 
-  if (!isPersonal && patch.slug !== undefined && patch.slug !== current.institutionSlug) {
+  if (patch.slug !== undefined && patch.slug !== current.institutionSlug) {
     updates.slug = patch.slug;
   }
 
-  // Description is editable for every institution type (personal included) — unlike name/slug, it is
-  // not derived from the owner username. Persist when the patch carried it and the value changed.
   if (patch.description !== undefined && patch.description !== current.institutionDescription) {
     updates.description = patch.description;
   }
@@ -1103,11 +663,10 @@ export const updateInstitutionWorkspaceForOwnerBySlug = async (
     return mapInstitutionWorkspace(current, current.ownerUsername);
   }
 
-  // Flat-namespace guard (Fix C extended to the slug-change path): a full institution's new slug must
-  // not collide with an existing user's username. No exclusion carve-out — renaming this institution
-  // moves no existing name onto a user, so any username match is a real conflict. Unreachable on the
-  // personal path (slug is never patched there). Sits alongside the reserved-word check (in parseSlug)
-  // and the institutions.slug uniqueness retry (the catch below); order among the three is functional-only.
+  // Flat-namespace guard: a new slug must not collide with an existing user's username. No exclusion
+  // carve-out: renaming this institution moves no existing name onto a user, so any username match is
+  // a real conflict. It sits beside the reserved-word check (in parseSlug) and the institutions.slug
+  // uniqueness catch below, and their order is functional only.
   if (updates.slug !== undefined && (await institutionSlugCollidesWithUsername(updates.slug, db))) {
     throw new InstitutionWorkspaceInputError(
       "institution_slug_conflicts_with_username",
@@ -1277,54 +836,6 @@ export const updateInstitutionProfileForOwnerBySlug = async (
 
 // Logo and banner upload live in institution-media-service.ts, which also owns the personal-
 // institution derivation both images share.
-
-// Slug-keyed entry point for the owner-initiated type upgrade. Resolves the slug to an id, delegates
-// every guard to upgradeInstitutionType (which owns the lock, tier, ownership, transition, and cap
-// checks), then re-syncs the search index for the institution's published competitions — their
-// cached institutionSlug changed with the rename.
-export const upgradeInstitutionTypeForOwnerBySlug = async (
-  actorUserId: string,
-  institutionSlug: string,
-  nextType: FullInstitutionType,
-  displayNameInput: unknown,
-  descriptionInput: unknown,
-  db: Database = getDb(),
-): Promise<UpgradeInstitutionTypeResult> => {
-  const normalizedSlug = parseInstitutionSlugParam(institutionSlug);
-
-  const [row] = await db
-    .select({ institutionId: institutions.id })
-    .from(institutions)
-    .where(eq(institutions.slug, normalizedSlug))
-    .limit(1);
-
-  if (!row) {
-    throw new InstitutionUpgradeError("institution_not_found", 404, "Institution not found");
-  }
-
-  const result = await upgradeInstitutionType(
-    actorUserId,
-    row.institutionId,
-    nextType,
-    displayNameInput,
-    descriptionInput,
-    db,
-  );
-
-  // Fire-and-forget after commit: a failed enqueue must not fail the upgrade. The DB slug is already
-  // correct and the index self-heals on the next sync.
-  for (const competitionId of result.resyncCompetitionIds) {
-    enqueueCompetitionSearchSync({ competitionId, action: "upsert" }).catch((err: unknown) => {
-      logger.error("institution.upgrade.search-sync.enqueue-failed", {
-        competitionId,
-        institutionId: result.institutionId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    });
-  }
-
-  return result;
-};
 
 // Resolve an institution's type by slug for owner-or-staff UI surfaces
 // that decide whether to hide personal-only affordances (the competition mode selector and the

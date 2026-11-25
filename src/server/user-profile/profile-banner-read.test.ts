@@ -4,9 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { Database } from "@/server/db/client";
 
 vi.mock("@/server/institution-workspace/institution-service", () => ({
-  findOwnedPersonalInstitution: vi.fn(),
   usernameCollidesWithInstitutionSlug: vi.fn(),
-  rewritePersonalInstitutionSlugForUsername: vi.fn(),
 }));
 
 vi.mock("@/server/async/enqueue", () => ({ enqueueCompetitionSearchSync: vi.fn() }));

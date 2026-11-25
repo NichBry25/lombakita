@@ -4,33 +4,29 @@ import { isPersonalInstitutionType } from "@/server/institution-workspace/instit
 
 // Single source of truth for resolving a user-facing institution display name.
 //
-// A personal institution does NOT store a display name (institutions.display_name is NULL). Its name
-// derives from the owner's current username at read time, so a future username change is reflected
-// automatically without a stored-name backfill. Full/legacy institutions (type !== 'personal',
-// including the undeclared NULL type) carry a non-null stored name and use it directly.
-//
-// Every surface that shows an institution name to a user MUST route the raw column through this
-// helper. A raw read of institutions.display_name on a name-bearing surface produces a NULL for
-// personal institutions and, once username-change ships, a stale name — both are bugs.
+// An institution's name is its stored display_name. A personal institution may store NULL, and its
+// name is then derived from the username of its earliest active owner. Every surface that shows an
+// institution name to a user MUST route the raw column through this helper.
 
 export type InstitutionDisplayNameSource = {
   displayName: string | null;
   institutionType: InstitutionType | null;
 };
 
-// Render the resolved name for an institution. For a personal institution the owner username drives
-// the name; callers that may carry a personal institution MUST batch-load / join the owner user and
-// pass it here. The no-owner branch is a defensive fallback for paths that can never carry a
-// personal institution (e.g. invitation dispatch — personal institutions cannot issue invitations).
+// Callers that may carry a personal institution with no stored name MUST batch-load or join the
+// owner user and pass it here. The no-owner branch is a defensive fallback.
 export const getInstitutionDisplayName = (
   institution: InstitutionDisplayNameSource,
   ownerUser?: { username: string | null } | null,
 ): string => {
-  if (isPersonalInstitutionType(institution.institutionType)) {
-    const username = ownerUser?.username ?? null;
-    return username ? `${username}'s Institution` : "Personal Institution";
+  if (institution.displayName !== null) {
+    return institution.displayName;
   }
-  return institution.displayName ?? "";
+  if (!isPersonalInstitutionType(institution.institutionType)) {
+    return "";
+  }
+  const username = ownerUser?.username ?? null;
+  return username ? `${username}'s Institution` : "Personal Institution";
 };
 
 // Reusable correlated scalar subquery that yields the username of an institution's active owner.

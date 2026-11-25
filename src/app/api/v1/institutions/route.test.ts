@@ -1,5 +1,7 @@
 // @vitest-environment node
 
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccessError } from "@/server/auth/access-core";
 import { InstitutionWorkspaceInputError } from "@/server/institution-workspace/institution-core";
@@ -21,8 +23,7 @@ vi.mock("@/server/institution-workspace/institution-service", () => ({
   createInstitutionWorkspaceForUser,
 }));
 
-// Step 6.5f.1 — full-institution creation now asserts the elevated recruiter tier. Stub the
-// assertion (resolves by default) while keeping the real error class + threshold constant.
+// The tier assertion is stubbed (it resolves by default) and the real error class and constants are kept.
 vi.mock("@/server/auth/recruiter-tier", async () => {
   const actual = await vi.importActual<typeof import("@/server/auth/recruiter-tier")>(
     "@/server/auth/recruiter-tier",
@@ -39,6 +40,21 @@ const recruiterSessionFixture = {
     email: "owner@example.com",
   },
   expires: new Date(Date.now() + 60_000).toISOString(),
+};
+
+const workspaceShellFixture = {
+  institutionId: "inst_1",
+  displayName: "Universitas Nusantara",
+  slug: "universitas-nusantara",
+  status: "inactive",
+  ownerMembership: {
+    membershipId: "m_1",
+    membershipRole: "institution_owner",
+    membershipStatus: "active",
+    joinedAt: new Date("2026-04-16T00:00:00.000Z"),
+  },
+  createdAt: new Date("2026-04-16T00:00:00.000Z"),
+  updatedAt: new Date("2026-04-16T00:00:00.000Z"),
 };
 
 describe("POST /api/v1/institutions", () => {
@@ -158,15 +174,15 @@ describe("POST /api/v1/institutions", () => {
     expect(body.error.details.fields).toContain("displayName");
   });
 
-  // Step 6.5f.1 — full-institution creation requires the elevated recruiter tier.
-  it("returns 403 when the recruiter tier is below elevated", async () => {
+  it("refuses a host below the minimal tier and does not call the service", async () => {
     requireSessionRole.mockResolvedValue(recruiterSessionFixture);
+    createInstitutionWorkspaceForUser.mockResolvedValue(workspaceShellFixture);
     assertRecruiterTier.mockRejectedValue(
       new RecruiterTierError(
         "recruiter_tier_insufficient",
         403,
-        "Recruiter tier 'elevated' is required to perform this action",
-        { requiredTier: "elevated", currentTier: "minimal" },
+        "Recruiter tier 'minimal' is required to perform this action",
+        { requiredTier: "minimal", currentTier: "unverified" },
       ),
     );
 
@@ -208,5 +224,65 @@ describe("POST /api/v1/institutions", () => {
 
     expect(response.status).toBe(409);
     expect(body.error.code).toBe("recruiter_institution_limit_reached");
+  });
+
+  it.each(["personal", "company", "foundation", "university", "campus_organization"])(
+    "creates a workspace of kind %s for a host at the minimal tier",
+    async (kind) => {
+      requireSessionRole.mockResolvedValue(recruiterSessionFixture);
+      assertRecruiterTier.mockResolvedValue(undefined);
+      createInstitutionWorkspaceForUser.mockResolvedValue({
+        ...workspaceShellFixture,
+        institutionType: kind,
+      });
+
+      const request = new Request("http://localhost/api/v1/institutions", {
+        method: "POST",
+        headers: { "content-type": "application/json", "X-Expected-User-Id": "user_1" },
+        body: JSON.stringify({ displayName: "Ruang Uji", institutionType: kind }),
+      });
+
+      const response = await POST(request as never);
+
+      expect(response.status).toBe(201);
+      expect(createInstitutionWorkspaceForUser).toHaveBeenCalledWith("user_1", {
+        displayName: "Ruang Uji",
+        institutionType: kind,
+      });
+      expect(assertRecruiterTier).toHaveBeenCalledWith(recruiterSessionFixture, "minimal");
+    },
+  );
+
+  it("refuses a mismatched expected user and does not call the service", async () => {
+    requireSessionRole.mockResolvedValue(recruiterSessionFixture);
+    assertRecruiterTier.mockResolvedValue(undefined);
+    createInstitutionWorkspaceForUser.mockResolvedValue({
+      ...workspaceShellFixture,
+      institutionType: "personal",
+    });
+
+    const request = new Request("http://localhost/api/v1/institutions", {
+      method: "POST",
+      headers: { "content-type": "application/json", "X-Expected-User-Id": "someone_else" },
+      body: JSON.stringify({ displayName: "Ruang Uji", institutionType: "personal" }),
+    });
+
+    const response = await POST(request as never);
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe("session_user_mismatch");
+    expect(createInstitutionWorkspaceForUser).not.toHaveBeenCalled();
+  });
+
+  it("has no personal or upgrade route beside it", () => {
+    const personalRoute = join(process.cwd(), "src/app/api/v1/institutions/personal/route.ts");
+    const upgradeRoute = join(
+      process.cwd(),
+      "src/app/api/v1/institutions/[institutionSlug]/upgrade/route.ts",
+    );
+
+    expect(existsSync(personalRoute)).toBe(false);
+    expect(existsSync(upgradeRoute)).toBe(false);
   });
 });
