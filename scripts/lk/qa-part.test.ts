@@ -26,6 +26,7 @@ const ZERO_COMMIT = "0".repeat(40);
 const MISTYPED_QA_LINE_REFUSAL_TEXT = 'a line that starts with QA must read "QA <kind>: <fields>"';
 const QA_LINE_AFTER_LEAD_REFUSAL_TEXT =
   "a QA line must start at the first character of its line, with nothing before it";
+const CODE_FENCE = "```";
 
 const tsxLoader = pathToFileURL(join(process.cwd(), "node_modules/tsx/dist/loader.mjs")).href;
 const scriptPath = join(process.cwd(), "scripts/lk/qa-part.ts");
@@ -262,11 +263,14 @@ describe("the QA checks", () => {
     expect(result.status).toBe(0);
   });
 
-  it("reads no indented QA line", () => {
+  it("reads no QA line inside a code fence", () => {
     const { result, short } = runFixture({
       promptLines: (start) => [
         ...basePromptLines(start),
-        `  QA gate: lint2 ${WORK}/out/missing.txt`,
+        CODE_FENCE,
+        `QA gate: lint2 ${WORK}/out/missing.txt`,
+        `  QA gate: lint3 ${WORK}/out/missing.txt`,
+        CODE_FENCE,
       ],
     });
     expect(stdoutLines(result.stdout)).toEqual(passingLines(short));
@@ -493,6 +497,91 @@ describe("the QA refusals", () => {
         ],
       },
       `LK REFUSED: line 6: ${QA_LINE_AFTER_LEAD_REFUSAL_TEXT}`,
+    );
+  });
+
+  it("refuses an indented QA line", () => {
+    expectRefusal(
+      {
+        promptLines: (start) => [
+          ...basePromptLines(start),
+          `  QA gate: lint2 ${WORK}/out/missing.txt`,
+        ],
+      },
+      `LK REFUSED: line 6: ${QA_LINE_AFTER_LEAD_REFUSAL_TEXT}`,
+    );
+  });
+
+  it("refuses a QA line after a tab", () => {
+    expectRefusal(
+      {
+        promptLines: (start) => [
+          ...basePromptLines(start),
+          `\tQA gate: lint ${WORK}/out/gate-lint.txt`,
+        ],
+      },
+      `LK REFUSED: line 6: ${QA_LINE_AFTER_LEAD_REFUSAL_TEXT}`,
+    );
+  });
+
+  it("refuses an indented QA line after a dash", () => {
+    expectRefusal(
+      {
+        promptLines: (start) => [
+          ...basePromptLines(start),
+          `  - QA gate: lint ${WORK}/out/gate-lint.txt`,
+        ],
+      },
+      `LK REFUSED: line 6: ${QA_LINE_AFTER_LEAD_REFUSAL_TEXT}`,
+    );
+  });
+
+  it("refuses a bold QA line", () => {
+    expectRefusal(
+      {
+        promptLines: (start) => [
+          ...basePromptLines(start),
+          `**QA gate: lint ${WORK}/out/gate-lint.txt**`,
+        ],
+      },
+      `LK REFUSED: line 6: ${QA_LINE_AFTER_LEAD_REFUSAL_TEXT}`,
+    );
+  });
+
+  it("refuses a QA line in brackets", () => {
+    expectRefusal(
+      {
+        promptLines: (start) => [
+          ...basePromptLines(start),
+          `(QA gate: lint ${WORK}/out/gate-lint.txt)`,
+        ],
+      },
+      `LK REFUSED: line 6: ${QA_LINE_AFTER_LEAD_REFUSAL_TEXT}`,
+    );
+  });
+
+  it("refuses a QA line after a dash with no space", () => {
+    expectRefusal(
+      {
+        promptLines: (start) => [
+          ...basePromptLines(start),
+          `-QA gate: lint ${WORK}/out/gate-lint.txt`,
+        ],
+      },
+      `LK REFUSED: line 6: ${QA_LINE_AFTER_LEAD_REFUSAL_TEXT}`,
+    );
+  });
+
+  it("refuses a code fence that is not closed", () => {
+    expectRefusal(
+      {
+        promptLines: (start) => [
+          ...basePromptLines(start),
+          CODE_FENCE,
+          "the fence above is not closed",
+        ],
+      },
+      "LK REFUSED: line 6: a code fence opened here is not closed",
     );
   });
 });
