@@ -30,6 +30,8 @@ export const SUBJECT = {
   line: {
     pattern: /^QA ([a-z]+): (.+)$/,
     looksLikeQaLine: /^qa(?![a-z0-9])/i,
+    qaLineAfterLead: /^[^a-z0-9]*(?:\d+[.)][^a-z0-9]*)?qa(?![a-z0-9])/i,
+    codeFence: /^\s*```[A-Za-z0-9_+-]*\s*$/,
     newPathsPrefix: "New paths: ",
   },
   kinds: ["start", "allowed", "gate", "reading", "evidence"],
@@ -97,6 +99,8 @@ interface PlanDraft {
   gates: QaPlan["gates"];
   readings: QaPlan["readings"];
   evidence: string[];
+  /** The line number of the fence that opened the block being skipped, or null outside a block. */
+  openFenceLine: number | null;
 }
 
 const emptyDraft = (): PlanDraft => ({
@@ -106,6 +110,7 @@ const emptyDraft = (): PlanDraft => ({
   gates: [],
   readings: [],
   evidence: [],
+  openFenceLine: null,
 });
 
 const addAllowedPaths = (draft: PlanDraft, paths: string[], lineNumber: number): void => {
@@ -163,6 +168,11 @@ const addQaLine = (draft: PlanDraft, kind: QaKind, fields: string[], lineNumber:
 };
 
 const readPromptLine = (draft: PlanDraft, line: string, lineNumber: number): void => {
+  if (SUBJECT.line.codeFence.test(line)) {
+    draft.openFenceLine = draft.openFenceLine === null ? lineNumber : null;
+    return;
+  }
+  if (draft.openFenceLine !== null) return;
   if (line.startsWith(SUBJECT.line.newPathsPrefix)) {
     const paths = line.slice(SUBJECT.line.newPathsPrefix.length).split(" ");
     addAllowedPaths(draft, paths, lineNumber);
@@ -170,12 +180,24 @@ const readPromptLine = (draft: PlanDraft, line: string, lineNumber: number): voi
   }
   const match = SUBJECT.line.pattern.exec(line);
   if (match === null) {
-    if (!SUBJECT.line.looksLikeQaLine.test(line)) return;
-    refuse(`line ${lineNumber}: a line that starts with QA must read "QA <kind>: <fields>"`);
+    if (SUBJECT.line.looksLikeQaLine.test(line)) {
+      refuse(`line ${lineNumber}: a line that starts with QA must read "QA <kind>: <fields>"`);
+    }
+    if (SUBJECT.line.qaLineAfterLead.test(line)) {
+      refuse(
+        `line ${lineNumber}: a QA line must start at the first character of its line, with nothing before it`,
+      );
+    }
+    return;
   }
   const kind = match[1] ?? "";
   if (!isQaKind(kind)) refuse(`line ${lineNumber}: unknown QA kind "${kind}"`);
   addQaLine(draft, kind, (match[2] ?? "").split(" "), lineNumber);
+};
+
+const requireNoOpenFence = (draft: PlanDraft): void => {
+  if (draft.openFenceLine === null) return;
+  refuse(`line ${draft.openFenceLine}: a code fence opened here is not closed`);
 };
 
 const planOf = (draft: PlanDraft): QaPlan => {
@@ -199,6 +221,7 @@ const planOf = (draft: PlanDraft): QaPlan => {
 export const parseQaLines = (text: string): QaPlan => {
   const draft = emptyDraft();
   splitLines(text).forEach((line, index) => readPromptLine(draft, line, index + 1));
+  requireNoOpenFence(draft);
   return planOf(draft);
 };
 
