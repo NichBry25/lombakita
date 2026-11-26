@@ -30,7 +30,16 @@ vi.mock("@/server/institution-members/live-place", () => ({
   holdsLivePlaceInInstitution,
 }));
 
+const { lockInstitutionOwnership } = vi.hoisted(() => ({
+  lockInstitutionOwnership: vi.fn(),
+}));
+vi.mock("@/server/institution-members/owner-membership-lock", () => ({
+  lockInstitutionOwnership,
+}));
+
 beforeEach(() => {
+  lockInstitutionOwnership.mockReset();
+  lockInstitutionOwnership.mockResolvedValue(undefined);
   lockInstitutionCompetitionsForPlaceCheck.mockReset();
   lockInstitutionCompetitionsForPlaceCheck.mockResolvedValue(undefined);
   holdsLivePlaceInInstitution.mockReset();
@@ -241,6 +250,46 @@ describe("acceptInstitutionInvitationForUser — a live place in the institution
       code: "invitation_not_found",
       httpStatus: 404,
     });
+    expect(lockInstitutionCompetitionsForPlaceCheck).not.toHaveBeenCalled();
+  });
+});
+
+describe("acceptInstitutionInvitationForUser, the institution's ownership lock", () => {
+  it("takes the institution's ownership lock first, before the competition locks and before the membership is written", async () => {
+    const tx = makeTx([[baseInvitation({ invitedRole: "institution_staff" })], []]);
+
+    await acceptInstitutionInvitationForUser(
+      INVITATION_ID,
+      TARGET_USER,
+      ["recruiter"],
+      makeDb(tx) as never,
+    );
+
+    expect(lockInstitutionOwnership).toHaveBeenCalledTimes(1);
+    expect(lockInstitutionOwnership.mock.calls[0]![1]).toEqual(["inst_1"]);
+    expect(lockInstitutionOwnership.mock.invocationCallOrder[0]).toBeLessThan(
+      lockInstitutionCompetitionsForPlaceCheck.mock.invocationCallOrder[0]!,
+    );
+    expect(lockInstitutionCompetitionsForPlaceCheck.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.insert.mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it("takes the ownership lock for a member invitation too, before the membership is written", async () => {
+    const tx = makeTx([[baseInvitation({ invitedRole: "institution_member" })], []]);
+
+    await acceptInstitutionInvitationForUser(
+      INVITATION_ID,
+      TARGET_USER,
+      ["candidate"],
+      makeDb(tx) as never,
+    );
+
+    expect(lockInstitutionOwnership).toHaveBeenCalledTimes(1);
+    expect(lockInstitutionOwnership.mock.calls[0]![1]).toEqual(["inst_1"]);
+    expect(lockInstitutionOwnership.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.insert.mock.invocationCallOrder[0]!,
+    );
     expect(lockInstitutionCompetitionsForPlaceCheck).not.toHaveBeenCalled();
   });
 });

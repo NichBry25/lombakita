@@ -72,13 +72,13 @@ afterEach(() => vi.clearAllMocks());
 describe("POST /api/platform-ops/accounts/[accountId]/deidentify", () => {
   it("returns 200 with the service result and passes the caller's own id as the actor", async () => {
     requireSessionRole.mockResolvedValue(platformOpsSession);
-    deidentifyAccount.mockResolvedValue({ objectsDeleted: 3, personalInstitutionId: null });
+    deidentifyAccount.mockResolvedValue({ objectsDeleted: 3, soleOwnedInstitutionIds: ["inst_1"] });
 
     const response = await POST(makeRequest(VALID_INPUT), makeParams("u1"));
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body).toEqual({ objectsDeleted: 3, personalInstitutionId: null });
+    expect(body).toEqual({ objectsDeleted: 3, soleOwnedInstitutionIds: ["inst_1"] });
     expect(requireSessionRole).toHaveBeenCalledWith(["platform_ops"]);
     expect(deidentifyAccount).toHaveBeenCalledWith("ops_1", "u1", VALID_INPUT);
   });
@@ -154,7 +154,9 @@ describe("POST /api/platform-ops/accounts/[accountId]/deidentify", () => {
     ["deidentify_account_not_found", 404],
     ["deidentify_target_is_operator", 403],
     ["deidentify_last_owner", 409],
-    ["deidentify_personal_institution_has_published_competition", 409],
+    ["deidentify_sole_institution_has_transfer_awaiting_review", 409],
+    ["deidentify_sole_institution_has_open_payment", 409],
+    ["deidentify_sole_institution_has_open_invitation", 409],
     ["deidentify_already_done", 409],
     ["deidentify_storage_unavailable", 503],
     ["deidentify_rehearsal_failed", 500],

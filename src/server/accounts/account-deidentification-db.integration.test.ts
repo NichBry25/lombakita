@@ -22,7 +22,7 @@
 
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { randomInt, randomUUID } from "node:crypto";
-import { TransactionRollbackError, eq, sql } from "drizzle-orm";
+import { TransactionRollbackError, and, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import {
@@ -42,6 +42,7 @@ import {
   competitionSubmissions,
   competitions,
   financeFeeRules,
+  financeManualPaymentProofs,
   financePaymentInstructionSnapshots,
   financePayments,
   hostOrganizationEmails,
@@ -90,7 +91,8 @@ const r2 = vi.hoisted(() => ({
   failFrom: null as string | null,
 }));
 
-vi.mock("@/server/storage/r2.client", () => ({
+vi.mock("@/server/storage/r2.client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/server/storage/r2.client")>()),
   isR2Available: () => r2.available,
   listObjects: async (prefix: string) => {
     r2.listed.push(prefix);
@@ -109,13 +111,45 @@ vi.mock("@/server/storage/r2.client", () => ({
     const at = r2.objects.indexOf(key);
     if (at !== -1) r2.objects.splice(at, 1);
   },
+  headObject: async () => ({ sizeBytes: 2048, contentType: "image/jpeg" }),
 }));
 
-import { deidentifyAccount, DeidentificationError } from "./account-deidentification-service";
+const enqueueSpies = vi.hoisted(() => ({
+  enqueueRegistrationConfirmed: vi.fn(),
+  enqueuePaymentProofSubmitted: vi.fn(),
+  enqueuePaymentOutcome: vi.fn(),
+  enqueueCompetitionSearchSync: vi.fn(),
+  enqueueInstitutionInvitationDispatch: vi.fn(),
+}));
+
+vi.mock("@/server/async/enqueue", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/server/async/enqueue")>()),
+  ...enqueueSpies,
+}));
+
+import {
+  deidentificationObjectPrefixes,
+  deidentifyAccount,
+  DeidentificationError,
+} from "./account-deidentification-service";
 import type { Database } from "@/server/db/client";
 import { setCompetitionOrganizerContactForEditor } from "@/server/competitions/competition-organizer-contact-service";
 import { changeMemberRole, removeMember } from "@/server/institution-members/member-service";
 import { OperatorActorError } from "@/server/platform-ops/operator-actor";
+import { createInstitutionWorkspaceForUser } from "@/server/institution-workspace/institution-service";
+import {
+  acceptInstitutionInvitationForUser,
+  createInstitutionInvitation,
+} from "@/server/institution-invitations/invitation-service";
+import { createIndividualRegistration } from "@/server/registrations/registration-service";
+import {
+  submitManualPaymentProof,
+  verifyManualPaymentProof,
+} from "@/server/finance/manual-payment-proof-service";
+import {
+  getPublicCompetitionDetail,
+  listPublicCompetitions,
+} from "@/server/competitions/competition-public-service";
 
 const client = TEST_DATABASE_URL ? postgres(TEST_DATABASE_URL, { max: 1 }) : null;
 const db = client ? drizzle(client) : null;
@@ -495,6 +529,8 @@ const buildFixture = async (tx: Tx): Promise<Fixture> => {
     },
   ]);
 
+  // Expired, so the open-invitation refusal of the account's own institution leaves them out, while
+  // the deletion still removes them by the address they were sent to.
   await tx.insert(institutionInvitations).values([
     {
       id: randomUUID(),
@@ -504,7 +540,7 @@ const buildFixture = async (tx: Tx): Promise<Fixture> => {
       tokenHash: `hash-a-${f.suffix}`,
       status: "pending",
       targetUserId: f.target,
-      expiresAt: new Date(Date.now() + 7 * 86_400_000),
+      expiresAt: new Date(Date.now() - 86_400_000),
     },
     {
       id: randomUUID(),
@@ -513,7 +549,7 @@ const buildFixture = async (tx: Tx): Promise<Fixture> => {
       invitedRole: "institution_staff",
       tokenHash: `hash-b-${f.suffix}`,
       status: "pending_claim",
-      expiresAt: new Date(Date.now() + 7 * 86_400_000),
+      expiresAt: new Date(Date.now() - 86_400_000),
     },
   ]);
 
@@ -843,12 +879,311 @@ const buildSharedRegistrationFixture = async (tx: Tx) => {
   };
 };
 
+// ---------------------------------------------------------------------------------------------
+// Workspaces built through the services that own them.
+//
+// People are planted rows, because no refusal reads how an account was made. Everything a refusal
+// does read (the workspace and its memberships, the invitations, the registrations, the payments and
+// the proofs) is written by its production service.
+
+type PersonKind = "operator" | "host" | "candidate";
+type Person = { id: string; username: string };
+type Workspace = { id: string; slug: string };
+type WorkspaceKind = "personal" | "company";
+
+const DAY_MS = 86_400_000;
+
+const personColumns = (kind: PersonKind) => {
+  if (kind === "operator") {
+    return { role: "platform_ops" as const, candidateVerifiedAt: new Date() };
+  }
+
+  if (kind === "host") {
+    return {
+      emailVerified: new Date(),
+      candidateVerifiedAt: new Date(),
+      role: "recruiter" as const,
+      recruiterVerifiedAt: new Date(),
+      recruiterVerificationTier: "minimal" as const,
+    };
+  }
+
+  return { emailVerified: new Date(), candidateVerifiedAt: new Date() };
+};
+
+const plantPerson = async (tx: Tx, label: string, kind: PersonKind): Promise<Person> => {
+  const username = `deident_${label}_${uniqueSuffix()}`;
+  const [row] = await tx
+    .insert(users)
+    .values({ email: `${username}@example.test`, username, ...personColumns(kind) })
+    .returning({ id: users.id });
+
+  return { id: row!.id, username };
+};
+
+const createWorkspace = async (
+  tx: Tx,
+  owner: Person,
+  displayName: string,
+  institutionType: WorkspaceKind,
+): Promise<Workspace> => {
+  const shell = await createInstitutionWorkspaceForUser(
+    owner.id,
+    { displayName, institutionType },
+    tx as never,
+  );
+
+  return { id: shell.institutionId, slug: shell.slug };
+};
+
+const addMember = async (
+  tx: Tx,
+  inviter: Person,
+  workspace: Workspace,
+  member: Person,
+  invitedRole: "institution_owner" | "institution_staff" | "institution_member",
+): Promise<void> => {
+  const invitation = await createInstitutionInvitation(
+    inviter.id,
+    workspace.slug,
+    { invitedIdentifier: member.username, invitedRole },
+    tx as never,
+  );
+
+  await acceptInstitutionInvitationForUser(
+    invitation.id,
+    member.id,
+    ["candidate", "recruiter"],
+    tx as never,
+  );
+};
+
+const profileObjectKeys = (workspace: Workspace) => ({
+  logo: `institution-logos/${workspace.id}/logo.png`,
+  banner: `institution-banners/${workspace.id}/banner.png`,
+});
+
+/**
+ * The profile of a workspace, planted on its row as a stand-in for the profile and media services:
+ * the text, both image keys (also put in the bucket), one social link and one set of bank details.
+ */
+const plantWorkspaceProfile = async (tx: Tx, workspace: Workspace): Promise<void> => {
+  const keys = profileObjectKeys(workspace);
+
+  await tx
+    .update(institutions)
+    .set({
+      about: "Tentang penyelenggara",
+      contactName: "Joko",
+      contactEmail: `joko_${uniqueSuffix()}@example.test`,
+      contactPhone: "081234567890",
+      websiteUrl: "https://penyelenggara.example",
+      logoR2Key: keys.logo,
+      bannerR2Key: keys.banner,
+    })
+    .where(eq(institutions.id, workspace.id));
+
+  r2.objects.push(keys.logo, keys.banner);
+
+  await tx.insert(institutionSocialLinks).values({
+    institutionId: workspace.id,
+    platform: "instagram",
+    url: "https://instagram.com/penyelenggara",
+  });
+
+  await tx.insert(institutionPaymentInstructions).values({
+    institutionId: workspace.id,
+    bankName: "Bank Contoh",
+    accountNumber: "1234567890",
+    accountHolderName: "Panitia Lomba",
+  });
+};
+
+/** What a workspace needs on top of its profile to charge: it is verified and has a fee rule. */
+const plantChargingSetup = async (tx: Tx, workspace: Workspace): Promise<void> => {
+  await tx
+    .update(institutions)
+    .set({ verificationStatus: "verified" })
+    .where(eq(institutions.id, workspace.id));
+
+  await tx.insert(financeFeeRules).values({
+    institutionId: workspace.id,
+    currency: "IDR",
+    basisPoints: 250,
+    flatAmount: 0,
+    effectiveFrom: new Date(Date.now() - 30 * DAY_MS),
+  });
+};
+
+const plantPublishedCompetition = async (
+  tx: Tx,
+  workspace: Workspace,
+  paid: boolean,
+): Promise<{ id: string; slug: string }> => {
+  const suffix = uniqueSuffix();
+  const slug = `deident-comp-${suffix}`;
+
+  const [row] = await tx
+    .insert(competitions)
+    .values({
+      institutionId: workspace.id,
+      slug,
+      title: `Kompetisi ${suffix}`,
+      description: "Deskripsi kompetisi untuk pengujian.",
+      category: "hackathon",
+      mode: "both",
+      location: "online",
+      audience: ["umum"],
+      minTeamSize: 2,
+      maxTeamSize: 4,
+      status: "published",
+      publishedAt: new Date(),
+      registrationStartAt: new Date(Date.now() - 7 * DAY_MS),
+      registrationEndAt: new Date(Date.now() + 14 * DAY_MS),
+      participantConfirmationAt: new Date(Date.now() + 20 * DAY_MS),
+      eventStartAt: new Date(Date.now() + 30 * DAY_MS),
+      eventEndAt: new Date(Date.now() + 31 * DAY_MS),
+      resultAnnouncementAt: new Date(Date.now() + 40 * DAY_MS),
+      allowCancellation: true,
+      cancellationCutoffDays: 1,
+      organizerContactKind: "whatsapp",
+      organizerContactValue: "628123456789",
+      ...(paid ? { feeAmount: 150_000, feeCurrency: "IDR", paymentWindowDays: 3 } : {}),
+    })
+    .returning({ id: competitions.id });
+
+  return { id: row!.id, slug };
+};
+
+const registerThroughService = async (
+  tx: Tx,
+  candidate: Person,
+  competitionId: string,
+): Promise<string> => {
+  const registration = await createIndividualRegistration(candidate.id, competitionId, tx as never);
+
+  return registration.id;
+};
+
+const readPaymentOfRegistration = async (tx: Tx, registrationId: string) => {
+  const [payment] = await tx
+    .select()
+    .from(financePayments)
+    .where(eq(financePayments.competitionRegistrationId, registrationId));
+
+  return payment!;
+};
+
+const submitProofThroughService = async (
+  tx: Tx,
+  candidate: Person,
+  competitionId: string,
+  paymentId: string,
+): Promise<string> => {
+  const proof = await submitManualPaymentProof(
+    {
+      paymentId,
+      submittedByUserId: candidate.id,
+      r2Key: `payment-proofs/${competitionId}/${paymentId}/bukti.jpg`,
+      originalFileName: "bukti.jpg",
+    },
+    tx as never,
+  );
+
+  return proof.id;
+};
+
+const plantPaymentDeadlineOneDayAgo = async (tx: Tx, paymentId: string): Promise<void> => {
+  await tx
+    .update(financePayments)
+    .set({ dueAt: new Date(Date.now() - DAY_MS) })
+    .where(eq(financePayments.id, paymentId));
+};
+
+const readProofStatus = async (tx: Tx, proofId: string): Promise<string> => {
+  const [proof] = await tx
+    .select({ status: financeManualPaymentProofs.status })
+    .from(financeManualPaymentProofs)
+    .where(eq(financeManualPaymentProofs.id, proofId));
+
+  return proof!.status;
+};
+
+const readWorkspaceRow = async (tx: Tx, workspaceId: string) => {
+  const [row] = await tx.select().from(institutions).where(eq(institutions.id, workspaceId));
+
+  return row!;
+};
+
+const readMembership = async (tx: Tx, workspaceId: string, person: Person) => {
+  const [row] = await tx
+    .select({
+      status: institutionMemberships.status,
+      membershipRole: institutionMemberships.membershipRole,
+    })
+    .from(institutionMemberships)
+    .where(
+      and(
+        eq(institutionMemberships.institutionId, workspaceId),
+        eq(institutionMemberships.userId, person.id),
+      ),
+    );
+
+  return row!;
+};
+
+const deleteAccountOf = (tx: Tx, operator: Person, target: Person) =>
+  run(tx, operator.id, target.id, {
+    confirmUsername: target.username,
+    reason: "permintaan pemilik",
+  });
+
+/** Read after a refusal: the target is active, the workspace is as it was, and storage was never reached. */
+const expectNothingWritten = async (
+  tx: Tx,
+  target: Person,
+  workspace: Workspace,
+  before: { slug: string; displayName: string | null },
+): Promise<void> => {
+  const user = await readUser(tx, target.id);
+  expect(user!.status).toBe("active");
+
+  const row = await readWorkspaceRow(tx, workspace.id);
+  expect(row.slug).toBe(before.slug);
+  expect(row.displayName).toBe(before.displayName);
+  expect(row.suspendedAt).toBeNull();
+
+  expect(r2.listed).toEqual([]);
+  expect(r2.deleted).toEqual([]);
+};
+
+const expectScrubbed = (
+  row: Awaited<ReturnType<typeof readWorkspaceRow>>,
+  workspace: Workspace,
+) => {
+  expect(row.displayName).toBe("Institusi dihapus");
+  expect(row.slug).toBe(`deleted-${workspace.id}`);
+  expect(row.suspendedAt).not.toBeNull();
+  expect(row.about).toBeNull();
+  expect(row.contactName).toBeNull();
+  expect(row.contactEmail).toBeNull();
+  expect(row.contactPhone).toBeNull();
+  expect(row.websiteUrl).toBeNull();
+  expect(row.logoR2Key).toBeNull();
+  expect(row.bannerR2Key).toBeNull();
+};
+
 beforeEach(() => {
   r2.available = true;
   r2.objects = [];
   r2.listed = [];
   r2.deleted = [];
   r2.failFrom = null;
+
+  for (const spy of Object.values(enqueueSpies)) {
+    spy.mockReset();
+    spy.mockResolvedValue({});
+  }
 });
 
 describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
@@ -969,42 +1304,6 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
       });
     });
 
-    it("refuses 409 when the target is the last active owner of a full institution", async () => {
-      await inRollback(async (tx) => {
-        const f = await buildFixture(tx);
-        const sharedSlug = `shared-${f.suffix}`;
-        const shared = randomUUID();
-
-        await tx.insert(institutions).values({
-          id: shared,
-          slug: sharedSlug,
-          institutionType: "company",
-          displayName: "Shared Fixture",
-          status: "active",
-        });
-
-        await tx.insert(institutionMemberships).values({
-          id: randomUUID(),
-          institutionId: shared,
-          userId: f.target,
-          membershipRole: "institution_owner",
-          status: "active",
-        });
-
-        const error = await expectCode(
-          run(tx, f.operator, f.target, {
-            confirmUsername: f.targetUsername,
-            reason: "permintaan pemilik",
-          }),
-          "deidentify_last_owner",
-          409,
-        );
-
-        expect(error.message).toContain(sharedSlug);
-        expect(r2.deleted).toEqual([]);
-      });
-    });
-
     it("does not refuse for a full institution that has another active owner", async () => {
       // The narrowing is the point of the predicate: it is LAST active owner, so an institution with
       // a second one must not stop the action.
@@ -1042,32 +1341,8 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
           reason: "permintaan pemilik",
         });
 
-        expect(result.personalInstitutionId).toBe(f.institution);
+        expect(result.soleOwnedInstitutionIds).toEqual([f.institution]);
         expect(await countRows(tx, "institution_memberships", "user_id", f.target)).toBe(2);
-      });
-    });
-
-    it("refuses 409 when the target's personal institution has a published competition", async () => {
-      await inRollback(async (tx) => {
-        const f = await buildFixture(tx);
-        const publishedSlug = `published-${f.suffix}`;
-
-        await tx
-          .update(competitions)
-          .set({ status: "published", slug: publishedSlug })
-          .where(eq(competitions.id, f.competition));
-
-        const error = await expectCode(
-          run(tx, f.operator, f.target, {
-            confirmUsername: f.targetUsername,
-            reason: "permintaan pemilik",
-          }),
-          "deidentify_personal_institution_has_published_competition",
-          409,
-        );
-
-        expect(error.message).toContain(publishedSlug);
-        expect(r2.deleted).toEqual([]);
       });
     });
 
@@ -1121,7 +1396,7 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
             reason: "permintaan pemilik",
           });
 
-          expect(result.personalInstitutionId).toBe(f.institution);
+          expect(result.soleOwnedInstitutionIds).toEqual([f.institution]);
         });
       },
     );
@@ -1172,6 +1447,509 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
     });
   });
 
+  describe("an institution the account owns alone", () => {
+    it("suspends and scrubs a company workspace the account owns alone and keeps its competitions", async () => {
+      await inRollback(async (tx) => {
+        const operator = await plantPerson(tx, "ops", "operator");
+        const target = await plantPerson(tx, "target", "host");
+        const workspace = await createWorkspace(
+          tx,
+          target,
+          `Hadiah Pasti ${uniqueSuffix()}`,
+          "company",
+        );
+        await plantWorkspaceProfile(tx, workspace);
+
+        const draftId = randomUUID();
+        await tx.insert(competitions).values({
+          id: draftId,
+          institutionId: workspace.id,
+          slug: `kuis-${uniqueSuffix()}`,
+          title: "Kuis draf",
+          status: "draft",
+          createdByUserId: target.id,
+        });
+        const published = await plantPublishedCompetition(tx, workspace, false);
+
+        const result = await deleteAccountOf(tx, operator, target);
+
+        expect(result.soleOwnedInstitutionIds).toEqual([workspace.id]);
+
+        const row = await readWorkspaceRow(tx, workspace.id);
+        expectScrubbed(row, workspace);
+
+        expect(
+          await countRows(tx, "institution_social_links", "institution_id", workspace.id),
+        ).toBe(0);
+        expect(
+          await countRows(tx, "institution_payment_instructions", "institution_id", workspace.id),
+        ).toBe(0);
+
+        const [draft] = await tx.select().from(competitions).where(eq(competitions.id, draftId));
+        const [kept] = await tx
+          .select()
+          .from(competitions)
+          .where(eq(competitions.id, published.id));
+        expect(draft!.institutionId).toBe(workspace.id);
+        expect(draft!.status).toBe("draft");
+        expect(kept!.institutionId).toBe(workspace.id);
+        expect(kept!.status).toBe("published");
+
+        const keys = profileObjectKeys(workspace);
+        expect(r2.deleted).toContain(keys.logo);
+        expect(r2.deleted).toContain(keys.banner);
+
+        const audit = await tx
+          .select()
+          .from(platformOpsAuditLogs)
+          .where(eq(platformOpsAuditLogs.targetUserId, target.id));
+        const metadata = audit[0]!.metadata as { soleOwnedInstitutionIds: string[] };
+        expect(metadata.soleOwnedInstitutionIds).toEqual([workspace.id]);
+      });
+    });
+
+    it("scrubs every workspace the account owns alone and leaves a personal workspace it co-owns live and untouched", async () => {
+      await inRollback(async (tx) => {
+        const operator = await plantPerson(tx, "ops", "operator");
+        const target = await plantPerson(tx, "target", "host");
+        const coOwner = await plantPerson(tx, "coowner", "host");
+        const suffix = uniqueSuffix();
+
+        const first = await createWorkspace(tx, target, `Ruang A ${suffix}`, "personal");
+        const second = await createWorkspace(tx, target, `Ruang B ${suffix}`, "personal");
+        const shared = await createWorkspace(tx, coOwner, `Ruang Bersama ${suffix}`, "personal");
+        await addMember(tx, coOwner, shared, target, "institution_owner");
+
+        for (const workspace of [first, second, shared]) {
+          await plantWorkspaceProfile(tx, workspace);
+        }
+
+        const sharedBefore = await readWorkspaceRow(tx, shared.id);
+
+        const result = await deleteAccountOf(tx, operator, target);
+
+        expect(result.soleOwnedInstitutionIds).toEqual([first.id, second.id].sort());
+
+        for (const workspace of [first, second]) {
+          expectScrubbed(await readWorkspaceRow(tx, workspace.id), workspace);
+          expect(
+            await countRows(tx, "institution_social_links", "institution_id", workspace.id),
+          ).toBe(0);
+
+          const prefixes = deidentificationObjectPrefixes({
+            userId: target.id,
+            registrations: [],
+            soleOwnedInstitutionIds: [workspace.id],
+          });
+          for (const prefix of prefixes) {
+            expect(r2.listed, `${prefix} was never listed`).toContain(prefix);
+          }
+
+          const keys = profileObjectKeys(workspace);
+          expect(r2.deleted).toContain(keys.logo);
+          expect(r2.deleted).toContain(keys.banner);
+        }
+
+        const sharedAfter = await readWorkspaceRow(tx, shared.id);
+        expect(sharedAfter.displayName).toBe(sharedBefore.displayName);
+        expect(sharedAfter.slug).toBe(sharedBefore.slug);
+        expect(sharedAfter.about).toBe(sharedBefore.about);
+        expect(sharedAfter.contactEmail).toBe(sharedBefore.contactEmail);
+        expect(sharedAfter.logoR2Key).toBe(sharedBefore.logoR2Key);
+        expect(sharedAfter.bannerR2Key).toBe(sharedBefore.bannerR2Key);
+        expect(sharedAfter.suspendedAt).toBeNull();
+        expect(await countRows(tx, "institution_social_links", "institution_id", shared.id)).toBe(
+          1,
+        );
+        expect(r2.listed.some((prefix) => prefix.includes(shared.id))).toBe(false);
+
+        const sharedKeys = profileObjectKeys(shared);
+        expect(r2.objects).toContain(sharedKeys.logo);
+        expect(r2.objects).toContain(sharedKeys.banner);
+
+        const targetMembership = await readMembership(tx, shared.id, target);
+        expect(targetMembership.status).toBe("revoked");
+
+        const coOwnerMembership = await readMembership(tx, shared.id, coOwner);
+        expect(coOwnerMembership.status).toBe("active");
+        expect(coOwnerMembership.membershipRole).toBe("institution_owner");
+      });
+    });
+
+    it("refuses the last owner of a company workspace with a staff member and writes nothing", async () => {
+      await inRollback(async (tx) => {
+        const operator = await plantPerson(tx, "ops", "operator");
+        const target = await plantPerson(tx, "target", "host");
+        const staff = await plantPerson(tx, "staff", "host");
+        const workspace = await createWorkspace(
+          tx,
+          target,
+          `Penyelenggara ${uniqueSuffix()}`,
+          "company",
+        );
+        await addMember(tx, target, workspace, staff, "institution_staff");
+        const before = await readWorkspaceRow(tx, workspace.id);
+
+        const error = await expectCode(
+          deleteAccountOf(tx, operator, target),
+          "deidentify_last_owner",
+          409,
+        );
+
+        expect(error.message).toBe(
+          `Akun ini pemilik terakhir institusi: ${workspace.slug}. Pindahkan kepemilikan terlebih dahulu.`,
+        );
+        await expectNothingWritten(tx, target, workspace, before);
+        expect((await readMembership(tx, workspace.id, target)).status).toBe("active");
+      });
+    });
+
+    it("refuses the last owner of a personal workspace with a staff member", async () => {
+      await inRollback(async (tx) => {
+        const operator = await plantPerson(tx, "ops", "operator");
+        const target = await plantPerson(tx, "target", "host");
+        const staff = await plantPerson(tx, "staff", "host");
+        const workspace = await createWorkspace(
+          tx,
+          target,
+          `Ruang Pribadi ${uniqueSuffix()}`,
+          "personal",
+        );
+        await addMember(tx, target, workspace, staff, "institution_staff");
+        const before = await readWorkspaceRow(tx, workspace.id);
+
+        const error = await expectCode(
+          deleteAccountOf(tx, operator, target),
+          "deidentify_last_owner",
+          409,
+        );
+
+        expect(error.message).toBe(
+          `Akun ini pemilik terakhir institusi: ${workspace.slug}. Pindahkan kepemilikan terlebih dahulu.`,
+        );
+        await expectNothingWritten(tx, target, workspace, before);
+      });
+    });
+
+    it("scrubs a workspace owned alone with a published competition, keeps the competition and its registration, and syncs its search document", async () => {
+      await inRollback(async (tx) => {
+        const operator = await plantPerson(tx, "ops", "operator");
+        const target = await plantPerson(tx, "target", "host");
+        const candidate = await plantPerson(tx, "candidate", "candidate");
+        const workspace = await createWorkspace(
+          tx,
+          target,
+          `Hadiah Pasti ${uniqueSuffix()}`,
+          "company",
+        );
+        const competition = await plantPublishedCompetition(tx, workspace, false);
+        const registrationId = await registerThroughService(tx, candidate, competition.id);
+
+        const listedBefore = await listPublicCompetitions(
+          { institutionSlug: workspace.slug },
+          tx as never,
+        );
+        const [registrationBefore] = await tx
+          .select({ status: competitionRegistrations.status })
+          .from(competitionRegistrations)
+          .where(eq(competitionRegistrations.id, registrationId));
+
+        expect(listedBefore.data.map((item) => item.id)).toContain(competition.id);
+
+        const result = await deleteAccountOf(tx, operator, target);
+
+        expect(result.soleOwnedInstitutionIds).toEqual([workspace.id]);
+
+        const [kept] = await tx
+          .select()
+          .from(competitions)
+          .where(eq(competitions.id, competition.id));
+        expect(kept!.status).toBe("published");
+        expect(kept!.institutionId).toBe(workspace.id);
+
+        const [registrationAfter] = await tx
+          .select({ status: competitionRegistrations.status })
+          .from(competitionRegistrations)
+          .where(eq(competitionRegistrations.id, registrationId));
+        expect(registrationAfter!.status).toBe(registrationBefore!.status);
+
+        const listedAfter = await listPublicCompetitions(
+          { institutionSlug: `deleted-${workspace.id}` },
+          tx as never,
+        );
+        expect(listedAfter.data).toEqual([]);
+
+        const detail = await getPublicCompetitionDetail(
+          `deleted-${workspace.id}`,
+          competition.slug,
+          tx as never,
+        );
+        expect(detail).toBeNull();
+
+        expect(enqueueSpies.enqueueCompetitionSearchSync).toHaveBeenCalledTimes(1);
+        expect(enqueueSpies.enqueueCompetitionSearchSync).toHaveBeenCalledWith({
+          competitionId: competition.id,
+          action: "upsert",
+        });
+      });
+    });
+
+    it("refuses while a transfer proof of a workspace owned alone waits for review, even past its deadline", async () => {
+      await inRollback(async (tx) => {
+        const operator = await plantPerson(tx, "ops", "operator");
+        const target = await plantPerson(tx, "target", "host");
+        const candidate = await plantPerson(tx, "candidate", "candidate");
+        const workspace = await createWorkspace(
+          tx,
+          target,
+          `Hadiah Pasti ${uniqueSuffix()}`,
+          "company",
+        );
+        await plantWorkspaceProfile(tx, workspace);
+        await plantChargingSetup(tx, workspace);
+        const competition = await plantPublishedCompetition(tx, workspace, true);
+        const registrationId = await registerThroughService(tx, candidate, competition.id);
+        const payment = await readPaymentOfRegistration(tx, registrationId);
+        const proofId = await submitProofThroughService(tx, candidate, competition.id, payment.id);
+        await plantPaymentDeadlineOneDayAgo(tx, payment.id);
+        const before = await readWorkspaceRow(tx, workspace.id);
+
+        const error = await expectCode(
+          deleteAccountOf(tx, operator, target),
+          "deidentify_sole_institution_has_transfer_awaiting_review",
+          409,
+        );
+
+        expect(error.message).toBe(
+          `Institusi yang hanya dikelola akun ini masih punya bukti transfer yang menunggu pemeriksaan: ${workspace.slug}. Periksa buktinya dulu.`,
+        );
+        await expectNothingWritten(tx, target, workspace, before);
+        expect(await readProofStatus(tx, proofId)).toBe("pending_review");
+      });
+    });
+
+    it("proceeds when the only proof of a workspace owned alone is verified and its payment succeeded", async () => {
+      await inRollback(async (tx) => {
+        const operator = await plantPerson(tx, "ops", "operator");
+        const target = await plantPerson(tx, "target", "host");
+        const candidate = await plantPerson(tx, "candidate", "candidate");
+        const workspace = await createWorkspace(
+          tx,
+          target,
+          `Hadiah Pasti ${uniqueSuffix()}`,
+          "company",
+        );
+        await plantWorkspaceProfile(tx, workspace);
+        await plantChargingSetup(tx, workspace);
+        const competition = await plantPublishedCompetition(tx, workspace, true);
+        const registrationId = await registerThroughService(tx, candidate, competition.id);
+        const paymentBefore = await readPaymentOfRegistration(tx, registrationId);
+        const proofId = await submitProofThroughService(
+          tx,
+          candidate,
+          competition.id,
+          paymentBefore.id,
+        );
+        await verifyManualPaymentProof(workspace.id, target.id, proofId, tx as never);
+
+        const result = await deleteAccountOf(tx, operator, target);
+
+        expect(result.soleOwnedInstitutionIds).toEqual([workspace.id]);
+        expect((await readWorkspaceRow(tx, workspace.id)).suspendedAt).not.toBeNull();
+        expect(await readProofStatus(tx, proofId)).toBe("verified");
+
+        const paymentAfter = await readPaymentOfRegistration(tx, registrationId);
+        expect(paymentAfter.grossAmount).toBe(paymentBefore.grossAmount);
+        expect(paymentAfter.dueAt).toEqual(paymentBefore.dueAt);
+      });
+    });
+
+    it("refuses while a workspace owned alone receives a priced payment still open before its deadline", async () => {
+      await inRollback(async (tx) => {
+        const operator = await plantPerson(tx, "ops", "operator");
+        const target = await plantPerson(tx, "target", "host");
+        const candidate = await plantPerson(tx, "candidate", "candidate");
+        const workspace = await createWorkspace(
+          tx,
+          target,
+          `Hadiah Pasti ${uniqueSuffix()}`,
+          "company",
+        );
+        await plantWorkspaceProfile(tx, workspace);
+        await plantChargingSetup(tx, workspace);
+        const competition = await plantPublishedCompetition(tx, workspace, true);
+        await registerThroughService(tx, candidate, competition.id);
+        const before = await readWorkspaceRow(tx, workspace.id);
+
+        const error = await expectCode(
+          deleteAccountOf(tx, operator, target),
+          "deidentify_sole_institution_has_open_payment",
+          409,
+        );
+
+        expect(error.message).toBe(
+          `Institusi yang hanya dikelola akun ini masih punya pembayaran peserta yang belum selesai: ${workspace.slug}. Tunggu sampai batas waktunya lewat atau pembayarannya selesai.`,
+        );
+        await expectNothingWritten(tx, target, workspace, before);
+      });
+    });
+
+    it("proceeds when the open payment's deadline has passed and the sweep has not run yet", async () => {
+      await inRollback(async (tx) => {
+        const operator = await plantPerson(tx, "ops", "operator");
+        const target = await plantPerson(tx, "target", "host");
+        const candidate = await plantPerson(tx, "candidate", "candidate");
+        const workspace = await createWorkspace(
+          tx,
+          target,
+          `Hadiah Pasti ${uniqueSuffix()}`,
+          "company",
+        );
+        await plantWorkspaceProfile(tx, workspace);
+        await plantChargingSetup(tx, workspace);
+        const competition = await plantPublishedCompetition(tx, workspace, true);
+        const registrationId = await registerThroughService(tx, candidate, competition.id);
+        const payment = await readPaymentOfRegistration(tx, registrationId);
+        await plantPaymentDeadlineOneDayAgo(tx, payment.id);
+
+        const result = await deleteAccountOf(tx, operator, target);
+
+        expect(result.soleOwnedInstitutionIds).toEqual([workspace.id]);
+        expect((await readWorkspaceRow(tx, workspace.id)).suspendedAt).not.toBeNull();
+      });
+    });
+
+    it("refuses while a workspace owned alone has a pending invitation", async () => {
+      await inRollback(async (tx) => {
+        const operator = await plantPerson(tx, "ops", "operator");
+        const target = await plantPerson(tx, "target", "host");
+        const invitee = await plantPerson(tx, "invitee", "host");
+        const workspace = await createWorkspace(
+          tx,
+          target,
+          `Hadiah Pasti ${uniqueSuffix()}`,
+          "company",
+        );
+        const invitation = await createInstitutionInvitation(
+          target.id,
+          workspace.slug,
+          { invitedIdentifier: invitee.username, invitedRole: "institution_staff" },
+          tx as never,
+        );
+        const before = await readWorkspaceRow(tx, workspace.id);
+
+        const error = await expectCode(
+          deleteAccountOf(tx, operator, target),
+          "deidentify_sole_institution_has_open_invitation",
+          409,
+        );
+
+        const [stored] = await tx
+          .select({ status: institutionInvitations.status })
+          .from(institutionInvitations)
+          .where(eq(institutionInvitations.id, invitation.id));
+        expect(stored!.status).toBe("pending");
+        expect(error.message).toBe(
+          `Institusi yang hanya dikelola akun ini masih punya undangan terbuka: ${workspace.slug}. Batalkan undangannya dulu.`,
+        );
+        await expectNothingWritten(tx, target, workspace, before);
+      });
+    });
+
+    it("refuses while a workspace owned alone has an invitation waiting for an account", async () => {
+      await inRollback(async (tx) => {
+        const operator = await plantPerson(tx, "ops", "operator");
+        const target = await plantPerson(tx, "target", "host");
+        const workspace = await createWorkspace(
+          tx,
+          target,
+          `Hadiah Pasti ${uniqueSuffix()}`,
+          "company",
+        );
+        const invitation = await createInstitutionInvitation(
+          target.id,
+          workspace.slug,
+          {
+            invitedIdentifier: `calon_${uniqueSuffix()}@example.test`,
+            invitedRole: "institution_staff",
+          },
+          tx as never,
+        );
+        const before = await readWorkspaceRow(tx, workspace.id);
+
+        const error = await expectCode(
+          deleteAccountOf(tx, operator, target),
+          "deidentify_sole_institution_has_open_invitation",
+          409,
+        );
+
+        const [stored] = await tx
+          .select({ status: institutionInvitations.status })
+          .from(institutionInvitations)
+          .where(eq(institutionInvitations.id, invitation.id));
+        expect(stored!.status).toBe("pending_claim");
+        expect(error.message).toBe(
+          `Institusi yang hanya dikelola akun ini masih punya undangan terbuka: ${workspace.slug}. Batalkan undangannya dulu.`,
+        );
+        await expectNothingWritten(tx, target, workspace, before);
+      });
+    });
+
+    it("proceeds when the only invitation of a workspace owned alone has expired", async () => {
+      await inRollback(async (tx) => {
+        const operator = await plantPerson(tx, "ops", "operator");
+        const target = await plantPerson(tx, "target", "host");
+        const invitee = await plantPerson(tx, "invitee", "host");
+        const workspace = await createWorkspace(
+          tx,
+          target,
+          `Hadiah Pasti ${uniqueSuffix()}`,
+          "company",
+        );
+        const invitation = await createInstitutionInvitation(
+          target.id,
+          workspace.slug,
+          { invitedIdentifier: invitee.username, invitedRole: "institution_staff" },
+          tx as never,
+        );
+        await tx
+          .update(institutionInvitations)
+          .set({ expiresAt: new Date(Date.now() - DAY_MS) })
+          .where(eq(institutionInvitations.id, invitation.id));
+
+        const result = await deleteAccountOf(tx, operator, target);
+
+        expect(result.soleOwnedInstitutionIds).toEqual([workspace.id]);
+        expect((await readWorkspaceRow(tx, workspace.id)).suspendedAt).not.toBeNull();
+      });
+    });
+
+    it("deletes a staff note filed against a workspace the account owns alone", async () => {
+      await inRollback(async (tx) => {
+        const operator = await plantPerson(tx, "ops", "operator");
+        const target = await plantPerson(tx, "target", "host");
+        const workspace = await createWorkspace(
+          tx,
+          target,
+          `Hadiah Pasti ${uniqueSuffix()}`,
+          "company",
+        );
+        await tx.insert(platformOpsNotes).values({
+          id: randomUUID(),
+          targetInstitutionId: workspace.id,
+          note: "Catatan operator tentang institusi ini",
+          createdById: operator.id,
+        });
+
+        await deleteAccountOf(tx, operator, target);
+
+        expect(
+          await countRows(tx, "platform_ops_notes", "target_institution_id", workspace.id),
+        ).toBe(0);
+      });
+    });
+  });
+
   describe("a full run against the seeded account", () => {
     it("removes, scrubs and accounts for everything the fixture planted", async () => {
       await inRollback(async (tx) => {
@@ -1182,7 +1960,7 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
           reason: "  permintaan melalui email  ",
         });
 
-        expect(result.personalInstitutionId).toBe(f.institution);
+        expect(result.soleOwnedInstitutionIds).toEqual([f.institution]);
 
         // ---- storage -------------------------------------------------------------------------
         expect(result.objectsDeleted).toBe(expectedDeletedKeys(f).length);
@@ -1446,10 +2224,10 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
         const metadata = audit[0]!.metadata as {
           rowsDeleted: Record<string, number>;
           rowsScrubbed: Record<string, number>;
-          personalInstitutionId: string | null;
+          soleOwnedInstitutionIds: string[];
         };
 
-        expect(metadata.personalInstitutionId).toBe(f.institution);
+        expect(metadata.soleOwnedInstitutionIds).toEqual([f.institution]);
         expect(metadata.rowsDeleted.candidate_profiles).toBe(1);
         expect(metadata.rowsDeleted.user_password_reset_tokens).toBe(1);
         expect(metadata.rowsDeleted.notifications).toBe(1);
@@ -1835,7 +2613,7 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
       //
       // It is a competition of its own because the fixture's target already holds an active
       // registration in `f.competition` and `competition_registrations_student_competition_active_unique_idx`
-      // allows one. A draft competition keeps the personal institution clear of the published check.
+      // allows one.
       //
       // A list built from the pre-read's facts would not contain this registration, and its two
       // objects would be left in the bucket while the commit scrubbed the rows that pointed at them.

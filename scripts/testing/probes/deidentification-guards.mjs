@@ -118,8 +118,8 @@ export const probes = [
     mutate: () =>
       substituteOnce(
         SERVICE,
-        "  if (target.personalInstitutionId !== null) {",
-        "  prefixes.push(`payment-proofs/${target.userId}/`);\n\n  if (target.personalInstitutionId !== null) {",
+        "  for (const institutionId of target.soleOwnedInstitutionIds) {",
+        "  prefixes.push(`payment-proofs/${target.userId}/`);\n\n  for (const institutionId of target.soleOwnedInstitutionIds) {",
       ),
     detect: async () =>
       fails("npx", ["vitest", "run", UNIT_TEST], /× .*never lists payment-proofs, on any target/),
@@ -194,7 +194,7 @@ export const probes = [
     appliedMarkers: [
       "  const facts = await db.transaction(async (tx) => {\n    assertReasonPresent(input);",
       "    return assertTargetIsEligible(tx, accountId, input);\n  });\n\n  let rehearsal: WriteOutcome;",
-      "    registrations: facts.registrations,\n    personalInstitutionId: facts.personalInstitutionId,",
+      "    registrations: facts.registrations,\n    soleOwnedInstitutionIds: facts.soleOwnedInstitutionIds,",
     ],
     mutate: () => {
       substituteOnce(
@@ -209,8 +209,8 @@ export const probes = [
       );
       substituteOnce(
         SERVICE,
-        "    registrations: rehearsal.registrations,\n    personalInstitutionId: rehearsal.personalInstitutionId,",
-        "    registrations: facts.registrations,\n    personalInstitutionId: facts.personalInstitutionId,",
+        "    registrations: rehearsal.registrations,\n    soleOwnedInstitutionIds: rehearsal.soleOwnedInstitutionIds,",
+        "    registrations: facts.registrations,\n    soleOwnedInstitutionIds: facts.soleOwnedInstitutionIds,",
       );
     },
     // The detector is post-state, which is this guard's class: the suite reads the mocked bucket, so
@@ -366,7 +366,8 @@ export const probes = [
     name: "an object a surviving ledger row still names is kept",
     klass: "B",
     harmfulMove:
-      "deleting every object under the personal institution's payment-instructions prefix, including " +
+      "deleting every object under the payment-instructions prefix of an institution the account " +
+      "owned alone, including " +
       "the QRIS image a finance snapshot quotes. That snapshot is what an institution's payment " +
       "instructions SAID when a payment was reviewed, and it outlives the account — so the row is " +
       "left citing an image that is gone, on a ledger DEC-0133 forbids removing to tidy it up",
@@ -446,11 +447,11 @@ export const probes = [
       "could have left",
     files: [SERVICE],
     // The comment, the count and the refusal removed together, so no line is left claiming a check
-    // the code no longer makes. The marker is the adjacency that opens in their place — the published
-    // -competition refusal directly against the registration read — and it exists only after the
+    // the code no longer makes. The marker is the adjacency that opens in their place, the open
+    // payment refusal directly against the registration read, and it exists only after the
     // mutation, because the unmutated file holds those three blocks in the gap.
     appliedMarkers: [
-      "  await assertNoPublishedPersonalCompetition(tx, personalInstitutionId);\n\n  const registrations = await tx",
+      "  await assertNoOpenPricedPaymentInSoleOwnedInstitutions(tx, soleOwnedInstitutionIds, new Date());\n\n  const registrations = await tx",
     ],
     mutate: () =>
       substituteOnce(
@@ -469,7 +470,7 @@ export const probes = [
           "  }",
           "",
           // The blank line after the refusal, so the removal leaves one blank line between the
-          // published-competition refusal and the registration read rather than two.
+          // open payment refusal and the registration read rather than two.
           "",
         ].join("\n"),
         "",

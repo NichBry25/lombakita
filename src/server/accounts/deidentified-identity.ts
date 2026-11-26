@@ -38,7 +38,7 @@ export const deidentifiedUsername = (userId: string): string => `deleted-${userI
 /** What `users.name` becomes. Read by other people, so it is a phrase and not a placeholder. */
 export const DEIDENTIFIED_DISPLAY_NAME = "Akun dihapus";
 
-/** What a personal institution's `display_name` becomes. */
+/** What the `display_name` of an institution the account owned alone becomes. */
 export const DEIDENTIFIED_INSTITUTION_NAME = "Institusi dihapus";
 
 /**
@@ -53,5 +53,5 @@ export const DEIDENTIFIED_TEXT = "[dihapus]";
 /** What `users.suspension_reason` becomes — the account's own record of why it is gone. */
 export const DEIDENTIFIED_SUSPENSION_REASON = "Akun dihapus atas permintaan pemilik";
 
-/** What a personal institution's `suspension_reason` becomes. */
+/** What the `suspension_reason` of an institution the account owned alone becomes. */
 export const DEIDENTIFIED_INSTITUTION_SUSPENSION_REASON = "Pemilik akun meminta penghapusan data";

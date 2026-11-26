@@ -7,7 +7,6 @@ import { institutionMemberships, institutions } from "@/server/db/schema";
 import {
   NEW_INSTITUTION_DEFAULT_STATUS,
   createInstitutionWorkspaceForUser,
-  findOwnedPersonalInstitution,
   institutionSlugCollidesWithUsername,
   usernameCollidesWithInstitutionSlug,
   getInstitutionWorkspaceForOwnerBySlug,
@@ -532,21 +531,6 @@ describe("personal institution lookup and the username namespace", () => {
 
     return { db, captured };
   };
-
-  describe("findOwnedPersonalInstitution", () => {
-    it("returns the institution when the user actively owns a personal institution", async () => {
-      const { db } = makeSlugSyncDb([[{ institutionId: "inst_1", slug: "alice" }]]);
-      await expect(findOwnedPersonalInstitution("user_1", db)).resolves.toEqual({
-        institutionId: "inst_1",
-        slug: "alice",
-      });
-    });
-
-    it("returns null when the user owns no personal institution", async () => {
-      const { db } = makeSlugSyncDb([[]]);
-      await expect(findOwnedPersonalInstitution("user_1", db)).resolves.toBeNull();
-    });
-  });
 
   describe("usernameCollidesWithInstitutionSlug", () => {
     it("returns true when another institution already holds the username-derived slug", async () => {

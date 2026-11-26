@@ -366,8 +366,8 @@ describe("de-identifying an account", () => {
 // `message` is the server's own prose packed into the error envelope. It is deliberately NOT equal to
 // the expected toast on the codes that have fixed copy: a row that sent the sentence it then
 // asserts would pass against a console that echoed whatever arrived, which is the behaviour the map
-// exists to replace. The three codes that count or name something are the exception and are marked as
-// such — their copy carries slugs only the server knows, so its message IS the toast.
+// exists to replace. The five codes that count or name something are the exception and are marked
+// as such: their copy carries slugs only the server knows, so its message IS the toast.
 const DEIDENTIFY_REFUSALS: {
   code: string;
   status: number;
@@ -472,12 +472,30 @@ const DEIDENTIFY_REFUSALS: {
     fromServerMessage: true,
   },
   {
-    code: "deidentify_personal_institution_has_published_competition",
+    code: "deidentify_sole_institution_has_transfer_awaiting_review",
     status: 409,
     message:
-      "Institusi pribadi akun ini masih punya kompetisi terbit: expo-2026. Arsipkan atau batalkan dulu.",
+      "Institusi yang hanya dikelola akun ini masih punya bukti transfer yang menunggu pemeriksaan: hadiah-pasti. Periksa buktinya dulu.",
     toast:
-      "Institusi pribadi akun ini masih punya kompetisi terbit: expo-2026. Arsipkan atau batalkan dulu.",
+      "Institusi yang hanya dikelola akun ini masih punya bukti transfer yang menunggu pemeriksaan: hadiah-pasti. Periksa buktinya dulu.",
+    fromServerMessage: true,
+  },
+  {
+    code: "deidentify_sole_institution_has_open_payment",
+    status: 409,
+    message:
+      "Institusi yang hanya dikelola akun ini masih punya pembayaran peserta yang belum selesai: hadiah-pasti. Tunggu sampai batas waktunya lewat atau pembayarannya selesai.",
+    toast:
+      "Institusi yang hanya dikelola akun ini masih punya pembayaran peserta yang belum selesai: hadiah-pasti. Tunggu sampai batas waktunya lewat atau pembayarannya selesai.",
+    fromServerMessage: true,
+  },
+  {
+    code: "deidentify_sole_institution_has_open_invitation",
+    status: 409,
+    message:
+      "Institusi yang hanya dikelola akun ini masih punya undangan terbuka: hadiah-pasti, lomba-budi. Batalkan undangannya dulu.",
+    toast:
+      "Institusi yang hanya dikelola akun ini masih punya undangan terbuka: hadiah-pasti, lomba-budi. Batalkan undangannya dulu.",
     fromServerMessage: true,
   },
 ];

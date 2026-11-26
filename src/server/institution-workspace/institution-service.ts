@@ -24,10 +24,7 @@ import {
   parseInstitutionWorkspaceSettingsPatch,
   type InstitutionWorkspaceShell,
 } from "@/server/institution-workspace/institution-core";
-import {
-  isPersonalInstitutionType,
-  PERSONAL_INSTITUTION_TYPE,
-} from "@/server/institution-workspace/institution-type";
+import { isPersonalInstitutionType } from "@/server/institution-workspace/institution-type";
 import {
   getInstitutionDisplayName,
   institutionOwnerUsernameSql,
@@ -548,30 +545,6 @@ export const createInstitutionWorkspaceForUser = async (
     input.institutionType,
     db,
   );
-};
-
-// Returns a personal institution the user actively owns (id and current slug), or null when the user
-// owns none.
-export const findOwnedPersonalInstitution = async (
-  userId: string,
-  db: DbOrTx = getDb(),
-): Promise<{ institutionId: string; slug: string } | null> => {
-  const [row] = await db
-    .select({ institutionId: institutions.id, slug: institutions.slug })
-    .from(institutions)
-    .innerJoin(
-      institutionMemberships,
-      and(
-        eq(institutionMemberships.institutionId, institutions.id),
-        eq(institutionMemberships.userId, userId),
-        eq(institutionMemberships.membershipRole, OWNER_ROLE),
-        eq(institutionMemberships.status, ACTIVE_MEMBERSHIP_STATUS),
-      ),
-    )
-    .where(eq(institutions.institutionType, PERSONAL_INSTITUTION_TYPE))
-    .limit(1);
-
-  return row ?? null;
 };
 
 // True when any institution already holds the slug a username would normalize to. Usernames and

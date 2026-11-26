@@ -43,6 +43,7 @@ vi.mock("@/server/storage/r2.client", () => ({
 vi.mock("@/server/async/enqueue", () => ({
   enqueueRecruiterVerificationRejected: vi.fn().mockResolvedValue(undefined),
   enqueueRecruiterVerificationApproved: vi.fn().mockResolvedValue(undefined),
+  enqueueCompetitionSearchSync: vi.fn().mockResolvedValue(undefined),
 }));
 
 import {
