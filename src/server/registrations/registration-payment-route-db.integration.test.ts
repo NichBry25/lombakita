@@ -96,6 +96,7 @@ const seedPaidCompetition = async (
     .insert(institutions)
     .values({
       slug: `pay-refusal-inst-${id}`,
+      displayName: `Pay Refusal Fixture ${id}`,
       institutionType: "personal",
       verificationStatus: "verified",
     })

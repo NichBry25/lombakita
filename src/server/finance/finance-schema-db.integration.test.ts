@@ -124,13 +124,13 @@ const seedFixture = async (tx: Tx): Promise<Fixture> => {
 
   const [institution] = await tx
     .insert(institutions)
-    // institutions_display_name_type_chk allows a null display name only for `personal`.
     // VERIFIED, because createPayment's DEC-0158 charging gate refuses a priced payment for an
     // unverified institution. That refusal is the subject of its own suite
     // (finance-charging-gate-db.integration.test.ts); here it would only mask what these tests are
     // actually asserting about constraints and fee snapshots.
     .values({
       slug: `finance-inst-${id}`,
+      displayName: `Finance Fixture ${id}`,
       institutionType: "personal",
       verificationStatus: "verified",
     })
@@ -138,7 +138,11 @@ const seedFixture = async (tx: Tx): Promise<Fixture> => {
 
   const [otherInstitution] = await tx
     .insert(institutions)
-    .values({ slug: `finance-other-${id}`, institutionType: "personal" })
+    .values({
+      slug: `finance-other-${id}`,
+      displayName: `Finance Other Fixture ${id}`,
+      institutionType: "personal",
+    })
     .returning({ id: institutions.id });
 
   const [competition] = await tx

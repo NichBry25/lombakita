@@ -117,7 +117,6 @@ type MemberSpec = {
 
 /** One institution planted for the subject, and what it holds. */
 type InstitutionSpec = {
-  /** `personal` institutions may have no `display_name`; the schema check forbids it otherwise. */
   institutionType: "personal" | "company";
   /** Every competition status this institution should hold exactly one row of. */
   competitionStatuses: readonly CompetitionStatus[];
@@ -162,7 +161,7 @@ const plantFixture = async (
     const slug = slugFor(label);
 
     await sql`insert into institutions (id, slug, institution_type, display_name, status)
-      values (${id}, ${slug}, ${spec.institutionType}, ${spec.institutionType === "personal" ? null : `Preflight ${label}`}, 'active')`;
+      values (${id}, ${slug}, ${spec.institutionType}, ${`Preflight ${label}`}, 'active')`;
 
     for (const member of spec.members) {
       await sql`insert into institution_memberships (id, institution_id, user_id, membership_role, status)

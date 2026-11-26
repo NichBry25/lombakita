@@ -92,7 +92,7 @@ const seedSubmission = async (tx: Tx, options: SeedOptions): Promise<string> => 
     .insert(institutions)
     .values({
       slug: `purge-inst-${id}`,
-      // institutions_display_name_type_chk allows a null display name only for `personal`.
+      displayName: `Purge Fixture ${id}`,
       institutionType: "personal",
     })
     .returning({ id: institutions.id });

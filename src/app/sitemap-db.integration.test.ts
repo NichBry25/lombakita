@@ -88,8 +88,7 @@ const seedInstitution = async (
     .values({
       slug: `sitemap-inst-${id}`,
       institutionType: personal ? "personal" : "company",
-      // institutions_display_name_type_chk allows a null display name only for `personal`.
-      displayName: personal ? null : `Sitemap Fixture ${id}`,
+      displayName: `Sitemap Fixture ${id}`,
       // The value the production creation path writes, not the column's schema default.
       // `institutions.status` defaults to `active` and `createInstitutionWorkspaceForUser` writes
       // `inactive`, so a fixture that omitted it described a row shape no institution has. Found by

@@ -317,8 +317,8 @@ const seedCommittedFixture = async (): Promise<RaceFixture> => {
     returning id`;
 
   const [institution] = await control.sql<{ id: string }[]>`
-    insert into institutions (slug, institution_type, verification_status)
-    values (${`${MARKER}-inst-${id}`}, 'personal', 'verified')
+    insert into institutions (slug, display_name, institution_type, verification_status)
+    values (${`${MARKER}-inst-${id}`}, ${`Race Fixture ${id}`}, 'personal', 'verified')
     returning id`;
 
   const [competition] = await control.sql<{ id: string }[]>`

@@ -60,7 +60,12 @@ const seedInstitution = async (tx: Tx, label: string): Promise<{ id: string; slu
   const slug = `${label}-inst-${id}`;
   const [institution] = await tx
     .insert(institutions)
-    .values({ slug, institutionType: "personal", verificationStatus: "verified" })
+    .values({
+      slug,
+      displayName: `Member Fixture ${id}`,
+      institutionType: "personal",
+      verificationStatus: "verified",
+    })
     .returning({ id: institutions.id });
   return { id: institution!.id, slug };
 };

@@ -165,8 +165,7 @@ const setUsername = async (tx: Database, userId: string, username: string): Prom
 };
 
 // Planted directly: the service no longer lets an owner hold a workspace above the cap, so the old
-// allowance of three full workspaces and one personal one is written as the old personal path wrote
-// it.
+// allowance of three full workspaces and one personal one is written as a direct insert.
 const plantPersonalWorkspace = async (
   tx: Database,
   ownerId: string,
@@ -175,7 +174,7 @@ const plantPersonalWorkspace = async (
   const [institution] = await tx
     .insert(schema.institutions)
     .values({
-      displayName: null,
+      displayName: "Ruang Uji Lama",
       slug,
       status: NEW_INSTITUTION_DEFAULT_STATUS,
       institutionType: "personal",

@@ -91,8 +91,7 @@ const seedInstitution = async (
     .values({
       slug: `exposure-inst-${id}`,
       institutionType,
-      // `institutions_display_name_type_chk` allows a null display name only for `personal`.
-      displayName: institutionType === "personal" ? null : `Exposure Fixture ${id}`,
+      displayName: `Exposure Fixture ${id}`,
       // The value the production creation path writes, not the column's schema default.
       status: NEW_INSTITUTION_DEFAULT_STATUS,
       verificationStatus: options.verificationStatus ?? "pending_verification",

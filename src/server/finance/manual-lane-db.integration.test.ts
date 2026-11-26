@@ -252,6 +252,7 @@ const seedTenant = async (tx: Tx, label: string, verified: boolean): Promise<Ten
     .insert(institutions)
     .values({
       slug: `${label}-inst-${id}`,
+      displayName: `Manual Lane ${label} ${id}`,
       institutionType: "personal",
       ...(verified ? { verificationStatus: "verified" as const } : {}),
     })
@@ -291,7 +292,11 @@ const seedFixture = async (tx: Tx): Promise<Fixture> => {
 
   const [unverified] = await tx
     .insert(institutions)
-    .values({ slug: `manual-unver-${id}`, institutionType: "personal" })
+    .values({
+      slug: `manual-unver-${id}`,
+      displayName: `Manual Unverified Fixture ${id}`,
+      institutionType: "personal",
+    })
     .returning({ id: institutions.id });
 
   const [feeRule] = await tx
