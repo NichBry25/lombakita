@@ -1066,7 +1066,7 @@ export const competitionReports = pgTable(
     ),
     check(
       "competition_reports_note_required_chk",
-      sql`${table.reason} <> 'lainnya' OR ${table.note} IS NOT NULL`,
+      sql`${table.reason} <> 'lainnya' OR (${table.note} IS NOT NULL AND btrim(${table.note}) <> '')`,
     ),
     check(
       "competition_reports_handled_pair_chk",
@@ -1893,7 +1893,7 @@ export const hostOrganizationEmails = pgTable(
     ),
     check(
       "host_organization_emails_email_domain_chk",
-      sql`${table.email} LIKE ('%@' || ${table.domain})`,
+      sql`${table.email} ~ '^[^@]+@[^@]+$' AND ${table.domain} = split_part(${table.email}, '@', 2)`,
     ),
   ],
 );
@@ -1915,6 +1915,10 @@ export const organizationEmailChallenges = pgTable(
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
+    check(
+      "organization_email_challenges_email_normalized_chk",
+      sql`${table.email} = lower(btrim(${table.email}))`,
+    ),
     check("organization_email_challenges_failed_attempts_chk", sql`${table.failedAttempts} >= 0`),
     index("organization_email_challenges_email_created_at_idx").on(table.email, table.createdAt),
     index("organization_email_challenges_user_id_created_at_idx").on(table.userId, table.createdAt),
