@@ -30,6 +30,7 @@ export const SUBJECT = {
   line: {
     pattern: /^QA ([a-z]+): (.+)$/,
     looksLikeQaLine: /^qa(?![a-z0-9])/i,
+    qaLineAfterLead: /^(?:[-*+>][ \t]+|\d+[.)][ \t]+|`+)[` \t]*qa(?![a-z0-9])/i,
     newPathsPrefix: "New paths: ",
   },
   kinds: ["start", "allowed", "gate", "reading", "evidence"],
@@ -170,8 +171,15 @@ const readPromptLine = (draft: PlanDraft, line: string, lineNumber: number): voi
   }
   const match = SUBJECT.line.pattern.exec(line);
   if (match === null) {
-    if (!SUBJECT.line.looksLikeQaLine.test(line)) return;
-    refuse(`line ${lineNumber}: a line that starts with QA must read "QA <kind>: <fields>"`);
+    if (SUBJECT.line.looksLikeQaLine.test(line)) {
+      refuse(`line ${lineNumber}: a line that starts with QA must read "QA <kind>: <fields>"`);
+    }
+    if (SUBJECT.line.qaLineAfterLead.test(line)) {
+      refuse(
+        `line ${lineNumber}: a QA line must start at the first character of its line, with nothing before it`,
+      );
+    }
+    return;
   }
   const kind = match[1] ?? "";
   if (!isQaKind(kind)) refuse(`line ${lineNumber}: unknown QA kind "${kind}"`);

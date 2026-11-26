@@ -24,6 +24,8 @@ const ESCAPING_PATH = "../evidence.txt";
 const ABSOLUTE_PATH = "/tmp/evidence.txt";
 const ZERO_COMMIT = "0".repeat(40);
 const MISTYPED_QA_LINE_REFUSAL_TEXT = 'a line that starts with QA must read "QA <kind>: <fields>"';
+const QA_LINE_AFTER_LEAD_REFUSAL_TEXT =
+  "a QA line must start at the first character of its line, with nothing before it";
 
 const tsxLoader = pathToFileURL(join(process.cwd(), "node_modules/tsx/dist/loader.mjs")).href;
 const scriptPath = join(process.cwd(), "scripts/lk/qa-part.ts");
@@ -271,6 +273,14 @@ describe("the QA checks", () => {
     expect(result.status).toBe(0);
   });
 
+  it("reads a list line that does not start with QA", () => {
+    const { result, short } = runFixture({
+      promptLines: (start) => [...basePromptLines(start), "- the gate files are listed above"],
+    });
+    expect(stdoutLines(result.stdout)).toEqual(passingLines(short));
+    expect(result.status).toBe(0);
+  });
+
   it("fails a reading whose run output is empty", () => {
     const { result, short } = runFixture({ workFiles: { [`${WORK}/out/r1-run.txt`]: "" } });
     expect(stdoutLines(result.stdout)).toEqual(
@@ -414,6 +424,75 @@ describe("the QA refusals", () => {
           basePromptLines(start).filter((line) => !line.startsWith("QA allowed")),
       },
       "LK REFUSED: the prompt has no QA allowed line and no New paths line",
+    );
+  });
+
+  it("refuses a QA line after a dash", () => {
+    expectRefusal(
+      {
+        promptLines: (start) => [
+          ...basePromptLines(start),
+          `- QA gate: lint ${WORK}/out/gate-lint.txt`,
+        ],
+      },
+      `LK REFUSED: line 6: ${QA_LINE_AFTER_LEAD_REFUSAL_TEXT}`,
+    );
+  });
+
+  it("refuses a QA line after a star", () => {
+    expectRefusal(
+      {
+        promptLines: (start) => [
+          ...basePromptLines(start),
+          `* QA gate: lint ${WORK}/out/gate-lint.txt`,
+        ],
+      },
+      `LK REFUSED: line 6: ${QA_LINE_AFTER_LEAD_REFUSAL_TEXT}`,
+    );
+  });
+
+  it("refuses a QA line after a quote mark", () => {
+    expectRefusal(
+      {
+        promptLines: (start) => [...basePromptLines(start), `> QA evidence: ${WORK}/out/e.txt`],
+      },
+      `LK REFUSED: line 6: ${QA_LINE_AFTER_LEAD_REFUSAL_TEXT}`,
+    );
+  });
+
+  it("refuses a QA line inside backticks", () => {
+    expectRefusal(
+      {
+        promptLines: (start) => [
+          ...basePromptLines(start),
+          `\`QA reading: r9 ${WORK}/out/r9-run.txt ${WORK}/out/r9-restore.txt\``,
+        ],
+      },
+      `LK REFUSED: line 6: ${QA_LINE_AFTER_LEAD_REFUSAL_TEXT}`,
+    );
+  });
+
+  it("refuses a QA line after a number", () => {
+    expectRefusal(
+      {
+        promptLines: (start) => [
+          ...basePromptLines(start),
+          `1. QA gate: lint ${WORK}/out/gate-lint.txt`,
+        ],
+      },
+      `LK REFUSED: line 6: ${QA_LINE_AFTER_LEAD_REFUSAL_TEXT}`,
+    );
+  });
+
+  it("refuses a lowercase qa line after a dash", () => {
+    expectRefusal(
+      {
+        promptLines: (start) => [
+          ...basePromptLines(start),
+          `- qa gate: lint ${WORK}/out/gate-lint.txt`,
+        ],
+      },
+      `LK REFUSED: line 6: ${QA_LINE_AFTER_LEAD_REFUSAL_TEXT}`,
     );
   });
 });
