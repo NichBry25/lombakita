@@ -22,12 +22,14 @@ const HEADER = ["date", "role", "label", "tokens", "tool_uses", "duration_ms"].j
 const tsxLoader = pathToFileURL(join(process.cwd(), "node_modules/tsx/dist/loader.mjs")).href;
 const scriptPath = join(process.cwd(), "scripts/lk/usage-summary.ts");
 
-const runUsage = (cwd: string) =>
-  spawnSync("node", ["--import", tsxLoader, scriptPath, SLUG], { cwd, encoding: "utf8" });
+const runUsage = (cwd: string, slug: string) =>
+  spawnSync("node", ["--import", tsxLoader, scriptPath, slug], { cwd, encoding: "utf8" });
 
 interface UsageFixture {
   /** Default true. False leaves the work folder out. */
   workFolder?: boolean;
+  /** The slug the script is run with. Default is the slug the work folder is made for. */
+  runSlug?: string;
   sessionLog?: string;
   usageFile?: string;
 }
@@ -43,7 +45,7 @@ const runFixture = (fixture: UsageFixture = {}) => {
     if (fixture.usageFile !== undefined) {
       writeFileSync(join(folder, WORK, "usage.tsv"), fixture.usageFile);
     }
-    return runUsage(folder);
+    return runUsage(folder, fixture.runSlug ?? SLUG);
   } finally {
     rmSync(folder, { recursive: true, force: true });
   }
@@ -130,6 +132,7 @@ describe("the usage summary", () => {
       "subagent total: 3 sessions, 201138 tokens, 22 tool uses, 4.4 minutes",
       "controller: not measured",
       "unparsed session log lines: 1",
+      "results without usage data: 0",
     ]);
     expect(result.status).toBe(0);
   });
@@ -141,6 +144,51 @@ describe("the usage summary", () => {
       `implementer: no session log at ${WORK}/session.jsonl`,
       `subagent: no usage file at ${WORK}/usage.tsv`,
       "controller: not measured",
+    ]);
+    expect(result.status).toBe(0);
+  });
+
+  it("counts a result event in the older log format", () => {
+    const olderFormatEvent = JSON.stringify({
+      type: "result",
+      session_id: "cccccccc-3333",
+      duration_ms: 60000,
+      num_turns: 3,
+      total_cost_usd: 0.69,
+      modelUsage: { "claude-sonnet-5-5": { outputTokens: 10, costUSD: 0.69 } },
+    });
+    const result = runFixture({ sessionLog: [olderFormatEvent, "null"].join("\n") });
+    expect(stdoutLines(result.stdout)).toEqual([
+      "lk-usage s",
+      "implementer: 1 sessions, 3 turns, 1.0 minutes, output 0 tokens, input 0, cache read 0, cache write 0, cost $0.00 at list price",
+      "implementer session cccccccc: 1 results, 3 turns, 1.0 minutes, output 0 tokens, cost $0.00",
+      `subagent: no usage file at ${WORK}/usage.tsv`,
+      "controller: not measured",
+      "unparsed session log lines: 1",
+      "results without usage data: 1",
+    ]);
+    expect(result.status).toBe(0);
+  });
+
+  it("counts a usage field that is not a number", () => {
+    const stringCostEvent = JSON.stringify({
+      type: "result",
+      session_id: "dddddddd-4444",
+      duration_ms: 60000,
+      num_turns: 1,
+      model_usage_since_last_result: {
+        "claude-sonnet-5-5": { outputTokens: 5, costUSD: "2.0" },
+      },
+    });
+    const result = runFixture({ sessionLog: stringCostEvent });
+    expect(stdoutLines(result.stdout)).toEqual([
+      "lk-usage s",
+      "implementer: 1 sessions, 1 turns, 1.0 minutes, output 0 tokens, input 0, cache read 0, cache write 0, cost $0.00 at list price",
+      "implementer session dddddddd: 1 results, 1 turns, 1.0 minutes, output 0 tokens, cost $0.00",
+      `subagent: no usage file at ${WORK}/usage.tsv`,
+      "controller: not measured",
+      "unparsed session log lines: 0",
+      "results without usage data: 1",
     ]);
     expect(result.status).toBe(0);
   });
@@ -170,5 +218,19 @@ describe("the usage summary refusals", () => {
 
   it("refuses a missing work folder", () => {
     expectRefusal({ workFolder: false }, `LK REFUSED: no work folder at ${WORK}`);
+  });
+
+  it("refuses a slug that leaves the work folder", () => {
+    expectRefusal(
+      { runSlug: ".." },
+      'LK REFUSED: the slug ".." is not lowercase letters, digits and hyphens',
+    );
+  });
+
+  it("refuses a usage row with the wrong field count", () => {
+    expectRefusal(
+      { usageFile: usageFileOf(tabRow("2026-11-26", "review-a", "x", "1", "1")) },
+      `LK REFUSED: ${WORK}/usage.tsv line 2: expected 6 tab-separated fields, found 5`,
+    );
   });
 });

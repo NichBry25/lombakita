@@ -5,14 +5,17 @@
  *
  * It reads .work/<slug>/session.jsonl, the stream of the implementer's result events, and
  * .work/<slug>/usage.tsv, one row per subagent session, and writes nothing. A missing file is
- * reported as a line and is not an error. The controller is not measured. The last line of a
- * present session log counts the lines that could not be read.
+ * reported as a line and is not an error. The controller is not measured. The last two lines of a
+ * present session log count the lines that could not be read and the result events whose usage
+ * could not be read.
  * A usage file that is malformed, a work folder that does not exist, a working directory without a
  * package.json and a wrong argument count are refused through `refuse` from ./models: one line
  * starting `LK REFUSED: ` on stderr, exit 1, nothing on stdout.
  *
  * One session can write several result events, and each carries a running `total_cost_usd`, so the
  * cost of a session is the sum of the `costUSD` of every model entry of every result event.
+ * A result event whose usage is missing or malformed still counts as a result with its duration and
+ * turns, adds no tokens and no cost, and is counted as a result without usage data.
  */
 
 import { existsSync, readFileSync, statSync } from "node:fs";
@@ -37,7 +40,18 @@ export const USAGE_HEADER = "date\trole\tlabel\ttokens\ttool_uses\tduration_ms";
 
 /** What the summary reads. A line or row that none of these classifies is counted or refused. */
 export const SUBJECT = {
-  sessionLog: { resultType: "result", usageKey: "model_usage_since_last_result" },
+  sessionLog: {
+    resultType: "result",
+    usageKey: "model_usage_since_last_result",
+    modelUsageNumberKeys: [
+      "inputTokens",
+      "outputTokens",
+      "cacheReadInputTokens",
+      "cacheCreationInputTokens",
+      "costUSD",
+    ],
+  },
+  slug: /^[a-z0-9-]+$/,
   usageFile: { fieldCount: 6, date: /^\d{4}-\d{2}-\d{2}$/, count: /^\d+$/ },
   files: {
     folder: (slug: string): string => `.work/${slug}`,
@@ -65,6 +79,7 @@ interface SessionSummary {
 export interface SessionLogSummary {
   sessions: SessionSummary[];
   unparsedLines: number;
+  resultsWithoutUsage: number;
 }
 
 export interface UsageRow {
@@ -97,8 +112,21 @@ const emptySession = (sessionId: string): SessionSummary => ({
   costUsd: 0,
 });
 
-const addModelUsage = (session: SessionSummary, usage: unknown): void => {
-  if (!isRecord(usage)) return;
+const isReadableModelUsage = (usage: unknown): usage is JsonRecord =>
+  isRecord(usage) &&
+  SUBJECT.sessionLog.modelUsageNumberKeys.every(
+    (key) => !(key in usage) || typeof usage[key] === "number",
+  );
+
+/** Null when the event has no usage object or any model entry in it cannot be read. */
+const readableModelUsagesOf = (event: JsonRecord): JsonRecord[] | null => {
+  const usageByModel = event[SUBJECT.sessionLog.usageKey];
+  if (!isRecord(usageByModel)) return null;
+  const usages = Object.values(usageByModel);
+  return usages.every(isReadableModelUsage) ? usages : null;
+};
+
+const addModelUsage = (session: SessionSummary, usage: JsonRecord): void => {
   session.inputTokens += numberOrZero(usage.inputTokens);
   session.outputTokens += numberOrZero(usage.outputTokens);
   session.cacheReadTokens += numberOrZero(usage.cacheReadInputTokens);
@@ -106,36 +134,31 @@ const addModelUsage = (session: SessionSummary, usage: unknown): void => {
   session.costUsd += numberOrZero(usage.costUSD);
 };
 
-const addResultEvent = (session: SessionSummary, event: JsonRecord): void => {
+const addResultTotals = (session: SessionSummary, event: JsonRecord): void => {
   session.results += 1;
   session.durationMs += numberOrZero(event.duration_ms);
   session.turns += numberOrZero(event.num_turns);
-  const usageByModel = event[SUBJECT.sessionLog.usageKey];
-  if (!isRecord(usageByModel)) return;
-  for (const usage of Object.values(usageByModel)) addModelUsage(session, usage);
 };
 
-/** Wrapped, so that a line holding the JSON text `null` is told apart from a line that is not JSON. */
-const parseJsonLine = (line: string): { value: unknown } | null => {
+const parseJsonLine = (line: string): unknown => {
   try {
-    return { value: JSON.parse(line) };
+    return JSON.parse(line);
   } catch {
-    return null;
+    return undefined;
   }
 };
 
 export const summarizeSessionLog = (text: string): SessionLogSummary => {
   const sessionsById = new Map<string, SessionSummary>();
   let unparsedLines = 0;
+  let resultsWithoutUsage = 0;
   for (const line of splitLines(text)) {
     if (line.trim() === "") continue;
-    const parsed = parseJsonLine(line);
-    if (parsed === null) {
+    const event = parseJsonLine(line);
+    if (!isRecord(event)) {
       unparsedLines += 1;
       continue;
     }
-    const event = parsed.value;
-    if (!isRecord(event)) continue;
     if (event.type !== SUBJECT.sessionLog.resultType) continue;
     if (typeof event.session_id !== "string") {
       unparsedLines += 1;
@@ -143,9 +166,15 @@ export const summarizeSessionLog = (text: string): SessionLogSummary => {
     }
     const session = sessionsById.get(event.session_id) ?? emptySession(event.session_id);
     sessionsById.set(event.session_id, session);
-    addResultEvent(session, event);
+    addResultTotals(session, event);
+    const usages = readableModelUsagesOf(event);
+    if (usages === null) {
+      resultsWithoutUsage += 1;
+      continue;
+    }
+    for (const usage of usages) addModelUsage(session, usage);
   }
-  return { sessions: [...sessionsById.values()], unparsedLines };
+  return { sessions: [...sessionsById.values()], unparsedLines, resultsWithoutUsage };
 };
 
 const requireNonNegativeInteger = (column: string, value: string, where: string): number => {
@@ -243,14 +272,19 @@ export const usageReportLinesOf = (
   sessionLog: SessionLogSummary | null,
   usageRows: UsageRow[] | null,
 ): string[] => {
-  const unparsedLines =
-    sessionLog === null ? [] : [`unparsed session log lines: ${sessionLog.unparsedLines}`];
+  const logCountLines =
+    sessionLog === null
+      ? []
+      : [
+          `unparsed session log lines: ${sessionLog.unparsedLines}`,
+          `results without usage data: ${sessionLog.resultsWithoutUsage}`,
+        ];
   return [
     `lk-usage ${slug}`,
     ...implementerLines(slug, sessionLog),
     ...subagentLines(slug, usageRows),
     "controller: not measured",
-    ...unparsedLines,
+    ...logCountLines,
   ];
 };
 
@@ -259,6 +293,9 @@ const slugFromArgs = (args: string[]): string => {
   const [slug] = positionals;
   if (slug === undefined) return refuse("give one work item slug");
   if (positionals.length > 1) refuse(`unexpected argument "${positionals[1]}"`);
+  if (!SUBJECT.slug.test(slug)) {
+    refuse(`the slug "${slug}" is not lowercase letters, digits and hyphens`);
+  }
   return slug;
 };
 

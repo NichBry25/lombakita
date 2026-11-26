@@ -21,13 +21,15 @@ const WORK = `.work/${SLUG}`;
 const FILE_A = "src/a.ts";
 const FILE_B = "src/b.ts";
 const ESCAPING_PATH = "../evidence.txt";
+const ABSOLUTE_PATH = "/tmp/evidence.txt";
 const ZERO_COMMIT = "0".repeat(40);
+const MISTYPED_QA_LINE_REFUSAL_TEXT = 'a line that starts with QA must read "QA <kind>: <fields>"';
 
 const tsxLoader = pathToFileURL(join(process.cwd(), "node_modules/tsx/dist/loader.mjs")).href;
 const scriptPath = join(process.cwd(), "scripts/lk/qa-part.ts");
 
-const runQa = (cwd: string) =>
-  spawnSync("node", ["--import", tsxLoader, scriptPath, SLUG], { cwd, encoding: "utf8" });
+const runQa = (cwd: string, slug: string) =>
+  spawnSync("node", ["--import", tsxLoader, scriptPath, slug], { cwd, encoding: "utf8" });
 
 const withWorkspace = <T>(body: (folder: string) => T): T => {
   const folder = mkdtempSync(join(tmpdir(), "lk-qa-part-"));
@@ -75,6 +77,8 @@ interface FixtureChanges {
   uncommittedText?: string;
   promptLines?: (start: string) => string[];
   workFiles?: Record<string, string | null>;
+  /** The slug the script is run with. Default is the slug the fixture is built for. */
+  runSlug?: string;
 }
 
 const buildFixture = (folder: string, changes: FixtureChanges): string => {
@@ -113,7 +117,7 @@ const buildFixture = (folder: string, changes: FixtureChanges): string => {
 const runFixture = (changes: FixtureChanges = {}) =>
   withWorkspace((folder) => {
     const start = buildFixture(folder, changes);
-    const result = runQa(folder);
+    const result = runQa(folder, changes.runSlug ?? SLUG);
     return { result, short: start.slice(0, 7), start };
   });
 
@@ -223,7 +227,8 @@ describe("the QA checks", () => {
       0,
       `FAIL commits: HEAD is still the start commit ${short}`,
     );
-    expected[1] = "PASS files: 0 changed, all on the allowed list";
+    expected[1] = `FAIL files: no file changed since ${short}`;
+    expected[expected.length - 1] = "lk-qa: 2 failed of 7 checks";
     expect(stdoutLines(result.stdout)).toEqual(expected);
     expect(result.status).toBe(1);
   });
@@ -253,6 +258,25 @@ describe("the QA checks", () => {
     expected[1] = "PASS files: 2 changed, all on the allowed list";
     expect(stdoutLines(result.stdout)).toEqual(expected);
     expect(result.status).toBe(0);
+  });
+
+  it("reads no indented QA line", () => {
+    const { result, short } = runFixture({
+      promptLines: (start) => [
+        ...basePromptLines(start),
+        `  QA gate: lint2 ${WORK}/out/missing.txt`,
+      ],
+    });
+    expect(stdoutLines(result.stdout)).toEqual(passingLines(short));
+    expect(result.status).toBe(0);
+  });
+
+  it("fails a reading whose run output is empty", () => {
+    const { result, short } = runFixture({ workFiles: { [`${WORK}/out/r1-run.txt`]: "" } });
+    expect(stdoutLines(result.stdout)).toEqual(
+      withOneFailure(short, 4, `FAIL reading r1: no run output at ${WORK}/out/r1-run.txt`),
+    );
+    expect(result.status).toBe(1);
   });
 });
 
@@ -318,6 +342,78 @@ describe("the QA refusals", () => {
         },
       },
       `LK REFUSED: the start commit ${ZERO_COMMIT} is not in this repository`,
+    );
+  });
+
+  it("refuses a QA line written without a space after its colon", () => {
+    expectRefusal(
+      {
+        promptLines: (start) => [
+          ...basePromptLines(start),
+          `QA gate:lint ${WORK}/out/gate-lint.txt`,
+        ],
+      },
+      `LK REFUSED: line 6: ${MISTYPED_QA_LINE_REFUSAL_TEXT}`,
+    );
+  });
+
+  it("refuses a QA line whose kind is capitalised", () => {
+    expectRefusal(
+      {
+        promptLines: (start) => [
+          ...basePromptLines(start),
+          `QA Gate: lint ${WORK}/out/gate-lint.txt`,
+        ],
+      },
+      `LK REFUSED: line 6: ${MISTYPED_QA_LINE_REFUSAL_TEXT}`,
+    );
+  });
+
+  it("refuses a lowercase qa line", () => {
+    expectRefusal(
+      {
+        promptLines: (start) => [
+          ...basePromptLines(start),
+          `qa gate: lint ${WORK}/out/gate-lint.txt`,
+        ],
+      },
+      `LK REFUSED: line 6: ${MISTYPED_QA_LINE_REFUSAL_TEXT}`,
+    );
+  });
+
+  it("refuses a slug that leaves the work folder", () => {
+    expectRefusal(
+      { runSlug: ".." },
+      'LK REFUSED: the slug ".." is not lowercase letters, digits and hyphens',
+    );
+  });
+
+  it("refuses a prompt with two QA start lines", () => {
+    expectRefusal(
+      { promptLines: (start) => [...basePromptLines(start), `QA start: ${start}`] },
+      "LK REFUSED: the prompt has 2 QA start lines, one is allowed",
+    );
+  });
+
+  it("refuses an absolute path", () => {
+    expectRefusal(
+      {
+        promptLines: (start) => [
+          ...basePromptLines(start).slice(0, 4),
+          `QA evidence: ${ABSOLUTE_PATH}`,
+        ],
+      },
+      `LK REFUSED: line 5: path "${ABSOLUTE_PATH}" is absolute or leaves the repository`,
+    );
+  });
+
+  it("refuses a prompt with no QA allowed line and no New paths line", () => {
+    expectRefusal(
+      {
+        promptLines: (start) =>
+          basePromptLines(start).filter((line) => !line.startsWith("QA allowed")),
+      },
+      "LK REFUSED: the prompt has no QA allowed line and no New paths line",
     );
   });
 });

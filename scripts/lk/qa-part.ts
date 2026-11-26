@@ -14,6 +14,9 @@
  * A QA line is a whole prompt line `QA <kind>: <fields separated by single spaces>`. The paths of the
  * line that starts `New paths: ` join the paths of the `QA allowed` lines, because a path a step
  * creates is listed there.
+ *
+ * The files and tree checks see only what git tracks or lists as untracked. A path the repository
+ * ignores, such as the folders docs, .claude and .work and the file CLAUDE.md here, is never read.
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
@@ -24,11 +27,17 @@ import { LkRefusal, parseCliArgs, refuse } from "./models";
 
 /** What each part of the QA script reads. A QA line that none of these classifies is refused. */
 export const SUBJECT = {
-  line: { pattern: /^QA ([a-z]+): (.+)$/, newPathsPrefix: "New paths: " },
+  line: {
+    pattern: /^QA ([a-z]+): (.+)$/,
+    looksLikeQaLine: /^qa(?![a-z0-9])/i,
+    newPathsPrefix: "New paths: ",
+  },
   kinds: ["start", "allowed", "gate", "reading", "evidence"],
   fieldCounts: { start: 1, gate: 2, reading: 3, evidence: 1 },
   startCommit: /^[0-9a-f]{40}$/,
   id: /^[a-z0-9-]+$/,
+  slug: /^[a-z0-9-]+$/,
+  gitMaxBufferBytes: 64 * 1024 * 1024,
   files: {
     prompt: (slug: string): string => `.work/${slug}/02-prompt.md`,
     report: (slug: string): string => `.work/${slug}/03-report.md`,
@@ -160,7 +169,10 @@ const readPromptLine = (draft: PlanDraft, line: string, lineNumber: number): voi
     return;
   }
   const match = SUBJECT.line.pattern.exec(line);
-  if (match === null) return;
+  if (match === null) {
+    if (!SUBJECT.line.looksLikeQaLine.test(line)) return;
+    refuse(`line ${lineNumber}: a line that starts with QA must read "QA <kind>: <fields>"`);
+  }
   const kind = match[1] ?? "";
   if (!isQaKind(kind)) refuse(`line ${lineNumber}: unknown QA kind "${kind}"`);
   addQaLine(draft, kind, (match[2] ?? "").split(" "), lineNumber);
@@ -191,10 +203,15 @@ export const parseQaLines = (text: string): QaPlan => {
 };
 
 const gitOutput = (root: string, args: string[]): string =>
-  execFileSync("git", args, { cwd: root, encoding: "utf8" });
+  execFileSync("git", args, {
+    cwd: root,
+    encoding: "utf8",
+    maxBuffer: SUBJECT.gitMaxBufferBytes,
+  });
 
 const gitSucceeds = (root: string, args: string[]): boolean =>
-  spawnSync("git", args, { cwd: root, stdio: "ignore" }).status === 0;
+  spawnSync("git", args, { cwd: root, stdio: "ignore", maxBuffer: SUBJECT.gitMaxBufferBytes })
+    .status === 0;
 
 const readTextOrNull = (root: string, path: string): string | null => {
   try {
@@ -223,6 +240,9 @@ const checkCommits = (start: string, root: string): QaLine => {
 const checkFiles = (plan: QaPlan, root: string): QaLine[] => {
   const diff = gitOutput(root, ["diff", "--name-only", "--no-renames", plan.start, "HEAD"]);
   const changedPaths = nonEmptyLinesOf(diff);
+  if (changedPaths.length === 0) {
+    return [fail(`files: no file changed since ${plan.start.slice(0, 7)}`)];
+  }
   const offending = changedPaths.filter((path) => !plan.allowed.includes(path));
   if (offending.length === 0) {
     return [pass(`files: ${changedPaths.length} changed, all on the allowed list`)];
@@ -299,6 +319,9 @@ const slugFromArgs = (args: string[]): string => {
   const [slug] = positionals;
   if (slug === undefined) return refuse("give one work item slug");
   if (positionals.length > 1) refuse(`unexpected argument "${positionals[1]}"`);
+  if (!SUBJECT.slug.test(slug)) {
+    refuse(`the slug "${slug}" is not lowercase letters, digits and hyphens`);
+  }
   return slug;
 };
 
