@@ -135,4 +135,25 @@ describe("POST /api/v1/competitions/[competitionId]/registrations", () => {
     expect(res.status).toBe(500);
     expect(await res.json()).toMatchObject({ error: { code: "access_guard_failed" } });
   });
+
+  it("answers 403 institution_suspended with the copy when the workspace is suspended", async () => {
+    requireSessionRole.mockResolvedValueOnce(candidateSession);
+    const { RegistrationError } = await import("@/server/registrations/registration-core");
+    createIndividualRegistration.mockRejectedValueOnce(
+      new RegistrationError(
+        "institution_suspended",
+        "Penyelenggara kompetisi ini sedang dinonaktifkan, jadi pendaftaran baru belum dapat diterima.",
+      ),
+    );
+    const res = await POST(makeRequest(), makeContext());
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({
+      error: {
+        code: "institution_suspended",
+        message:
+          "Penyelenggara kompetisi ini sedang dinonaktifkan, jadi pendaftaran baru belum dapat diterima.",
+        details: {},
+      },
+    });
+  });
 });

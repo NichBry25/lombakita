@@ -28,7 +28,11 @@ vi.mock("@/server/competitions/competition-access", async () => {
   const actual = await vi.importActual<typeof import("@/server/competitions/competition-access")>(
     "@/server/competitions/competition-access",
   );
-  return { ...actual, isCompetitionHost: vi.fn().mockResolvedValue(false) };
+  return {
+    ...actual,
+    assertInstitutionNotSuspended: vi.fn().mockResolvedValue(undefined),
+    isCompetitionHost: vi.fn().mockResolvedValue(false),
+  };
 });
 
 import {

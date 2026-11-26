@@ -25,6 +25,12 @@ export const GOOGLE_EMAIL_UNVERIFIED_MESSAGE =
 export const COMPETITION_HOST_CANNOT_JOIN_MESSAGE =
   "Anda pemilik atau staf penyelenggara kompetisi ini, jadi tidak dapat ikut mendaftar.";
 
+// The refusal of a new registration, a new team or a team join on a competition whose institution is
+// suspended, by staff or by an account deletion that anonymised it. The server sends it and each
+// registration surface maps the code to it.
+export const INSTITUTION_SUSPENDED_REGISTRATION_MESSAGE =
+  "Penyelenggara kompetisi ini sedang dinonaktifkan, jadi pendaftaran baru belum dapat diterima.";
+
 // One refusal code, two sentences: the owner promoting someone and the invitee accepting are told
 // the same fact from their own side, so each surface maps the code to its own sentence.
 export const MEMBER_HOLDS_PLACE_MESSAGE =

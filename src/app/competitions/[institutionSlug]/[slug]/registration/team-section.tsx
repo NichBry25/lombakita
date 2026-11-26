@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   COMPETITION_HOST_CANNOT_JOIN_MESSAGE,
   errorMessageFor,
+  INSTITUTION_SUSPENDED_REGISTRATION_MESSAGE,
   NETWORK_ERROR_MESSAGE,
 } from "@/lib/errors/error-copy";
 import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
@@ -105,6 +106,7 @@ const TEAM_ERROR_COPY: SurfaceCopy = {
   team_host_of_competition: COMPETITION_HOST_CANNOT_JOIN_MESSAGE,
   team_member_host_of_competition:
     "Tim ini memiliki anggota yang merupakan pemilik atau staf penyelenggara kompetisi ini, jadi tim belum dapat didaftarkan. Keluarkan anggota tersebut, lalu daftarkan tim lagi.",
+  institution_suspended: INSTITUTION_SUSPENDED_REGISTRATION_MESSAGE,
   team_at_capacity: "Tim telah mencapai kapasitas maksimum.",
   team_invite_already_pending: "Undangan untuk orang ini masih menunggu jawaban.",
   team_invite_not_found: "Undangan tidak ditemukan. Muat ulang halaman.",

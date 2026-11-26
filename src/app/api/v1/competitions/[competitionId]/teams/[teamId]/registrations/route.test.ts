@@ -122,6 +122,26 @@ describe("POST /api/v1/competitions/[competitionId]/teams/[teamId]/registrations
     expect(await res.json()).toMatchObject({ error: { code: "access_guard_failed" } });
   });
 
+  it("answers 403 institution_suspended with the copy when the workspace is suspended", async () => {
+    requireSessionRole.mockResolvedValueOnce(candidateSession);
+    submitTeamRegistration.mockRejectedValueOnce(
+      new TeamError(
+        "institution_suspended",
+        "Penyelenggara kompetisi ini sedang dinonaktifkan, jadi pendaftaran baru belum dapat diterima.",
+      ),
+    );
+    const res = await POST(makeRequest("POST"), makeContext());
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({
+      error: {
+        code: "institution_suspended",
+        message:
+          "Penyelenggara kompetisi ini sedang dinonaktifkan, jadi pendaftaran baru belum dapat diterima.",
+        details: {},
+      },
+    });
+  });
+
   // Cross-session form-submission guard: header carries a different user id than the resolved
   // session. Endpoint must 409 BEFORE the service is invoked.
   it("returns 409 session_user_mismatch when X-Expected-User-Id differs from session", async () => {

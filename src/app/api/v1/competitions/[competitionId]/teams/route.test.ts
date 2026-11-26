@@ -65,6 +65,26 @@ describe("POST /api/v1/competitions/[competitionId]/teams", () => {
     expect(body.error.code).toBe("team_competition_mode_not_allowed");
   });
 
+  it("answers 403 institution_suspended with the copy when the workspace is suspended", async () => {
+    requireSessionRole.mockResolvedValue(candidateSession);
+    createTeam.mockRejectedValue(
+      new TeamError(
+        "institution_suspended",
+        "Penyelenggara kompetisi ini sedang dinonaktifkan, jadi pendaftaran baru belum dapat diterima.",
+      ),
+    );
+    const res = await POST(makeJsonRequest({ name: "Tim Uji" }), makeContext());
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({
+      error: {
+        code: "institution_suspended",
+        message:
+          "Penyelenggara kompetisi ini sedang dinonaktifkan, jadi pendaftaran baru belum dapat diterima.",
+        details: {},
+      },
+    });
+  });
+
   it("rejects non-JSON body with team_invalid_payload", async () => {
     requireSessionRole.mockResolvedValue(candidateSession);
     const req = new Request("http://localhost/api/v1/competitions/comp_1/teams", {
