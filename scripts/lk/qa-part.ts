@@ -30,8 +30,8 @@ export const SUBJECT = {
   line: {
     pattern: /^QA ([a-z]+): (.+)$/,
     looksLikeQaLine: /^qa(?![a-z0-9])/i,
-    qaLineAfterLead: /^[\s\-*+>`(_#~|]*(?:\d+[.)])?[\s\-*+>`(_#~|]*qa(?![a-z0-9])/i,
-    codeFence: /^\s*```/,
+    qaLineAfterLead: /^[^a-z0-9]*(?:\d+[.)][^a-z0-9]*)?qa(?![a-z0-9])/i,
+    codeFence: /^\s*```[A-Za-z0-9_+-]*\s*$/,
     newPathsPrefix: "New paths: ",
   },
   kinds: ["start", "allowed", "gate", "reading", "evidence"],

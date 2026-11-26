@@ -572,6 +572,81 @@ describe("the QA refusals", () => {
     );
   });
 
+  it("refuses a QA line after a task box", () => {
+    expectRefusal(
+      {
+        promptLines: (start) => [
+          ...basePromptLines(start),
+          `- [ ] QA gate: lint ${WORK}/out/gate-lint.txt`,
+        ],
+      },
+      `LK REFUSED: line 6: ${QA_LINE_AFTER_LEAD_REFUSAL_TEXT}`,
+    );
+  });
+
+  it("refuses a QA line in square brackets", () => {
+    expectRefusal(
+      {
+        promptLines: (start) => [
+          ...basePromptLines(start),
+          `[QA gate: lint ${WORK}/out/gate-lint.txt]`,
+        ],
+      },
+      `LK REFUSED: line 6: ${QA_LINE_AFTER_LEAD_REFUSAL_TEXT}`,
+    );
+  });
+
+  it("refuses a QA line in double quotes", () => {
+    expectRefusal(
+      {
+        promptLines: (start) => [
+          ...basePromptLines(start),
+          `"QA gate: lint ${WORK}/out/gate-lint.txt"`,
+        ],
+      },
+      `LK REFUSED: line 6: ${QA_LINE_AFTER_LEAD_REFUSAL_TEXT}`,
+    );
+  });
+
+  it("refuses a QA line after a zero-width space", () => {
+    expectRefusal(
+      {
+        promptLines: (start) => [
+          ...basePromptLines(start),
+          `​QA gate: lint ${WORK}/out/gate-lint.txt`,
+        ],
+      },
+      `LK REFUSED: line 6: ${QA_LINE_AFTER_LEAD_REFUSAL_TEXT}`,
+    );
+  });
+
+  it("refuses a QA line between backtick runs on one line", () => {
+    expectRefusal(
+      {
+        promptLines: (start) => [
+          ...basePromptLines(start),
+          `${CODE_FENCE}QA gate: lint2 ${WORK}/out/missing.txt${CODE_FENCE}`,
+          `QA gate: lint3 ${WORK}/out/missing.txt`,
+          `${CODE_FENCE}QA gate: lint2 ${WORK}/out/missing.txt${CODE_FENCE}`,
+        ],
+      },
+      `LK REFUSED: line 6: ${QA_LINE_AFTER_LEAD_REFUSAL_TEXT}`,
+    );
+  });
+
+  it("reads a fence with a language name", () => {
+    const { result, short } = runFixture({
+      promptLines: (start) => [
+        ...basePromptLines(start),
+        `${CODE_FENCE}text`,
+        `QA gate: lint2 ${WORK}/out/missing.txt`,
+        CODE_FENCE,
+      ],
+    });
+    expect(stdoutLines(result.stdout)).toEqual(passingLines(short));
+    expect(result.status).toBe(0);
+  });
+
   it("refuses a code fence that is not closed", () => {
     expectRefusal(
       {
