@@ -237,13 +237,24 @@ const upsertRemovalRecord = (tx: Database, userId: string, identifiers: HostIden
     .returning({ id: hostTrustRemovals.id });
 };
 
-// Writes the record of the account's removal, or adds what the account holds now to the record it
-// has. Writes nothing for an account with no removal in the last 2 years.
-export const recordRemovedHostIdentity = async (tx: Database, userId: string): Promise<boolean> => {
+// What a write adds. A phone is only typed, and after a removal it can be changed to anyone's
+// number, so the write at account deletion adds the proven emails alone and keeps the phones the
+// removal recorded.
+type RecordedIdentifiers = "emails_and_phones" | "proven_emails_only";
+
+// Writes the record of the account's removal, or adds the identifiers `recorded` names that the
+// account holds now to the record it has. Writes nothing for an account with no removal in the last
+// 2 years.
+export const recordRemovedHostIdentity = async (
+  tx: Database,
+  userId: string,
+  recorded: RecordedIdentifiers = "emails_and_phones",
+): Promise<boolean> => {
   const holdsKeptRemoval = await holdsRemovalWithinKeepWindow(tx, userId);
   if (!holdsKeptRemoval) return false;
 
-  const identifiers = await readHostIdentifiers(tx, userId);
+  const held = await readHostIdentifiers(tx, userId);
+  const identifiers = recorded === "proven_emails_only" ? { ...held, phones: [] } : held;
   const written = await upsertRemovalRecord(tx, userId, identifiers);
   if (written.length === 0) {
     throw new HostIdentityKeyError(

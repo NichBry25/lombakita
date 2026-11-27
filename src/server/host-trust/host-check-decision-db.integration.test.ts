@@ -706,7 +706,7 @@ describe.skipIf(skipWithoutDatabase)("the staff decision on a host check (rolled
           actorUserId: operator,
           eventType: "host_check.approved",
           reason: null,
-          metadata: { checkId, competitionId: draft },
+          metadata: { checkId, competitionId: draft, clearedTrustRemoval: false },
         },
       ]);
       expect(
@@ -1159,6 +1159,35 @@ describe.skipIf(skipWithoutDatabase)("the staff decision on a host check (rolled
       expect(await tierOf(tx, removedHost)).toBe("minimal");
       expect(await recordsOf(tx, removedHost)).toHaveLength(1);
       expect(await findRemovedHostMatch(tx, newcomer)).toEqual({ matchedBy: ["phone"], removedAt });
+    });
+  });
+
+  it("records in the approval's audit row that it cleared the host's trust removal and deleted its record", async () => {
+    await inRollback(async (tx) => {
+      await clearRecordsInsideRollback(tx);
+      const removedHost = await signUpHost(tx, OWNER_ADDRESS);
+      const operator = await plantOperator(tx, OPERATOR_ADDRESS);
+      await removeHostTrust(operator, removedHost, "Hadiah tidak sesuai.", tx);
+      const { draft, checkId } = await openCheckBy(tx, removedHost, FIRST_TITLE);
+      expect(await recordsOf(tx, removedHost)).toHaveLength(1);
+
+      const answered = await decideThroughRoute(tx, operator, checkId, APPROVE);
+
+      expect(answered.status).toBe(200);
+      expect(
+        (await auditRowsOf(tx, removedHost)).filter(
+          (row) => row.eventType === "host_check.approved",
+        ),
+      ).toEqual([
+        {
+          actorUserId: operator,
+          eventType: "host_check.approved",
+          reason: null,
+          metadata: { checkId, competitionId: draft, clearedTrustRemoval: true },
+        },
+      ]);
+      expect(await recordsOf(tx, removedHost)).toEqual([]);
+      expect(await trustRemovedAtOf(tx, removedHost)).toBeNull();
     });
   });
 

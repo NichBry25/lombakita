@@ -498,10 +498,29 @@ const closeHostCheckOrRefuse = async (
   return refuseUndecidableHostCheck(tx, checkId);
 };
 
+// Whether a staff trust removal of the host stands, read before the approval clears it. The
+// decision has already locked the host's row.
+const holdsTrustRemoval = async (
+  tx: OperatorActorTransaction,
+  userId: string,
+): Promise<boolean> => {
+  const [host] = await tx
+    .select({ hostTrustRemovedAt: users.hostTrustRemovedAt })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  if (!host) return false;
+  return host.hostTrustRemovedAt !== null;
+};
+
 // An approval is the staff decision to trust this person, so it also clears a staff trust removal
-// and deletes its record.
+// and deletes its record. It answers whether it cleared one, for the audit row.
 // An account without the host role is refused, as the staff raise refuses one.
-const trustApprovedHost = async (tx: OperatorActorTransaction, userId: string): Promise<void> => {
+const trustApprovedHost = async (
+  tx: OperatorActorTransaction,
+  userId: string,
+): Promise<boolean> => {
+  const clearsTrustRemoval = await holdsTrustRemoval(tx, userId);
   const trustedRows = await tx
     .update(users)
     .set({
@@ -513,7 +532,7 @@ const trustApprovedHost = async (tx: OperatorActorTransaction, userId: string): 
     .returning({ id: users.id });
   if (trustedRows.length > 0) {
     await liftRemovedHostRecord(tx, userId);
-    return;
+    return clearsTrustRemoval;
   }
   throw new HostCheckDecisionError(
     "host_check_target_not_host",
@@ -528,6 +547,7 @@ const recordHostCheckDecisionAudit = async (
   checkId: string,
   closed: ClosedHostCheck,
   decision: CheckedHostCheckDecision,
+  clearedTrustRemoval: boolean,
 ): Promise<void> => {
   if (closed.draftGone) {
     await recordOperatorAuditEntry(tx, actor, {
@@ -541,7 +561,7 @@ const recordHostCheckDecisionAudit = async (
     await recordOperatorAuditEntry(tx, actor, {
       targetUserId: closed.userId,
       eventType: HOST_CHECK_APPROVED_EVENT,
-      metadata: { checkId, competitionId: closed.competitionId },
+      metadata: { checkId, competitionId: closed.competitionId, clearedTrustRemoval },
     });
     return;
   }
@@ -669,10 +689,11 @@ export const decideHostCheck = async (
         "A platform-ops account cannot decide its own host check",
       );
     }
-    if (decision.decision === "approve" && !closed.draftGone) {
-      await trustApprovedHost(tx, closed.userId);
-    }
-    await recordHostCheckDecisionAudit(tx, actor, checkId, closed, decision);
+    const clearedTrustRemoval =
+      decision.decision === "approve" && !closed.draftGone
+        ? await trustApprovedHost(tx, closed.userId)
+        : false;
+    await recordHostCheckDecisionAudit(tx, actor, checkId, closed, decision, clearedTrustRemoval);
     return closed;
   });
 

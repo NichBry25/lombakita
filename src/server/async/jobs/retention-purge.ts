@@ -88,9 +88,9 @@ const purgeExpiredTrustRemovalRecords = async (): Promise<void> => {
  * Both are no-ops when nothing is due, so the daily run is cheap on an idle platform. Before both,
  * and before the storage check, it deletes the trust removal records older than 2 years.
  *
- * Storage being unavailable skips the two sweeps above, not the run: retrying a purge against absent storage
- * would spin the queue for no benefit, and retention is not so time-critical that one missed day
- * matters. The next run picks it up.
+ * Storage being unavailable skips the two sweeps above, not the run: retrying a purge against
+ * absent storage would spin the queue for no benefit, and retention is not so time-critical that
+ * one missed day matters. The next run picks it up.
  */
 export const processRetentionPurgeJob = async (job: RetentionPurgeJob): Promise<void> => {
   await purgeExpiredTrustRemovalRecords();

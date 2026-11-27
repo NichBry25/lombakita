@@ -1833,10 +1833,11 @@ export const TABLE_RULINGS: readonly StoreRuling[] = Object.freeze([
     survival: "detached",
     reason:
       "the record of a staff trust removal outlives the account on purpose: `user_id` is SET " +
-      "NULL, and the de-identification action keeps the row and adds the identifiers the account " +
-      "held. What survives is keyed hashes of the account's proven emails and given phone " +
-      "numbers, pseudonymous because whoever holds the key can reverse them, and its " +
-      "organization domain, kept 2 years from the removal and deleted by the daily retention job",
+      "NULL, and the de-identification action keeps the row and adds the proven emails the " +
+      "account held. What survives is keyed hashes of the account's proven emails and of the " +
+      "phone numbers it gave by the removal, pseudonymous because whoever holds the key can " +
+      "reverse them, and its organization domain, kept 2 years from the removal and deleted by " +
+      "the daily retention job",
   },
   {
     store: "infrastructure_probe",

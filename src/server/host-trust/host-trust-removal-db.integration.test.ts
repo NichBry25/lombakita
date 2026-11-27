@@ -1026,7 +1026,7 @@ describe.skipIf(skipWithoutDatabase)("the trust removal record (rolled back)", (
     });
   });
 
-  it("keeps the record through the account's deletion and adds the Email organisasi and sign-up phone it changed after the removal, with the removal time unchanged", async () => {
+  it("keeps the record through the account's deletion and adds the Email organisasi confirmed after the removal, with the phones and the time of the removal unchanged", async () => {
     await inRollback(async (tx) => {
       const host = await signUpHostTrustedByOrganizationEmail(tx);
       const operator = await plantOperator(tx, OPERATOR_ADDRESS);
@@ -1053,9 +1053,7 @@ describe.skipIf(skipWithoutDatabase)("the trust removal record (rolled back)", (
           "baru@acme.example",
         ]),
       );
-      expect(sortedCopy(records[0]?.phoneHashes ?? [])).toEqual(
-        hashesOf("phone", ["62812345678", "6282344445555"]),
-      );
+      expect(sortedCopy(records[0]?.phoneHashes ?? [])).toEqual(hashesOf("phone", ["62812345678"]));
       expect(records[0]?.organizationDomain).toBe("acme.example");
       expect(records[0]?.removedAt).toEqual(removedAt);
       expect(await removalTimeMatchesAccount(tx, host)).toBe(true);
@@ -1156,6 +1154,35 @@ describe.skipIf(skipWithoutDatabase)("the trust removal record (rolled back)", (
       const organizationEmailRows = await organizationEmailRowsOf(tx, nina);
       expect(organizationEmailRows.map((row) => row.email)).toEqual(["budi+lomba@acme.example"]);
       expect(await findRemovedHostMatch(tx, nina)).toEqual({ matchedBy: ["email"], removedAt });
+    });
+  });
+
+  it("adds no phone to the record at the account's deletion, so a new account with the number the removed host typed after the removal matches nothing and is trusted at once", async () => {
+    await inRollback(async (tx) => {
+      const host = await signUpHostTrustedByOrganizationEmail(tx);
+      const operator = await plantOperator(tx, OPERATOR_ADDRESS);
+      const removed = await removeThroughRoute(tx, operator, host, { reason: REASON });
+      expect(removed.status).toBe(200);
+      const removedAt = await trustRemovedAtOf(tx, host);
+      await updateCandidateProfile(host, { phoneNumber: "0857-1111-2222" }, tx);
+
+      await deidentifyAccount(
+        operator,
+        host,
+        { confirmUsername: await usernameOf(tx, host), reason: "permintaan pemilik" },
+        savepointShimFor(tx),
+      );
+      const vina = await signUpHost(tx, "vina.lokal@seed.lombakita.local");
+      await updateCandidateProfile(vina, { phoneNumber: "0857-1111-2222" }, tx);
+
+      const records = await recordsOf(tx, host);
+      expect(records).toHaveLength(1);
+      expect(sortedCopy(records[0]?.phoneHashes ?? [])).toEqual(hashesOf("phone", ["62812345678"]));
+      expect(records[0]?.removedAt).toEqual(removedAt);
+      expect(await findRemovedHostMatch(tx, vina)).toBeNull();
+      expect(await tierOf(tx, vina)).toBe("minimal");
+      await confirmOrganizationEmail(tx, vina, "vina@acme.example");
+      expect(await tierOf(tx, vina)).toBe("elevated");
     });
   });
 });

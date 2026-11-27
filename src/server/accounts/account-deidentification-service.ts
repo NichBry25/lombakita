@@ -870,10 +870,10 @@ const runDeidentificationWrites = async (
     lockedAccount.recruiterVerificationTier,
   );
 
-  // Read BEFORE the email flip and the deletes below, so the record of a staff trust removal keeps
-  // every email and phone the account holds now. It writes nothing for an account with no removal in
-  // the last 2 years.
-  await recordRemovedHostIdentity(tx, accountId);
+  // Recorded before the email flip and the deletes below, so the record of a staff trust removal
+  // gains every proven email the account holds now. Its phones stay as the removal recorded them.
+  // It writes nothing for an account with no removal in the last 2 years.
+  await recordRemovedHostIdentity(tx, accountId, "proven_emails_only");
 
   const flipped = await tx
     .update(users)
