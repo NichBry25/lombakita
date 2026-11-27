@@ -143,7 +143,7 @@ type PublicListingRow = {
   updatedAt: Date;
   isFeatured: boolean;
   institutionSlug: string;
-  institutionDisplayName: string | null;
+  institutionDisplayName: string;
   institutionType: InstitutionType;
   institutionOwnerUsername: string | null;
   institutionLogoR2Key: string | null;

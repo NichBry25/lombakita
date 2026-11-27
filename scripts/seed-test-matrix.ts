@@ -399,7 +399,7 @@ const main = async (): Promise<void> => {
     // --------------------------------------------------------- institutions
     type InstSeed = {
       id: string;
-      displayName: string | null;
+      displayName: string;
       slug: string;
       type: string;
       verification: string;
@@ -486,9 +486,10 @@ const main = async (): Promise<void> => {
         websiteUrl: null,
       },
       {
-        // Personal institution: display_name NULL (derived from owner), slug tracks owner username.
+        // Personal institution of seed-user-rec-min. It holds the name migration 0073 gives every
+        // personal institution that stored none, so a seeded and a migrated database agree.
         id: "seed-inst-p",
-        displayName: null,
+        displayName: "Ruang kerja pribadi",
         slug: "seed-rec-min",
         type: "personal",
         verification: "pending_verification",
@@ -505,7 +506,7 @@ const main = async (): Promise<void> => {
       // Personal institution of seed-user-rec-rej, which holds the draft its host check names.
       {
         id: "seed-inst-rej",
-        displayName: null,
+        displayName: "Ruang kerja pribadi",
         slug: "seed-rec-rej",
         type: "personal",
         verification: "pending_verification",

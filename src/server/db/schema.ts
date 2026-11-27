@@ -535,12 +535,9 @@ export const institutions = pgTable(
     id: text("id")
       .primaryKey()
       .default(sql`gen_random_uuid()::text`),
-    // Nullable: a personal institution stores NULL here and derives its user-facing name from the
-    // owner's current username at read time. Full/legacy institutions (type !== 'personal') store a
-    // non-null value, enforced at the service layer (createInstitutionWorkspaceForUser). ALWAYS read
-    // a user-facing institution name through getInstitutionDisplayName (institution-display-name.ts)
-    // — never read this column raw on any surface that shows a name to a user.
-    displayName: text("display_name"),
+    // Every institution of every kind stores its name here, and the name is edited in settings. It
+    // never follows the owner's username.
+    displayName: text("display_name").notNull(),
     slug: text("slug").notNull(),
     // Defaults to what every creation path writes (`NEW_INSTITUTION_DEFAULT_STATUS`). It was
     // `active`, a value no creation path ever produced, so a fixture that omitted the column got
@@ -552,7 +549,7 @@ export const institutions = pgTable(
     // Short free-text description of the institution, editable in institution settings for EVERY
     // type (personal included) and surfaced on the recruiter dashboard institution list. Nullable —
     // an institution that has not written one falls back to a placeholder. Distinct from the
-    // full-only public organizer `about` field below (which drives the competition-detail
+    // public organizer `about` field below (which drives the competition-detail
     // "Penyelenggara" surface and is edited on the separate /settings/profile sub-page).
     description: text("description"),
     verificationStatus: institutionVerificationStatusEnum("verification_status")
@@ -568,7 +565,7 @@ export const institutions = pgTable(
     suspendedAt: timestamp("suspended_at", { mode: "date", withTimezone: true }),
     suspensionReason: text("suspension_reason"),
     // Public organizer profile (competition detail "Penyelenggara" surface). All nullable —
-    // an organizer that has not enriched its profile falls back to the derived display name and
+    // an organizer that has not enriched its profile falls back to the stored display name and
     // a placeholder mark. `logoR2Key` is a private R2 object key; the read path signs a fresh GET
     // URL at render time (never a stored public URL). These fields are descriptive only.
     logoR2Key: text("logo_r2_key"),
@@ -588,15 +585,7 @@ export const institutions = pgTable(
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
   },
-  (table) => [
-    uniqueIndex("institutions_slug_unique_idx").on(table.slug),
-    // Backstop for the 6.5f.1-S1 debt: full/legacy institutions must store a non-null
-    // display_name. Personal institutions are exempt (type = 'personal' short-circuits the OR).
-    check(
-      "institutions_display_name_type_chk",
-      sql`${table.institutionType} = 'personal' OR ${table.displayName} IS NOT NULL`,
-    ),
-  ],
+  (table) => [uniqueIndex("institutions_slug_unique_idx").on(table.slug)],
 );
 
 // Public organizer social links — mirrors profile_social_links but keyed to an institution.

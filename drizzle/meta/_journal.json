@@ -512,6 +512,20 @@
       "when": 1795755167274,
       "tag": "0072_flow_host_trust_removals",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1795797392133,
+      "tag": "0073_flow_one_workspace_names",
+      "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1795797648227,
+      "tag": "0074_flow_one_workspace_name_required",
+      "breakpoints": true
     }
   ]
 }
