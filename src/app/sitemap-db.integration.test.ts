@@ -68,10 +68,9 @@ type InstitutionOptions = {
   suspended?: boolean;
   personal?: boolean;
   /**
-   * Whether platform ops has verified this organizer. Defaults to FALSE, because that is what
-   * `createInstitutionWorkspaceForUser` writes (`"pending_verification"`, institution-service.ts:991)
-   * — the same reason `status` below is written from the constant rather than left to the column
-   * default.
+   * Whether platform ops has verified this organizer. Defaults to FALSE, because
+   * `createInstitutionWorkspaceForUser` leaves the column default `"pending_verification"` in place.
+   * `status` below is written from the constant, as the production creation path writes it.
    */
   verified?: boolean;
 };

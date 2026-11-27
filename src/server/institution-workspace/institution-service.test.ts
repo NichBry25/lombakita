@@ -551,7 +551,7 @@ describe("personal institution lookup and the username namespace", () => {
 describe("updateInstitutionWorkspaceForOwnerBySlug — slug editability by type", () => {
   const ownerRow = (overrides: Record<string, unknown>) => ({
     institutionId: "inst_1",
-    institutionDisplayName: null,
+    institutionDisplayName: "Ruang Lama",
     institutionSlug: "alice",
     institutionStatus: "inactive",
     institutionType: null,
@@ -561,7 +561,6 @@ describe("updateInstitutionWorkspaceForOwnerBySlug — slug editability by type"
     membershipRole: "institution_owner",
     membershipStatus: "active",
     membershipJoinedAt: new Date("2026-06-08T00:00:00.000Z"),
-    ownerUsername: "alice",
     ...overrides,
   });
 
@@ -728,7 +727,6 @@ describe("updateInstitutionWorkspaceForOwnerBySlug — slug editability by type"
       membershipRole: "institution_owner",
       membershipStatus: "active",
       membershipJoinedAt: new Date("2026-06-08T00:00:00.000Z"),
-      ownerUsername: "owner",
     };
     const selectResults: unknown[][] = [[ownerSeed], []]; // owner lookup; Fix D probe → no username collision
     const node = (): Record<string, unknown> => {

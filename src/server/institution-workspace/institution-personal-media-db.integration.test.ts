@@ -246,7 +246,6 @@ describe.skipIf(skipWithoutDatabase)(
 
         const before = await getInstitutionProfileForOwnerBySlug(host, "ruang-uji-profil", tx);
 
-        expect(before.isEditable).toBe(true);
         expect(before.about).toBeNull();
         expect(before.contactEmail).toBeNull();
 
@@ -259,7 +258,6 @@ describe.skipIf(skipWithoutDatabase)(
 
         expect(updated.about).toBe("Komunitas lomba menulis untuk pelajar.");
         expect(updated.contactEmail).toBe("panitia@acme.example");
-        expect(updated.isEditable).toBe(true);
         expect(updated.socialLinks).toEqual([]);
         const row = await institutionRowBySlug(tx, "ruang-uji-profil");
         expect(row.about).toBe("Komunitas lomba menulis untuk pelajar.");

@@ -132,8 +132,6 @@ const COMPETITION_CONTEXT = [
   {
     title: "Olimpiade Sains",
     displayName: "SMAN 3 Bandung",
-    institutionType: "university",
-    ownerUsername: "sman3",
   },
 ];
 

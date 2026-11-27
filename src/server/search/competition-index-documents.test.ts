@@ -32,8 +32,6 @@ const row = (overrides: Partial<CompetitionIndexRow> = {}): CompetitionIndexRow 
   featuredOrder: null,
   institutionSlug: "itb",
   institutionDisplayName: "Institut Teknologi Bandung",
-  institutionType: "university",
-  institutionOwnerUsername: null,
   ...overrides,
 });
 
@@ -75,31 +73,12 @@ describe("toCompetitionIndexDocument", () => {
     expect(toCompetitionIndexDocument(row({ registrationEndAt: null })).deadline).toBeNull();
   });
 
-  // THE BRANCH A REBUILD WOULD MOST EASILY GET WRONG. A personal institution stores NULL in
-  // display_name and derives its name from the owner's username. Reading the raw column here puts
-  // an empty name on every personal institution's competitions in search.
-  it("resolves a personal institution's name from the owner username", () => {
+  it("names the document by the institution's stored name", () => {
     const document = toCompetitionIndexDocument(
-      row({
-        institutionType: "personal",
-        institutionDisplayName: null,
-        institutionOwnerUsername: "raka",
-      }),
+      row({ institutionDisplayName: "Ruang kerja pribadi" }),
     );
 
-    expect(document.institutionName).toBe("raka's Institution");
-  });
-
-  it("falls back to a stable name when a personal institution has no resolvable owner", () => {
-    const document = toCompetitionIndexDocument(
-      row({
-        institutionType: "personal",
-        institutionDisplayName: null,
-        institutionOwnerUsername: null,
-      }),
-    );
-
-    expect(document.institutionName).toBe("Personal Institution");
+    expect(document.institutionName).toBe("Ruang kerja pribadi");
   });
 
   it("keeps featured ordering", () => {
@@ -133,8 +112,8 @@ describe("toCompetitionIndexDocument", () => {
  * change to any branch fails somewhere even if the variant that targets it is not the one edited.
  *
  * The variants are the branches, not a sample: null and present category/mode/featuredOrder, the
- * three date cases that `Math.floor(getTime() / 1000)` treats differently, and every path through
- * `getInstitutionDisplayName`.
+ * three date cases that `Math.floor(getTime() / 1000)` treats differently, and an empty
+ * institution name.
  */
 describe("the document, across every branch of the mapping", () => {
   const base = {
@@ -176,29 +155,8 @@ describe("the document, across every branch of the mapping", () => {
       { deadline: 1_700_000_000 },
     ],
     [
-      "a personal institution with a resolvable owner",
-      {
-        institutionType: "personal",
-        institutionDisplayName: null,
-        institutionOwnerUsername: "rara",
-      },
-      { institutionName: "rara's Institution" },
-    ],
-    [
-      "a personal institution with no resolvable owner",
-      { institutionType: "personal", institutionDisplayName: null, institutionOwnerUsername: null },
-      { institutionName: "Personal Institution" },
-    ],
-    // A NULL type is a legacy FULL institution, so it reads the display name rather than deriving
-    // one from the owner, even when an owner username is present.
-    [
-      "a legacy institution with a null type",
-      { institutionType: null, institutionDisplayName: "ITB", institutionOwnerUsername: "rara" },
-      { institutionName: "ITB" },
-    ],
-    [
       "a full institution whose display name is empty",
-      { institutionDisplayName: "", institutionOwnerUsername: "rara" },
+      { institutionDisplayName: "" },
       { institutionName: "" },
     ],
   ];
@@ -215,7 +173,7 @@ describe("the document, across every branch of the mapping", () => {
         : null,
       createdAt: source.createdAt.toISOString(),
       featuredOrder: source.featuredOrder,
-      institutionName: source.institutionDisplayName ?? "",
+      institutionName: source.institutionDisplayName,
       ...expected,
     });
   });
@@ -273,8 +231,6 @@ describe("COMPETITION_INDEX_COLUMNS", () => {
         "featuredOrder",
         "institutionSlug",
         "institutionDisplayName",
-        "institutionType",
-        "institutionOwnerUsername",
       ].sort(),
     );
   });

@@ -13,10 +13,6 @@ import {
   teams,
   type InstitutionMembershipRole,
 } from "@/server/db/schema";
-import {
-  getInstitutionDisplayName,
-  institutionOwnerUsernameSql,
-} from "@/server/institution-workspace/institution-display-name";
 
 // Unified inbox read model.
 //
@@ -77,14 +73,9 @@ export const listUserInbox = async (
       .where(eq(notifications.userId, userId))
       .orderBy(desc(notifications.createdAt)),
     db
-      // Name resolved through getInstitutionDisplayName for uniformity. A personal institution can
-      // never issue invitations (createInstitutionInvitation blocks it), so in practice this is
-      // always a full/legacy institution and resolution returns the stored name.
       .select({
         id: institutionInvitations.id,
         institutionDisplayName: institutions.displayName,
-        institutionType: institutions.institutionType,
-        institutionOwnerUsername: institutionOwnerUsernameSql,
         invitedRole: institutionInvitations.invitedRole,
         expiresAt: institutionInvitations.expiresAt,
         createdAt: institutionInvitations.createdAt,
@@ -134,10 +125,7 @@ export const listUserInbox = async (
       (row): InboxInstitutionInviteItem => ({
         kind: "institution_invite",
         id: row.id,
-        institutionName: getInstitutionDisplayName(
-          { displayName: row.institutionDisplayName, institutionType: row.institutionType },
-          { username: row.institutionOwnerUsername },
-        ),
+        institutionName: row.institutionDisplayName,
         invitedRole: row.invitedRole,
         expiresAt: row.expiresAt,
         createdAt: row.createdAt,

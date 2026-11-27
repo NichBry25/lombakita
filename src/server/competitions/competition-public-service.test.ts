@@ -40,21 +40,12 @@ import {
 import { generatePresignedGetUrl, isR2Available } from "@/server/storage/r2.client";
 import { logger } from "@/lib/logger";
 
-// The service maps the joined institution columns (display_name / type / owner-username) through
-// getInstitutionDisplayName, so the mocked DB rows carry the RAW projection shape, not the resolved
-// output shape. institutionName on the result is computed, never read straight from the row, and
-// institutionLogoUrl is signed from the logo key column.
+// The mocked DB rows carry the raw projection shape, not the output shape: institutionName on
+// the result is read from institutionDisplayName, and institutionLogoUrl is signed from the logo
+// key column.
 type RawListingRow = Omit<PublicCompetitionItem, "institutionName" | "institutionLogoUrl"> & {
   institutionLogoR2Key: string | null;
-  institutionDisplayName: string | null;
-  institutionType:
-    | "personal"
-    | "company"
-    | "foundation"
-    | "university"
-    | "campus_organization"
-    | null;
-  institutionOwnerUsername: string | null;
+  institutionDisplayName: string;
 };
 
 // Builds a chainable Drizzle mock where:
@@ -103,8 +94,6 @@ const makeRow = (overrides: Partial<RawListingRow> = {}): RawListingRow => ({
   isFeatured: false,
   institutionSlug: "lk-univ",
   institutionDisplayName: "Universitas LK",
-  institutionType: null,
-  institutionOwnerUsername: null,
   institutionLogoR2Key: null,
   ...overrides,
 });
@@ -126,17 +115,6 @@ describe("listPublicCompetitions — DB path", () => {
     const db = makeDb([makeRow()], 1);
     const result = await listPublicCompetitions({}, db);
     expect(result.data[0]!.institutionName).toBe("Universitas LK");
-  });
-
-  it("derives a personal institution's organizer name from the owner username", async () => {
-    const personalRow = makeRow({
-      institutionDisplayName: null,
-      institutionType: "personal",
-      institutionOwnerUsername: "owneruser",
-    });
-    const db = makeDb([personalRow], 1);
-    const result = await listPublicCompetitions({}, db);
-    expect(result.data[0]!.institutionName).toBe("owneruser's Institution");
   });
 
   it("defaults page to 1 and limit to 20", async () => {
@@ -729,22 +707,6 @@ describe("organiser logo address — database path", () => {
     const result = await listPublicCompetitions({}, db);
 
     expect(result.data[0]!.institutionLogoUrl).toBe(signedUrlFor("logos/lk.png"));
-  });
-
-  it("returns a personal institution's own logo column", async () => {
-    const personalRow = makeRow({
-      institutionDisplayName: null,
-      institutionType: "personal",
-      institutionOwnerUsername: "owneruser",
-      institutionLogoR2Key: "institution-logos/inst_p/logo.png",
-    });
-    const db = makeDb([personalRow], 1);
-
-    const result = await listPublicCompetitions({}, db);
-
-    expect(result.data[0]!.institutionLogoUrl).toBe(
-      signedUrlFor("institution-logos/inst_p/logo.png"),
-    );
   });
 
   it("returns null and signs nothing for an institution with no logo", async () => {

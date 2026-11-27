@@ -27,7 +27,6 @@ const ownerRow = (overrides: Record<string, unknown> = {}) => ({
   membershipRole: "institution_owner",
   membershipStatus: "active",
   membershipJoinedAt: new Date("2026-07-01T00:00:00.000Z"),
-  ownerUsername: "alice",
   ...overrides,
 });
 

@@ -39,9 +39,8 @@ const loadPublishedCompetitionForIndex = async (
 
   if (!row) return null;
 
-  // The document carries the institution name resolved at sync time; a later username change
-  // re-stales it until the competition is re-synced (parallels existing index staleness — see
-  // 6.5f.1-Amendment-D1 debt).
+  // The document carries the institution's name and slug as stored at sync time, so a later
+  // rename of the institution leaves it stale until the competition is synced again.
   return toCompetitionIndexDocument(row);
 };
 

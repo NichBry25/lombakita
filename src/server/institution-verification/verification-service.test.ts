@@ -86,8 +86,6 @@ const makeListDb = (rows: unknown[], count: number) => {
 const institutionRow = (overrides: Record<string, unknown> = {}) => ({
   id: "inst_1",
   displayName: "Universitas Contoh",
-  institutionType: "university",
-  ownerUsername: "owner_satu",
   slug: "universitas-contoh",
   verificationStatus: "pending_verification",
   verifiedAt: null,
@@ -227,7 +225,7 @@ describe("verifyInstitution — personal institutions are not reviewable", () =>
       {
         id: "inst_personal",
         slug: "inst-personal",
-        displayName: null,
+        displayName: "Ruang kerja pribadi",
         institutionType: "personal",
         verificationStatus: "pending_verification",
       },
@@ -258,7 +256,7 @@ describe("verifyInstitution — personal institutions are not reviewable", () =>
       {
         id: "inst_personal",
         slug: "inst-personal",
-        displayName: null,
+        displayName: "Ruang kerja pribadi",
         institutionType: "personal",
         verificationStatus: "under_review",
       },
@@ -325,7 +323,7 @@ describe("verifyInstitution — revocation and concurrent-decision safety", () =
       [],
       [{ email: "ops_1@lombakita.test" }],
       [],
-      [{ email: "owner@contoh.co.id", username: "owner" }],
+      [{ email: "owner@contoh.co.id" }],
     ];
     let call = 0;
 

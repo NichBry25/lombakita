@@ -65,12 +65,7 @@ import {
   type CompetitionPhase,
 } from "@/lib/competitions/competition-phase";
 import { toOrganizerContact, type OrganizerContact } from "@/lib/competitions/organizer-contact";
-import {
-  getInstitutionDisplayName,
-  institutionOwnerUsernameSql,
-} from "@/server/institution-workspace/institution-display-name";
 import { resolveInstitutionMediaUrl } from "@/server/institution-workspace/institution-media-urls";
-import type { InstitutionType } from "@/server/db/schema";
 import {
   deriveCompetitionParticipationState,
   type CompetitionParticipationState,
@@ -78,8 +73,8 @@ import {
 import { countCompetitionParticipantEntries } from "@/server/competitions/competition-participation-service";
 
 // Whether the competition has any published result. A correlated EXISTS rather than a join, so a
-// listing page costs one extra scalar per row instead of a second query per competition. Follows
-// the institutionOwnerUsernameSql form: the outer reference must be the literal `competitions.id`.
+// listing page costs one extra scalar per row instead of a second query per competition. The outer
+// reference must be the literal `competitions.id`, for the reason given in mfa-factor-sql.ts.
 const competitionHasPublishedResultSql = sql<boolean>`exists (
   select 1 from ${competitionResults}
   where ${competitionResults.competitionId} = competitions.id
@@ -89,8 +84,6 @@ const competitionHasPublishedResultSql = sql<boolean>`exists (
 // Public listing columns — includes institution display name joined from the institutions table.
 // The LISTING exposes neither fee_amount nor fee_currency (DEC-0022); the DETAIL projection below
 // exposes BOTH, together. isFeatured is exposed for placement UI.
-// institutionName is resolved through getInstitutionDisplayName (mapPublicListingRow): a personal
-// institution stores NULL and derives its name from the owner username (institutionOwnerUsername).
 const PUBLIC_LISTING_COLUMNS = {
   id: competitions.id,
   slug: competitions.slug,
@@ -114,8 +107,6 @@ const PUBLIC_LISTING_COLUMNS = {
   isFeatured: competitions.isFeatured,
   institutionSlug: institutions.slug,
   institutionDisplayName: institutions.displayName,
-  institutionType: institutions.institutionType,
-  institutionOwnerUsername: institutionOwnerUsernameSql,
   // The key of the logo a card shows, read in the listing query itself so a page of results costs
   // no further read.
   institutionLogoR2Key: institutions.logoR2Key,
@@ -144,21 +135,17 @@ type PublicListingRow = {
   isFeatured: boolean;
   institutionSlug: string;
   institutionDisplayName: string;
-  institutionType: InstitutionType;
-  institutionOwnerUsername: string | null;
   institutionLogoR2Key: string | null;
 };
 
-// Resolve the joined institution name through the display-name helper, then drop the type, owner
-// and key projection columns so the public shape stays exactly PublicCompetitionItem.
+// Name the item by its institution's stored name, then drop the key projection column so the
+// public shape stays exactly PublicCompetitionItem.
 const mapPublicListingRow = (
   row: PublicListingRow,
   institutionLogoUrl: string | null,
 ): PublicCompetitionItem => {
   const {
     institutionDisplayName,
-    institutionType,
-    institutionOwnerUsername,
     // Destructured only to keep the storage key off the public item.
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     institutionLogoR2Key: _institutionLogoR2Key,
@@ -166,10 +153,7 @@ const mapPublicListingRow = (
   } = row;
   return {
     ...rest,
-    institutionName: getInstitutionDisplayName(
-      { displayName: institutionDisplayName, institutionType },
-      { username: institutionOwnerUsername },
-    ),
+    institutionName: institutionDisplayName,
     institutionLogoUrl,
   };
 };
@@ -755,8 +739,6 @@ const PUBLIC_DETAIL_COLUMNS = {
   institutionId: institutions.id,
   institutionSlug: institutions.slug,
   institutionDisplayName: institutions.displayName,
-  institutionType: institutions.institutionType,
-  institutionOwnerUsername: institutionOwnerUsernameSql,
   institutionLogoR2Key: institutions.logoR2Key,
   institutionAbout: institutions.about,
   // The institution's contact details are deliberately NOT read here. They are gated on
@@ -997,10 +979,7 @@ export const getPublicCompetitionDetail = async (
     rounds,
     organizer: {
       slug: row.institutionSlug,
-      name: getInstitutionDisplayName(
-        { displayName: row.institutionDisplayName, institutionType: row.institutionType },
-        { username: row.institutionOwnerUsername },
-      ),
+      name: row.institutionDisplayName,
       logoUrl,
       about: row.institutionAbout,
       websiteUrl: row.institutionWebsiteUrl,

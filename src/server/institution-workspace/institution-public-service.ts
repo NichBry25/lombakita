@@ -10,10 +10,6 @@ import {
   type InstitutionType,
   type InstitutionVerificationStatus,
 } from "@/server/db/schema";
-import {
-  getInstitutionDisplayName,
-  institutionOwnerUsernameSql,
-} from "@/server/institution-workspace/institution-display-name";
 import { resolveInstitutionMediaUrls } from "@/server/institution-workspace/institution-media-urls";
 import { parseInstitutionSlugParam } from "@/server/institution-workspace/institution-core";
 import { isInstitutionMemberBySlug } from "@/server/institution-members/member-service";
@@ -180,7 +176,6 @@ export const getPublicInstitution = async (
       contactEmail: institutions.contactEmail,
       contactPhone: institutions.contactPhone,
       websiteUrl: institutions.websiteUrl,
-      ownerUsername: institutionOwnerUsernameSql,
     })
     .from(institutions)
     .where(and(eq(institutions.slug, normalizedSlug), buildPublicInstitutionCondition()))
@@ -215,7 +210,7 @@ export const getPublicInstitution = async (
 
   return {
     slug: row.slug,
-    name: getInstitutionDisplayName(row, { username: row.ownerUsername }),
+    name: row.displayName,
     institutionType: row.institutionType,
     description: row.description,
     about: row.about,

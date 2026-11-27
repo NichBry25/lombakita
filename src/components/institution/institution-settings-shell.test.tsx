@@ -44,7 +44,6 @@ const PROFILE = {
     logoUrl: null,
     bannerUrl: null,
     socialLinks: [],
-    isEditable: false,
   },
 };
 
@@ -211,5 +210,42 @@ describe("a personal workspace's identity in settings", () => {
       displayName: "Akademi Baru",
       slug: "academy",
     });
+  });
+});
+
+describe("the organizer profile section of settings", () => {
+  it("shows the organizer profile section once the profile read succeeds", async () => {
+    render(
+      <UIPrimitivesProvider>
+        <PageTransitionProvider>
+          <InstitutionSettingsShell institutionSlug="academy" expectedUserId="user-42" />
+        </PageTransitionProvider>
+      </UIPrimitivesProvider>,
+    );
+
+    expect(await screen.findByRole("heading", { name: "Profil penyelenggara" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Simpan profil" })).toBeTruthy();
+  });
+
+  it("keeps the organizer profile section hidden when the profile read fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if ((init?.method ?? "GET") === "GET" && String(input) === PROFILE_URL) {
+          return jsonResponse(500, {});
+        }
+        return answerByUrlAndMethod(input, init);
+      }),
+    );
+    render(
+      <UIPrimitivesProvider>
+        <PageTransitionProvider>
+          <InstitutionSettingsShell institutionSlug="academy" expectedUserId="user-42" />
+        </PageTransitionProvider>
+      </UIPrimitivesProvider>,
+    );
+
+    expect(await screen.findByText("Gagal memuat profil penyelenggara.")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Profil penyelenggara" })).toBeNull();
   });
 });

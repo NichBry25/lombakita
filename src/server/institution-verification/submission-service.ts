@@ -21,7 +21,6 @@ import { isPersonalInstitutionType } from "@/server/institution-workspace/instit
 import { assertValidTransition } from "@/server/institution-verification/verification-core";
 import { resolvePlatformOpsActor } from "@/server/platform-ops/operator-actor";
 import { assertOperatorHasNoInstitutionRelationship } from "@/server/institution-verification/operator-institution-conflict";
-import { getInstitutionDisplayName } from "@/server/institution-workspace/institution-display-name";
 import { isR2Available, generatePresignedPutUrl } from "@/server/storage/r2.client";
 import { logger } from "@/lib/logger";
 import { deriveEmailDomainFlag, getMissingDocuments } from "./verification-requirements";
@@ -376,15 +375,6 @@ export const getVerificationSubmissionDetail = async (
       institutionId: institutionVerificationSubmissions.institutionId,
       institutionSlug: institutions.slug,
       institutionDisplayName: institutions.displayName,
-      institutionType: institutions.institutionType,
-      ownerUsername: sql<string | null>`(
-        SELECT u.username FROM institution_memberships im
-        INNER JOIN users u ON u.id = im.user_id
-        WHERE im.institution_id = institutions.id
-          AND im.membership_role = 'institution_owner'
-          AND im.status = 'active'
-        ORDER BY im.created_at ASC LIMIT 1
-      )`,
       submittedByUserId: institutionVerificationSubmissions.submittedByUserId,
       targetInstitutionType: institutionVerificationSubmissions.targetInstitutionType,
       proposedDisplayName: institutionVerificationSubmissions.proposedDisplayName,
@@ -441,10 +431,7 @@ export const getVerificationSubmissionDetail = async (
     id: sub.id,
     institutionId: sub.institutionId,
     institutionSlug: sub.institutionSlug,
-    institutionDisplayName: getInstitutionDisplayName(
-      { displayName: sub.institutionDisplayName, institutionType: sub.institutionType ?? null },
-      { username: sub.ownerUsername },
-    ),
+    institutionDisplayName: sub.institutionDisplayName,
     submittedByUserId: sub.submittedByUserId,
     targetInstitutionType: sub.targetInstitutionType,
     proposedDisplayName: sub.proposedDisplayName,
@@ -473,15 +460,6 @@ export const listPendingVerificationSubmissions = async (
       institutionId: institutions.id,
       institutionSlug: institutions.slug,
       institutionDisplayName: institutions.displayName,
-      institutionType: institutions.institutionType,
-      ownerUsername: sql<string | null>`(
-        SELECT u.username FROM institution_memberships im
-        INNER JOIN users u ON u.id = im.user_id
-        WHERE im.institution_id = institutions.id
-          AND im.membership_role = 'institution_owner'
-          AND im.status = 'active'
-        ORDER BY im.created_at ASC LIMIT 1
-      )`,
       submitterEmail: sql<string | null>`(
         SELECT u.email FROM users u
         WHERE u.id = institution_verification_submissions.submitted_by_user_id
@@ -501,13 +479,7 @@ export const listPendingVerificationSubmissions = async (
     .where(eq(institutionVerificationSubmissions.status, "pending_review"))
     .orderBy(asc(institutionVerificationSubmissions.submittedAt));
 
-  return rows.map((r) => ({
-    ...r,
-    institutionDisplayName: getInstitutionDisplayName(
-      { displayName: r.institutionDisplayName, institutionType: r.institutionType ?? null },
-      { username: r.ownerUsername },
-    ),
-  }));
+  return rows;
 };
 
 // Platform ops: approve or reject a submission.
@@ -564,7 +536,6 @@ export const reviewVerificationSubmission = async (
       .select({
         id: institutions.id,
         displayName: institutions.displayName,
-        institutionType: institutions.institutionType,
         verificationStatus: institutions.verificationStatus,
       })
       .from(institutions)
@@ -690,7 +661,6 @@ export const reviewVerificationSubmission = async (
       status: "approved" as const,
       institutionId: sub.institutionId,
       institutionDisplayName: inst.displayName,
-      institutionType: inst.institutionType ?? null,
     };
   });
 
@@ -711,7 +681,7 @@ export const reviewVerificationSubmission = async (
 
   try {
     const [ownerRow] = await db
-      .select({ email: users.email, username: users.username })
+      .select({ email: users.email })
       .from(institutionMemberships)
       .innerJoin(users, eq(users.id, institutionMemberships.userId))
       .where(
@@ -725,13 +695,7 @@ export const reviewVerificationSubmission = async (
       .limit(1);
 
     if (ownerRow) {
-      const resolvedName = getInstitutionDisplayName(
-        {
-          displayName: reviewed.institutionDisplayName,
-          institutionType: reviewed.institutionType,
-        },
-        { username: ownerRow.username },
-      );
+      const resolvedName = reviewed.institutionDisplayName;
 
       const emailTask = sendInstitutionVerifiedEmail({
         toEmail: ownerRow.email,

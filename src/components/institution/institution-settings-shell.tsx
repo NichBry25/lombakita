@@ -69,7 +69,6 @@ type ProfileResponse = {
     logoUrl: string | null;
     bannerUrl: string | null;
     socialLinks: Array<{ platform: SocialPlatform; url: string }>;
-    isEditable: boolean;
   };
 };
 
@@ -151,7 +150,7 @@ export const InstitutionSettingsShell = ({
   const [bannerUrl, setBannerUrl] = useState<string | null>(null);
   const [isProfileLoading, setIsProfileLoading] = useState(true);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
-  // The organizer profile section renders once the profile read reports it editable.
+  // The organizer profile section renders once the profile read succeeds.
   const [hasProfile, setHasProfile] = useState(false);
 
   const applyInstitution = useCallback((data: InstitutionSettingsResponse) => {
@@ -213,7 +212,7 @@ export const InstitutionSettingsShell = ({
       setSocials(nextSocials);
       setLogoUrl(profile.logoUrl);
       setBannerUrl(profile.bannerUrl);
-      setHasProfile(profile.isEditable);
+      setHasProfile(true);
     } catch {
       addToast({ type: "error", message: "Gagal memuat profil penyelenggara." });
     } finally {

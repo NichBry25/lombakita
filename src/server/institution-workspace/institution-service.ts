@@ -24,11 +24,6 @@ import {
   parseInstitutionWorkspaceSettingsPatch,
   type InstitutionWorkspaceShell,
 } from "@/server/institution-workspace/institution-core";
-import { isPersonalInstitutionType } from "@/server/institution-workspace/institution-type";
-import {
-  getInstitutionDisplayName,
-  institutionOwnerUsernameSql,
-} from "@/server/institution-workspace/institution-display-name";
 import { resolveInstitutionMediaUrls } from "@/server/institution-workspace/institution-media-urls";
 import { acquireOwnerCapLock } from "@/server/institution-workspace/owner-cap-lock";
 import { assertAccountNotDeactivated } from "@/server/accounts/deactivated-account";
@@ -66,9 +61,7 @@ type DbOrTx = Database | Parameters<Parameters<Database["transaction"]>[0]>[0];
 
 type InstitutionWorkspaceRow = {
   institutionId: string;
-  // Nullable: a personal institution may store no name. The shell's resolved name comes from
-  // getInstitutionDisplayName.
-  institutionDisplayName: string | null;
+  institutionDisplayName: string;
   institutionSlug: string;
   institutionStatus: InstitutionWorkspaceShell["status"];
   institutionType: InstitutionType;
@@ -81,19 +74,10 @@ type InstitutionWorkspaceRow = {
   membershipJoinedAt: Date;
 };
 
-// The shell's displayName is the RESOLVED user-facing name (getInstitutionDisplayName): the stored
-// name, or for a personal institution that stores none, a name derived from `ownerUsername`, the
-// username of this institution's owner on owner-scoped reads.
-const mapInstitutionWorkspace = (
-  row: InstitutionWorkspaceRow,
-  ownerUsername: string | null,
-): InstitutionWorkspaceShell => {
+const mapInstitutionWorkspace = (row: InstitutionWorkspaceRow): InstitutionWorkspaceShell => {
   return {
     institutionId: row.institutionId,
-    displayName: getInstitutionDisplayName(
-      { displayName: row.institutionDisplayName, institutionType: row.institutionType },
-      { username: ownerUsername },
-    ),
+    displayName: row.institutionDisplayName,
     slug: row.institutionSlug,
     status: row.institutionStatus,
     institutionType: row.institutionType,
@@ -145,15 +129,11 @@ export const buildInstitutionWorkspaceAccessDeniedError = async (
   );
 };
 
-// The requester is the institution_owner being matched, so users.username joined on the membership
-// userId IS the owner username — exactly what getInstitutionDisplayName needs for a personal row.
-type InstitutionWorkspaceOwnerRow = InstitutionWorkspaceRow & { ownerUsername: string | null };
-
 export const findInstitutionWorkspaceByOwnerAndSlug = async (
   userId: string,
   institutionSlug: string,
   db: Database,
-): Promise<InstitutionWorkspaceOwnerRow | null> => {
+): Promise<InstitutionWorkspaceRow | null> => {
   const [row] = await db
     .select({
       institutionId: institutions.id,
@@ -168,7 +148,6 @@ export const findInstitutionWorkspaceByOwnerAndSlug = async (
       membershipRole: institutionMemberships.membershipRole,
       membershipStatus: institutionMemberships.status,
       membershipJoinedAt: institutionMemberships.joinedAt,
-      ownerUsername: users.username,
     })
     .from(institutions)
     .innerJoin(
@@ -180,7 +159,6 @@ export const findInstitutionWorkspaceByOwnerAndSlug = async (
         eq(institutionMemberships.status, ACTIVE_MEMBERSHIP_STATUS),
       ),
     )
-    .innerJoin(users, eq(users.id, institutionMemberships.userId))
     .where(eq(institutions.slug, institutionSlug))
     .limit(1);
 
@@ -208,9 +186,7 @@ export type UserInstitutionMembership = {
 };
 
 // Lists the institutions an account actively participates in as owner or staff, for the recruiter
-// dashboard. institution_member memberships are excluded (members have no operational
-// surface). A personal institution stores no display name; the owner username resolves it through
-// getInstitutionDisplayName, sourced from the correlated owner-username subquery.
+// dashboard. institution_member memberships are excluded (members have no operational surface).
 export const listUserInstitutionMemberships = async (
   userId: string,
   db: Database = getDb(),
@@ -220,7 +196,6 @@ export const listUserInstitutionMemberships = async (
       institutionId: institutions.id,
       slug: institutions.slug,
       displayName: institutions.displayName,
-      institutionType: institutions.institutionType,
       about: institutions.about,
       description: institutions.description,
       membershipRole: institutionMemberships.membershipRole,
@@ -253,14 +228,7 @@ export const listUserInstitutionMemberships = async (
       return {
         institutionId: row.institutionId,
         slug: row.slug,
-        // Personal institutions render as a generic "Personal" here rather than the owner-derived
-        // "<username>'s Institution" the global helper produces.
-        displayName: isPersonalInstitutionType(row.institutionType)
-          ? "Personal"
-          : getInstitutionDisplayName({
-              displayName: row.displayName,
-              institutionType: row.institutionType,
-            }),
+        displayName: row.displayName,
         about: row.about,
         description: row.description,
         role: row.membershipRole as typeof OWNER_ROLE | typeof STAFF_ROLE,
@@ -418,13 +386,10 @@ const insertInstitutionWithOwner = async (
           throw new Error("Failed to create institution owner membership");
         }
 
-        return mapInstitutionWorkspace(
-          {
-            ...institutionRow,
-            ...membershipRow,
-          },
-          null,
-        );
+        return mapInstitutionWorkspace({
+          ...institutionRow,
+          ...membershipRow,
+        });
       });
     } catch (error) {
       if (isInstitutionSlugUniqueViolation(error)) {
@@ -601,7 +566,7 @@ export const getInstitutionWorkspaceForOwnerBySlug = async (
     throw await buildInstitutionWorkspaceAccessDeniedError(userId, normalizedSlug, db);
   }
 
-  return mapInstitutionWorkspace(row, row.ownerUsername);
+  return mapInstitutionWorkspace(row);
 };
 
 export const updateInstitutionWorkspaceForOwnerBySlug = async (
@@ -638,7 +603,7 @@ export const updateInstitutionWorkspaceForOwnerBySlug = async (
   }
 
   if (Object.keys(updates).length === 0) {
-    return mapInstitutionWorkspace(current, current.ownerUsername);
+    return mapInstitutionWorkspace(current);
   }
 
   // Flat-namespace guard: a new slug must not collide with an existing user's username. No exclusion
@@ -679,7 +644,7 @@ export const updateInstitutionWorkspaceForOwnerBySlug = async (
     throw new AccessError("forbidden", 403, "Institution owner access required");
   }
 
-  return mapInstitutionWorkspace(updated, updated.ownerUsername);
+  return mapInstitutionWorkspace(updated);
 };
 
 // ── Organizer public profile (about / contact / website / socials) ────────────
@@ -697,7 +662,6 @@ export type InstitutionProfileView = {
   logoUrl: string | null;
   bannerUrl: string | null;
   socialLinks: Array<{ platform: InstitutionSocialPlatform; url: string }>;
-  isEditable: boolean;
 };
 
 export const getInstitutionProfileForOwnerBySlug = async (
@@ -743,7 +707,6 @@ export const getInstitutionProfileForOwnerBySlug = async (
     logoUrl,
     bannerUrl,
     socialLinks: links,
-    isEditable: true,
   };
 };
 
@@ -821,21 +784,10 @@ export const loadInstitutionVerificationSummaryBySlug = async (
       verificationStatus: institutions.verificationStatus,
       verifiedAt: institutions.verifiedAt,
       rejectionReason: institutions.rejectionReason,
-      rawDisplayName: institutions.displayName,
-      ownerUsername: institutionOwnerUsernameSql,
+      displayName: institutions.displayName,
     })
     .from(institutions)
     .where(eq(institutions.slug, normalized))
     .limit(1);
-  if (!row) {
-    return null;
-  }
-  const { rawDisplayName, ownerUsername, ...rest } = row;
-  return {
-    ...rest,
-    displayName: getInstitutionDisplayName(
-      { displayName: rawDisplayName, institutionType: row.institutionType },
-      { username: ownerUsername },
-    ),
-  };
+  return row ?? null;
 };
