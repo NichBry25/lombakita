@@ -136,7 +136,10 @@ import type { Database } from "@/server/db/client";
 import { setCompetitionOrganizerContactForEditor } from "@/server/competitions/competition-organizer-contact-service";
 import { changeMemberRole, removeMember } from "@/server/institution-members/member-service";
 import { OperatorActorError } from "@/server/platform-ops/operator-actor";
-import { createInstitutionWorkspaceForUser } from "@/server/institution-workspace/institution-service";
+import {
+  createInstitutionWorkspaceForUser,
+  updateInstitutionWorkspaceForOwnerBySlug,
+} from "@/server/institution-workspace/institution-service";
 import {
   acceptInstitutionInvitationForUser,
   createInstitutionInvitation,
@@ -956,6 +959,32 @@ const addMember = async (
     ["candidate", "recruiter"],
     tx as never,
   );
+};
+
+// Planted directly: no path writes a slug equal to a username any more, and a personal workspace
+// made before the one create path still holds one.
+const plantUsernameSlug = async (
+  tx: Tx,
+  workspace: Workspace,
+  person: Person,
+): Promise<Workspace> => {
+  const slug = person.username.replace(/_/g, "-");
+  await tx.update(institutions).set({ slug }).where(eq(institutions.id, workspace.id));
+
+  return { id: workspace.id, slug };
+};
+
+// Planted directly: stands in for the other owner removing this one.
+const endMembership = async (tx: Tx, workspace: Workspace, person: Person): Promise<void> => {
+  await tx
+    .update(institutionMemberships)
+    .set({ status: "revoked" })
+    .where(
+      and(
+        eq(institutionMemberships.institutionId, workspace.id),
+        eq(institutionMemberships.userId, person.id),
+      ),
+    );
 };
 
 const profileObjectKeys = (workspace: Workspace) => ({
@@ -1946,6 +1975,164 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
         expect(
           await countRows(tx, "platform_ops_notes", "target_institution_id", workspace.id),
         ).toBe(0);
+      });
+    });
+  });
+
+  describe("a workspace named or addressed after the account's username", () => {
+    it("refuses while a workspace the account co-owns is named after its username, and writes nothing", async () => {
+      await inRollback(async (tx) => {
+        const operator = await plantPerson(tx, "ops", "operator");
+        const target = await plantPerson(tx, "target", "host");
+        const coOwner = await plantPerson(tx, "coowner", "host");
+        const workspace = await createWorkspace(
+          tx,
+          target,
+          `${target.username}'s Institution`,
+          "personal",
+        );
+        await addMember(tx, target, workspace, coOwner, "institution_owner");
+        const before = await readWorkspaceRow(tx, workspace.id);
+
+        const error = await expectCode(
+          deleteAccountOf(tx, operator, target),
+          "deidentify_institution_named_after_username",
+          409,
+        );
+
+        expect(error.message).toBe(`Ganti nama dan alamat institusi ${workspace.slug} dulu.`);
+        await expectNothingWritten(tx, target, workspace, before);
+        expect((await readMembership(tx, workspace.id, target)).status).toBe("active");
+      });
+    });
+
+    it("refuses while a workspace the account co-owns is addressed at its username, and writes nothing", async () => {
+      await inRollback(async (tx) => {
+        const operator = await plantPerson(tx, "ops", "operator");
+        const target = await plantPerson(tx, "target", "host");
+        const coOwner = await plantPerson(tx, "coowner", "host");
+        const workspace = await createWorkspace(
+          tx,
+          target,
+          `Ruang Lama ${uniqueSuffix()}`,
+          "personal",
+        );
+        await addMember(tx, target, workspace, coOwner, "institution_owner");
+        const addressed = await plantUsernameSlug(tx, workspace, target);
+        const before = await readWorkspaceRow(tx, workspace.id);
+
+        const error = await expectCode(
+          deleteAccountOf(tx, operator, target),
+          "deidentify_institution_named_after_username",
+          409,
+        );
+
+        expect(error.message).toBe(`Ganti nama dan alamat institusi ${addressed.slug} dulu.`);
+        await expectNothingWritten(tx, target, addressed, before);
+        expect((await readMembership(tx, workspace.id, target)).status).toBe("active");
+      });
+    });
+
+    it("refuses while a workspace the account owns alone is addressed at its username", async () => {
+      await inRollback(async (tx) => {
+        const operator = await plantPerson(tx, "ops", "operator");
+        const target = await plantPerson(tx, "target", "host");
+        const workspace = await createWorkspace(
+          tx,
+          target,
+          `Ruang Pribadi ${uniqueSuffix()}`,
+          "personal",
+        );
+        const addressed = await plantUsernameSlug(tx, workspace, target);
+        const before = await readWorkspaceRow(tx, workspace.id);
+
+        const error = await expectCode(
+          deleteAccountOf(tx, operator, target),
+          "deidentify_institution_named_after_username",
+          409,
+        );
+
+        expect(error.message).toBe(`Ganti nama dan alamat institusi ${addressed.slug} dulu.`);
+        await expectNothingWritten(tx, target, addressed, before);
+      });
+    });
+
+    it("proceeds once the co-owned workspace is renamed and given a new address", async () => {
+      await inRollback(async (tx) => {
+        const operator = await plantPerson(tx, "ops", "operator");
+        const target = await plantPerson(tx, "target", "host");
+        const coOwner = await plantPerson(tx, "coowner", "host");
+        const workspace = await createWorkspace(
+          tx,
+          target,
+          `${target.username}'s Institution`,
+          "personal",
+        );
+        await addMember(tx, target, workspace, coOwner, "institution_owner");
+        const suffix = uniqueSuffix();
+        await updateInstitutionWorkspaceForOwnerBySlug(
+          target.id,
+          workspace.slug,
+          { displayName: `Ruang Baru ${suffix}`, slug: `ruang-baru-${suffix}` },
+          tx as never,
+        );
+
+        const result = await deleteAccountOf(tx, operator, target);
+
+        expect(result.soleOwnedInstitutionIds).toEqual([]);
+        expect((await readMembership(tx, workspace.id, target)).status).toBe("revoked");
+        expect((await readMembership(tx, workspace.id, coOwner)).status).toBe("active");
+        const row = await readWorkspaceRow(tx, workspace.id);
+        expect(row.displayName).toBe(`Ruang Baru ${suffix}`);
+        expect(row.slug).toBe(`ruang-baru-${suffix}`);
+        expect(row.suspendedAt).toBeNull();
+      });
+    });
+
+    it("proceeds when the account is only staff of a workspace named after its username", async () => {
+      await inRollback(async (tx) => {
+        const operator = await plantPerson(tx, "ops", "operator");
+        const target = await plantPerson(tx, "target", "host");
+        const coOwner = await plantPerson(tx, "coowner", "host");
+        const workspace = await createWorkspace(
+          tx,
+          coOwner,
+          `${target.username}'s Institution`,
+          "personal",
+        );
+        await addMember(tx, coOwner, workspace, target, "institution_staff");
+
+        const result = await deleteAccountOf(tx, operator, target);
+
+        expect(result.soleOwnedInstitutionIds).toEqual([]);
+        expect((await readMembership(tx, workspace.id, target)).status).toBe("revoked");
+        const row = await readWorkspaceRow(tx, workspace.id);
+        expect(row.displayName).toBe(`${target.username}'s Institution`);
+        expect(row.suspendedAt).toBeNull();
+      });
+    });
+
+    it("proceeds when the account's owner membership of a workspace named after its username has ended", async () => {
+      await inRollback(async (tx) => {
+        const operator = await plantPerson(tx, "ops", "operator");
+        const target = await plantPerson(tx, "target", "host");
+        const coOwner = await plantPerson(tx, "coowner", "host");
+        const workspace = await createWorkspace(
+          tx,
+          target,
+          `${target.username}'s Institution`,
+          "personal",
+        );
+        await addMember(tx, target, workspace, coOwner, "institution_owner");
+        await endMembership(tx, workspace, target);
+
+        const result = await deleteAccountOf(tx, operator, target);
+
+        expect(result.soleOwnedInstitutionIds).toEqual([]);
+        expect((await readMembership(tx, workspace.id, coOwner)).status).toBe("active");
+        const row = await readWorkspaceRow(tx, workspace.id);
+        expect(row.displayName).toBe(`${target.username}'s Institution`);
+        expect(row.suspendedAt).toBeNull();
       });
     });
   });

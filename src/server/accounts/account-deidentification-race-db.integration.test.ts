@@ -909,7 +909,8 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount under concurrency", () =
     const owner = randomUUID();
     const remover = randomUUID();
     const institution = randomUUID();
-    const slug = `${MARKER}-rm-${suffix}`;
+    // Not the owner's username slot, which would make the deletion refuse.
+    const slug = `${MARKER}-rmw-${suffix}`;
     const ownerUsername = `${MARKER}_rm_${suffix}`;
     const ownerMembership = randomUUID();
 

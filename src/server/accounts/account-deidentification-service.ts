@@ -81,6 +81,7 @@ import {
   deidentifiedUsername,
 } from "@/server/accounts/deidentified-identity";
 import { recordRemovedHostIdentity } from "@/server/host-trust/removed-host-identity";
+import { deriveInstitutionSlugBase } from "@/server/institution-workspace/institution-core";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/accounts/account-deidentification-service");
@@ -137,6 +138,7 @@ export type DeidentificationErrorCode =
   | "deidentify_sole_institution_has_transfer_awaiting_review"
   | "deidentify_sole_institution_has_open_payment"
   | "deidentify_sole_institution_has_open_invitation"
+  | "deidentify_institution_named_after_username"
   | "deidentify_team_captain"
   | "deidentify_retry"
   | "deidentify_storage_unavailable"
@@ -523,6 +525,44 @@ const assertNoOpenPricedPaymentInSoleOwnedInstitutions = async (
   );
 };
 
+// A workspace named or addressed after the username keeps the person searchable after the
+// deletion, so its owner renames it first. Every workspace the account owns is read, owned alone
+// or not.
+const assertNoOwnedInstitutionNamedAfterUsername = async (
+  tx: OperatorActorTransaction,
+  accountId: string,
+  username: string,
+): Promise<void> => {
+  const usernameSlug = deriveInstitutionSlugBase(username);
+  const usernameName = `${username}'s Institution`;
+
+  const rows = await tx
+    .selectDistinct({ slug: institutions.slug })
+    .from(institutionMemberships)
+    .innerJoin(institutions, eq(institutions.id, institutionMemberships.institutionId))
+    .where(
+      and(
+        eq(institutionMemberships.userId, accountId),
+        eq(institutionMemberships.membershipRole, "institution_owner"),
+        eq(institutionMemberships.status, "active"),
+        or(eq(institutions.slug, usernameSlug), eq(institutions.displayName, usernameName)),
+      ),
+    )
+    .orderBy(institutions.slug);
+
+  if (rows.length === 0) {
+    return;
+  }
+
+  const slugs = rows.map((row) => row.slug);
+
+  throw new DeidentificationError(
+    "deidentify_institution_named_after_username",
+    409,
+    `Ganti nama dan alamat institusi ${slugs.join(", ")} dulu.`,
+  );
+};
+
 // How many teams this account is the captain of that are still being formed.
 //
 // `teams.captain_id` is the column that records the captain, and `teams.status` is what says whether
@@ -614,6 +654,8 @@ const assertTargetIsEligible = async (
   }
 
   await assertNotLastActiveOwner(tx, accountId);
+
+  await assertNoOwnedInstitutionNamedAfterUsername(tx, accountId, target.username);
 
   const soleOwnedInstitutionIds = await findInstitutionsOwnedSolelyByTarget(tx, accountId);
 

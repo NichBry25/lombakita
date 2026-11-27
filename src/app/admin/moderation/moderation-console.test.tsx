@@ -498,6 +498,13 @@ const DEIDENTIFY_REFUSALS: {
       "Institusi yang hanya dikelola akun ini masih punya undangan terbuka: hadiah-pasti, lomba-budi. Batalkan undangannya dulu.",
     fromServerMessage: true,
   },
+  {
+    code: "deidentify_institution_named_after_username",
+    status: 409,
+    message: "Ganti nama dan alamat institusi budi, lomba-budi dulu.",
+    toast: "Ganti nama dan alamat institusi budi, lomba-budi dulu.",
+    fromServerMessage: true,
+  },
 ];
 
 describe("what the console tells the operator when the server refuses", () => {
