@@ -338,8 +338,13 @@ describe.skipIf(skipWithoutDatabase)("the host identity key probe against a real
       await removeTrust(tx, operator, rudi);
       await backdateRemoval(tx, rudi, "30 days");
       await recordRemovedHostIdentity(tx, rudi);
+      // Trusted before the key changes, because the match of the Email organisasi confirm refuses a
+      // record written under another key.
+      const sari = await signUpHost(tx, "sari.host@seed.lombakita.local", "0822-1111-3333");
+      await trustByOrganizationEmail(tx, sari, "sari@beta.example");
       useHostIdentityKey(hostKeys.two);
-      await removeAndRecordSari(tx, operator);
+      await removeTrust(tx, operator, sari);
+      await recordRemovedHostIdentity(tx, sari);
 
       const refusal = await refusalOf(assertTrustRemovalRecordsUseLiveKey(tx));
 

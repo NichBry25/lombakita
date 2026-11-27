@@ -18,6 +18,7 @@ import { TEST_DATABASE_URL, skipWithoutDatabase } from "@/server/testing/databas
 
 const mocks = vi.hoisted(() => ({
   sentCodes: [] as Array<{ email: string; code: string }>,
+  organizationCodes: [] as Array<{ email: string; code: string }>,
   windowCounts: new Map<string, number>(),
   enqueueApproved: vi.fn(async (_input: unknown) => ({})),
   enqueueRejected: vi.fn(async (_input: unknown) => ({})),
@@ -51,7 +52,9 @@ vi.mock("@/server/auth/email-verification", () => ({
   sendRegistrationVerificationEmail: async (options: { email: string; code: string }) => {
     mocks.sentCodes.push({ email: options.email, code: options.code });
   },
-  sendOrganizationEmailCode: async () => undefined,
+  sendOrganizationEmailCode: async (options: { email: string; code: string }) => {
+    mocks.organizationCodes.push({ email: options.email, code: options.code });
+  },
 }));
 
 vi.mock("@/server/redis/rate-limit", async (importOriginal) => {
@@ -142,6 +145,10 @@ import { setCompetitionEligibilityForEditor } from "@/server/competitions/compet
 import { setCompetitionOrganizerContactForEditor } from "@/server/competitions/competition-organizer-contact-service";
 import { resolveCompetitionPublishReadiness } from "@/server/competitions/competition-publish-readiness";
 import { listHostChecks } from "./host-check-decision-service";
+import {
+  confirmOrganizationEmailCode,
+  issueOrganizationEmailCode,
+} from "./organization-email-service";
 import { readHostStatusForAccount } from "./host-check-service";
 import { removeHostTrust } from "./host-trust-removal-service";
 import { findRemovedHostMatch } from "./removed-host-identity";
@@ -192,6 +199,7 @@ const inRollback = async (test: (tx: Database) => Promise<void>): Promise<void> 
 
 beforeEach(() => {
   mocks.sentCodes.length = 0;
+  mocks.organizationCodes.length = 0;
   mocks.windowCounts.clear();
   routeState.transaction = null;
   routeState.actorUserId = null;
@@ -1225,6 +1233,7 @@ describe.skipIf(skipWithoutDatabase)("the staff decision on a host check (rolled
         earlierTurnDowns: [
           { reviewedAt: expect.any(Date), guidelineItem: "kontak-nyata", note: NOTE },
         ],
+        removedHostMatch: null,
       });
       expect(mine[1]?.overdue).toBe(false);
       expect(mine[1]?.earlierTurnDowns).toEqual([]);
@@ -1661,3 +1670,309 @@ describe.skipIf(skipWithoutDatabase)("the staff decision on a host check (rolled
     });
   });
 });
+
+const MATCHED_ADDRESS = "nina.lokal@seed.lombakita.local";
+const MATCHED_ORGANIZATION_ADDRESS = "nina@acme.example";
+
+const signUpHostWithPhone = async (
+  tx: Database,
+  address: string,
+  phoneNumber: string,
+): Promise<string> => {
+  await registerUserWithCredentials(
+    { ...CANDIDATE_DETAILS, phoneNumber, email: address, password: PASSWORD },
+    tx,
+  );
+  await verifyEmailCodeAndSetPassword(
+    { ...CANDIDATE_DETAILS, phoneNumber, email: address, code: latestCode(), password: PASSWORD },
+    tx,
+  );
+  const userId = await userIdOfAddress(tx, address);
+  await markRoleAsVerified(userId, "recruiter", null, tx);
+  return userId;
+};
+
+const latestOrganizationCode = (): string => {
+  const sent = mocks.organizationCodes.at(-1);
+  if (!sent) throw new Error("No Email organisasi code was sent");
+  return sent.code;
+};
+
+const confirmOrganizationEmail = async (tx: Database, userId: string, address: string) => {
+  await issueOrganizationEmailCode(userId, address, tx);
+  return confirmOrganizationEmailCode(userId, latestOrganizationCode(), tx);
+};
+
+const removeTrustOf = async (tx: Database, operatorId: string, hostId: string): Promise<Date> => {
+  await removeHostTrust(operatorId, hostId, "Hadiah tidak sesuai.", tx);
+  const removedAt = await trustRemovedAtOf(tx, hostId);
+  if (removedAt === null) throw new Error("No removal time");
+  return removedAt;
+};
+
+const organizationEmailsOf = async (tx: Database, userId: string): Promise<string[]> => {
+  const rows = await tx
+    .select({ email: schema.hostOrganizationEmails.email })
+    .from(schema.hostOrganizationEmails)
+    .where(eq(schema.hostOrganizationEmails.userId, userId));
+  return rows.map((row) => row.email);
+};
+
+type RequestStatus = (typeof schema.recruiterVerificationSubmissions.$inferInsert)["status"];
+
+// Planted directly: no path writes an older host request any more.
+const plantRequest = async (
+  tx: Database,
+  userId: string,
+  mobileNumber: string,
+  status: RequestStatus,
+  corporateEmail: string | null,
+): Promise<void> => {
+  await tx.insert(schema.recruiterVerificationSubmissions).values({
+    userId,
+    fullName: "Rudi Hartono",
+    mobileNumber,
+    status,
+    corporateEmail,
+  });
+};
+
+describe.skipIf(skipWithoutDatabase)(
+  "the removed host match in the trust paths (rolled back)",
+  () => {
+    it("withholds the host step's trust from an account that shares a removed host's sign-up phone, and its answer names no match", async () => {
+      await inRollback(async (tx) => {
+        await clearRecordsInsideRollback(tx);
+        const operator = await plantOperator(tx, OPERATOR_ADDRESS);
+        const removedHost = await signUpHost(tx, OWNER_ADDRESS);
+        const removedAt = await removeTrustOf(tx, operator, removedHost);
+        const nina = await signUpParticipant(tx, MATCHED_ORGANIZATION_ADDRESS);
+
+        const answered = await markRoleAsVerified(nina, "recruiter", null, tx);
+
+        expect(answered).toEqual({
+          candidateVerified: true,
+          recruiterVerified: true,
+          hostTrusted: false,
+        });
+        expect(await tierOf(tx, nina)).toBe("minimal");
+        expect(await organizationEmailsOf(tx, nina)).toEqual([]);
+        expect(await findRemovedHostMatch(tx, nina)).toEqual({ matchedBy: ["phone"], removedAt });
+      });
+    });
+
+    it("keeps the Email organisasi of an account that shares a removed host's sign-up phone without trusting it, and its status says only that the address is confirmed", async () => {
+      await inRollback(async (tx) => {
+        await clearRecordsInsideRollback(tx);
+        const operator = await plantOperator(tx, OPERATOR_ADDRESS);
+        const removedHost = await signUpHost(tx, OWNER_ADDRESS);
+        const removedAt = await removeTrustOf(tx, operator, removedHost);
+        const nina = await signUpHost(tx, MATCHED_ADDRESS);
+
+        const confirmed = await confirmOrganizationEmail(tx, nina, MATCHED_ORGANIZATION_ADDRESS);
+
+        expect(confirmed).toEqual({ email: "nina@acme.example", trustSource: null });
+        expect(await tierOf(tx, nina)).toBe("minimal");
+        expect(await organizationEmailsOf(tx, nina)).toEqual(["nina@acme.example"]);
+        expect(await findRemovedHostMatch(tx, nina)).toEqual({ matchedBy: ["phone"], removedAt });
+        expect(await readHostStatusForAccount(nina, tx)).toEqual({
+          state: "not_trusted",
+          organizationEmailConfirmed: true,
+        });
+      });
+    });
+
+    it("sends the press of an account that shares a removed host's sign-up phone to a host check, and readiness and the answer name no removal", async () => {
+      await inRollback(async (tx) => {
+        await clearRecordsInsideRollback(tx);
+        const operator = await plantOperator(tx, OPERATOR_ADDRESS);
+        const removedHost = await signUpHost(tx, OWNER_ADDRESS);
+        await removeTrustOf(tx, operator, removedHost);
+        const nina = await signUpHost(tx, MATCHED_ADDRESS);
+        await confirmOrganizationEmail(tx, nina, MATCHED_ORGANIZATION_ADDRESS);
+        const workspace = await ownWorkspace(tx, nina);
+        const draft = await createPublishableDraft(tx, nina, workspace.slug, FIRST_TITLE);
+
+        const readiness = await resolveCompetitionPublishReadiness(nina, draft, tx);
+
+        expect(readiness).toEqual({
+          canPublish: true,
+          blockers: [],
+          hostCheck: { state: "needed" },
+        });
+
+        const pressed = await pressOn(tx, nina, workspace, draft);
+
+        expect(pressed.status).toBe(202);
+        expect(pressed.body).toEqual({
+          hostCheck: {
+            id: expect.any(String),
+            status: "pending_review",
+            submittedAt: expect.any(String),
+          },
+        });
+        expect(await competitionStatusOf(tx, draft)).toBe("draft");
+        expect(await tierOf(tx, nina)).toBe("minimal");
+      });
+    });
+
+    it("shows staff the match on the host check of an account that shares a removed host's sign-up phone, and no match on another host's check", async () => {
+      await inRollback(async (tx) => {
+        await clearRecordsInsideRollback(tx);
+        const operator = await plantOperator(tx, OPERATOR_ADDRESS);
+        const removedHost = await signUpHost(tx, OWNER_ADDRESS);
+        const removedAt = await removeTrustOf(tx, operator, removedHost);
+        const nina = await signUpHost(tx, MATCHED_ADDRESS);
+        await confirmOrganizationEmail(tx, nina, MATCHED_ORGANIZATION_ADDRESS);
+        const workspace = await ownWorkspace(tx, nina);
+        const draft = await createPublishableDraft(tx, nina, workspace.slug, FIRST_TITLE);
+        const pressed = await pressOn(tx, nina, workspace, draft);
+        expect(pressed.status).toBe(202);
+        const checkId = pressed.body.hostCheck?.id;
+        const eko = await signUpHostWithPhone(
+          tx,
+          "eko.lokal@seed.lombakita.local",
+          "0821-7777-1111",
+        );
+        const { checkId: ekoCheckId } = await openCheckBy(tx, eko, SECOND_TITLE);
+
+        const queue = await listHostChecks(tx);
+
+        const ninaEntry = queue.find((entry) => entry.id === checkId);
+        const ekoEntry = queue.find((entry) => entry.id === ekoCheckId);
+        expect(ninaEntry?.removedHostMatch).toEqual({ matchedBy: ["phone"], removedAt });
+        expect(ekoEntry?.removedHostMatch).toBeNull();
+      });
+    });
+
+    it("publishes the next draft of a matched account at once after staff approve its host check, while the match still stands", async () => {
+      await inRollback(async (tx) => {
+        await clearRecordsInsideRollback(tx);
+        const operator = await plantOperator(tx, OPERATOR_ADDRESS);
+        const removedHost = await signUpHost(tx, OWNER_ADDRESS);
+        const removedAt = await removeTrustOf(tx, operator, removedHost);
+        const nina = await signUpHost(tx, MATCHED_ADDRESS);
+        await confirmOrganizationEmail(tx, nina, MATCHED_ORGANIZATION_ADDRESS);
+        const workspace = await ownWorkspace(tx, nina);
+        const draft = await createPublishableDraft(tx, nina, workspace.slug, FIRST_TITLE);
+        const pressed = await pressOn(tx, nina, workspace, draft);
+        expect(pressed.status).toBe(202);
+        const checkId = pressed.body.hostCheck?.id ?? "";
+
+        const approved = await decideThroughRoute(tx, operator, checkId, APPROVE);
+
+        expect(approved.status).toBe(200);
+        expect(approved.body.hostCheck?.published).toBe(true);
+        expect(await competitionStatusOf(tx, draft)).toBe("published");
+        expect(await tierOf(tx, nina)).toBe("elevated");
+        expect(await findRemovedHostMatch(tx, nina)).toEqual({ matchedBy: ["phone"], removedAt });
+
+        const nextDraft = await createPublishableDraft(tx, nina, workspace.slug, SECOND_TITLE);
+        const next = await pressOn(tx, nina, workspace, nextDraft);
+
+        expect(next.status).toBe(200);
+        expect(next.body.competition?.status).toBe("published");
+        expect(await competitionStatusOf(tx, nextDraft)).toBe("published");
+      });
+    });
+
+    it("lends a trusted owner's trust to a staff member who shares nothing with a removed host, and not to one who shares its sign-up phone", async () => {
+      await inRollback(async (tx) => {
+        await clearRecordsInsideRollback(tx);
+        const operator = await plantOperator(tx, OPERATOR_ADDRESS);
+        const removedHost = await signUpHost(tx, OWNER_ADDRESS);
+        await removeTrustOf(tx, operator, removedHost);
+        const owner = await signUpHostWithPhone(tx, "sari.host@beta.example", "0822-1111-3333");
+        expect(await tierOf(tx, owner)).toBe("elevated");
+        const ownerWorkspace = await ownWorkspace(tx, owner);
+        const matched = await signUpHost(tx, MATCHED_ADDRESS);
+        const other = await signUpHostWithPhone(
+          tx,
+          "kiki.lokal@seed.lombakita.local",
+          "0821-5555-6666",
+        );
+        await plantMembership(tx, ownerWorkspace.institutionId, matched, "institution_staff");
+        await plantMembership(tx, ownerWorkspace.institutionId, other, "institution_staff");
+        const firstDraft = await createPublishableDraft(
+          tx,
+          owner,
+          ownerWorkspace.slug,
+          FIRST_TITLE,
+        );
+        const secondDraft = await createPublishableDraft(
+          tx,
+          owner,
+          ownerWorkspace.slug,
+          SECOND_TITLE,
+        );
+        expect(await readHostStatusForAccount(matched, tx)).toEqual({ state: "not_trusted" });
+        expect(await readHostStatusForAccount(other, tx)).toEqual({
+          state: "not_trusted",
+          runsTrustedWorkspace: true,
+        });
+
+        const matchedPress = await pressOn(tx, matched, ownerWorkspace, firstDraft);
+        const otherPress = await pressOn(tx, other, ownerWorkspace, secondDraft);
+
+        expect(matchedPress.status).toBe(202);
+        expect(matchedPress.body.hostCheck?.status).toBe("pending_review");
+        expect(await competitionStatusOf(tx, firstDraft)).toBe("draft");
+        expect(await tierOf(tx, matched)).toBe("minimal");
+        expect(otherPress.status).toBe(200);
+        expect(await competitionStatusOf(tx, secondDraft)).toBe("published");
+      });
+    });
+
+    it("trusts at once a colleague on the removed host's organization domain who shares no email or phone with it, and publishes its press", async () => {
+      await inRollback(async (tx) => {
+        await clearRecordsInsideRollback(tx);
+        const operator = await plantOperator(tx, OPERATOR_ADDRESS);
+        const removedHost = await signUpHost(tx, OWNER_ADDRESS);
+        await removeTrustOf(tx, operator, removedHost);
+        const citra = await signUpHostWithPhone(
+          tx,
+          "citra.lokal@seed.lombakita.local",
+          "0821-3333-4444",
+        );
+
+        const confirmed = await confirmOrganizationEmail(tx, citra, "citra@acme.example");
+        const workspace = await ownWorkspace(tx, citra);
+        const draft = await createPublishableDraft(tx, citra, workspace.slug, FIRST_TITLE);
+        const pressed = await pressOn(tx, citra, workspace, draft);
+
+        expect(confirmed).toEqual({
+          email: "citra@acme.example",
+          trustSource: "organization_email",
+        });
+        expect(await findRemovedHostMatch(tx, citra)).toBeNull();
+        expect(pressed.status).toBe(200);
+        expect(await competitionStatusOf(tx, draft)).toBe("published");
+        expect(await tierOf(tx, citra)).toBe("elevated");
+      });
+    });
+
+    it("trusts at once a colleague whose address the removed host only typed as an older request's work email and whose phone sat only on its rejected request", async () => {
+      await inRollback(async (tx) => {
+        await clearRecordsInsideRollback(tx);
+        const operator = await plantOperator(tx, OPERATOR_ADDRESS);
+        const removedHost = await signUpHost(tx, OWNER_ADDRESS);
+        await plantRequest(tx, removedHost, "0821-9999-0000", "rejected", "dewi@acme.example");
+        await removeTrustOf(tx, operator, removedHost);
+        const dewi = await signUpHostWithPhone(
+          tx,
+          "dewi.lokal@seed.lombakita.local",
+          "0821-9999-0000",
+        );
+
+        const confirmed = await confirmOrganizationEmail(tx, dewi, "dewi@acme.example");
+
+        expect(confirmed).toEqual({
+          email: "dewi@acme.example",
+          trustSource: "organization_email",
+        });
+        expect(await tierOf(tx, dewi)).toBe("elevated");
+        expect(await findRemovedHostMatch(tx, dewi)).toBeNull();
+      });
+    });
+  },
+);

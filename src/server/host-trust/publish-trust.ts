@@ -1,6 +1,7 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
 import { institutionMemberships, users } from "@/server/db/schema";
+import { findRemovedHostMatch } from "@/server/host-trust/removed-host-identity";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/host-trust/publish-trust");
@@ -53,7 +54,12 @@ export const isPublishTrustSatisfied = async (
   if (actor.status !== "active" || actor.suspendedAt !== null) return false;
   if (actor.tier === "elevated") return true;
   if (actor.hostTrustRemovedAt !== null) return false;
-  return institutionHasTrustedOwner(institutionId, db);
+  const ownerTrusted = await institutionHasTrustedOwner(institutionId, db);
+  if (!ownerTrusted) return false;
+  // Below the elevated return, so a person staff approved after a match publishes at once. A match
+  // borrows no owner's trust, so that person goes to the host check.
+  const removedHostMatch = await findRemovedHostMatch(db, actorUserId);
+  return removedHostMatch === null;
 };
 
 // Whether staff removed this account's host trust and no later staff raise or approval restored it.

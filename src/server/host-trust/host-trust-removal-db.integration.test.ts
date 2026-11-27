@@ -181,6 +181,7 @@ import { serverEnv } from "@/config/env.server";
 import { updateCandidateProfile } from "@/server/candidate/candidate-profile-service";
 import {
   HostIdentityKeyError,
+  findRemovedHostMatch,
   hashHostIdentifier,
   hostIdentityKeyCheck,
   type HostIdentifierKind,
@@ -1130,6 +1131,31 @@ describe.skipIf(skipWithoutDatabase)("the trust removal record (rolled back)", (
       const records = await recordsOf(tx, host);
       expect(records).toHaveLength(1);
       expect(sortedCopy(records[0]?.emailHashes ?? [])).toEqual(expectedEmailHashes);
+    });
+  });
+
+  it("withholds the trust of an Email organisasi confirm from a new account that confirms the old Email organisasi of a removed host deleted since", async () => {
+    await inRollback(async (tx) => {
+      const host = await signUpHostTrustedByOrganizationEmail(tx);
+      const operator = await plantOperator(tx, OPERATOR_ADDRESS);
+      const removed = await removeThroughRoute(tx, operator, host, { reason: REASON });
+      expect(removed.status).toBe(200);
+      const removedAt = await trustRemovedAtOf(tx, host);
+      await deidentifyAccount(
+        operator,
+        host,
+        { confirmUsername: await usernameOf(tx, host), reason: "permintaan pemilik" },
+        savepointShimFor(tx),
+      );
+      const nina = await signUpHost(tx, "nina.lokal@seed.lombakita.local");
+      await updateCandidateProfile(nina, { phoneNumber: "0823-4444-5555" }, tx);
+
+      await confirmOrganizationEmail(tx, nina, "Budi+Lomba@Acme.example");
+
+      expect(await tierOf(tx, nina)).toBe("minimal");
+      const organizationEmailRows = await organizationEmailRowsOf(tx, nina);
+      expect(organizationEmailRows.map((row) => row.email)).toEqual(["budi+lomba@acme.example"]);
+      expect(await findRemovedHostMatch(tx, nina)).toEqual({ matchedBy: ["email"], removedAt });
     });
   });
 });

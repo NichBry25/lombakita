@@ -8,6 +8,7 @@ import {
   holdsOnlyPrintableAscii,
   isNeverOrganizationEmailDomain,
 } from "@/server/host-trust/email-domain";
+import { findRemovedHostMatch } from "@/server/host-trust/removed-host-identity";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/host-trust/host-trust-service");
@@ -83,7 +84,9 @@ export const resolveAutomaticTrustSource = async (
 type AutomaticTrustCandidate = { email: string; source: AutomaticTrustSource };
 
 // The account and the source trustHostInTransaction would trust, read without writing. Null when
-// the account is not eligible or no source holds.
+// the account is not eligible, no source holds, or it shares a proven email or a given phone with
+// another account whose trust staff removed in the last 2 years. The host step, the Email organisasi
+// confirm, the publish press and readiness all read this one answer.
 const readAutomaticTrustCandidate = async (
   tx: Database,
   userId: string,
@@ -97,6 +100,10 @@ const readAutomaticTrustCandidate = async (
 
   const source = await resolveAutomaticTrustSource(tx, userId);
   if (source === null) return null;
+
+  // Read after the source, so an account no source would trust never needs the hash key.
+  const removedHostMatch = await findRemovedHostMatch(tx, userId);
+  if (removedHostMatch !== null) return null;
   return { email: eligibleAccount.email, source };
 };
 

@@ -37,7 +37,11 @@ import {
   liveDraftOfCheck,
 } from "@/server/host-trust/host-check-drafts";
 import { HOST_TRUST_REMOVED_EVENT } from "@/server/host-trust/host-trust-removal-service";
-import { liftRemovedHostRecord } from "@/server/host-trust/removed-host-identity";
+import {
+  findRemovedHostMatch,
+  liftRemovedHostRecord,
+  type RemovedHostMatch,
+} from "@/server/host-trust/removed-host-identity";
 import {
   OperatorActorError,
   recordOperatorAuditEntry,
@@ -94,6 +98,9 @@ export type HostCheckQueueEntry = {
   };
   draft: HostCheckDraftFields & { competitionId: string; institutionName: string | null };
   earlierTurnDowns: HostCheckTurnDown[];
+  // Another account whose trust staff removed shares this person's email or phone: how it matched
+  // and when that trust was removed, never which account.
+  removedHostMatch: RemovedHostMatch | null;
 };
 
 // Open checks on live drafts of accounts with a confirmed email, oldest first. A request without a
@@ -217,10 +224,23 @@ const readTrustRemovalReasonsByHost = async (
   return reasonsByHost;
 };
 
+const readRemovedHostMatchesByHost = async (
+  db: Database,
+  userIds: string[],
+): Promise<Map<string, RemovedHostMatch | null>> => {
+  const matchesByHost = new Map<string, RemovedHostMatch | null>();
+  for (const userId of new Set(userIds)) {
+    const removedHostMatch = await findRemovedHostMatch(db, userId);
+    matchesByHost.set(userId, removedHostMatch);
+  }
+  return matchesByHost;
+};
+
 const toHostCheckQueueEntry = (
   row: OpenHostCheckQueueRow,
   earlierTurnDowns: HostCheckTurnDown[],
   trustRemovalReason: string | null,
+  removedHostMatch: RemovedHostMatch | null,
 ): HostCheckQueueEntry => ({
   id: row.id,
   submittedAt: row.submittedAt,
@@ -254,6 +274,7 @@ const toHostCheckQueueEntry = (
     institutionName: row.institutionName,
   },
   earlierTurnDowns,
+  removedHostMatch,
 });
 
 // The staff host check queue. It only reads, so the route's role gate is its access check.
@@ -262,11 +283,13 @@ export const listHostChecks = async (db: Database = getDb()): Promise<HostCheckQ
   const hostIds = rows.map((row) => row.userId);
   const turnDownsByHost = await readEarlierTurnDownsByHost(db, hostIds);
   const removalReasonsByHost = await readTrustRemovalReasonsByHost(db, hostIds);
+  const removedHostMatchesByHost = await readRemovedHostMatchesByHost(db, hostIds);
   return rows.map((row) =>
     toHostCheckQueueEntry(
       row,
       turnDownsByHost.get(row.userId) ?? [],
       removalReasonsByHost.get(row.userId) ?? null,
+      removedHostMatchesByHost.get(row.userId) ?? null,
     ),
   );
 };

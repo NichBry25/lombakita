@@ -10,6 +10,7 @@ import { getDb, type Database } from "@/server/db/client";
 import {
   candidateProfiles,
   competitions,
+  hostOrganizationEmails,
   institutionMemberships,
   institutions,
   recruiterVerificationSubmissions,
@@ -56,11 +57,13 @@ export type PublishPressResult =
 export type HostStatusName = "trusted" | "pending" | "trust_removed" | "not_trusted";
 
 // What the host dashboard says about the account's own trust. runsTrustedWorkspace is set for an
-// untrusted account that runs a workspace where its press publishes at once.
+// untrusted account that runs a workspace where its press publishes at once. organizationEmailConfirmed
+// is set for an untrusted account that already holds a confirmed Email organisasi.
 export type HostStatus = {
   state: HostStatusName;
   competitionTitle?: string;
   runsTrustedWorkspace?: true;
+  organizationEmailConfirmed?: true;
 };
 
 type HostCheckContact = { fullName: string; mobileNumber: string };
@@ -385,6 +388,15 @@ const runsWorkspaceWithTrustedOwner = async (db: Database, userId: string): Prom
   return false;
 };
 
+const holdsConfirmedOrganizationEmail = async (db: Database, userId: string): Promise<boolean> => {
+  const [organizationEmail] = await db
+    .select({ userId: hostOrganizationEmails.userId })
+    .from(hostOrganizationEmails)
+    .where(eq(hostOrganizationEmails.userId, userId))
+    .limit(1);
+  return organizationEmail !== undefined;
+};
+
 // An open check outranks a standing removal, because the host waits on that check either way. The
 // title of the waiting draft follows the rule of readTitleOfDraftTheActorRuns.
 export const readHostStatusForAccount = async (
@@ -408,8 +420,10 @@ export const readHostStatusForAccount = async (
   }
 
   if (account !== undefined && account.trustRemovedAt !== null) return { state: "trust_removed" };
-  if (await runsWorkspaceWithTrustedOwner(db, userId)) {
-    return { state: "not_trusted", runsTrustedWorkspace: true };
-  }
-  return { state: "not_trusted" };
+  const status: HostStatus = { state: "not_trusted" };
+  const runsTrustedWorkspace = await runsWorkspaceWithTrustedOwner(db, userId);
+  if (runsTrustedWorkspace) status.runsTrustedWorkspace = true;
+  const organizationEmailConfirmed = await holdsConfirmedOrganizationEmail(db, userId);
+  if (organizationEmailConfirmed) status.organizationEmailConfirmed = true;
+  return status;
 };
