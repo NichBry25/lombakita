@@ -267,24 +267,23 @@ const main = async () => {
     await capture("pending-panel", "pending submission: form locked behind a status panel");
   });
 
-  await runFlow(browser, "personal-upgrade", "recMin", async (page, capture) => {
-    await visit(page, "/institution/seed-rec-min/verification");
-    await capture("upgrade-surface", "personal institution upgrade surface (elevated-gated)");
-    const up = page.getByRole("button", { name: /tingkatkan/i }).first();
-    if (await up.count()) {
-      const blocked = await up.isDisabled();
-      await capture(
-        "upgrade-control",
-        blocked
-          ? "upgrade control is DISABLED at minimal tier — the gate is visible, not just server-side"
-          : "upgrade control is enabled",
-      );
-      if (!blocked) {
-        await up.click();
-        await page.waitForTimeout(700);
-        await capture("upgrade-attempt", "reaction after submitting the upgrade");
-      }
-    }
+  // Dodi owns no workspace, so on a fresh seed the press creates one and lands on its board. A later
+  // run before a reseed creates another, until the cap of 3 refuses the press on the create form.
+  await runFlow(browser, "personal-create", "recDraft", async (page, capture) => {
+    await visit(page, "/institution/create");
+    await capture("create-form", "the one create form, with the kind select empty");
+    await page.fill("#institution-display-name", "Lomba Budi");
+    await page.click("#institution-type");
+    await page.getByRole("option", { name: "Pribadi", exact: true }).click();
+    await capture("kind-picked", "Pribadi picked as the kind of the new workspace");
+    await page
+      .locator(".form-action-bar-end")
+      .getByRole("button", { name: "Buat institusi", exact: true })
+      .click();
+    await page
+      .waitForURL((url) => !url.pathname.endsWith("create"), { timeout: 20000 })
+      .catch(() => {});
+    await capture("board", "the board of the new personal workspace, or the refusal of the press");
   });
 
   // ---------------------------------------------------------------- ops flows

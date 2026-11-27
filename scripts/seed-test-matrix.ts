@@ -1043,8 +1043,7 @@ const main = async (): Promise<void> => {
         createdBy: "seed-user-rec-min",
         slug: "seed-personal-open",
         title: "Kuis Mingguan Rina",
-        description:
-          "Kompetisi di bawah institusi personal (nama & media diturunkan dari pemilik).",
+        description: "Kuis mingguan gratis dari ruang kerja pribadi Rina (data uji).",
         status: "published",
         category: "quiz",
         mode: "individual",
