@@ -103,6 +103,19 @@ const R2_ENDPOINT_RULE: ValueRule = {
   accepts: (value) => /^https:\/\/[0-9a-f]{32}\.r2\.cloudflarestorage\.com\/?$/.test(value),
 };
 
+// A key of 32 random bytes, base64-encoded. The code that uses each such key refuses any other
+// length, so the shape is refused here, before any live check runs.
+const BASE64_32_BYTE_KEY_RULE: ValueRule = {
+  expectation: "32 raw bytes, base64-encoded (44 characters, base64 padding included)",
+  accepts: (value) => {
+    try {
+      return Buffer.from(value, "base64").length === 32;
+    } catch {
+      return false;
+    }
+  },
+};
+
 /**
  * The database each deployed environment is supposed to be talking to, stated here rather than
  * inferred from a connection string.
@@ -290,16 +303,16 @@ export const DEPLOY_ENV_KEY_SPECS: readonly DeployKeySpec[] = [
   {
     key: "MFA_SECRET_ENCRYPTION_KEY",
     requiredIn: BOTH,
-    rule: {
-      expectation: "32 raw bytes, base64-encoded (44 characters, base64 padding included)",
-      accepts: (value) => {
-        try {
-          return Buffer.from(value, "base64").length === 32;
-        } catch {
-          return false;
-        }
-      },
-    },
+    rule: BASE64_32_BYTE_KEY_RULE,
+  },
+  // HMAC-SHA256 key of the trust removal records, web runtime only. Required in both environments,
+  // because removed-host-identity.ts refuses to hash without it. A key that differs from the one the
+  // stored records were written under has the right shape, so the host-identity-key connector probe
+  // refuses that one.
+  {
+    key: "HOST_IDENTITY_HASH_KEY",
+    requiredIn: BOTH,
+    rule: BASE64_32_BYTE_KEY_RULE,
   },
 ];
 

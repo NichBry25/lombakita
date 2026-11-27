@@ -4,7 +4,7 @@
  *
  * A Sensitive Vercel variable is not returned by `vercel pull`: CLI 56 writes an empty string
  * (INFRA-D1), CLI 62 writes SENSITIVE_PLACEHOLDER. Either blinds every step that reads the pulled
- * file. The nine secrets are therefore also stored as write-only GitHub environment secrets, and
+ * file. The ten secrets are therefore also stored as write-only GitHub environment secrets, and
  * the overlay step fills the pulled file from them before the gate runs.
  *
  * Pure and dependency-free so it can be unit-tested against fixture records. The report carries
@@ -21,6 +21,7 @@ export const OVERLAY_NAMES = [
   "R2_SECRET_ACCESS_KEY",
   "RESEND_API_KEY",
   "MFA_SECRET_ENCRYPTION_KEY",
+  "HOST_IDENTITY_HASH_KEY",
 ] as const;
 
 /** Required by the gate, not secret, and never mirrored: Vercel's plain value is authoritative. */
@@ -135,7 +136,7 @@ export const findSensitivePublicPlaceholders = (pulledEnv: EnvMap): string[] =>
     .map(([name]) => name);
 
 /**
- * Other names outside the nine whose pulled value is the placeholder. The overlay cannot fill
+ * Other names outside the ten whose pulled value is the placeholder. The overlay cannot fill
  * them, so they are only reported. The gate does not verify them either: layer 1 has no rule that
  * rejects the placeholder for server-only optional names such as GOOGLE_CLIENT_SECRET or SENTRY_DSN.
  */

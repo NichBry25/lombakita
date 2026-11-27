@@ -16,6 +16,10 @@ import {
   probeMigrationDatabase,
 } from "@/server/db/migration-database-probe";
 import { isResendConfigured, probeResend } from "@/server/email/probe";
+import {
+  isHostIdentityKeyConfigured,
+  probeHostIdentityKey,
+} from "@/server/host-trust/host-identity-key-probe";
 import { isSentryConfigured, probeSentry } from "@/server/observability/probe";
 import { isRedisConfigured, probeRedis } from "@/server/redis/probe";
 import { isMeilisearchConfigured, probeMeilisearch } from "@/server/search/probe";
@@ -110,6 +114,12 @@ export const getConnectorStatusPayload = async (
       configured: isMfaEncryptionConfigured(),
       includeLiveChecks,
       probe: probeMfaEncryption,
+    }),
+    runConnectorProbe({
+      name: "host-identity-key",
+      configured: isHostIdentityKeyConfigured(),
+      includeLiveChecks,
+      probe: probeHostIdentityKey,
     }),
     runConnectorProbe({
       name: "worker",

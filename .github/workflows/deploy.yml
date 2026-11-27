@@ -81,7 +81,7 @@ jobs:
         run: npm ci
 
       # ── SECRET OVERLAY ──
-      # A Sensitive Vercel variable is pulled EMPTY, which would blind every step below. The nine
+      # A Sensitive Vercel variable is pulled EMPTY, which would blind every step below. The ten
       # secrets are therefore also kept as write-only `preview` environment secrets and filled into
       # the pulled file here, so layers 1 and 2, the schema gate and `vercel build` all read real
       # values from the file they already read. Fails on drift between the two copies; a plain
@@ -101,6 +101,7 @@ jobs:
           MIRROR_R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           MIRROR_RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           MIRROR_MFA_SECRET_ENCRYPTION_KEY: ${{ secrets.MFA_SECRET_ENCRYPTION_KEY }}
+          MIRROR_HOST_IDENTITY_HASH_KEY: ${{ secrets.HOST_IDENTITY_HASH_KEY }}
 
       - name: Verify environment configuration
         run: npm run verify:deploy-env -- --environment=preview --require-env-file
@@ -262,6 +263,7 @@ jobs:
           MIRROR_R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           MIRROR_RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           MIRROR_MFA_SECRET_ENCRYPTION_KEY: ${{ secrets.MFA_SECRET_ENCRYPTION_KEY }}
+          MIRROR_HOST_IDENTITY_HASH_KEY: ${{ secrets.HOST_IDENTITY_HASH_KEY }}
 
       - name: Verify environment configuration
         run: npm run verify:deploy-env -- --environment=production --require-env-file
