@@ -237,6 +237,10 @@ export const PERSONAL_COLUMNS: readonly string[] = Object.freeze([
   // host_organization_emails
   "host_organization_emails.email",
   "host_organization_emails.domain",
+  // host_trust_removals
+  "host_trust_removals.organization_domain",
+  "host_trust_removals.email_hashes",
+  "host_trust_removals.phone_hashes",
   // institution_audit_logs
   "institution_audit_logs.metadata",
   // institution_invitations
@@ -675,6 +679,19 @@ export const NOT_PERSONAL_COLUMNS: readonly NotPersonalColumn[] = Object.freeze(
   {
     column: "host_organization_emails.user_id",
     reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  // host_trust_removals
+  {
+    column: "host_trust_removals.id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "host_trust_removals.user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "host_trust_removals.key_check",
+    reason: "an HMAC of a fixed label under the hash key, holding nothing of any person",
   },
   // infrastructure_probe
   {
@@ -1810,6 +1827,16 @@ export const TABLE_RULINGS: readonly StoreRuling[] = Object.freeze([
       "what they were told. The bank name, the account number and the account holder are on it and " +
       "they are personal columns; they are the institution's payee details, and nothing in the " +
       "closure reaches the table",
+  },
+  {
+    store: "host_trust_removals",
+    survival: "detached",
+    reason:
+      "the record of a staff trust removal outlives the account on purpose: `user_id` is SET " +
+      "NULL, and the de-identification action keeps the row and adds the identifiers the account " +
+      "held. What survives is keyed hashes of the account's proven emails and given phone " +
+      "numbers, pseudonymous because whoever holds the key can reverse them, and its " +
+      "organization domain, kept 2 years from the removal and deleted by the daily retention job",
   },
   {
     store: "infrastructure_probe",

@@ -1914,6 +1914,55 @@ export const organizationEmailChallenges = pgTable(
   ],
 );
 
+// The record of a staff trust removal, kept when the account is deleted and matched against new
+// accounts for 2 years from the removal. Every writer copies users.host_trust_removed_at into
+// removed_at. The hash arrays and key_check hold only HMAC-SHA256 hex, so a raw address or number
+// can never be stored.
+export const hostTrustRemovals = pgTable(
+  "host_trust_removals",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    removedAt: timestamp("removed_at", { mode: "date", withTimezone: true }).notNull(),
+    organizationDomain: text("organization_domain"),
+    emailHashes: text("email_hashes")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    phoneHashes: text("phone_hashes")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    keyCheck: text("key_check").notNull(),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    // One standing record per account.
+    uniqueIndex("host_trust_removals_user_id_unique_idx")
+      .on(table.userId)
+      .where(sql`${table.userId} is not null`),
+    index("host_trust_removals_removed_at_idx").on(table.removedAt),
+    check(
+      "host_trust_removals_organization_domain_lower_chk",
+      sql`${table.organizationDomain} = lower(${table.organizationDomain})`,
+    ),
+    // array_to_string skips a NULL element unless it is given a text for one, so a NULL is written as
+    // null and fails the pattern. The length check refuses an empty element and an element that
+    // holds two hashes joined by a comma, which the pattern alone would accept.
+    check(
+      "host_trust_removals_email_hashes_hex_chk",
+      sql`array_to_string(${table.emailHashes}, ',', 'null') ~ '^([0-9a-f]{64}(,[0-9a-f]{64})*)?$' and length(array_to_string(${table.emailHashes}, '')) = 64 * cardinality(${table.emailHashes})`,
+    ),
+    check(
+      "host_trust_removals_phone_hashes_hex_chk",
+      sql`array_to_string(${table.phoneHashes}, ',', 'null') ~ '^([0-9a-f]{64}(,[0-9a-f]{64})*)?$' and length(array_to_string(${table.phoneHashes}, '')) = 64 * cardinality(${table.phoneHashes})`,
+    ),
+    check("host_trust_removals_key_check_hex_chk", sql`${table.keyCheck} ~ '^[0-9a-f]{64}$'`),
+  ],
+);
+
 export type RecruiterVerificationSubmissionRecord =
   typeof recruiterVerificationSubmissions.$inferSelect;
 export type RecruiterVerificationDocumentRecord =

@@ -102,6 +102,12 @@ export const LEFTOVER_RULINGS: readonly LeftoverRuling[] = Object.freeze([
   allowed(SCAFFOLDING, SCAFFOLDING_REASON, "organization_email_challenges", "user_id"),
   allowed("inbox", "owner ruling: the inbox may remain", "notifications", "user_id"),
   allowed("bookmarks", "owner ruling: bookmarks may remain", "competition_saves", "user_id"),
+  allowed(
+    "trust removal record",
+    "the account's own trust removal record, not another person's data",
+    "host_trust_removals",
+    "user_id",
+  ),
 
   blocks("competing", "competition_registrations", "student_id"),
   blocks("competing", "teams", "captain_id"),
