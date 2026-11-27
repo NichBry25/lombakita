@@ -280,7 +280,8 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount under concurrency", () =
     // marker carrier the sweep reads.
     await control.db.insert(schema.institutions).values({
       id: institution,
-      slug: `${MARKER}-${suffix}`,
+      // Not the target's username slot, which would make the deletion refuse.
+      slug: `${MARKER}-w-${suffix}`,
       institutionType: "company",
       displayName: "Race Institution",
       status: "active",
@@ -831,7 +832,8 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount under concurrency", () =
 
     await control.db.insert(schema.institutions).values({
       id: institution,
-      slug: `${MARKER}-susp-${suffix}`,
+      // Not the target's username slot, which would make the deletion refuse.
+      slug: `${MARKER}-suspw-${suffix}`,
       institutionType: "company",
       displayName: "Race Institution",
       status: "active",

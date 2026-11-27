@@ -88,11 +88,7 @@ const seedInstitution = async (
       slug: `sitemap-inst-${id}`,
       institutionType: personal ? "personal" : "company",
       displayName: `Sitemap Fixture ${id}`,
-      // The value the production creation path writes, not the column's schema default.
-      // `institutions.status` defaults to `active` and `createInstitutionWorkspaceForUser` writes
-      // `inactive`, so a fixture that omitted it described a row shape no institution has. Found by
-      // probing this suite: adding `status = 'active'` to the sitemap query alone left every test
-      // green while it would have emptied the sitemap in production.
+      // Written from the constant the production creation path writes.
       status: NEW_INSTITUTION_DEFAULT_STATUS,
       verificationStatus: options.verified ? "verified" : "pending_verification",
       suspendedAt: options.suspended ? new Date() : null,

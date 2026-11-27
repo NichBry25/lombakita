@@ -11,6 +11,6 @@ export const PERSONAL_INSTITUTION_TYPE = "personal" as const satisfies Instituti
 export const isInstitutionType = (value: unknown): value is InstitutionType =>
   typeof value === "string" && (INSTITUTION_TYPES as readonly string[]).includes(value);
 
-// A NULL type is NOT personal (it is a legacy full institution).
+// A null type (no institution found) is not personal.
 export const isPersonalInstitutionType = (type: InstitutionType | null): boolean =>
   type === PERSONAL_INSTITUTION_TYPE;

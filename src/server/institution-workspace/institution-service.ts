@@ -483,10 +483,8 @@ export const createInstitutionWorkspaceForUser = async (
     throw buildInstitutionLimitError();
   }
 
-  // Service-layer NOT NULL invariant (replaces the loosened DB constraint from migration 0031):
-  // parseInstitutionWorkspaceCreateInput requires a 2–160 char displayName and throws
-  // institution_invalid_value on a missing / empty / non-string value, so an institution can
-  // never be created without a stored display name.
+  // parseInstitutionWorkspaceCreateInput requires a 2 to 160 character displayName, so a create
+  // with no name is refused before the insert.
   const input = parseInstitutionWorkspaceCreateInput(payload);
 
   // Flat-namespace guard (Fix C): the base slug this institution would take must not collide with an

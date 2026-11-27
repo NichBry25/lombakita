@@ -20,9 +20,9 @@ const REPO = resolve(new URL("../..", import.meta.url).pathname);
 const results = [];
 
 // `seed-comp-open`'s title and `seed-inst-a`'s displayName — the two values the public competition
-// page's metadata template composes its `<title>` from. scripts/seed-test-matrix.ts:705 and :419;
-// `organizer.name` resolves to that displayName for a full institution
-// (src/server/competitions/competition-public-service.ts:842).
+// page's metadata template composes its `<title>` from, at scripts/seed-test-matrix.ts:758 and
+// :419. `organizer.name` resolves to that displayName
+// (src/server/competitions/competition-public-service.ts:982).
 const SEEDED_OPEN_COMPETITION_TITLE = "Seed Hackathon Nusantara";
 const SEEDED_ORGANIZER_NAME = "Seed Academy";
 
@@ -190,7 +190,7 @@ const main = async () => {
   // over the response bytes: the title also appears in the embedded server-component payload, in
   // `og:title`, and in any card this page renders for another competition, so a substring search
   // passes for reasons this case does not name. The template is
-  // src/app/competitions/[institutionSlug]/[slug]/page.tsx:329, and the root layout sets no
+  // src/app/competitions/[institutionSlug]/[slug]/page.tsx:242, and the root layout sets no
   // `title.template` (src/app/layout.tsx:27), so the element carries it verbatim.
   const publishedPageTitle = `${SEEDED_OPEN_COMPETITION_TITLE} · ${SEEDED_ORGANIZER_NAME} · Lombakita`;
   const titleElement = TITLE_ELEMENT_PATTERN.exec(String(publishedPage.body));

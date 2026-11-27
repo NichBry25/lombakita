@@ -1147,6 +1147,7 @@ const readWorkspaceRow = async (tx: Tx, workspaceId: string) => {
 const readMembership = async (tx: Tx, workspaceId: string, person: Person) => {
   const [row] = await tx
     .select({
+      id: institutionMemberships.id,
       status: institutionMemberships.status,
       membershipRole: institutionMemberships.membershipRole,
     })
@@ -2033,7 +2034,7 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
       });
     });
 
-    it("refuses while a workspace the account owns alone is addressed at its username", async () => {
+    it("deletes the sole owner of a workspace addressed at its username and readdresses the workspace", async () => {
       await inRollback(async (tx) => {
         const operator = await plantPerson(tx, "ops", "operator");
         const target = await plantPerson(tx, "target", "host");
@@ -2044,16 +2045,13 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
           "personal",
         );
         const addressed = await plantUsernameSlug(tx, workspace, target);
-        const before = await readWorkspaceRow(tx, workspace.id);
 
-        const error = await expectCode(
-          deleteAccountOf(tx, operator, target),
-          "deidentify_institution_named_after_username",
-          409,
-        );
+        const result = await deleteAccountOf(tx, operator, target);
 
-        expect(error.message).toBe(`Ganti nama dan alamat institusi ${addressed.slug} dulu.`);
-        await expectNothingWritten(tx, target, addressed, before);
+        expect(result.soleOwnedInstitutionIds).toEqual([workspace.id]);
+        expectScrubbed(await readWorkspaceRow(tx, workspace.id), addressed);
+        expect((await readUser(tx, target.id))!.status).toBe("deactivated");
+        expect((await readMembership(tx, workspace.id, target)).status).toBe("revoked");
       });
     });
 
@@ -2089,7 +2087,7 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
       });
     });
 
-    it("proceeds when the account is only staff of a workspace named after its username", async () => {
+    it("refuses while the account is staff of a workspace named after its username, and writes nothing", async () => {
       await inRollback(async (tx) => {
         const operator = await plantPerson(tx, "ops", "operator");
         const target = await plantPerson(tx, "target", "host");
@@ -2101,14 +2099,19 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
           "personal",
         );
         await addMember(tx, coOwner, workspace, target, "institution_staff");
+        const before = await readWorkspaceRow(tx, workspace.id);
 
-        const result = await deleteAccountOf(tx, operator, target);
+        const error = await expectCode(
+          deleteAccountOf(tx, operator, target),
+          "deidentify_institution_named_after_username",
+          409,
+        );
 
-        expect(result.soleOwnedInstitutionIds).toEqual([]);
-        expect((await readMembership(tx, workspace.id, target)).status).toBe("revoked");
-        const row = await readWorkspaceRow(tx, workspace.id);
-        expect(row.displayName).toBe(`${target.username}'s Institution`);
-        expect(row.suspendedAt).toBeNull();
+        expect(error.message).toBe(`Ganti nama dan alamat institusi ${workspace.slug} dulu.`);
+        await expectNothingWritten(tx, target, workspace, before);
+        const membership = await readMembership(tx, workspace.id, target);
+        expect(membership.status).toBe("active");
+        expect(membership.membershipRole).toBe("institution_staff");
       });
     });
 
@@ -2132,6 +2135,148 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
         expect((await readMembership(tx, workspace.id, coOwner)).status).toBe("active");
         const row = await readWorkspaceRow(tx, workspace.id);
         expect(row.displayName).toBe(`${target.username}'s Institution`);
+        expect(row.suspendedAt).toBeNull();
+      });
+    });
+
+    it("refuses while the account was demoted to staff of a workspace addressed at its username, and writes nothing", async () => {
+      await inRollback(async (tx) => {
+        const operator = await plantPerson(tx, "ops", "operator");
+        const target = await plantPerson(tx, "target", "host");
+        const coOwner = await plantPerson(tx, "coowner", "host");
+        const workspace = await createWorkspace(
+          tx,
+          target,
+          `Ruang Lama ${uniqueSuffix()}`,
+          "personal",
+        );
+        await addMember(tx, target, workspace, coOwner, "institution_owner");
+        const addressed = await plantUsernameSlug(tx, workspace, target);
+        await changeMemberRole(
+          coOwner.id,
+          addressed.slug,
+          (await readMembership(tx, workspace.id, target)).id,
+          "institution_staff",
+          tx as unknown as Database,
+        );
+        const before = await readWorkspaceRow(tx, workspace.id);
+
+        const error = await expectCode(
+          deleteAccountOf(tx, operator, target),
+          "deidentify_institution_named_after_username",
+          409,
+        );
+
+        expect(error.message).toBe(`Ganti nama dan alamat institusi ${addressed.slug} dulu.`);
+        await expectNothingWritten(tx, target, addressed, before);
+        const membership = await readMembership(tx, workspace.id, target);
+        expect(membership.status).toBe("active");
+        expect(membership.membershipRole).toBe("institution_staff");
+      });
+    });
+
+    it("refuses while the account was removed from a workspace addressed at its username, and writes nothing", async () => {
+      await inRollback(async (tx) => {
+        const operator = await plantPerson(tx, "ops", "operator");
+        const target = await plantPerson(tx, "target", "host");
+        const coOwner = await plantPerson(tx, "coowner", "host");
+        const workspace = await createWorkspace(
+          tx,
+          target,
+          `Ruang Lama ${uniqueSuffix()}`,
+          "personal",
+        );
+        await addMember(tx, target, workspace, coOwner, "institution_owner");
+        const addressed = await plantUsernameSlug(tx, workspace, target);
+        await removeMember(
+          coOwner.id,
+          addressed.slug,
+          (await readMembership(tx, workspace.id, target)).id,
+          tx as unknown as Database,
+        );
+        const before = await readWorkspaceRow(tx, workspace.id);
+
+        const error = await expectCode(
+          deleteAccountOf(tx, operator, target),
+          "deidentify_institution_named_after_username",
+          409,
+        );
+
+        expect(error.message).toBe(`Ganti nama dan alamat institusi ${addressed.slug} dulu.`);
+        await expectNothingWritten(tx, target, addressed, before);
+        expect((await readMembership(tx, workspace.id, target)).status).toBe("revoked");
+      });
+    });
+
+    it("refuses when a co-owner names the workspace after the username after the first read, and writes nothing", async () => {
+      await inRollback(async (tx) => {
+        const operator = await plantPerson(tx, "ops", "operator");
+        const target = await plantPerson(tx, "target", "host");
+        const coOwner = await plantPerson(tx, "coowner", "host");
+        const workspace = await createWorkspace(
+          tx,
+          target,
+          `Ruang Kerja ${uniqueSuffix()}`,
+          "personal",
+        );
+        await addMember(tx, target, workspace, coOwner, "institution_owner");
+
+        // The rename lands after the first read and before the rehearsal, so only the rehearsal
+        // and the commit can see it.
+        const error = await expectCode(
+          run(
+            tx,
+            operator.id,
+            target.id,
+            { confirmUsername: target.username, reason: "permintaan pemilik" },
+            {
+              beforeTransaction: {
+                nth: 2,
+                run: async () => {
+                  await updateInstitutionWorkspaceForOwnerBySlug(
+                    coOwner.id,
+                    workspace.slug,
+                    { displayName: `${target.username}'s Institution` },
+                    tx as never,
+                  );
+                },
+              },
+            },
+          ),
+          "deidentify_institution_named_after_username",
+          409,
+        );
+
+        expect(error.message).toBe(`Ganti nama dan alamat institusi ${workspace.slug} dulu.`);
+        await expectNothingWritten(tx, target, workspace, {
+          slug: workspace.slug,
+          displayName: `${target.username}'s Institution`,
+        });
+        expect((await readMembership(tx, workspace.id, target)).status).toBe("active");
+      });
+    });
+
+    it("deletes the account when a workspace it never joined sits at its username address, and leaves that workspace as it is", async () => {
+      await inRollback(async (tx) => {
+        const operator = await plantPerson(tx, "ops", "operator");
+        const target = await plantPerson(tx, "target", "host");
+        const coOwner = await plantPerson(tx, "coowner", "host");
+        const workspace = await createWorkspace(
+          tx,
+          coOwner,
+          `Ruang Orang Lain ${uniqueSuffix()}`,
+          "personal",
+        );
+        const addressed = await plantUsernameSlug(tx, workspace, target);
+        const before = await readWorkspaceRow(tx, workspace.id);
+
+        const result = await deleteAccountOf(tx, operator, target);
+
+        expect(result.soleOwnedInstitutionIds).toEqual([]);
+        expect((await readUser(tx, target.id))!.status).toBe("deactivated");
+        const row = await readWorkspaceRow(tx, workspace.id);
+        expect(row.slug).toBe(addressed.slug);
+        expect(row.displayName).toBe(before.displayName);
         expect(row.suspendedAt).toBeNull();
       });
     });
@@ -2869,6 +3014,83 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
         // Spelled out rather than implied: the two objects the late registration owns are on top of
         // the eleven the fixture planted.
         expect(result.objectsDeleted).toBe(expectedDeletedKeys(f).length + 2);
+      });
+    });
+
+    it("refuses with a retry when a workspace becomes owned alone after the files were listed, and lists its files on the rerun", async () => {
+      await inRollback(async (tx) => {
+        const operator = await plantPerson(tx, "ops", "operator");
+        const target = await plantPerson(tx, "target", "host");
+        const coOwner = await plantPerson(tx, "coowner", "host");
+        const workspace = await createWorkspace(
+          tx,
+          target,
+          `Hadiah Pasti ${uniqueSuffix()}`,
+          "company",
+        );
+        await addMember(tx, target, workspace, coOwner, "institution_owner");
+        await plantWorkspaceProfile(tx, workspace);
+        const coOwnerMembershipId = (await readMembership(tx, workspace.id, coOwner)).id;
+        const before = await readWorkspaceRow(tx, workspace.id);
+        const keys = profileObjectKeys(workspace);
+
+        // The other owner is removed after the files stage and before the commit, through the
+        // member service, so the commit finds a workspace owned alone that no stage listed.
+        await expectCode(
+          run(
+            tx,
+            operator.id,
+            target.id,
+            { confirmUsername: target.username, reason: "permintaan pemilik" },
+            {
+              beforeTransaction: {
+                nth: 3,
+                run: async () => {
+                  await removeMember(
+                    target.id,
+                    workspace.slug,
+                    coOwnerMembershipId,
+                    tx as unknown as Database,
+                  );
+                },
+              },
+            },
+          ),
+          "deidentify_retry",
+          503,
+        );
+
+        expect((await readUser(tx, target.id))!.status).toBe("active");
+        const row = await readWorkspaceRow(tx, workspace.id);
+        expect(row.displayName).toBe(before.displayName);
+        expect(row.slug).toBe(workspace.slug);
+        expect(row.suspendedAt).toBeNull();
+        expect(row.logoR2Key).toBe(keys.logo);
+        expect((await readMembership(tx, workspace.id, coOwner)).status).toBe("revoked");
+        expect(r2.listed.some((prefix) => prefix.includes(workspace.id))).toBe(false);
+        expect(r2.objects).toContain(keys.logo);
+        expect(r2.objects).toContain(keys.banner);
+
+        r2.listed = [];
+        r2.deleted = [];
+
+        const result = await deleteAccountOf(tx, operator, target);
+
+        expect(result.soleOwnedInstitutionIds).toEqual([workspace.id]);
+        const workspacePrefixes = deidentificationObjectPrefixes({
+          userId: target.id,
+          registrations: [],
+          soleOwnedInstitutionIds: [workspace.id],
+        }).filter((prefix) => prefix.includes(workspace.id));
+        expect(workspacePrefixes).toHaveLength(4);
+
+        for (const prefix of workspacePrefixes) {
+          expect(r2.listed).toContain(prefix);
+        }
+
+        expect(r2.deleted).toContain(keys.logo);
+        expect(r2.deleted).toContain(keys.banner);
+        expectScrubbed(await readWorkspaceRow(tx, workspace.id), workspace);
       });
     });
   });

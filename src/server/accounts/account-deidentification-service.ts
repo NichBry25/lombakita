@@ -1,4 +1,4 @@
-import { and, count, eq, gt, inArray, isNotNull, ne, or, sql } from "drizzle-orm";
+import { and, count, eq, gt, inArray, isNotNull, ne, notInArray, or, sql } from "drizzle-orm";
 import { logger } from "@/lib/logger";
 import { toDialDigits } from "@/lib/competitions/organizer-contact";
 import { getDb, type Database } from "@/server/db/client";
@@ -525,27 +525,42 @@ const assertNoOpenPricedPaymentInSoleOwnedInstitutions = async (
   );
 };
 
-// A workspace named or addressed after the username keeps the person searchable after the
-// deletion, so its owner renames it first. Every workspace the account owns is read, owned alone
-// or not.
-const assertNoOwnedInstitutionNamedAfterUsername = async (
+// A workspace named or addressed after the username keeps the person findable by it after the
+// deletion. The address is read on every workspace the account ever joined, whatever its role
+// now, so a workspace it was moved out of still counts and one it never joined does not. The
+// name is free text any owner can type, so it is read only where the account is an active
+// member. A workspace the account owns alone is left out, because the deletion renames and
+// readdresses it.
+const assertNoInstitutionNamedAfterUsername = async (
   tx: OperatorActorTransaction,
   accountId: string,
   username: string,
+  soleOwnedInstitutionIds: readonly string[],
 ): Promise<void> => {
   const usernameSlug = deriveInstitutionSlugBase(username);
   const usernameName = `${username}'s Institution`;
+  const accountIsActiveMember = sql`exists (
+    select 1 from institution_memberships mine
+    where mine.institution_id = ${institutions.id}
+      and mine.user_id = ${accountId}
+      and mine.status = 'active'
+  )`;
+  const accountEverJoined = sql`exists (
+    select 1 from institution_memberships joined
+    where joined.institution_id = ${institutions.id}
+      and joined.user_id = ${accountId}
+  )`;
 
   const rows = await tx
-    .selectDistinct({ slug: institutions.slug })
-    .from(institutionMemberships)
-    .innerJoin(institutions, eq(institutions.id, institutionMemberships.institutionId))
+    .select({ slug: institutions.slug })
+    .from(institutions)
     .where(
       and(
-        eq(institutionMemberships.userId, accountId),
-        eq(institutionMemberships.membershipRole, "institution_owner"),
-        eq(institutionMemberships.status, "active"),
-        or(eq(institutions.slug, usernameSlug), eq(institutions.displayName, usernameName)),
+        or(
+          and(eq(institutions.slug, usernameSlug), accountEverJoined),
+          and(eq(institutions.displayName, usernameName), accountIsActiveMember),
+        ),
+        notInArray(institutions.id, [...soleOwnedInstitutionIds]),
       ),
     )
     .orderBy(institutions.slug);
@@ -655,9 +670,14 @@ const assertTargetIsEligible = async (
 
   await assertNotLastActiveOwner(tx, accountId);
 
-  await assertNoOwnedInstitutionNamedAfterUsername(tx, accountId, target.username);
-
   const soleOwnedInstitutionIds = await findInstitutionsOwnedSolelyByTarget(tx, accountId);
+
+  await assertNoInstitutionNamedAfterUsername(
+    tx,
+    accountId,
+    target.username,
+    soleOwnedInstitutionIds,
+  );
 
   await assertNoOpenInvitationInSoleOwnedInstitutions(tx, soleOwnedInstitutionIds);
   await assertNoTransferAwaitingReviewInSoleOwnedInstitutions(tx, soleOwnedInstitutionIds);
@@ -921,18 +941,35 @@ const readCompetitionIdsOf = async (
   return rows.map((row) => row.id);
 };
 
+// The storage stage deleted the files of the institutions the rehearsal found owned alone, so the
+// commit may anonymise only those. Both lists come from findInstitutionsOwnedSolelyByTarget, ordered
+// by id, so the same set is the same list. A set that changed between the two stages is refused
+// before anything is written, and a rerun lists the files of the new set.
+const assertSoleOwnedSetUnchangedSinceRehearsal = (
+  rehearsedIds: readonly string[],
+  committingIds: readonly string[],
+): void => {
+  if (committingIds.join(",") === rehearsedIds.join(",")) {
+    return;
+  }
+
+  throw new DeidentificationError("deidentify_retry", 503, DEIDENTIFY_RETRY_MESSAGE);
+};
+
 /**
  * Every write the action performs, against a transaction handle the caller owns.
  *
- * Called twice with the same arguments: once inside a transaction that rolls back, once inside the
- * one that commits. It does not know which, and it must not — a rehearsal flag threaded through
- * here would be a second code path wearing the first one's name.
+ * Called twice: once inside a transaction that rolls back, once inside the one that commits. Every
+ * write runs the same way in both. The commit alone is handed the institutions the rehearsal found
+ * owned alone, because the storage stage deleted the files of exactly those, and the rehearsal
+ * passes null, because no stage before it listed any file.
  */
 const runDeidentificationWrites = async (
   tx: OperatorActorTransaction,
   actorUserId: string,
   accountId: string,
   input: DeidentifyAccountInput,
+  rehearsedSoleOwnedInstitutionIds: readonly string[] | null,
 ): Promise<WriteOutcome> => {
   // Resolved from THIS handle, never passed in (LAUNCH-D141). An actor resolved in the pre-read is
   // one a suspension can overtake before this row is written.
@@ -987,11 +1024,17 @@ const runDeidentificationWrites = async (
   }
 
   // The pre-read's values are not reused: this transaction answers every question itself, from its
-  // own handle and under its own lock. That covers the institutions the target owns alone, which are
-  // resolved here rather than handed in: a membership that starts or ends between the two stages
-  // would otherwise leave this run writing to institutions the pre-read chose.
+  // own handle and under its own lock, the institutions the target owns alone included. The set
+  // the rehearsal found is handed in only to be compared with this one, below.
   const facts = await assertTargetIsEligible(tx, accountId, input);
   const soleOwnedInstitutionIds = facts.soleOwnedInstitutionIds;
+
+  if (rehearsedSoleOwnedInstitutionIds !== null) {
+    assertSoleOwnedSetUnchangedSinceRehearsal(
+      rehearsedSoleOwnedInstitutionIds,
+      soleOwnedInstitutionIds,
+    );
+  }
 
   const rowsDeleted: Record<string, number> = {};
   const rowsScrubbed: Record<string, number> = {};
@@ -1562,12 +1605,19 @@ const performWrites = async (
   accountId: string,
   input: DeidentifyAccountInput,
   rehearsal: boolean,
+  rehearsedSoleOwnedInstitutionIds: readonly string[] | null,
 ): Promise<WriteOutcome> => {
   let rollbackThrown = false;
 
   const outcome = await db
     .transaction(async (tx) => {
-      const written = await runDeidentificationWrites(tx, actorUserId, accountId, input);
+      const written = await runDeidentificationWrites(
+        tx,
+        actorUserId,
+        accountId,
+        input,
+        rehearsedSoleOwnedInstitutionIds,
+      );
 
       if (rehearsal) {
         rollbackThrown = true;
@@ -1690,7 +1740,7 @@ export const deidentifyAccount = async (
   let rehearsal: WriteOutcome;
 
   try {
-    rehearsal = await performWrites(db, actorUserId, accountId, input, true);
+    rehearsal = await performWrites(db, actorUserId, accountId, input, true, null);
   } catch (error) {
     // A refusal this service already knows how to name is the answer, even from inside the
     // rehearsal: the re-run preconditions run in the same statement order here as they do in the
@@ -1751,7 +1801,14 @@ export const deidentifyAccount = async (
   let outcome: WriteOutcome;
 
   try {
-    outcome = await performWrites(db, actorUserId, accountId, input, false);
+    outcome = await performWrites(
+      db,
+      actorUserId,
+      accountId,
+      input,
+      false,
+      rehearsal.soleOwnedInstitutionIds,
+    );
   } catch (error) {
     if (error instanceof DeidentificationError || error instanceof OperatorActorError) {
       throw error;
