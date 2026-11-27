@@ -142,7 +142,7 @@ import {
   verifyEmailCodeAndSetPassword,
 } from "@/server/auth/credentials-auth";
 import { markRoleAsVerified } from "@/server/auth/role-verification";
-import { createPersonalInstitutionForUser } from "@/server/institution-workspace/institution-service";
+import { createInstitutionWorkspaceForUser } from "@/server/institution-workspace/institution-service";
 
 beforeAll(() => {
   routeState.testRunStarted = true;
@@ -594,7 +594,11 @@ describe.skipIf(skipWithoutDatabase)("the contact route against a real database"
       const secondAddress = `contact_second_${uniqueSuffix()}@example.test`;
       const secondOwnerId = await signUpHost(tx, secondAddress, "0812-3456-7009");
       const ownerId = await signUpHost(tx, ownerAddress, "0812-3456-7001");
-      const workspace = await createPersonalInstitutionForUser(ownerId, database);
+      const workspace = await createInstitutionWorkspaceForUser(
+        ownerId,
+        { displayName: `Ruang Kerja ${ownerId.slice(0, 8)}`, institutionType: "personal" },
+        database,
+      );
       const draft = await createCompetitionDraft(
         ownerId,
         {
