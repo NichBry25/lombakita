@@ -28,6 +28,8 @@ const mocks = vi.hoisted(() => ({
   enqueueApproved: vi.fn(async (_input: unknown) => ({})),
 }));
 
+const jobState = vi.hoisted(() => ({ db: null as Database | null }));
+
 vi.mock("@/config/env.server", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/config/env.server")>();
   return {
@@ -82,6 +84,17 @@ vi.mock("@/server/async/enqueue", async (importOriginal) => {
   };
 });
 
+vi.mock("@/server/db/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/server/db/client")>();
+  return { ...actual, getDb: () => jobState.db ?? actual.getDb() };
+});
+
+// No test here uses storage, so the retention job sees it unavailable and runs only the record purge.
+vi.mock("@/server/storage/r2.client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/server/storage/r2.client")>();
+  return { ...actual, isR2Available: () => false };
+});
+
 import { serverEnv } from "@/config/env.server";
 import {
   registerUserWithCredentials,
@@ -105,6 +118,10 @@ import {
   recordRemovedHostIdentity,
   type HostIdentifierKind,
 } from "./removed-host-identity";
+import {
+  processRetentionPurgeJob,
+  type RetentionPurgeJob,
+} from "@/server/async/jobs/retention-purge";
 
 const PASSWORD = "fresh-pass-3";
 
@@ -147,6 +164,7 @@ beforeEach(() => {
   mocks.windowCounts.clear();
   mocks.enqueueRemoved.mockClear();
   mocks.enqueueApproved.mockClear();
+  jobState.db = null;
   useHostIdentityKey(hostKeys.one);
 });
 
@@ -537,6 +555,8 @@ describe.skipIf(skipWithoutDatabase)("the trust removal record against a real da
       const operator = await plantOperator(tx, OPERATOR_ADDRESS);
       const rudi = await removeRudi(tx, operator);
       await backdateRemoval(tx, rudi, "2 years 1 day");
+      // Planted directly: the record the removal wrote goes, as the daily purge deletes it 2 years on.
+      await tx.delete(schema.hostTrustRemovals).where(eq(schema.hostTrustRemovals.userId, rudi));
       const putra = await signUpHost(tx, "putra.host@seed.lombakita.local", "0830-0000-1111");
 
       expect(await recordRemovedHostIdentity(tx, rudi)).toBe(false);
@@ -610,6 +630,35 @@ describe.skipIf(skipWithoutDatabase)("the trust removal record against a real da
       const match = await findRemovedHostMatch(tx, wawan);
 
       expect(match).toEqual({ matchedBy: ["email"], removedAt: await trustRemovedAtOf(tx, rudi) });
+    });
+  });
+
+  it("the daily retention job deletes the records older than 2 years with storage unavailable, and keeps the one from a year ago", async () => {
+    await inRollback(async (tx) => {
+      await clearRecordsInsideRollback(tx);
+      await plantRecord(
+        tx,
+        "2 years 1 day",
+        hashesOf("phone", ["6281234567890"]),
+        hostIdentityKeyCheck(),
+      );
+      const recent = await plantRecord(
+        tx,
+        "1 year",
+        hashesOf("phone", ["6282911113333"]),
+        hostIdentityKeyCheck(),
+      );
+      jobState.db = tx;
+
+      const outcome = await processRetentionPurgeJob({
+        data: { scheduledFor: "0 3 * * *" },
+      } as RetentionPurgeJob);
+
+      expect(outcome).toBeUndefined();
+      const left = await tx
+        .select({ id: schema.hostTrustRemovals.id })
+        .from(schema.hostTrustRemovals);
+      expect(left.map((row) => row.id)).toEqual([recent.id]);
     });
   });
 });

@@ -33,11 +33,17 @@ const routeState = vi.hoisted(() => ({
   actorUserId: null as string | null,
 }));
 
+const hostKeys = vi.hoisted(() => ({ one: Buffer.alloc(32, 11).toString("base64") }));
+
 vi.mock("@/config/env.server", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/config/env.server")>();
   return {
     ...actual,
-    serverEnv: { ...actual.serverEnv, authSecret: "test-registration-code-secret" },
+    serverEnv: {
+      ...actual.serverEnv,
+      authSecret: "test-registration-code-secret",
+      hostIdentityHashKey: hostKeys.one,
+    },
   };
 });
 
@@ -138,6 +144,7 @@ import { resolveCompetitionPublishReadiness } from "@/server/competitions/compet
 import { listHostChecks } from "./host-check-decision-service";
 import { readHostStatusForAccount } from "./host-check-service";
 import { removeHostTrust } from "./host-trust-removal-service";
+import { findRemovedHostMatch } from "./removed-host-identity";
 import { suspendInstitution } from "@/server/moderation/moderation-service";
 import { POST as publishRoute } from "@/app/api/v1/institutions/[institutionSlug]/competitions/[competitionId]/publish/route";
 import { POST as decideRoute } from "@/app/api/platform-ops/host-checks/[checkId]/route";
@@ -465,6 +472,15 @@ const trustRemovedAtOf = async (tx: Database, userId: string) => {
   if (!row) throw new Error("No user row");
   return row.hostTrustRemovedAt;
 };
+
+// Planted directly: the committed records of the local database, written under another key or by a
+// hand test, are removed inside the rolled-back transaction so they cannot change an answer.
+const clearRecordsInsideRollback = async (tx: Database): Promise<void> => {
+  await tx.delete(schema.hostTrustRemovals);
+};
+
+const recordsOf = (tx: Database, userId: string) =>
+  tx.select().from(schema.hostTrustRemovals).where(eq(schema.hostTrustRemovals.userId, userId));
 
 const competitionSlugOf = async (tx: Database, competitionId: string) => {
   const [row] = await tx
@@ -1071,6 +1087,70 @@ describe.skipIf(skipWithoutDatabase)("the staff decision on a host check (rolled
       expect(await competitionStatusOf(tx, draft)).toBe("published");
       expect(await tierOf(tx, host)).toBe("elevated");
       expect(await trustRemovedAtOf(tx, host)).toBeNull();
+    });
+  });
+
+  it("deletes the trust removal record when staff raise a removed host, so an account with its sign-up phone no longer matches", async () => {
+    await inRollback(async (tx) => {
+      await clearRecordsInsideRollback(tx);
+      const removedHost = await signUpHost(tx, OWNER_ADDRESS);
+      const operator = await plantOperator(tx, OPERATOR_ADDRESS);
+      await removeHostTrust(operator, removedHost, "Hadiah tidak sesuai.", tx);
+      const newcomer = await signUpHost(tx, UNTRUSTED_HOST_ADDRESS);
+      const removedAt = await trustRemovedAtOf(tx, removedHost);
+      expect(await recordsOf(tx, removedHost)).toHaveLength(1);
+      expect(await findRemovedHostMatch(tx, newcomer)).toEqual({ matchedBy: ["phone"], removedAt });
+
+      const raised = await raiseThroughRoute(tx, operator, removedHost);
+
+      expect(raised.status).toBe(200);
+      expect(raised.body).toEqual({ accountId: removedHost, tier: "elevated", changed: true });
+      expect(await recordsOf(tx, removedHost)).toEqual([]);
+      expect(await findRemovedHostMatch(tx, newcomer)).toBeNull();
+    });
+  });
+
+  it("deletes the trust removal record when staff approve the host check of a removed host, so an account with its sign-up phone no longer matches", async () => {
+    await inRollback(async (tx) => {
+      await clearRecordsInsideRollback(tx);
+      const removedHost = await signUpHost(tx, OWNER_ADDRESS);
+      const operator = await plantOperator(tx, OPERATOR_ADDRESS);
+      await removeHostTrust(operator, removedHost, "Hadiah tidak sesuai.", tx);
+      const newcomer = await signUpHost(tx, UNTRUSTED_HOST_ADDRESS);
+      const removedAt = await trustRemovedAtOf(tx, removedHost);
+      const { checkId } = await openCheckBy(tx, removedHost, FIRST_TITLE);
+      expect(await recordsOf(tx, removedHost)).toHaveLength(1);
+      expect(await findRemovedHostMatch(tx, newcomer)).toEqual({ matchedBy: ["phone"], removedAt });
+
+      const answered = await decideThroughRoute(tx, operator, checkId, APPROVE);
+
+      expect(answered.status).toBe(200);
+      expect(answered.body.hostCheck?.status).toBe("approved");
+      expect(await tierOf(tx, removedHost)).toBe("elevated");
+      expect(await recordsOf(tx, removedHost)).toEqual([]);
+      expect(await findRemovedHostMatch(tx, newcomer)).toBeNull();
+    });
+  });
+
+  it("keeps the trust removal record when staff turn down the host check of a removed host", async () => {
+    await inRollback(async (tx) => {
+      await clearRecordsInsideRollback(tx);
+      const removedHost = await signUpHost(tx, OWNER_ADDRESS);
+      const operator = await plantOperator(tx, OPERATOR_ADDRESS);
+      await removeHostTrust(operator, removedHost, "Hadiah tidak sesuai.", tx);
+      const newcomer = await signUpHost(tx, UNTRUSTED_HOST_ADDRESS);
+      const removedAt = await trustRemovedAtOf(tx, removedHost);
+      const { checkId } = await openCheckBy(tx, removedHost, FIRST_TITLE);
+      expect(await recordsOf(tx, removedHost)).toHaveLength(1);
+      expect(await findRemovedHostMatch(tx, newcomer)).toEqual({ matchedBy: ["phone"], removedAt });
+
+      const answered = await decideThroughRoute(tx, operator, checkId, TURN_DOWN);
+
+      expect(answered.status).toBe(200);
+      expect(answered.body.hostCheck?.status).toBe("rejected");
+      expect(await tierOf(tx, removedHost)).toBe("minimal");
+      expect(await recordsOf(tx, removedHost)).toHaveLength(1);
+      expect(await findRemovedHostMatch(tx, newcomer)).toEqual({ matchedBy: ["phone"], removedAt });
     });
   });
 

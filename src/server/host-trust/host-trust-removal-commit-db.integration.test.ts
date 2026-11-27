@@ -1,9 +1,10 @@
 // @vitest-environment node
 
-// Whether the trust removal opt-in outlives the removing transaction, against committed rows. A
-// rolled-back test cannot show it, because the opt-in is meant to end with its transaction. The two
-// accounts are planted directly and swept by their username marker, in afterEach and on a signal,
-// and afterAll asserts that none survived.
+// Whether the trust removal opt-in outlives the removing transaction, and whether the removal record
+// commits with the removal, against committed rows. A rolled-back test cannot show either, because
+// the opt-in is meant to end with its transaction. The two accounts are planted directly and swept by
+// their username marker, the removal record by this file's own key check, in afterEach and on a
+// signal, and afterAll asserts that none survived.
 
 import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
@@ -15,11 +16,17 @@ import { TEST_DATABASE_URL, skipWithoutDatabase } from "@/server/testing/databas
 
 const mocks = vi.hoisted(() => ({ enqueueRemoved: vi.fn(async (_input: unknown) => ({})) }));
 
+const COMMIT_HOST_KEY = vi.hoisted(() => Buffer.alloc(32, 44).toString("base64"));
+
 vi.mock("@/config/env.server", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/config/env.server")>();
   return {
     ...actual,
-    serverEnv: { ...actual.serverEnv, authSecret: "test-registration-code-secret" },
+    serverEnv: {
+      ...actual.serverEnv,
+      authSecret: "test-registration-code-secret",
+      hostIdentityHashKey: COMMIT_HOST_KEY,
+    },
   };
 });
 
@@ -29,6 +36,7 @@ vi.mock("@/server/async/enqueue", async (importOriginal) => {
 });
 
 import { removeHostTrust } from "./host-trust-removal-service";
+import { hostIdentityKeyCheck } from "./removed-host-identity";
 
 const COMMIT_MARKER = "host_trust_removal_commit";
 const REASON = "Kontak palsu di beberapa kompetisi.";
@@ -79,6 +87,9 @@ const seedCommittedHostAndOperator = async (): Promise<{ host: string; operator:
 const sweepCommittedRows = async (): Promise<void> => {
   if (!db) return;
   await db.execute(
+    sql`delete from host_trust_removals where key_check = ${hostIdentityKeyCheck()}`,
+  );
+  await db.execute(
     sql`delete from platform_ops_audit_logs where actor_user_id in (select id from users where username like ${markerPattern}) or target_user_id in (select id from users where username like ${markerPattern})`,
   );
   await db.execute(sql`delete from users where username like ${markerPattern}`);
@@ -88,6 +99,14 @@ const countCommittedAccounts = async (): Promise<number> => {
   if (!db) return 0;
   const rows = (await db.execute(
     sql`select count(*)::int as count from users where username like ${markerPattern}`,
+  )) as unknown as Array<{ count: number }>;
+  return rows[0]?.count ?? -1;
+};
+
+const countCommittedRecords = async (): Promise<number> => {
+  if (!db) return 0;
+  const rows = (await db.execute(
+    sql`select count(*)::int as count from host_trust_removals where key_check = ${hostIdentityKeyCheck()}`,
   )) as unknown as Array<{ count: number }>;
   return rows[0]?.count ?? -1;
 };
@@ -127,6 +146,9 @@ describe.skipIf(skipWithoutDatabase)(
       try {
         await sweepCommittedRows();
         expect(await countCommittedAccounts(), "committed accounts left behind").toBe(0);
+        expect(await countCommittedRecords(), "committed trust removal records left behind").toBe(
+          0,
+        );
       } finally {
         await client?.end();
       }
@@ -144,6 +166,24 @@ describe.skipIf(skipWithoutDatabase)(
         .where(eq(schema.users.id, host));
       expect(hostRow?.tier).toBe("minimal");
       expect((await readTrustRemovalSetting()) ?? "").toBe("");
+    });
+
+    it("commits the trust removal record with the removal, dated from it", async () => {
+      const { host, operator } = await seedCommittedHostAndOperator();
+
+      await removeHostTrust(operator, host, REASON, db as unknown as Database);
+
+      const records = await db!
+        .select()
+        .from(schema.hostTrustRemovals)
+        .where(eq(schema.hostTrustRemovals.userId, host));
+      const [hostRow] = await db!
+        .select({ hostTrustRemovedAt: schema.users.hostTrustRemovedAt })
+        .from(schema.users)
+        .where(eq(schema.users.id, host));
+      expect(records).toHaveLength(1);
+      expect(records[0]?.keyCheck).toBe(hostIdentityKeyCheck());
+      expect(records[0]?.removedAt).toEqual(hostRow?.hostTrustRemovedAt);
     });
   },
 );

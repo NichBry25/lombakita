@@ -6,6 +6,8 @@ import type { Job } from "bullmq";
 import { logger } from "@/lib/logger";
 import { isR2Available } from "@/server/storage/r2.client";
 import { ASYNC_JOB_NAMES, type RetentionPurgePayload } from "@/server/async/contracts";
+import { getDb } from "@/server/db/client";
+import { purgeExpiredHostTrustRemovals } from "@/server/host-trust/removed-host-identity";
 import {
   listCompetitionsDueForSubmissionPurge,
   purgeUnfinalizedSubmissionsForCompetition,
@@ -60,6 +62,19 @@ const sweepDueCompetitions = async (
   return { competitionsDue: due.length, competitionsPurged, competitionsFailed };
 };
 
+// The trust removal records live in the database alone, so they are purged whether or not storage is
+// available. A failure is logged and never stops the competition sweeps.
+const purgeExpiredTrustRemovalRecords = async (): Promise<void> => {
+  try {
+    const recordsPurged = await purgeExpiredHostTrustRemovals(getDb());
+    logger.info("retention.purge.host_trust_removals_completed", { recordsPurged });
+  } catch (error: unknown) {
+    logger.error("retention.purge.host_trust_removals_failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+};
+
 /**
  * The platform's retention sweep. Fires on a timer (never from a request) and reclaims, for every
  * competition past its grace window:
@@ -70,13 +85,16 @@ const sweepDueCompetitions = async (
  *   2. participant verification documents — students' identity documents, whose whole retention
  *      argument is that holding them after they stop being evidence is a liability.
  *
- * Both are no-ops when nothing is due, so the daily run is cheap on an idle platform.
+ * Both are no-ops when nothing is due, so the daily run is cheap on an idle platform. Before both,
+ * and before the storage check, it deletes the trust removal records older than 2 years.
  *
- * Storage being unavailable is a SKIP, not a failure: retrying a purge against absent storage
+ * Storage being unavailable skips the two sweeps above, not the run: retrying a purge against absent storage
  * would spin the queue for no benefit, and retention is not so time-critical that one missed day
  * matters. The next run picks it up.
  */
 export const processRetentionPurgeJob = async (job: RetentionPurgeJob): Promise<void> => {
+  await purgeExpiredTrustRemovalRecords();
+
   if (!isR2Available()) {
     logger.warn("retention.purge.skipped_storage_unavailable", {
       scheduledFor: job.data.scheduledFor,

@@ -37,6 +37,7 @@ import {
   liveDraftOfCheck,
 } from "@/server/host-trust/host-check-drafts";
 import { HOST_TRUST_REMOVED_EVENT } from "@/server/host-trust/host-trust-removal-service";
+import { liftRemovedHostRecord } from "@/server/host-trust/removed-host-identity";
 import {
   OperatorActorError,
   recordOperatorAuditEntry,
@@ -474,7 +475,8 @@ const closeHostCheckOrRefuse = async (
   return refuseUndecidableHostCheck(tx, checkId);
 };
 
-// An approval is the staff decision to trust this person, so it also clears a staff trust removal.
+// An approval is the staff decision to trust this person, so it also clears a staff trust removal
+// and deletes its record.
 // An account without the host role is refused, as the staff raise refuses one.
 const trustApprovedHost = async (tx: OperatorActorTransaction, userId: string): Promise<void> => {
   const trustedRows = await tx
@@ -486,7 +488,10 @@ const trustApprovedHost = async (tx: OperatorActorTransaction, userId: string): 
     })
     .where(and(eq(users.id, userId), isNotNull(users.recruiterVerifiedAt)))
     .returning({ id: users.id });
-  if (trustedRows.length > 0) return;
+  if (trustedRows.length > 0) {
+    await liftRemovedHostRecord(tx, userId);
+    return;
+  }
   throw new HostCheckDecisionError(
     "host_check_target_not_host",
     422,

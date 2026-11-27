@@ -7,7 +7,7 @@
 // planted directly only where this file does not drive its writer, and each such helper says so.
 
 import { randomUUID } from "node:crypto";
-import { TransactionRollbackError, and, asc, eq } from "drizzle-orm";
+import { TransactionRollbackError, and, asc, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -32,11 +32,17 @@ const routeState = vi.hoisted(() => ({
   actorUserId: null as string | null,
 }));
 
+const hostKeys = vi.hoisted(() => ({ one: Buffer.alloc(32, 11).toString("base64") }));
+
 vi.mock("@/config/env.server", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/config/env.server")>();
   return {
     ...actual,
-    serverEnv: { ...actual.serverEnv, authSecret: "test-registration-code-secret" },
+    serverEnv: {
+      ...actual.serverEnv,
+      authSecret: "test-registration-code-secret",
+      hostIdentityHashKey: hostKeys.one,
+    },
   };
 });
 
@@ -150,7 +156,10 @@ import {
   issueOrganizationEmailCode,
 } from "./organization-email-service";
 import { removeHostTrust } from "./host-trust-removal-service";
-import { deidentifyAccount } from "@/server/accounts/account-deidentification-service";
+import {
+  DeidentificationError,
+  deidentifyAccount,
+} from "@/server/accounts/account-deidentification-service";
 import { acceptInstitutionInvitationForUser } from "@/server/institution-invitations/invitation-service";
 import { POST as publishRoute } from "@/app/api/v1/institutions/[institutionSlug]/competitions/[competitionId]/publish/route";
 import { PATCH as patchCompetitionRoute } from "@/app/api/v1/competitions/[competitionId]/route";
@@ -168,6 +177,14 @@ import {
   type HostTrustRemovedJob,
 } from "@/server/async/jobs/host-trust-removed";
 import { SESSION_USER_HEADER } from "@/lib/session/session-fetch";
+import { serverEnv } from "@/config/env.server";
+import { updateCandidateProfile } from "@/server/candidate/candidate-profile-service";
+import {
+  HostIdentityKeyError,
+  hashHostIdentifier,
+  hostIdentityKeyCheck,
+  type HostIdentifierKind,
+} from "./removed-host-identity";
 
 const PASSWORD = "fresh-pass-3";
 
@@ -209,6 +226,7 @@ beforeEach(() => {
   mocks.enqueueRemoved.mockClear();
   mocks.enqueueApproved.mockClear();
   mocks.sendRemovedEmail.mockClear();
+  useHostIdentityKey(hostKeys.one);
 });
 
 const latestCode = (): string => {
@@ -885,6 +903,233 @@ describe.skipIf(skipWithoutDatabase)("the staff removal of a host's trust (rolle
       expect(pressed.body.hostCheck?.status).toBe("pending_review");
       expect(await competitionStatusOf(tx, draft)).toBe("draft");
       expect(await tierOf(tx, host)).toBe("minimal");
+    });
+  });
+});
+
+const LOCAL_HOST_ADDRESS = "budi.lokal@seed.lombakita.local";
+
+const useHostIdentityKey = (value: string | undefined) => {
+  (serverEnv as { hostIdentityHashKey?: string }).hostIdentityHashKey = value;
+};
+
+// Planted directly: inside one test transaction a removal and a record share one clock, so the
+// removal is moved back to tell them apart, or to stand in for an old removal no path writes.
+const backdateRemoval = async (tx: Database, userId: string, interval: string): Promise<void> => {
+  await tx
+    .update(schema.users)
+    .set({ hostTrustRemovedAt: sql`now() - ${interval}::interval` })
+    .where(eq(schema.users.id, userId));
+};
+
+// Planted directly: stands in for the daily purge, which deletes a record 2 years after its removal.
+const purgeRecordOf = async (tx: Database, userId: string): Promise<void> => {
+  await tx.delete(schema.hostTrustRemovals).where(eq(schema.hostTrustRemovals.userId, userId));
+};
+
+const recordsOf = (tx: Database, userId: string) =>
+  tx.select().from(schema.hostTrustRemovals).where(eq(schema.hostTrustRemovals.userId, userId));
+
+const removalTimeMatchesAccount = async (tx: Database, userId: string): Promise<boolean> => {
+  const [row] = await tx
+    .select({
+      matches: sql<boolean>`${schema.hostTrustRemovals.removedAt} = ${schema.users.hostTrustRemovedAt}`,
+    })
+    .from(schema.hostTrustRemovals)
+    .innerJoin(schema.users, eq(schema.users.id, schema.hostTrustRemovals.userId))
+    .where(eq(schema.hostTrustRemovals.userId, userId));
+  return row?.matches ?? false;
+};
+
+const hashesOf = (kind: HostIdentifierKind, values: string[]): string[] =>
+  values.map((value) => hashHostIdentifier(kind, value)).sort();
+
+const sortedCopy = (values: string[]): string[] => [...values].sort();
+
+// A removed host's confirm saves the address without trusting it, so this serves a trusted and a
+// removed host alike.
+const confirmOrganizationEmail = async (
+  tx: Database,
+  userId: string,
+  address: string,
+): Promise<void> => {
+  await issueOrganizationEmailCode(userId, address, tx);
+  await confirmOrganizationEmailCode(userId, latestOrganizationCode(), tx);
+};
+
+const signUpHostTrustedByOrganizationEmail = async (tx: Database): Promise<string> => {
+  const host = await signUpHost(tx, LOCAL_HOST_ADDRESS);
+  await confirmOrganizationEmail(tx, host, "Budi+Lomba@Acme.example");
+  return host;
+};
+
+const accountRowOf = async (tx: Database, userId: string) => {
+  const [row] = await tx
+    .select({ status: schema.users.status, email: schema.users.email })
+    .from(schema.users)
+    .where(eq(schema.users.id, userId));
+  if (!row) throw new Error("No user row");
+  return row;
+};
+
+const organizationEmailRowsOf = (tx: Database, userId: string) =>
+  tx
+    .select()
+    .from(schema.hostOrganizationEmails)
+    .where(eq(schema.hostOrganizationEmails.userId, userId));
+
+describe.skipIf(skipWithoutDatabase)("the trust removal record (rolled back)", () => {
+  it("records the removed host's sign-in email, Email organisasi and sign-up phone with its organization domain, dated from the removal, when staff remove its trust through the route", async () => {
+    await inRollback(async (tx) => {
+      const host = await signUpHostTrustedByOrganizationEmail(tx);
+      expect(await tierOf(tx, host)).toBe("elevated");
+      const operator = await plantOperator(tx, OPERATOR_ADDRESS);
+
+      const removed = await removeThroughRoute(tx, operator, host, { reason: REASON });
+
+      expect(removed.status).toBe(200);
+      const records = await recordsOf(tx, host);
+      expect(records).toHaveLength(1);
+      expect(records[0]?.userId).toBe(host);
+      expect(sortedCopy(records[0]?.emailHashes ?? [])).toEqual(
+        hashesOf("email", ["budi.lokal@seed.lombakita.local", "budi@acme.example"]),
+      );
+      expect(sortedCopy(records[0]?.phoneHashes ?? [])).toEqual(hashesOf("phone", ["62812345678"]));
+      expect(records[0]?.organizationDomain).toBe("acme.example");
+      expect(records[0]?.keyCheck).toBe(hostIdentityKeyCheck());
+      expect(await removalTimeMatchesAccount(tx, host)).toBe(true);
+    });
+  });
+
+  it("refuses a removal whose record cannot be written and leaves the host trusted, with no removal, no audit row and no record", async () => {
+    await inRollback(async (tx) => {
+      const host = await signUpHostTrustedByOrganizationEmail(tx);
+      const operator = await plantOperator(tx, OPERATOR_ADDRESS);
+      useHostIdentityKey(undefined);
+
+      const refusal = await removeHostTrust(operator, host, REASON, tx).then(
+        () => null,
+        (caught: unknown) => caught,
+      );
+
+      expect(refusal).toBeInstanceOf(HostIdentityKeyError);
+      expect((refusal as HostIdentityKeyError).code).toBe("host_identity_key_missing");
+      expect(await tierOf(tx, host)).toBe("elevated");
+      expect(await trustRemovedAtOf(tx, host)).toBeNull();
+      const removalAuditRows = (await auditRowsOf(tx, host)).filter(
+        (row) => row.eventType === "host_trust.removed",
+      );
+      expect(removalAuditRows).toEqual([]);
+      expect(await recordsOf(tx, host)).toEqual([]);
+      expect(mocks.enqueueRemoved).not.toHaveBeenCalled();
+    });
+  });
+
+  it("keeps the record through the account's deletion and adds the Email organisasi and sign-up phone it changed after the removal, with the removal time unchanged", async () => {
+    await inRollback(async (tx) => {
+      const host = await signUpHostTrustedByOrganizationEmail(tx);
+      const operator = await plantOperator(tx, OPERATOR_ADDRESS);
+      const removed = await removeThroughRoute(tx, operator, host, { reason: REASON });
+      expect(removed.status).toBe(200);
+      const removedAt = await trustRemovedAtOf(tx, host);
+      await confirmOrganizationEmail(tx, host, "baru@acme.example");
+      await updateCandidateProfile(host, { phoneNumber: "0823-4444-5555" }, tx);
+
+      await deidentifyAccount(
+        operator,
+        host,
+        { confirmUsername: await usernameOf(tx, host), reason: "permintaan pemilik" },
+        savepointShimFor(tx),
+      );
+
+      const records = await recordsOf(tx, host);
+      expect(records).toHaveLength(1);
+      expect(records[0]?.userId).toBe(host);
+      expect(sortedCopy(records[0]?.emailHashes ?? [])).toEqual(
+        hashesOf("email", [
+          "budi.lokal@seed.lombakita.local",
+          "budi@acme.example",
+          "baru@acme.example",
+        ]),
+      );
+      expect(sortedCopy(records[0]?.phoneHashes ?? [])).toEqual(
+        hashesOf("phone", ["62812345678", "6282344445555"]),
+      );
+      expect(records[0]?.organizationDomain).toBe("acme.example");
+      expect(records[0]?.removedAt).toEqual(removedAt);
+      expect(await removalTimeMatchesAccount(tx, host)).toBe(true);
+      expect(await organizationEmailRowsOf(tx, host)).toEqual([]);
+    });
+  });
+
+  it("writes no record when an account whose trust staff never removed is deleted", async () => {
+    await inRollback(async (tx) => {
+      const dewi = await signUpHost(tx, "dewi.lokal@seed.lombakita.local");
+      await confirmOrganizationEmail(tx, dewi, "dewi@acme.example");
+      const operator = await plantOperator(tx, OPERATOR_ADDRESS);
+
+      await deidentifyAccount(
+        operator,
+        dewi,
+        { confirmUsername: await usernameOf(tx, dewi), reason: "permintaan pemilik" },
+        savepointShimFor(tx),
+      );
+
+      expect(await recordsOf(tx, dewi)).toEqual([]);
+    });
+  });
+
+  it("writes no record when an account whose removal is older than 2 years is deleted", async () => {
+    await inRollback(async (tx) => {
+      const host = await signUpHostTrustedByOrganizationEmail(tx);
+      const operator = await plantOperator(tx, OPERATOR_ADDRESS);
+      const removed = await removeThroughRoute(tx, operator, host, { reason: REASON });
+      expect(removed.status).toBe(200);
+      await purgeRecordOf(tx, host);
+      await backdateRemoval(tx, host, "2 years 1 day");
+
+      await deidentifyAccount(
+        operator,
+        host,
+        { confirmUsername: await usernameOf(tx, host), reason: "permintaan pemilik" },
+        savepointShimFor(tx),
+      );
+
+      expect(await recordsOf(tx, host)).toEqual([]);
+    });
+  });
+
+  it("refuses to delete a removed account while its record cannot be written, and changes nothing", async () => {
+    await inRollback(async (tx) => {
+      const host = await signUpHostTrustedByOrganizationEmail(tx);
+      const operator = await plantOperator(tx, OPERATOR_ADDRESS);
+      const removed = await removeThroughRoute(tx, operator, host, { reason: REASON });
+      expect(removed.status).toBe(200);
+      const expectedEmailHashes = hashesOf("email", [
+        "budi.lokal@seed.lombakita.local",
+        "budi@acme.example",
+      ]);
+      useHostIdentityKey(undefined);
+
+      const refusal = await deidentifyAccount(
+        operator,
+        host,
+        { confirmUsername: await usernameOf(tx, host), reason: "permintaan pemilik" },
+        savepointShimFor(tx),
+      ).then(
+        () => null,
+        (caught: unknown) => caught,
+      );
+
+      expect(refusal).toBeInstanceOf(DeidentificationError);
+      expect((refusal as DeidentificationError).code).toBe("deidentify_rehearsal_failed");
+      expect(await accountRowOf(tx, host)).toEqual({
+        status: "active",
+        email: LOCAL_HOST_ADDRESS,
+      });
+      const records = await recordsOf(tx, host);
+      expect(records).toHaveLength(1);
+      expect(sortedCopy(records[0]?.emailHashes ?? [])).toEqual(expectedEmailHashes);
     });
   });
 });

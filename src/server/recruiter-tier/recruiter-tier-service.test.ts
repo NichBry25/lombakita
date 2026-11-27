@@ -8,12 +8,14 @@ const {
   mockSweepForAccount,
   mockEnqueueApproved,
   mockCloseOpenHostCheck,
+  mockLiftRecord,
 } = vi.hoisted(() => ({
   mockGetDb: vi.fn(),
   getRecruiterTierForAccount: vi.fn(),
   mockSweepForAccount: vi.fn().mockResolvedValue(undefined),
   mockEnqueueApproved: vi.fn().mockResolvedValue(undefined),
   mockCloseOpenHostCheck: vi.fn().mockResolvedValue("check_9"),
+  mockLiftRecord: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("@/server/db/client", () => ({ getDb: mockGetDb }));
@@ -33,6 +35,9 @@ vi.mock("@/server/async/enqueue", () => ({
 }));
 vi.mock("@/server/host-trust/host-check-decision-service", () => ({
   closeOpenHostCheckAsApproved: mockCloseOpenHostCheck,
+}));
+vi.mock("@/server/host-trust/removed-host-identity", () => ({
+  liftRemovedHostRecord: mockLiftRecord,
 }));
 
 import {
@@ -355,5 +360,47 @@ describe("elevateRecruiterTier", () => {
     // Only one UPDATE statement reached the DB layer across the two requests.
     expect(updateChain.set).toHaveBeenCalledTimes(1);
     expect(mockEnqueueApproved).toHaveBeenCalledTimes(1);
+  });
+
+  it("lifts the account's trust removal record after the raise moves the tier", async () => {
+    getRecruiterTierForAccount.mockResolvedValue({
+      recruiterVerified: true,
+      recruiterVerificationTier: "minimal",
+    });
+    const { db, updateChain } = buildUpdateDb();
+
+    const result = await elevateRecruiterTier("ops_1", "u1", db as never);
+
+    expect(result).toEqual({ accountId: "u1", tier: "elevated", changed: true });
+    expect(mockLiftRecord).toHaveBeenCalledExactlyOnceWith(expect.anything(), "u1");
+    const liftOrder = mockLiftRecord.mock.invocationCallOrder[0] ?? 0;
+    const updateOrder = updateChain.returning.mock.invocationCallOrder[0] ?? Infinity;
+    expect(liftOrder).toBeGreaterThan(updateOrder);
+  });
+
+  it("lifts no record when the raise loses the race for the tier", async () => {
+    getRecruiterTierForAccount.mockResolvedValue({
+      recruiterVerified: true,
+      recruiterVerificationTier: "minimal",
+    });
+    const { db } = buildUpdateDb({ flippedRows: [] });
+
+    const result = await elevateRecruiterTier("ops_1", "u1", db as never);
+
+    expect(result).toEqual({ accountId: "u1", tier: "elevated", changed: false });
+    expect(mockLiftRecord).not.toHaveBeenCalled();
+  });
+
+  it("lifts no record when the account is already trusted", async () => {
+    getRecruiterTierForAccount.mockResolvedValue({
+      recruiterVerified: true,
+      recruiterVerificationTier: "elevated",
+    });
+    const { db } = buildUpdateDb();
+
+    const result = await elevateRecruiterTier("ops_1", "u1", db as never);
+
+    expect(result).toEqual({ accountId: "u1", tier: "elevated", changed: false });
+    expect(mockLiftRecord).not.toHaveBeenCalled();
   });
 });

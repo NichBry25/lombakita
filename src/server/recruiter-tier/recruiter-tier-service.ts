@@ -16,13 +16,14 @@ import {
 } from "@/server/auth/recruiter-tier";
 import { sweepOrphanedObjectsForAccount } from "@/server/recruiter-verification/recruiter-verification-service";
 import { closeOpenHostCheckAsApproved } from "@/server/host-trust/host-check-decision-service";
+import { liftRemovedHostRecord } from "@/server/host-trust/removed-host-identity";
 import { assertAccountNotDeactivated } from "@/server/accounts/deactivated-account";
 
 assertServerOnly("server/recruiter-tier/recruiter-tier-service");
 
 // Platform-ops manual tier raise. The only target is `elevated`. A raise also clears a staff trust
-// removal and closes the account's open host check as approved, naming it in the audit row, without
-// publishing its draft.
+// removal and deletes its record, and closes the account's open host check as approved, naming it in
+// the audit row, without publishing its draft.
 
 export type TierElevationErrorCode =
   | "tier_invalid_payload"
@@ -186,6 +187,10 @@ export const elevateRecruiterTier = async (
     if (flipped.length === 0) {
       return { changed: false, actorUserId: actor.userId, from: current.recruiterVerificationTier };
     }
+
+    // Only a raise that moved the tier ends the record. A raise that lost the race changed nothing, so
+    // the record is left to the writer that moved the tier.
+    await liftRemovedHostRecord(tx, accountId);
 
     const closedHostCheckId = await closeOpenHostCheckAsApproved(tx, accountId, actor.userId);
 

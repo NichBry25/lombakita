@@ -76,6 +76,7 @@ import {
   deidentifiedEmail,
   deidentifiedUsername,
 } from "@/server/accounts/deidentified-identity";
+import { recordRemovedHostIdentity } from "@/server/host-trust/removed-host-identity";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/accounts/account-deidentification-service");
@@ -868,6 +869,11 @@ const runDeidentificationWrites = async (
     accountId,
     lockedAccount.recruiterVerificationTier,
   );
+
+  // Read BEFORE the email flip and the deletes below, so the record of a staff trust removal keeps
+  // every email and phone the account holds now. It writes nothing for an account with no removal in
+  // the last 2 years.
+  await recordRemovedHostIdentity(tx, accountId);
 
   const flipped = await tx
     .update(users)
