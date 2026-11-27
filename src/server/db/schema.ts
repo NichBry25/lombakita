@@ -1805,11 +1805,11 @@ export const recruiterVerificationSubmissions = pgTable(
     vouchedAt: timestamp("vouched_at", { mode: "date", withTimezone: true }),
     status: verificationSubmissionStatusEnum("status").notNull().default("pending_review"),
     reviewerUserId: text("reviewer_user_id").references(() => users.id, { onDelete: "set null" }),
-    // The staff note of a turned-down host check, or the reason a row was closed without a staff
-    // decision.
+    // The staff note of a turned-down host check or older host request, or the reason a row was
+    // closed without a staff decision.
     rejectionReason: text("rejection_reason"),
     // Whether an older host request could be reopened after a rejection. A host check never reopens,
-    // so every close and staff decision writes false.
+    // so every close and turn-down writes false.
     resubmissionAllowed: boolean("resubmission_allowed").notNull().default(true),
     // How many times an older host request was reopened after a rejection. No path writes it any
     // more.

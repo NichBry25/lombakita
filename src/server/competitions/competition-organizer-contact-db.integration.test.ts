@@ -61,6 +61,45 @@ const queueMocks = vi.hoisted(() => ({
   enqueueCompetitionSearchSync: vi.fn(async () => ({})),
 }));
 
+const mocks = vi.hoisted(() => ({
+  sentCodes: [] as Array<{ email: string; code: string }>,
+  windowCounts: new Map<string, number>(),
+}));
+
+vi.mock("@/config/env.server", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/config/env.server")>();
+  return {
+    ...actual,
+    serverEnv: { ...actual.serverEnv, authSecret: "test-registration-code-secret" },
+  };
+});
+
+vi.mock("@/server/auth/email-verification", () => ({
+  sendRegistrationVerificationEmail: async (options: { email: string; code: string }) => {
+    mocks.sentCodes.push({ email: options.email, code: options.code });
+  },
+  sendOrganizationEmailCode: async () => undefined,
+}));
+
+vi.mock("@/server/redis/rate-limit", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/server/redis/rate-limit")>();
+  return {
+    ...actual,
+    checkFixedWindowLimitFailClosed: async (params: {
+      key: string;
+      limit: number;
+      windowSeconds: number;
+    }) => {
+      const count = (mocks.windowCounts.get(params.key) ?? 0) + 1;
+      mocks.windowCounts.set(params.key, count);
+      if (count > params.limit) {
+        return { decision: "throttled" as const, retryAfterSeconds: params.windowSeconds };
+      }
+      return { decision: "allowed" as const };
+    },
+  };
+});
+
 vi.mock("@/server/db/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/server/db/client")>();
   return {
@@ -97,12 +136,21 @@ import {
 } from "@/app/api/v1/competitions/[competitionId]/contact/route";
 import { POST as publishRoute } from "@/app/api/v1/institutions/[institutionSlug]/competitions/[competitionId]/publish/route";
 import { getPublicCompetitionDetail } from "@/server/competitions/competition-public-service";
+import { createCompetitionDraft } from "@/server/competitions/competition-service";
+import {
+  registerUserWithCredentials,
+  verifyEmailCodeAndSetPassword,
+} from "@/server/auth/credentials-auth";
+import { markRoleAsVerified } from "@/server/auth/role-verification";
+import { createPersonalInstitutionForUser } from "@/server/institution-workspace/institution-service";
 
 beforeAll(() => {
   routeState.testRunStarted = true;
 });
 
 beforeEach(() => {
+  mocks.sentCodes.length = 0;
+  mocks.windowCounts.clear();
   routeState.transaction = null;
   routeState.actorUserId = null;
   queueMocks.enqueueCompetitionEdited.mockClear();
@@ -113,6 +161,17 @@ let seq = 0;
 const uniqueSuffix = (): string => `${Date.now()}-${seq++}`;
 
 const DAY = 24 * 60 * 60 * 1000;
+
+const PASSWORD = "fresh-pass-3";
+
+const CANDIDATE_DETAILS = {
+  name: "Rina Pratama",
+  signupRole: "candidate",
+  fullName: "Rina Pratama",
+  phoneNumber: "0812345678",
+  occupation: "college_student",
+  dateOfBirth: "2000-01-15",
+};
 
 const validTimeline = () => {
   const now = Date.now();
@@ -219,6 +278,32 @@ const seedSignup = async (
     submittedAt,
     firstSubmittedAt: submittedAt,
   });
+};
+
+const latestCode = (): string => {
+  const sent = mocks.sentCodes.at(-1);
+  if (!sent) throw new Error("No code was sent");
+  return sent.code;
+};
+
+const userIdOfAddress = async (tx: Tx, address: string): Promise<string> => {
+  const [row] = await tx.select({ id: users.id }).from(users).where(eq(users.email, address));
+  if (!row) throw new Error("No user row");
+  return row.id;
+};
+
+const signUpParticipant = async (tx: Tx, address: string, phoneNumber: string): Promise<string> => {
+  const database = tx as unknown as Database;
+  const details = { ...CANDIDATE_DETAILS, phoneNumber, email: address, password: PASSWORD };
+  await registerUserWithCredentials(details, database);
+  await verifyEmailCodeAndSetPassword({ ...details, code: latestCode() }, database);
+  return userIdOfAddress(tx, address);
+};
+
+const signUpHost = async (tx: Tx, address: string, phoneNumber: string): Promise<string> => {
+  const userId = await signUpParticipant(tx, address, phoneNumber);
+  await markRoleAsVerified(userId, "recruiter", null, tx as unknown as Database);
+  return userId;
 };
 
 const readContact = async (
@@ -501,7 +586,44 @@ describe.skipIf(skipWithoutDatabase)("the contact route against a real database"
     });
   });
 
-  it("fills a draft's suggestion from the owner's own newest approved sign-up and own email", async () => {
+  it("fills a draft's suggestion from the owner's own sign-up phone and own email", async () => {
+    await inRollback(async (tx) => {
+      routeState.transaction = tx as unknown as Database;
+      const database = tx as unknown as Database;
+      const ownerAddress = `contact_owner_${uniqueSuffix()}@example.test`;
+      const secondAddress = `contact_second_${uniqueSuffix()}@example.test`;
+      const secondOwnerId = await signUpHost(tx, secondAddress, "0812-3456-7009");
+      const ownerId = await signUpHost(tx, ownerAddress, "0812-3456-7001");
+      const workspace = await createPersonalInstitutionForUser(ownerId, database);
+      const draft = await createCompetitionDraft(
+        ownerId,
+        {
+          institutionSlug: workspace.slug,
+          title: "Lomba Kontak Draf",
+          description: "Deskripsi kompetisi untuk pengujian.",
+          slug: null,
+          category: "hackathon",
+          mode: "individual",
+          ...validTimeline(),
+        },
+        database,
+      );
+      await addMember(tx, workspace.institutionId, secondOwnerId, "institution_owner");
+      await seedSignup(tx, ownerId, "0811-0000-0002", "approved", new Date());
+      await seedSignup(tx, secondOwnerId, "0811-0000-0009", "approved", new Date());
+
+      const answer = await getContact(tx, ownerId, draft.id);
+
+      expect(answer.status).toBe(200);
+      expect(answer.body).toEqual({
+        contact: null,
+        isDraft: true,
+        suggestion: { mobileNumber: "0812-3456-7001", email: ownerAddress },
+      });
+    });
+  });
+
+  it("falls back to the newest approved host request of a host with no sign-up profile", async () => {
     await inRollback(async (tx) => {
       const now = Date.now();
       const institution = await seedInstitution(tx);
@@ -526,35 +648,49 @@ describe.skipIf(skipWithoutDatabase)("the contact route against a real database"
     });
   });
 
-  it("offers no suggestion to a staff member or on a published competition", async () => {
+  it("offers a staff member their own sign-up phone on a draft and nobody a suggestion on a published competition", async () => {
     await inRollback(async (tx) => {
+      routeState.transaction = tx as unknown as Database;
       const institution = await seedInstitution(tx);
       const owner = await seedUser(tx);
       await addMember(tx, institution.id, owner.id, "institution_owner");
-      const staff = await seedUser(tx);
-      await addMember(tx, institution.id, staff.id, "institution_staff");
       await seedSignup(tx, owner.id, "0811-0000-0001", "approved", new Date());
-      await seedSignup(tx, staff.id, "0811-0000-0002", "approved", new Date());
+      const staffAddress = `contact_staff_${uniqueSuffix()}@example.test`;
+      const staffId = await signUpHost(tx, staffAddress, "0812-3456-7002");
+      await addMember(tx, institution.id, staffId, "institution_staff");
       const draft = await seedCompetition(tx, institution.id);
       const live = await seedCompetition(tx, institution.id, { status: "published" });
 
-      const staffAnswer = await getContact(tx, staff.id, draft.id);
-      expect(staffAnswer.status).toBe(200);
-      expect(staffAnswer.body).toEqual({ contact: null, isDraft: true, suggestion: null });
+      const staffDraftAnswer = await getContact(tx, staffId, draft.id);
+      expect(staffDraftAnswer.status).toBe(200);
+      expect(staffDraftAnswer.body).toEqual({
+        contact: null,
+        isDraft: true,
+        suggestion: { mobileNumber: "0812-3456-7002", email: staffAddress },
+      });
 
-      const liveAnswer = await getContact(tx, owner.id, live.id);
-      expect(liveAnswer.status).toBe(200);
-      expect(liveAnswer.body).toEqual({ contact: null, isDraft: false, suggestion: null });
+      const ownerLiveAnswer = await getContact(tx, owner.id, live.id);
+      expect(ownerLiveAnswer.status).toBe(200);
+      expect(ownerLiveAnswer.body).toEqual({ contact: null, isDraft: false, suggestion: null });
+
+      const staffLiveAnswer = await getContact(tx, staffId, live.id);
+      expect(staffLiveAnswer.status).toBe(200);
+      expect(staffLiveAnswer.body).toEqual({ contact: null, isDraft: false, suggestion: null });
     });
   });
 
-  it("suggests no number when the owner has no approved sign-up", async () => {
+  it("suggests no number when the owner has no sign-up profile and no approved host request", async () => {
     await inRollback(async (tx) => {
+      routeState.transaction = tx as unknown as Database;
+      const now = Date.now();
       const institution = await seedInstitution(tx);
       const owner = await seedUser(tx);
       await addMember(tx, institution.id, owner.id, "institution_owner");
-      await seedSignup(tx, owner.id, "0811-0000-0001", "pending_review", new Date());
+      await seedSignup(tx, owner.id, "0811-0000-0001", "pending_review", new Date(now));
+      await seedSignup(tx, owner.id, "0811-0000-0003", "rejected", new Date(now - 1 * DAY));
       const competition = await seedCompetition(tx, institution.id);
+      const bystanderAddress = `contact_bystander_${uniqueSuffix()}@example.test`;
+      await signUpParticipant(tx, bystanderAddress, "0812-3456-7008");
 
       const answer = await getContact(tx, owner.id, competition.id);
 

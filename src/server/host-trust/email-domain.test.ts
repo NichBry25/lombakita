@@ -136,6 +136,11 @@ describe("email domains", () => {
     expect(isNeverOrganizationEmailDomain("Seed.Lombakita.LOCAL")).toBe(true);
   });
 
+  it("reads only the last label, so a reserved word in front stays an organization domain", () => {
+    expect(isNeverOrganizationEmailDomain("local.gov.uk")).toBe(false);
+    expect(isNeverOrganizationEmailDomain("localhost.co.id")).toBe(false);
+  });
+
   it("holds the vendored list as unique lower-case domains", () => {
     expect(disposableEmailDomains.length).toBeGreaterThan(0);
     for (const domain of disposableEmailDomains) {

@@ -4,7 +4,12 @@ assertServerOnly("server/competitions/competition-organizer-contact-service");
 
 import { and, desc, eq, sql } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
-import { competitions, recruiterVerificationSubmissions, users } from "@/server/db/schema";
+import {
+  candidateProfiles,
+  competitions,
+  recruiterVerificationSubmissions,
+  users,
+} from "@/server/db/schema";
 import { assertCompetitionAccess } from "@/server/competitions/competition-access";
 import { CompetitionError } from "@/server/competitions/competition-core";
 import {
@@ -109,11 +114,17 @@ export const parseOrganizerContactInput = (payload: unknown): OrganizerContact =
   return parsePhoneContact(kind, value);
 };
 
-export const loadOrganizerContactSuggestion = async (
-  userId: string,
-  db: Database,
-): Promise<OrganizerContactSuggestion> => {
-  const [signup] = await db
+// The account's sign-up phone, else the number of its newest approved host request, which a host
+// account that holds no sign-up profile may still carry.
+const readSuggestedMobileNumber = async (userId: string, db: Database): Promise<string | null> => {
+  const [profile] = await db
+    .select({ phoneNumber: candidateProfiles.phoneNumber })
+    .from(candidateProfiles)
+    .where(eq(candidateProfiles.userId, userId))
+    .limit(1);
+  if (profile) return profile.phoneNumber;
+
+  const [approvedRequest] = await db
     .select({ mobileNumber: recruiterVerificationSubmissions.mobileNumber })
     .from(recruiterVerificationSubmissions)
     .where(
@@ -124,12 +135,20 @@ export const loadOrganizerContactSuggestion = async (
     )
     .orderBy(desc(recruiterVerificationSubmissions.submittedAt))
     .limit(1);
+  return approvedRequest?.mobileNumber ?? null;
+};
+
+export const loadOrganizerContactSuggestion = async (
+  userId: string,
+  db: Database,
+): Promise<OrganizerContactSuggestion> => {
+  const mobileNumber = await readSuggestedMobileNumber(userId, db);
   const [account] = await db
     .select({ email: users.email })
     .from(users)
     .where(eq(users.id, userId))
     .limit(1);
-  return { mobileNumber: signup?.mobileNumber ?? null, email: account!.email };
+  return { mobileNumber, email: account!.email };
 };
 
 export const getCompetitionOrganizerContactForEditor = async (
@@ -137,12 +156,7 @@ export const getCompetitionOrganizerContactForEditor = async (
   competitionId: string,
   db: Database = getDb(),
 ): Promise<OrganizerContactForEditor> => {
-  const { competition, membershipRole } = await assertCompetitionAccess(
-    actorUserId,
-    competitionId,
-    "member",
-    db,
-  );
+  const { competition } = await assertCompetitionAccess(actorUserId, competitionId, "member", db);
   const [row] = await db
     .select({
       kind: competitions.organizerContactKind,
@@ -151,11 +165,7 @@ export const getCompetitionOrganizerContactForEditor = async (
     .from(competitions)
     .where(eq(competitions.id, competition.id));
   const isDraft = competition.status === "draft";
-  // Only an owner can publish, so only an owner's own details fill a draft's contact.
-  const suggestion =
-    isDraft && membershipRole === "institution_owner"
-      ? await loadOrganizerContactSuggestion(actorUserId, db)
-      : null;
+  const suggestion = isDraft ? await loadOrganizerContactSuggestion(actorUserId, db) : null;
   return {
     contact: toOrganizerContact(row?.kind ?? null, row?.value ?? null),
     isDraft,
