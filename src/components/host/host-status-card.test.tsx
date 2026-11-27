@@ -17,6 +17,8 @@ const EMAIL_FIELD_LABEL = /^Email organisasi(?: \(opsional\))?$/;
 const TRUSTED_SENTENCE = "Akun Anda tepercaya. Kompetisi yang Anda terbitkan langsung tayang.";
 const NOT_TRUSTED_SENTENCE =
   "Kompetisi pertama Anda diperiksa staf sebelum tayang. Perkiraan 1x24 jam pada hari kerja. Konfirmasi email organisasi agar langsung tayang.";
+const ORGANIZATION_EMAIL_CONFIRMED_SENTENCE =
+  "Email organisasi Anda sudah terkonfirmasi. Kompetisi pertama Anda tetap diperiksa staf sebelum tayang. Perkiraan 1x24 jam pada hari kerja.";
 const TRUSTED_WORKSPACE_PARAGRAPH =
   "Kompetisi yang Anda terbitkan di ruang kerja dengan pemilik tepercaya langsung tayang. Di ruang kerja lain, kompetisi pertama Anda diperiksa staf sebelum tayang. Perkiraan 1x24 jam pada hari kerja. Konfirmasi email organisasi agar langsung tayang di semua ruang kerja.";
 
@@ -143,11 +145,14 @@ describe("the host status card", () => {
 
     await confirmTheOrganizationEmail();
 
-    expect(
-      await screen.findByText("Email organisasi sekretaris@kampus.example sudah terkonfirmasi."),
-    ).toBeTruthy();
-    expect(screen.getByText(NOT_TRUSTED_SENTENCE)).toBeTruthy();
+    expect(await screen.findByText(ORGANIZATION_EMAIL_CONFIRMED_SENTENCE)).toBeTruthy();
+    expect(screen.queryByText(NOT_TRUSTED_SENTENCE)).toBeNull();
     expect(screen.queryByText(TRUSTED_SENTENCE)).toBeNull();
+    expect(screen.queryByLabelText(EMAIL_FIELD_LABEL)).toBeNull();
+    await waitFor(() =>
+      expect(document.activeElement?.textContent).toContain(ORGANIZATION_EMAIL_CONFIRMED_SENTENCE),
+    );
+    expect(new Headers(requestTo(CONFIRM_URL)?.headers).get("X-Expected-User-Id")).toBe("user-42");
   });
 
   it("says in one paragraph that competitions in a workspace with a trusted owner go live at once and that the staff check holds elsewhere", () => {
@@ -157,5 +162,27 @@ describe("the host status card", () => {
     expect(screen.getByText(TRUSTED_WORKSPACE_PARAGRAPH)).toBeTruthy();
     expect(screen.queryByText(NOT_TRUSTED_SENTENCE)).toBeNull();
     expect(screen.getByLabelText(EMAIL_FIELD_LABEL)).toBeTruthy();
+  });
+
+  it("says an untrusted host with a confirmed Email organisasi that its first competition is still checked, and asks for no Email organisasi", () => {
+    renderCard({ state: "not_trusted", organizationEmailConfirmed: true });
+
+    expect(screen.getByRole("heading", { name: "Status penyelenggara" })).toBeTruthy();
+    expect(screen.getByText(ORGANIZATION_EMAIL_CONFIRMED_SENTENCE)).toBeTruthy();
+    expect(screen.queryByText(NOT_TRUSTED_SENTENCE)).toBeNull();
+    expect(screen.queryByLabelText(EMAIL_FIELD_LABEL)).toBeNull();
+    expect(screen.queryByText(/dicabut|Cocok/)).toBeNull();
+  });
+
+  it("says the same to a host with a confirmed Email organisasi who also runs a workspace with a trusted owner", () => {
+    renderCard({
+      state: "not_trusted",
+      runsTrustedWorkspace: true,
+      organizationEmailConfirmed: true,
+    });
+
+    expect(screen.getByText(ORGANIZATION_EMAIL_CONFIRMED_SENTENCE)).toBeTruthy();
+    expect(screen.queryByText(TRUSTED_WORKSPACE_PARAGRAPH)).toBeNull();
+    expect(screen.queryByLabelText(EMAIL_FIELD_LABEL)).toBeNull();
   });
 });

@@ -65,6 +65,9 @@ export type HostCheckQueueItem = {
     institutionName: string | null;
   };
   earlierTurnDowns: { reviewedAt: string | null; guidelineItem: string; note: string | null }[];
+  // Set when another account whose trust staff removed shares this person's email or phone. It
+  // names how it matched and when that trust was removed, never which account.
+  removedHostMatch: { matchedBy: ("email" | "phone")[]; removedAt: string } | null;
 };
 
 type HostCheckDraft = HostCheckQueueItem["draft"];
@@ -111,6 +114,7 @@ const APPROVED_NOT_PUBLISHED_MESSAGE =
 const CLOSED_DRAFT_GONE_MESSAGE =
   "Draf ini sudah tidak tersedia, jadi pemeriksaan ditutup tanpa persetujuan.";
 const TURNED_DOWN_MESSAGE = "Pemeriksaan ditolak dan keluar dari antrean.";
+const REMOVED_HOST_MATCH_BADGE = "Cocok dengan akun yang dicabut";
 
 // Refusals of the decision route in the operator's words. Copied from the codes of the decision
 // service and the operator actor, because those modules load the database client and this is a
@@ -225,6 +229,37 @@ function TrustRemovedNote({ removedAt, reason }: { removedAt: string; reason: st
   );
 }
 
+type RemovedHostMatch = NonNullable<HostCheckQueueItem["removedHostMatch"]>;
+
+// The words before the removal date, by what this account shares with the removed one.
+const removedHostMatchLeadOf = (matchedBy: RemovedHostMatch["matchedBy"]): string => {
+  const byEmail = matchedBy.includes("email");
+  const byPhone = matchedBy.includes("phone");
+  if (byEmail && byPhone) {
+    return "Email dan nomor ponsel akun ini sama dengan akun yang status tepercayanya dicabut pada";
+  }
+  if (byEmail) return "Email akun ini sama dengan akun yang status tepercayanya dicabut pada";
+  return "Nomor ponsel akun ini sama dengan akun yang status tepercayanya dicabut pada";
+};
+
+// Staff see that this person shares an email or phone with a host whose trust staff removed, and
+// when, before they decide. The other account is never named.
+function RemovedHostMatchNote({ match }: { match: RemovedHostMatch }) {
+  return (
+    <div className="stack-sm">
+      <span className="status-badge" data-status="closing">
+        {REMOVED_HOST_MATCH_BADGE}
+      </span>
+      <Feedback tone="warning">
+        <p>
+          {removedHostMatchLeadOf(match.matchedBy)}{" "}
+          <LocalDate value={match.removedAt} format="longDate" />.
+        </p>
+      </Feedback>
+    </div>
+  );
+}
+
 function EarlierTurnDownLine({ turnDown }: { turnDown: EarlierTurnDown }) {
   const guidelineText =
     competitionGuidelineTextOf(turnDown.guidelineItem) ?? turnDown.guidelineItem;
@@ -274,6 +309,7 @@ function HostCheckCard({
           reason={item.host.trustRemovalReason}
         />
       ) : null}
+      {item.removedHostMatch ? <RemovedHostMatchNote match={item.removedHostMatch} /> : null}
       <DetailList rows={factRowsOf(item)} />
       {item.draft.description ? (
         <p className="detail-description">{item.draft.description}</p>

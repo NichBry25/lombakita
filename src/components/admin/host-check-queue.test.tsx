@@ -46,6 +46,7 @@ const itemFixture = (overrides: Partial<HostCheckQueueItem> = {}): HostCheckQueu
     institutionName: "Universitas Contoh",
   },
   earlierTurnDowns: [],
+  removedHostMatch: null,
   ...overrides,
 });
 
@@ -226,6 +227,58 @@ describe("what the queue shows", () => {
     expect(screen.getByText("Alasan pencabutan: Kontak palsu.").closest(".feedback")).toBe(
       note.closest(".feedback"),
     );
+  });
+
+  it("shows that a check's account shares its phone with an account whose trust staff removed, with the removal date", async () => {
+    await showQueue([
+      itemFixture({
+        removedHostMatch: { matchedBy: ["phone"], removedAt: "2026-11-15T03:00:00.000Z" },
+      }),
+    ]);
+
+    const badge = screen.getByText("Cocok dengan akun yang dicabut");
+    expect(badge.classList.contains("status-badge")).toBe(true);
+    expect(badge.getAttribute("data-status")).toBe("closing");
+    const sentence = screen.getByText(
+      /^Nomor ponsel akun ini sama dengan akun yang status tepercayanya dicabut pada/,
+    );
+    expect(sentence.textContent?.endsWith(".")).toBe(true);
+    expect(sentence.querySelector("time")?.getAttribute("datetime")).toBe(
+      "2026-11-15T03:00:00.000Z",
+    );
+    expect(sentence.closest(".feedback")?.getAttribute("data-tone")).toBe("warning");
+    expect(screen.queryByText(/^Email akun ini sama/)).toBeNull();
+    expect(screen.queryByText(/^Email dan nomor ponsel/)).toBeNull();
+  });
+
+  it("names the email alone, or the email and the phone, that a check's account shares with an account whose trust staff removed", async () => {
+    const removedAt = "2026-11-15T03:00:00.000Z";
+    await showQueue([
+      itemFixture({ removedHostMatch: { matchedBy: ["email"], removedAt } }),
+      itemFixture({
+        id: "check_2",
+        draft: { ...itemFixture().draft, competitionId: "comp_2", title: "Lomba Debat Nasional" },
+        removedHostMatch: { matchedBy: ["phone", "email"], removedAt },
+      }),
+    ]);
+
+    expect(
+      screen.getAllByText(/^Email akun ini sama dengan akun yang status tepercayanya dicabut pada/),
+    ).toHaveLength(1);
+    expect(
+      screen.getAllByText(
+        /^Email dan nomor ponsel akun ini sama dengan akun yang status tepercayanya dicabut pada/,
+      ),
+    ).toHaveLength(1);
+    expect(screen.queryByText(/^Nomor ponsel akun ini sama/)).toBeNull();
+    expect(screen.getAllByText("Cocok dengan akun yang dicabut")).toHaveLength(2);
+  });
+
+  it("shows no match on a check whose account matches no removed account", async () => {
+    await showQueue([itemFixture()]);
+
+    expect(screen.queryByText("Cocok dengan akun yang dicabut")).toBeNull();
+    expect(screen.queryByText(/status tepercayanya dicabut pada/)).toBeNull();
   });
 
   it("says the queue is clear when no check waits", async () => {
