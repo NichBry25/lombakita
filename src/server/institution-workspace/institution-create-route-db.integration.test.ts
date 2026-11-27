@@ -26,11 +26,17 @@ const routeState = vi.hoisted(() => ({
   actorUserId: null as string | null,
 }));
 
+const hostKeys = vi.hoisted(() => ({ one: Buffer.alloc(32, 11).toString("base64") }));
+
 vi.mock("@/config/env.server", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/config/env.server")>();
   return {
     ...actual,
-    serverEnv: { ...actual.serverEnv, authSecret: "test-registration-code-secret" },
+    serverEnv: {
+      ...actual.serverEnv,
+      authSecret: "test-registration-code-secret",
+      hostIdentityHashKey: hostKeys.one,
+    },
   };
 });
 

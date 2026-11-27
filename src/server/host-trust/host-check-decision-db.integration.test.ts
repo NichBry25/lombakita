@@ -1148,11 +1148,12 @@ describe.skipIf(skipWithoutDatabase)("the staff decision on a host check (rolled
     await inRollback(async (tx) => {
       await clearRecordsInsideRollback(tx);
       const removedHost = await signUpHost(tx, OWNER_ADDRESS);
+      const removedHostWorkspace = await ownWorkspace(tx, removedHost);
       const operator = await plantOperator(tx, OPERATOR_ADDRESS);
       await removeHostTrust(operator, removedHost, "Hadiah tidak sesuai.", tx);
       const newcomer = await signUpHost(tx, UNTRUSTED_HOST_ADDRESS);
       const removedAt = await trustRemovedAtOf(tx, removedHost);
-      const { checkId } = await openCheckBy(tx, removedHost, FIRST_TITLE);
+      const { checkId } = await openCheckIn(tx, removedHost, removedHostWorkspace, FIRST_TITLE);
       expect(await recordsOf(tx, removedHost)).toHaveLength(1);
       expect(await findRemovedHostMatch(tx, newcomer)).toEqual({ matchedBy: ["phone"], removedAt });
 
@@ -1170,11 +1171,12 @@ describe.skipIf(skipWithoutDatabase)("the staff decision on a host check (rolled
     await inRollback(async (tx) => {
       await clearRecordsInsideRollback(tx);
       const removedHost = await signUpHost(tx, OWNER_ADDRESS);
+      const removedHostWorkspace = await ownWorkspace(tx, removedHost);
       const operator = await plantOperator(tx, OPERATOR_ADDRESS);
       await removeHostTrust(operator, removedHost, "Hadiah tidak sesuai.", tx);
       const newcomer = await signUpHost(tx, UNTRUSTED_HOST_ADDRESS);
       const removedAt = await trustRemovedAtOf(tx, removedHost);
-      const { checkId } = await openCheckBy(tx, removedHost, FIRST_TITLE);
+      const { checkId } = await openCheckIn(tx, removedHost, removedHostWorkspace, FIRST_TITLE);
       expect(await recordsOf(tx, removedHost)).toHaveLength(1);
       expect(await findRemovedHostMatch(tx, newcomer)).toEqual({ matchedBy: ["phone"], removedAt });
 
@@ -1192,9 +1194,15 @@ describe.skipIf(skipWithoutDatabase)("the staff decision on a host check (rolled
     await inRollback(async (tx) => {
       await clearRecordsInsideRollback(tx);
       const removedHost = await signUpHost(tx, OWNER_ADDRESS);
+      const removedHostWorkspace = await ownWorkspace(tx, removedHost);
       const operator = await plantOperator(tx, OPERATOR_ADDRESS);
       await removeHostTrust(operator, removedHost, "Hadiah tidak sesuai.", tx);
-      const { draft, checkId } = await openCheckBy(tx, removedHost, FIRST_TITLE);
+      const { draft, checkId } = await openCheckIn(
+        tx,
+        removedHost,
+        removedHostWorkspace,
+        FIRST_TITLE,
+      );
       expect(await recordsOf(tx, removedHost)).toHaveLength(1);
 
       const answered = await decideThroughRoute(tx, operator, checkId, APPROVE);
