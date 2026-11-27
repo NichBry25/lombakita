@@ -5,8 +5,8 @@
 // its link, and its toast.
 //
 // The load-bearing test here is the last one. The server's refusal messages are English sentences
-// written for a log — "Publishing requires a Trusted Recruiter account — complete recruiter
-// verification first" — and the endpoint returns them alongside the code. A shell that relayed
+// written for a log, such as "Publishing requires a trusted host, or a trusted owner of the
+// institution", and the endpoint returns them alongside the code. A shell that relayed
 // `error.message` would look correct in every single-code assertion above and hand an Indonesian
 // user an English log line. So the set of texts this module can produce is checked against the set
 // the server can send, and the two must not intersect.
@@ -16,7 +16,9 @@ import { getCompetitionFieldLabel } from "@/lib/competitions/fields";
 import { MAX_PUBLISHED_COMPETITIONS_FOR_PERSONAL } from "@/lib/institutions/reach-caps";
 import type { CompetitionPublishBlockerCode } from "@/server/competitions/competition-publish-readiness";
 import {
+  HOST_CHECK_SENT_TOAST_TEXT,
   PUBLISH_REFUSAL_FALLBACK_TEXT,
+  describePublishControl,
   getPublishBlockerReason,
   resolvePublishReasonHref,
   resolvePublishRefusalToastText,
@@ -25,7 +27,6 @@ import {
 const BLOCKER_CODES: CompetitionPublishBlockerCode[] = [
   "forbidden",
   "competition_invalid_transition",
-  "competition_recruiter_not_trusted",
   "institution_suspended",
   "competition_publish_validation_failed",
   "competition_organizer_contact_missing",
@@ -35,8 +36,16 @@ const BLOCKER_CODES: CompetitionPublishBlockerCode[] = [
   "competition_personal_publish_limit",
 ];
 
+const TITLE_OTHER = "Lomba Poster Digital";
+const WAIT_SENTENCE = "Perkiraan 1x24 jam pada hari kerja.";
+const TITLED_OTHER_DRAFT_SENTENCE =
+  'Kompetisi "Lomba Poster Digital" masih diperiksa staf. Tunggu hasilnya sebelum mengirim kompetisi lain.';
+const UNTITLED_OTHER_DRAFT_SENTENCE =
+  "Kompetisi lain Anda masih diperiksa staf. Tunggu hasilnya sebelum mengirim kompetisi lain.";
+const KONTAK_TEXT = "Penyelenggara mencantumkan kontak yang benar-benar bisa dihubungi peserta.";
+
 // The refusal messages the server actually sends, quoted from the functions the publish path calls:
-// assertCompetitionAccess (competition-access.ts:162,165), assertActorIsTrustedRecruiter (:215),
+// assertCompetitionAccess (competition-access.ts:162,165), assertPublishTrustSatisfied (:215),
 // assertInstitutionNotSuspended (:302), transitionCompetitionStatus (competition-service.ts:889),
 // assertInstitutionVerified (competition-access.ts:274), assertPersonalCompetitionPublishable
 // (:342, :391), assertCompetitionInInstitution (competition-service.ts:133),
@@ -45,7 +54,7 @@ const BLOCKER_CODES: CompetitionPublishBlockerCode[] = [
 const SERVER_REFUSAL_MESSAGES = [
   "Institution owner/staff access required",
   "institution_owner access required",
-  "Publishing requires a Trusted Recruiter account — complete recruiter verification first",
+  "Publishing requires a trusted host, or a trusted owner of the institution",
   "This institution has been suspended by platform ops",
   "Cannot publish: 3 validation issue(s) — see details.failures",
   "Institusi harus terverifikasi sebelum dapat memungut biaya pendaftaran. Kompetisi gratis tetap dapat dipublikasikan.",
@@ -55,15 +64,15 @@ const SERVER_REFUSAL_MESSAGES = [
   "Cannot transition competition from 'draft' to 'published'",
   "Publishing requires an organizer contact",
   "Publishing requires an audience (Untuk)",
+  "Another draft of this account is waiting for its host check",
+  "A host check needs a name and a phone number, and this account has neither",
 ];
 
 describe("publish blocker reasons", () => {
   it("names every blocker code with the reason the shell shows", () => {
     const reasons: Record<CompetitionPublishBlockerCode, string> = {
-      forbidden: "Hanya pemilik institusi yang dapat menerbitkan kompetisi.",
+      forbidden: "Hanya pemilik dan staf institusi yang dapat menerbitkan kompetisi.",
       competition_invalid_transition: "Hanya kompetisi berstatus draf yang dapat diterbitkan.",
-      competition_recruiter_not_trusted:
-        "Akun Anda belum menjadi penyelenggara terverifikasi. Selesaikan verifikasi penyelenggara untuk dapat menerbitkan kompetisi.",
       institution_suspended:
         "Institusi ini sedang ditangguhkan oleh tim Lombakita. Kompetisi tidak dapat diterbitkan.",
       competition_publish_validation_failed: "Data kompetisi belum lengkap atau belum valid.",
@@ -88,7 +97,6 @@ describe("publish blocker reasons", () => {
     const links: Record<CompetitionPublishBlockerCode, string | null> = {
       forbidden: null,
       competition_invalid_transition: null,
-      competition_recruiter_not_trusted: "Verifikasi penyelenggara",
       institution_suspended: null,
       competition_publish_validation_failed: null,
       competition_organizer_contact_missing: "Isi kontak",
@@ -127,7 +135,6 @@ describe("publish blocker reasons", () => {
     expect(resolvePublishReasonHref("edit", context)).toBe(
       "/institution/pt%20contoh/competitions/lomba%2Fa/edit",
     );
-    expect(resolvePublishReasonHref("recruiter", context)).toBe("/recruiter-dashboard");
   });
 });
 
@@ -203,6 +210,9 @@ describe("publish refusal toasts", () => {
       ]),
       resolvePublishRefusalToastText("competition_not_found"),
       resolvePublishRefusalToastText("competition_invalid_transition"),
+      resolvePublishRefusalToastText("host_check_pending_other_draft", undefined, TITLE_OTHER),
+      resolvePublishRefusalToastText("host_check_pending_other_draft"),
+      resolvePublishRefusalToastText("host_check_contact_missing"),
       resolvePublishRefusalToastText("unrecognised"),
       resolvePublishRefusalToastText(null),
     ];
@@ -213,5 +223,100 @@ describe("publish refusal toasts", () => {
         `a toast relayed the server's own message: ${text}`,
       ).not.toContain(text);
     }
+  });
+});
+
+describe("the publish control for a host check", () => {
+  it("keeps Terbitkan when no host check is needed or the answer is unknown", () => {
+    const publishNow = { label: "Terbitkan", pressable: true, note: null, tone: "info" };
+
+    expect(describePublishControl(undefined)).toEqual(publishNow);
+    expect(describePublishControl({ state: "not_needed" })).toEqual(publishNow);
+  });
+
+  it("asks for the host check with Kirim untuk diperiksa and says the wait", () => {
+    expect(describePublishControl({ state: "needed" })).toEqual({
+      label: "Kirim untuk diperiksa",
+      pressable: true,
+      note: `Kompetisi pertama Anda diperiksa staf sebelum tayang. ${WAIT_SENTENCE}`,
+      tone: "info",
+    });
+  });
+
+  it("drops pertama from the needed sentence for an account whose trust staff removed", () => {
+    expect(describePublishControl({ state: "needed", trustRemoved: true })).toEqual({
+      label: "Kirim untuk diperiksa",
+      pressable: true,
+      note: "Kompetisi Anda diperiksa staf dulu sebelum tayang. Perkiraan 1x24 jam pada hari kerja.",
+      tone: "info",
+    });
+  });
+
+  it("shuts the control while this draft waits", () => {
+    expect(describePublishControl({ state: "pending" })).toEqual({
+      label: "Sedang diperiksa",
+      pressable: false,
+      note: `Staf Lombakita sedang memeriksa kompetisi ini. ${WAIT_SENTENCE}`,
+      tone: "info",
+    });
+  });
+
+  it("shuts the control while another draft waits, naming it only when the server named it", () => {
+    expect(
+      describePublishControl({ state: "pending_other_draft", competitionTitle: TITLE_OTHER }),
+    ).toEqual({
+      label: "Kirim untuk diperiksa",
+      pressable: false,
+      note: TITLED_OTHER_DRAFT_SENTENCE,
+      tone: "info",
+    });
+    expect(describePublishControl({ state: "pending_other_draft" })).toEqual({
+      label: "Kirim untuk diperiksa",
+      pressable: false,
+      note: UNTITLED_OTHER_DRAFT_SENTENCE,
+      tone: "info",
+    });
+  });
+
+  it("gives the guideline text and the staff note of a turn-down, with one full stop after each", () => {
+    const turnedDown = {
+      label: "Kirim untuk diperiksa",
+      pressable: true,
+      note: `Belum dapat tayang. Pedoman: ${KONTAK_TEXT} Catatan staf: Nomor kontak tidak aktif. Perbaiki draf lalu tekan Kirim untuk diperiksa lagi.`,
+      tone: "warning",
+    };
+
+    expect(
+      describePublishControl({
+        state: "turned_down",
+        guidelineItem: "kontak-nyata",
+        note: "Nomor kontak tidak aktif",
+      }),
+    ).toEqual(turnedDown);
+    expect(
+      describePublishControl({
+        state: "turned_down",
+        guidelineItem: "kontak-nyata",
+        note: "Nomor kontak tidak aktif.",
+      }),
+    ).toEqual(turnedDown);
+  });
+
+  it("names the press refusals of a host check", () => {
+    expect(
+      resolvePublishRefusalToastText("host_check_pending_other_draft", undefined, TITLE_OTHER),
+    ).toBe(TITLED_OTHER_DRAFT_SENTENCE);
+    expect(resolvePublishRefusalToastText("host_check_pending_other_draft")).toBe(
+      UNTITLED_OTHER_DRAFT_SENTENCE,
+    );
+    expect(resolvePublishRefusalToastText("host_check_contact_missing")).toBe(
+      "Lengkapi nama dan nomor ponsel di profil Anda sebelum mengirim kompetisi.",
+    );
+  });
+
+  it("says a press that opened a host check was sent for checking", () => {
+    expect(HOST_CHECK_SENT_TOAST_TEXT).toBe(
+      "Kompetisi dikirim untuk diperiksa. Perkiraan 1x24 jam pada hari kerja.",
+    );
   });
 });

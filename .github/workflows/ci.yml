@@ -287,6 +287,9 @@ jobs:
       # A fixed, deterministic 32-byte key, base64 of the ASCII above. The seeded MFA factors are
       # encrypted with it so the harness can complete a real TOTP challenge. Never a real secret.
       MFA_SECRET_ENCRYPTION_KEY: bG9tYmFraXRhLWNpLW1mYS1rZXktTk9ULUEtU0VDUkU=
+      # A fixed, deterministic 32-byte key, base64 of the ASCII text lombakita-ci-host-key-NOT-SECRET,
+      # so this job's app holds a trust removal hash key as a deployed one does. Never a real secret.
+      HOST_IDENTITY_HASH_KEY: bG9tYmFraXRhLWNpLWhvc3Qta2V5LU5PVC1TRUNSRVQ=
       # PLACEHOLDERS — presigning is a local signature computation over these values and reaches no
       # network, which is what lets the payment-proof surfaces render. The URLs they produce point
       # at a host that does not exist and are never fetched.

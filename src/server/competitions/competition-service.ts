@@ -23,6 +23,7 @@ import {
   MAX_SLUG_LENGTH,
   normalizeCompetitionSlug,
   PATCH_FIELDS,
+  PUBLIC_FIELDS_HELD_AFTER_TRUST_REMOVAL,
   resolveTeamSizesForMode,
   TEAM_MODE_MIN_SIZE,
   assertCompetitionTimelineChronological,
@@ -46,13 +47,15 @@ import { moveOpenTeamInvitationsToClose } from "@/server/teams/team-invitation-e
 import { disbandEveryTeamOfCompetition } from "@/server/teams/team-service";
 import { markCompetitionRegistrationsPublicationClosed } from "@/server/registrations/registration-service";
 import {
-  assertActorIsTrustedRecruiter,
+  assertPublishTrustSatisfied,
   assertCompetitionAccess,
   assertCompetitionHasAudience,
   assertCompetitionHasOrganizerContact,
   assertCompetitionRead,
   assertInstitutionNotSuspended,
   assertInstitutionVerified,
+  assertPublicFieldsUnchangedByRemovedHost,
+  assertUnpublishNotByRemovedHost,
   assertPersonalCompetitionPublishable,
   assertPersonalInstitutionIndividualMode,
   hasActiveRegistrationsForCompetition,
@@ -123,8 +126,8 @@ const deriveSlugBaseFromTitle = (title: string): string => {
 // mismatch — institution slug unknown, competition missing/soft-deleted, or competition owned
 // by a different institution — returns 404 to avoid leaking cross-tenant existence.
 //
-// This helper does NOT enforce actor membership or role. The caller must still invoke
-// transitionCompetitionStatus (which runs assertCompetitionAccess admin) to authorize.
+// This helper does NOT enforce actor membership or role. The caller must still authorize through
+// assertCompetitionAccess at the level its action needs: member to publish and to unpublish.
 export const assertCompetitionInInstitution = async (
   institutionSlug: string,
   competitionId: string,
@@ -579,6 +582,21 @@ const closeMovedByPatch = (
   return patch.registrationEndAt;
 };
 
+// The fields of the list whose patched value differs from the stored one. A field sent with its
+// stored value changes nothing, so a form that resends it is not refused.
+const fieldsChangedByPatch = (
+  fieldNames: readonly string[],
+  competition: CompetitionRow,
+  patch: CompetitionPatchInput,
+): string[] => {
+  const row = competition as unknown as Record<string, unknown>;
+  const patchRecord = patch as Record<string, unknown>;
+  return fieldNames.filter(
+    (field) =>
+      field in patchRecord && !immutableCompetitionValuesEqual(patchRecord[field], row[field]),
+  );
+};
+
 // Writes a published edit only onto the row it was judged against. Every writer of a competition
 // sets updatedAt, so a row another request changed since this one read it matches nothing. The
 // judged value came through a JavaScript Date, which keeps milliseconds, so the stored value is cut
@@ -650,12 +668,7 @@ const updatePublishedCompetition = async (
   patch: CompetitionPatchInput,
   db: Database,
 ): Promise<CompetitionRow> => {
-  const row = competition as unknown as Record<string, unknown>;
-  const patchRecord = patch as Record<string, unknown>;
-  const immutableChanged = IMMUTABLE_AFTER_PUBLISH.filter(
-    (field) =>
-      field in patchRecord && !immutableCompetitionValuesEqual(patchRecord[field], row[field]),
-  );
+  const immutableChanged = fieldsChangedByPatch(IMMUTABLE_AFTER_PUBLISH, competition, patch);
   if (immutableChanged.length > 0) {
     throw new CompetitionError(
       "competition_field_immutable",
@@ -836,18 +849,19 @@ export const updateCompetitionDraft = async (
   // Published competitions are edited in place through the classifier, which judges each change by
   // its field and direction.
   if (competition.status === "published") {
+    const changedPublicFields = fieldsChangedByPatch(
+      PUBLIC_FIELDS_HELD_AFTER_TRUST_REMOVAL,
+      competition,
+      patch,
+    );
+    await assertPublicFieldsUnchangedByRemovedHost(actorUserId, changedPublicFields, db);
     return updatePublishedCompetition(competition, patch, db);
   }
 
   // Archived (and any non-draft, non-published) competitions remain non-editable. Defensive
   // immutable-field check first so callers distinguish "never editable" from "terminal state".
   if (competition.status !== "draft") {
-    const row = competition as unknown as Record<string, unknown>;
-    const patchRecord = patch as Record<string, unknown>;
-    const immutableChanged = IMMUTABLE_AFTER_PUBLISH.filter(
-      (field) =>
-        field in patchRecord && !immutableCompetitionValuesEqual(patchRecord[field], row[field]),
-    );
+    const immutableChanged = fieldsChangedByPatch(IMMUTABLE_AFTER_PUBLISH, competition, patch);
     if (immutableChanged.length > 0) {
       throw new CompetitionError(
         "competition_field_immutable",
@@ -1001,8 +1015,8 @@ export const transitionCompetitionStatus = async (
   targetStatus: CompetitionStatus,
   db: Database = getDb(),
 ): Promise<StatusTransitionResult> => {
-  // All transitions require institution_owner.
-  const { competition } = await assertCompetitionAccess(actorUserId, competitionId, "admin", db);
+  // Owners and institution_staff publish, a paid draft included.
+  const { competition } = await assertCompetitionAccess(actorUserId, competitionId, "member", db);
 
   // Same-status transitions are rejected as invalid: ALLOWED_TRANSITIONS does not contain any
   // from===to edge (e.g. published → published).
@@ -1027,12 +1041,11 @@ export const transitionCompetitionStatus = async (
     );
   }
 
-  // Publish guards: the acting recruiter must be Trusted (account-level gate), the institution
-  // must not be suspended, and the publish-validation checklist must pass. Validation runs
-  // against the merged DB row (not caller payload) so partial PATCHes that left the row
-  // internally inconsistent are caught here. This is the second gate referenced in DEC-0028.
+  // Publish guards: the institution must not be suspended, the publish-validation checklist must
+  // pass, and the actor must be trusted, checked last. Validation runs against the merged DB row
+  // (not caller payload) so partial PATCHes that left the row internally inconsistent are caught
+  // here. This is the second gate referenced in DEC-0028.
   if (competition.status === "draft" && targetStatus === "published") {
-    await assertActorIsTrustedRecruiter(actorUserId, db);
     await assertInstitutionNotSuspended(competition.institutionId, db);
     const result = validatePublishChecklist({
       title: competition.title,
@@ -1085,6 +1098,10 @@ export const transitionCompetitionStatus = async (
       { id: competition.id, institutionId: competition.institutionId, mode: competition.mode },
       db,
     );
+
+    // Last, so an untrusted host's press opens a host check only for a draft that passes every
+    // other check.
+    await assertPublishTrustSatisfied(actorUserId, competition.institutionId, db);
   }
 
   // This function writes only draft → published. Unpublish (published → draft) is
@@ -1171,7 +1188,8 @@ export const unpublishCompetition = async (
   db: Database = getDb(),
   now?: Date,
 ): Promise<UnpublishCompetitionResult> => {
-  await assertCompetitionAccess(actorUserId, competitionId, "admin", db);
+  await assertCompetitionAccess(actorUserId, competitionId, "member", db);
+  await assertUnpublishNotByRemovedHost(actorUserId, db);
 
   const result = await db.transaction(async (tx) => {
     await acquireCompetitionParticipationLock(tx, competitionId);

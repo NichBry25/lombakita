@@ -163,6 +163,29 @@ describe("the audience of the eligibility part", () => {
         "Untuk tidak bisa dikosongkan setelah kompetisi terbit. Biarkan minimal satu pilihan.",
     });
   });
+
+  it("says a host whose trust staff removed keeps the audience of a live competition", async () => {
+    stubEligibility(
+      { eligibilityNote: null, audience: ["umum"] },
+      new Response(
+        JSON.stringify({
+          error: { code: "competition_public_edit_blocked_trust_removed", message: "x" },
+        }),
+        { status: 403 },
+      ),
+    );
+    mount();
+    await screen.findByRole("group", { name: "Untuk" });
+
+    fireEvent.click(tick("Mahasiswa"));
+    const result = await saveReportedPart();
+
+    expect(result).toEqual({
+      ok: false,
+      errorMessage:
+        "Status tepercaya akun Anda dicabut staf, jadi isi kompetisi yang sudah terbit tidak dapat Anda ubah. Kontak, pengumuman, bukti transfer, dan hasil tetap dapat Anda kelola.",
+    });
+  });
 });
 
 describe("the eligibility request", () => {

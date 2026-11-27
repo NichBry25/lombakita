@@ -39,8 +39,8 @@ export const isCompetitionCategory = (value: string): value is CompetitionCatego
   (COMPETITION_CATEGORY_VALUES as readonly string[]).includes(value);
 
 // Status state machine for competitions.
-// draft → published   (admin only, institution must be verified, publish-validation must pass)
-// published → draft   (admin-only "unpublish"; cancels every active registration)
+// draft → published   (owner or staff, publish-validation must pass)
+// published → draft   (owner or staff "unpublish", cancels every active registration)
 //
 // There is no archive transition. A competition that has finished stays published so its rules,
 // prize terms, organizer contact details, and results remain publicly reachable after the event —
@@ -69,6 +69,10 @@ type CompetitionErrorCode =
   | "competition_organizer_contact_not_indonesian"
   | "competition_institution_not_verified"
   | "competition_recruiter_not_trusted"
+  // The account already has an open host check on another draft.
+  | "host_check_pending_other_draft"
+  // A host check copies a name and a phone number, and the account has neither.
+  | "host_check_contact_missing"
   | "institution_suspended"
   | "competition_slug_taken"
   | "competition_delete_not_allowed"
@@ -95,6 +99,10 @@ type CompetitionErrorCode =
   | "competition_changed_during_edit"
   // A set audience stays set once the competition is published.
   | "competition_audience_cannot_be_emptied"
+  // Staff removed the actor's host trust, so the public fields of a live competition stay as they are.
+  | "competition_public_edit_blocked_trust_removed"
+  // Staff removed the actor's host trust, so the actor does not withdraw a live competition.
+  | "competition_unpublish_blocked_trust_removed"
   // The organiser must be shown, and confirm, what the platform charges before a price goes live.
   // The confirmation is recorded; this refusal is what makes it unskippable.
   | "competition_fee_disclosure_required"
@@ -122,6 +130,9 @@ export type CompetitionErrorDetails = {
   // The fields a post-publish edit may not change in the requested direction. Surfaced so
   // the editor can name the offending field(s) in a modal.
   blockedFields?: string[];
+  // The title of the draft whose host check is open, given only while the caller still runs its
+  // institution as owner or staff.
+  pendingCompetitionTitle?: string;
 };
 
 export class CompetitionError extends Error {
@@ -782,6 +793,26 @@ export const IMMUTABLE_AFTER_PUBLISH: readonly string[] = [
   "mode",
   "minimumParticipantEntries",
   "participantConfirmationAt",
+];
+
+// The public fields of a published competition that a person whose host trust staff removed may not
+// change through the competition edit. The prizes and the price are fixed for every editor once the
+// competition is published, the eligibility note, the audience, the tags and the rounds are held by
+// their own writes, and the payment window and the contact stay editable to run the event.
+export const PUBLIC_FIELDS_HELD_AFTER_TRUST_REMOVAL: readonly string[] = [
+  "title",
+  "description",
+  "category",
+  "location",
+  "registrationStartAt",
+  "registrationEndAt",
+  "eventStartAt",
+  "eventEndAt",
+  "resultAnnouncementAt",
+  "allowCancellation",
+  "cancellationCutoffDays",
+  "minTeamSize",
+  "maxTeamSize",
 ];
 
 // Publish-validation checklist. A competition can only transition draft → published if every

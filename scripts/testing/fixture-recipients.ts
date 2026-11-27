@@ -306,11 +306,6 @@ export const ACCEPTED_ROUTABLE_TEST_ADDRESSES: readonly AcceptedRoutableTestFile
     reason: "mocked_delivery",
   },
   {
-    file: "src/app/api/v1/recruiter/me/verification/route.test.ts",
-    addresses: ["wisnu@perusahaan.co.id"],
-    reason: "mocked_delivery",
-  },
-  {
     file: "src/config/env-email-delivery.test.ts",
     addresses: ["noreply@mail.lombakita.com"],
     reason: "domain_under_test",
@@ -394,11 +389,6 @@ export const ACCEPTED_ROUTABLE_TEST_ADDRESSES: readonly AcceptedRoutableTestFile
     reason: "mocked_delivery",
   },
   {
-    file: "src/server/auth/role-verification-db.test.ts",
-    addresses: ["rendra@corp.co.id"],
-    reason: "mocked_delivery",
-  },
-  {
     file: "src/server/email/delivery.test.ts",
     addresses: ["a@b.com", "auth@lombakita.com"],
     reason: "domain_under_test",
@@ -421,6 +411,31 @@ export const ACCEPTED_ROUTABLE_TEST_ADDRESSES: readonly AcceptedRoutableTestFile
   {
     file: "src/server/email/send-failure.test.ts",
     addresses: ["noreply@mail.lombakita.com"],
+    reason: "domain_under_test",
+  },
+  {
+    file: "src/server/host-trust/email-domain.test.ts",
+    addresses: ["x@gmail.com", "x@sub.acme.co.id"],
+    reason: "domain_under_test",
+  },
+  {
+    file: "src/server/host-trust/host-check-decision-db.integration.test.ts",
+    addresses: ["rina.free@gmail.com", "sari.free@gmail.com"],
+    reason: "domain_under_test",
+  },
+  {
+    file: "src/server/host-trust/host-check-open-db.integration.test.ts",
+    addresses: ["rina.free@gmail.com", "sari.free@gmail.com"],
+    reason: "domain_under_test",
+  },
+  {
+    file: "src/server/host-trust/host-trust-service-db.integration.test.ts",
+    addresses: ["rina.free@gmail.com", "x@gmail.com"],
+    reason: "domain_under_test",
+  },
+  {
+    file: "src/server/host-trust/organization-email-service-db.integration.test.ts",
+    addresses: ["rina.free@gmail.com"],
     reason: "domain_under_test",
   },
   {
@@ -478,16 +493,6 @@ export const ACCEPTED_ROUTABLE_TEST_ADDRESSES: readonly AcceptedRoutableTestFile
     reason: "mocked_delivery",
   },
   {
-    file: "src/server/recruiter-verification/recruiter-verification-core.test.ts",
-    addresses: ["Rendra@Corp.CO.ID", "rendra@corp.co.id", "rendra@gmail.com"],
-    reason: "domain_under_test",
-  },
-  {
-    file: "src/server/recruiter-verification/recruiter-verification-service.test.ts",
-    addresses: ["r@corp.co"],
-    reason: "mocked_delivery",
-  },
-  {
     file: "src/server/teams/team-service.test.ts",
     addresses: ["fourth@y.io", "x@y.io"],
     reason: "mocked_delivery",
@@ -540,7 +545,7 @@ export const scanGovernedTestFiles = (): FixtureRecipient[] =>
  * assertion true by construction and measure nothing, which is the defect this whole gate exists
  * to avoid shipping.
  */
-export const PINNED_ADDRESS_CEILING = 82;
+export const PINNED_ADDRESS_CEILING = 85;
 
 /** What the register actually holds right now. Compared against the literal above. */
 export const pinnedAddressTotal = (): number =>

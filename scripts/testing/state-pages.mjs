@@ -375,10 +375,12 @@ const validationErrorEntries = [
   validationErrorEntry("/auth/reset-password?token=seed-placeholder-token", null, async (page) => {
     await page.getByRole("button", { name: "Simpan password baru", exact: true }).click();
   }),
+  // The host step asks nothing required, so its error state is the Email organisasi sent empty,
+  // which the code route refuses before any write. Pressing the host step button would grant the role.
   validationErrorEntry(
     "/auth/verify-role?as=recruiter",
     "candA",
-    clickControl('[data-testid="verify-role-recruiter"]'),
+    submitFormOf("#organization-email"),
   ),
   validationErrorEntry(
     "/auth/verify-role?as=candidate",
@@ -437,11 +439,7 @@ const validationErrorEntries = [
     "recElev",
     submitFormOf("#document-request-title"),
   ),
-  validationErrorEntry(
-    "/recruiter-dashboard",
-    "recDraft",
-    clearThenSubmitFormOf(["#rv-full-name", "#rv-mobile"]),
-  ),
+  validationErrorEntry("/recruiter-dashboard", "recDraft", submitFormOf("#organization-email")),
 ];
 
 export const STATE_PAGES = [

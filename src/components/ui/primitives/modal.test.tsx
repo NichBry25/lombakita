@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { render, screen, act, waitFor, fireEvent } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { SelectField } from "@/components/ui/select-field";
 import { MAIN_CONTENT_ID } from "../main-content-id";
 import { ModalProvider, useModal, useModalTask, type ModalConfig } from "./modal-context";
 import { Modal } from "./modal";
@@ -461,6 +462,54 @@ describe("Modal — footer, focus and waiting", () => {
     expect(task).toHaveBeenCalledOnce();
 
     await act(async () => finish());
+  });
+
+  const openGuidelinePopUp = (stay: () => void) => {
+    const { openModal } = renderModal();
+    act(() =>
+      openModal({
+        title: "Pilih pedoman",
+        body: (
+          <SelectField
+            label="Pedoman"
+            options={[
+              { value: "satu", label: "Satu" },
+              { value: "dua", label: "Dua" },
+            ]}
+            value=""
+            onChange={() => {}}
+          />
+        ),
+        actions: [
+          { label: "Batal", onClick: stay },
+          { label: "Simpan", variant: "primary" },
+        ],
+      }),
+    );
+  };
+
+  it("keeps the pop-up open when Escape closes a list open inside it", () => {
+    const stay = vi.fn();
+    openGuidelinePopUp(stay);
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Pedoman" }));
+    fireEvent.keyDown(screen.getByRole("option", { name: "Satu" }), { key: "Escape" });
+
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(stay).not.toHaveBeenCalled();
+  });
+
+  it("does the safe choice when Escape is pressed with no list open", () => {
+    const stay = vi.fn();
+    openGuidelinePopUp(stay);
+    fireEvent.click(screen.getByRole("combobox", { name: "Pedoman" }));
+    fireEvent.keyDown(screen.getByRole("option", { name: "Satu" }), { key: "Escape" });
+
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "Pedoman" }), { key: "Escape" });
+
+    expect(stay).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });
 

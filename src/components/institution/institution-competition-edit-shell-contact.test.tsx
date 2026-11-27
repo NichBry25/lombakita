@@ -214,8 +214,8 @@ describe("the contact part in the edit shell", () => {
       () => loadOk(CONTACT_MISSING),
       () => draftContact("0812-3456-7890"),
       SAVED_CONTACT,
-      () => failedJson({ error: { code: "competition_recruiter_not_trusted" } }),
-      () => loadOk({ canPublish: false, blockers: ["competition_recruiter_not_trusted"] }),
+      () => failedJson({ error: { code: "institution_suspended" } }),
+      () => loadOk({ canPublish: false, blockers: ["institution_suspended"] }),
       () =>
         okJson({
           contact: { kind: "whatsapp", value: "6281234567890" },
@@ -236,10 +236,86 @@ describe("the contact part in the edit shell", () => {
     const reasonsList = () => document.querySelector(".publish-reasons-list")?.textContent;
     await waitFor(() =>
       expect(reasonsList()).toContain(
-        "Akun Anda belum menjadi penyelenggara terverifikasi. Selesaikan verifikasi penyelenggara untuk dapat menerbitkan kompetisi.",
+        "Institusi ini sedang ditangguhkan oleh tim Lombakita. Kompetisi tidak dapat diterbitkan.",
       ),
     );
     expect(reasonsList()).not.toContain(CONTACT_MISSING_REASON);
+  });
+
+  describe("when the press may open a host check", () => {
+    const WAIT_SENTENCE = "Perkiraan 1x24 jam pada hari kerja.";
+    const NEEDED_SENTENCE = `Kompetisi pertama Anda diperiksa staf sebelum tayang. ${WAIT_SENTENCE}`;
+    const PENDING_SENTENCE = `Staf Lombakita sedang memeriksa kompetisi ini. ${WAIT_SENTENCE}`;
+    const SENT_TOAST = `Kompetisi dikirim untuk diperiksa. ${WAIT_SENTENCE}`;
+
+    const neededReadiness: CompetitionPublishReadiness = {
+      canPublish: true,
+      blockers: [],
+      hostCheck: { state: "needed" },
+    };
+    const pendingReadiness: CompetitionPublishReadiness = {
+      canPublish: true,
+      blockers: [],
+      hostCheck: { state: "pending" },
+    };
+    const savedContact = () =>
+      okJson({
+        contact: { kind: "whatsapp", value: "6281234567890" },
+        isDraft: true,
+        suggestion: null,
+      });
+    const acceptedAsHostCheck = () =>
+      ({
+        ok: true,
+        status: 202,
+        json: async () => ({
+          hostCheck: {
+            id: "check_1",
+            status: "pending_review",
+            submittedAt: "2026-11-25T08:00:00.000Z",
+          },
+        }),
+      }) as unknown as Response;
+
+    it("sends the draft for a host check from step 5 and opens the management page without saying it was published", async () => {
+      const calls = stubFetchSequence([
+        () => loadOk(neededReadiness),
+        savedContact,
+        acceptedAsHostCheck,
+      ]);
+
+      render(shellWithContactAt(5, neededReadiness));
+
+      expect(await screen.findByText(NEEDED_SENTENCE)).toBeTruthy();
+      const sendButton = () => screen.getByRole("button", { name: "Kirim untuk diperiksa" });
+      await waitFor(() => expect(sendButton().hasAttribute("disabled")).toBe(false));
+
+      fireEvent.click(sendButton());
+
+      expect(await screen.findByText(SENT_TOAST)).toBeTruthy();
+      expect(screen.queryByText("Kompetisi diterbitkan.")).toBeNull();
+      await waitFor(() =>
+        expect(mockPush).toHaveBeenCalledWith(
+          "/institution/institusi-contoh/competitions/lomba-contoh-2026",
+        ),
+      );
+      expect(calls).toEqual([COMPETITION_URL, CONTACT_GET, PUBLISH_POST]);
+    });
+
+    it("shows Sedang diperiksa on step 5 and sends nothing when it is pressed", async () => {
+      const calls = stubFetchSequence([() => loadOk(pendingReadiness), savedContact]);
+
+      render(shellWithContactAt(5, pendingReadiness));
+
+      const waitingButton = await screen.findByRole("button", { name: "Sedang diperiksa" });
+      expect(waitingButton.hasAttribute("disabled")).toBe(true);
+      expect(waitingButton.getAttribute("aria-describedby")).toBe("publish-host-check-note");
+      expect(screen.getByText(PENDING_SENTENCE)).toBeTruthy();
+
+      fireEvent.click(waitingButton);
+
+      expect(calls).toEqual([COMPETITION_URL, CONTACT_GET]);
+    });
   });
 
   it("keeps the contact in section 1 of a published competition and saves it with Simpan", async () => {

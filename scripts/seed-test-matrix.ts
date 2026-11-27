@@ -215,12 +215,12 @@ const main = async (): Promise<void> => {
         username: "seed_rec_elev",
         candAt: null,
         recAt: d(-90),
-        // `minimal`, which is what recruiter signup actually writes, NOT the `elevated` this row
+        // `minimal`, which is what the host step actually writes, NOT the `elevated` this row
         // used to claim. Elevation is not a column a recruiter is created holding; it is an act
         // platform ops perform and it writes an audit row. This account reaches `elevated` when
-        // the operator seed (`npm run db:seed:operators`) approves `seed-rvs-elev` through the
-        // production review path, which is what elevates a recruiter who submitted documents.
-        // Until that runs, the account is a minimal recruiter with a pending verification.
+        // the operator seed (`npm run db:seed:operators`) approves the host check `seed-rvs-elev`
+        // through the production decision path, which is what trusts a host whose first draft staff
+        // checked. Until that runs, the account is a minimal recruiter with a pending host check.
         //
         // The tier is set on FIRST INSERT ONLY. It is deliberately absent from the ON CONFLICT
         // clause below: an upsert that wrote `minimal` back on every re-run demoted the account
@@ -502,6 +502,23 @@ const main = async (): Promise<void> => {
         contactPhone: null,
         websiteUrl: null,
       },
+      // Personal institution of seed-user-rec-rej, which holds the draft its host check names.
+      {
+        id: "seed-inst-rej",
+        displayName: null,
+        slug: "seed-rec-rej",
+        type: "personal",
+        verification: "pending_verification",
+        verifiedAt: null,
+        suspendedAt: null,
+        suspensionReason: null,
+        description: "Institusi personal milik Raka (data uji).",
+        about: null,
+        contactName: null,
+        contactEmail: null,
+        contactPhone: null,
+        websiteUrl: null,
+      },
     ];
 
     // `status` COMES FROM THE PRODUCTION CONSTANT, never a literal here.
@@ -578,6 +595,12 @@ const main = async (): Promise<void> => {
         id: "seed-mem-d-owner",
         inst: "seed-inst-d",
         user: "seed-user-rec-min",
+        role: "institution_owner",
+      },
+      {
+        id: "seed-mem-rej-owner",
+        inst: "seed-inst-rej",
+        user: "seed-user-rec-rej",
         role: "institution_owner",
       },
     ];
@@ -1045,7 +1068,7 @@ const main = async (): Promise<void> => {
         slug: "seed-personal-draft",
         title: "Kuis Spesial Rina (Draf)",
         description:
-          "Draf lengkap siap terbit — uji otomatis: publish HARUS ditolak (tier minimal).",
+          "Draf lengkap siap terbit (data uji): pemeriksaan penyelenggaranya menunggu staf.",
         status: "draft",
         category: "quiz",
         mode: "individual",
@@ -1145,6 +1168,55 @@ const main = async (): Promise<void> => {
         featuredOrder: null,
         publishedAt: null,
         contact: { kind: "whatsapp", value: "6281200003333" },
+      },
+      {
+        id: "seed-comp-hc-elev",
+        inst: "seed-inst-a",
+        createdBy: "seed-user-rec-elev",
+        slug: "seed-hc-elev",
+        title: "Lomba Esai Pemeriksaan Penyelenggara",
+        description:
+          "Draf yang diperiksa staf (data uji): belum lengkap, jadi tetap draf setelah disetujui.",
+        status: "draft",
+        category: "other",
+        mode: null,
+        minTeam: null,
+        maxTeam: null,
+        rs: null,
+        re: null,
+        es: null,
+        ee: null,
+        ra: null,
+        allowCancel: false,
+        cutoffDays: null,
+        eligibilityNote: null,
+        featured: false,
+        featuredOrder: null,
+        publishedAt: null,
+      },
+      {
+        id: "seed-comp-hc-rej",
+        inst: "seed-inst-rej",
+        createdBy: "seed-user-rec-rej",
+        slug: "seed-hc-rej",
+        title: "Kuis Raka (Draf)",
+        description: "Draf yang ditolak staf (data uji).",
+        status: "draft",
+        category: "other",
+        mode: null,
+        minTeam: null,
+        maxTeam: null,
+        rs: null,
+        re: null,
+        es: null,
+        ee: null,
+        ra: null,
+        allowCancel: false,
+        cutoffDays: null,
+        eligibilityNote: null,
+        featured: false,
+        featuredOrder: null,
+        publishedAt: null,
       },
     ];
     for (const c of comps) {
@@ -1840,7 +1912,10 @@ const main = async (): Promise<void> => {
       submittedAt: Date;
       reviewedAt: Date | null;
       reviewer: string | null;
+      competition?: string;
     };
+    // A host check names its draft. The rows with no draft are older host requests, written closed
+    // the way migration 0071 leaves them, because a migrated database holds no open one.
     const rvs: RvsSeed[] = [
       {
         id: "seed-rvs-min",
@@ -1858,6 +1933,24 @@ const main = async (): Promise<void> => {
         submittedAt: d(-2),
         reviewedAt: null,
         reviewer: null,
+        competition: "seed-comp-personal-draft",
+      },
+      {
+        id: "seed-rvs-min-old",
+        user: "seed-user-rec-min",
+        fullName: "Rina Wijaya",
+        mobile: "+6281200001111",
+        corporateEmail: null,
+        emailFlag: null,
+        vouchedAt: null,
+        status: "rejected",
+        rejectionReason: "Ditutup karena alur penyelenggara berubah.",
+        resubAllowed: false,
+        resubCount: 0,
+        firstAt: d(-30),
+        submittedAt: d(-30),
+        reviewedAt: d(0),
+        reviewer: null,
       },
       {
         id: "seed-rvs-dual",
@@ -1867,13 +1960,13 @@ const main = async (): Promise<void> => {
         corporateEmail: "dina@seedcorp.example",
         emailFlag: true,
         vouchedAt: d(-1),
-        status: "pending_review",
-        rejectionReason: null,
-        resubAllowed: true,
+        status: "rejected",
+        rejectionReason: "Ditutup karena alur penyelenggara berubah.",
+        resubAllowed: false,
         resubCount: 0,
         firstAt: d(-1),
         submittedAt: d(-1),
-        reviewedAt: null,
+        reviewedAt: d(0),
         reviewer: null,
       },
       {
@@ -1892,6 +1985,7 @@ const main = async (): Promise<void> => {
         submittedAt: d(-40),
         reviewedAt: null,
         reviewer: null,
+        competition: "seed-comp-hc-elev",
       },
       {
         id: "seed-rvs-rej",
@@ -1909,6 +2003,7 @@ const main = async (): Promise<void> => {
         submittedAt: d(-5),
         reviewedAt: null,
         reviewer: null,
+        competition: "seed-comp-hc-rej",
       },
       {
         id: "seed-rvs-draft",
@@ -1918,13 +2013,13 @@ const main = async (): Promise<void> => {
         corporateEmail: null,
         emailFlag: null,
         vouchedAt: null,
-        status: "draft",
-        rejectionReason: null,
-        resubAllowed: true,
+        status: "rejected",
+        rejectionReason: "Ditutup karena alur penyelenggara berubah.",
+        resubAllowed: false,
         resubCount: 0,
         firstAt: d(-8),
         submittedAt: d(-8),
-        reviewedAt: null,
+        reviewedAt: d(0),
         reviewer: null,
       },
     ];
@@ -1933,10 +2028,10 @@ const main = async (): Promise<void> => {
         INSERT INTO recruiter_verification_submissions (id, user_id, full_name, mobile_number,
           corporate_email, email_domain_flag, vouched_at, status, rejection_reason,
           resubmission_allowed, resubmission_count, first_submitted_at, submitted_at,
-          reviewed_at, reviewer_user_id)
+          reviewed_at, reviewer_user_id, competition_id)
         VALUES (${v.id}, ${v.user}, ${v.fullName}, ${v.mobile}, ${v.corporateEmail}, ${v.emailFlag},
           ${v.vouchedAt}, ${v.status}, ${v.rejectionReason}, ${v.resubAllowed}, ${v.resubCount},
-          ${v.firstAt}, ${v.submittedAt}, ${v.reviewedAt}, ${v.reviewer})
+          ${v.firstAt}, ${v.submittedAt}, ${v.reviewedAt}, ${v.reviewer}, ${v.competition ?? null})
         ON CONFLICT (id) DO UPDATE SET
           full_name = EXCLUDED.full_name, mobile_number = EXCLUDED.mobile_number,
           corporate_email = EXCLUDED.corporate_email, email_domain_flag = EXCLUDED.email_domain_flag,
@@ -1945,16 +2040,17 @@ const main = async (): Promise<void> => {
           resubmission_allowed = EXCLUDED.resubmission_allowed,
           resubmission_count = EXCLUDED.resubmission_count,
           first_submitted_at = EXCLUDED.first_submitted_at, submitted_at = EXCLUDED.submitted_at,
-          reviewed_at = EXCLUDED.reviewed_at, reviewer_user_id = EXCLUDED.reviewer_user_id
+          reviewed_at = EXCLUDED.reviewed_at, reviewer_user_id = EXCLUDED.reviewer_user_id,
+          competition_id = EXCLUDED.competition_id
       `;
     }
     await sql`
       INSERT INTO recruiter_verification_documents (id, submission_id, r2_key, original_file_name,
         file_size_bytes, content_type)
-      VALUES ('seed-rvd-1', 'seed-rvs-min',
-        'recruiter-verification/seed-user-rec-min/seed-rvs-min/seed-file',
+      VALUES ('seed-rvd-1', 'seed-rvs-min-old',
+        'recruiter-verification/seed-user-rec-min/seed-rvs-min-old/seed-file',
         'surat-keterangan-kerja.pdf', 145678, 'application/pdf')
-      ON CONFLICT (id) DO NOTHING
+      ON CONFLICT (id) DO UPDATE SET submission_id = EXCLUDED.submission_id, r2_key = EXCLUDED.r2_key
     `;
 
     // ------------------------------ institution verification submissions

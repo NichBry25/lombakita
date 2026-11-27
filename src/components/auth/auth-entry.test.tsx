@@ -48,11 +48,7 @@ const renderEntry = (callbackUrl?: string) =>
     </UIPrimitivesProvider>,
   );
 
-const chooseRole = (label: string) => {
-  fireEvent.click(screen.getByRole("radio", { name: new RegExp(label) }));
-};
-
-const reachRoleChoice = async (callbackUrl?: string) => {
+const reachPasswordConfirm = async (callbackUrl?: string) => {
   renderEntry(callbackUrl);
   fireEvent.click(screen.getByRole("button", { name: /Lanjut dengan email/ }));
   fireEvent.change(screen.getByLabelText(/^Email(?: \* \(wajib\)| \(opsional\))?$/), {
@@ -68,14 +64,10 @@ const reachRoleChoice = async (callbackUrl?: string) => {
   fireEvent.change(confirmPassword, { target: { value: PASSWORD } });
 };
 
-const reachCandidateStage = async (callbackUrl?: string) => {
-  await reachRoleChoice(callbackUrl);
-  chooseRole("Daftar sebagai kandidat");
-};
-
-const reachRecruiterStage = async () => {
-  await reachRoleChoice();
-  chooseRole("Daftar sebagai penyelenggara");
+const reachDetailsStage = async (callbackUrl?: string) => {
+  await reachPasswordConfirm(callbackUrl);
+  fireEvent.click(screen.getByRole("button", { name: "Lanjut" }));
+  await screen.findByLabelText(/^Nomor telepon(?: \* \(wajib\)| \(opsional\))?$/);
 };
 
 const fillCandidateProfile = (fullName: string) => {
@@ -85,19 +77,10 @@ const fillCandidateProfile = (fullName: string) => {
   fireEvent.change(screen.getByLabelText(/^Nomor telepon(?: \* \(wajib\)| \(opsional\))?$/), {
     target: { value: PHONE },
   });
-  fireEvent.click(screen.getByRole("button", { name: "Status saat ini (wajib)" }));
+  fireEvent.click(screen.getByRole("combobox", { name: "Status saat ini (wajib)" }));
   fireEvent.click(screen.getByRole("option", { name: "Mahasiswa" }));
   fireEvent.change(screen.getByLabelText(/^Tanggal lahir(?: \* \(wajib\)| \(opsional\))?$/), {
     target: { value: "2000-01-31" },
-  });
-};
-
-const fillRecruiterProfile = (fullName: string) => {
-  fireEvent.change(screen.getByLabelText(/^Nama lengkap(?: \* \(wajib\)| \(opsional\))?$/), {
-    target: { value: fullName },
-  });
-  fireEvent.change(screen.getByLabelText(/^Nomor ponsel(?: \* \(wajib\)| \(opsional\))?$/), {
-    target: { value: PHONE },
   });
 };
 
@@ -133,7 +116,7 @@ afterEach(() => {
 
 describe("the email sign-up profile step", () => {
   it("sends the candidate's typed full name as the account name", async () => {
-    await reachCandidateStage();
+    await reachDetailsStage();
     fillCandidateProfile("Andi Saputra");
 
     submitProfile();
@@ -142,18 +125,8 @@ describe("the email sign-up profile step", () => {
     expect(body.name).toBe("Andi Saputra");
   });
 
-  it("sends the recruiter's typed full name as the account name", async () => {
-    await reachRecruiterStage();
-    fillRecruiterProfile("Andi Saputra");
-
-    submitProfile();
-
-    const body = await sentRegisterBody();
-    expect(body.name).toBe("Andi Saputra");
-  });
-
   it("never sends a one-character full name", async () => {
-    await reachCandidateStage();
+    await reachDetailsStage();
     fillCandidateProfile("A");
 
     submitProfile();
@@ -163,20 +136,11 @@ describe("the email sign-up profile step", () => {
   });
 
   it("tells a candidate the name is public", async () => {
-    await reachCandidateStage();
+    await reachDetailsStage();
 
     const { describedBy, helpText } = helpLineFor("candidate-full-name");
 
     expect(describedBy).toBe("candidate-full-name-help");
-    expect(helpText).toBe(HELP_SENTENCE);
-  });
-
-  it("tells a recruiter the name is public", async () => {
-    await reachRecruiterStage();
-
-    const { describedBy, helpText } = helpLineFor("recruiter-full-name");
-
-    expect(describedBy).toBe("recruiter-full-name-help");
     expect(helpText).toBe(HELP_SENTENCE);
   });
 
@@ -193,7 +157,7 @@ describe("the email sign-up profile step", () => {
       }
       return answerByUrl(url);
     });
-    await reachCandidateStage();
+    await reachDetailsStage();
     fillCandidateProfile("Andi Saputra");
 
     submitProfile();
@@ -208,13 +172,91 @@ describe("the email sign-up profile step", () => {
       }
       return answerByUrl(url);
     });
-    await reachCandidateStage();
+    await reachDetailsStage();
     fillCandidateProfile("Andi Saputra");
 
     submitProfile();
 
     expect(await screen.findByText(/belum diverifikasi/)).toBeTruthy();
     await waitFor(() => expect(document.activeElement?.getAttribute("role")).toBe("status"));
+  });
+});
+
+describe("the email sign-up without a role", () => {
+  it("offers no role choice when an address has no account", async () => {
+    await reachPasswordConfirm();
+    expect(screen.queryAllByRole("radio")).toHaveLength(0);
+    expect(screen.queryByText(/Daftar sebagai penyelenggara/)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Lanjut" }));
+
+    expect(
+      await screen.findByLabelText(/^Nomor telepon(?: \* \(wajib\)| \(opsional\))?$/),
+    ).toBeTruthy();
+  });
+
+  it("sends the participant details and no role to the register route", async () => {
+    await reachDetailsStage();
+    fillCandidateProfile("Andi Saputra");
+
+    submitProfile();
+
+    const body = await sentRegisterBody();
+    expect(registerCalls()[0]?.[0]).toBe(REGISTER_URL);
+    expect(body).toEqual({
+      name: "Andi Saputra",
+      email: EMAIL,
+      password: PASSWORD,
+      fullName: "Andi Saputra",
+      phoneNumber: PHONE,
+      occupation: "college_student",
+      dateOfBirth: "2000-01-31",
+    });
+  });
+
+  it("refuses a confirmation that does not match the password before the details", async () => {
+    await reachPasswordConfirm();
+    fireEvent.change(
+      screen.getByLabelText(/^Konfirmasi password(?: \* \(wajib\)| \(opsional\))?$/),
+      { target: { value: "rahasia-999" } },
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Lanjut" }));
+
+    expect(
+      await screen.findByText("Password dan konfirmasi password tidak cocok. Coba lagi."),
+    ).toBeTruthy();
+    expect(screen.queryByLabelText(/^Nomor telepon(?: \* \(wajib\)| \(opsional\))?$/)).toBeNull();
+  });
+
+  it("keeps the host dashboard as the return address through the code, so the sign-up reaches the host step", async () => {
+    await reachDetailsStage("/recruiter-dashboard");
+    fillCandidateProfile("Andi Saputra");
+    submitProfile();
+
+    fireEvent.change(
+      await screen.findByLabelText(/^Kode verifikasi(?: \* \(wajib\)| \(opsional\))?$/),
+      { target: { value: "123456" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Verifikasi" }));
+
+    await waitFor(() =>
+      expect(signIn).toHaveBeenCalledWith(
+        "credentials",
+        expect.objectContaining({ callbackUrl: "/recruiter-dashboard" }),
+      ),
+    );
+  });
+
+  it("tells a new person the next step asks for their details", () => {
+    renderEntry();
+    fireEvent.click(screen.getByRole("button", { name: /Lanjut dengan email/ }));
+
+    expect(
+      screen.getByText(
+        "Belum punya akun? Masukkan email & password, lalu lengkapi data Anda di langkah berikutnya.",
+      ),
+    ).toBeTruthy();
   });
 });
 
@@ -225,7 +267,7 @@ const resendCalls = () => fetchMock.mock.calls.filter(([url]) => url === RESEND_
 
 describe("the email sign-up return address and end stage", () => {
   it("returns to the page it started from once the code is verified", async () => {
-    await reachCandidateStage(RETURN_PATH);
+    await reachDetailsStage(RETURN_PATH);
     fillCandidateProfile("Andi Saputra");
     submitProfile();
 
@@ -271,7 +313,7 @@ describe("the email sign-up return address and end stage", () => {
         target: { value: PASSWORD },
       },
     );
-    chooseRole("Daftar sebagai kandidat");
+    fireEvent.click(screen.getByRole("button", { name: "Lanjut" }));
     fillCandidateProfile("Andi Saputra");
     submitProfile();
 
@@ -281,7 +323,7 @@ describe("the email sign-up return address and end stage", () => {
   });
 
   it("ends email sign-up on the code stage", async () => {
-    await reachCandidateStage();
+    await reachDetailsStage();
     fillCandidateProfile("Andi Saputra");
 
     submitProfile();

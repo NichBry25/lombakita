@@ -3191,7 +3191,7 @@ describe.skipIf(skipWithoutDatabase)("the charging gate at PUBLISH (real databas
       membershipRole: "institution_owner",
       status: "active",
     });
-    // Publishing is separately gated on the ACCOUNT-level Trusted Recruiter tier, which is a
+    // Publishing is separately gated on host trust, here the owner's elevated tier, which is a
     // different axis from institution verification. Cleared here so what these tests measure is the
     // charging gate and nothing else.
     await tx

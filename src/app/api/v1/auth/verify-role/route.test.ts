@@ -55,8 +55,8 @@ const candidateProfileFields = {
   dateOfBirth: "2000-01-15",
 };
 
-// The recruiter affiliation form a recruiter verification must carry.
-const recruiterVerificationFields = {
+// Fields an older host form still sends. The route reads none of them.
+const olderHostFormFields = {
   fullName: "Rendra Wijaya",
   mobileNumber: "0812345678",
   corporateEmail: "rendra@corp.co.id",
@@ -153,36 +153,43 @@ describe("POST /api/v1/auth/verify-role", () => {
     expect(markRoleAsVerifiedMock).not.toHaveBeenCalled();
   });
 
-  it("returns 400 and does not call the service when a recruiter omits the affiliation form", async () => {
-    getServerSessionMock.mockResolvedValue(buildSession());
-
-    const response = await POST(buildRequest({ role: "recruiter" }));
-
-    expect(response.status).toBe(400);
-    expect(markRoleAsVerifiedMock).not.toHaveBeenCalled();
-  });
-
-  it("happy path: flips recruiter on a candidate-only account and returns recruiter dashboard", async () => {
+  it("calls the host step with no form when a recruiter sends only its role", async () => {
     getServerSessionMock.mockResolvedValue(buildSession());
     markRoleAsVerifiedMock.mockResolvedValue({
       candidateVerified: true,
       recruiterVerified: true,
+      hostTrusted: false,
     });
 
-    const response = await POST(
-      buildRequest({ role: "recruiter", ...recruiterVerificationFields }),
-    );
-    const body = (await response.json()) as { verified: string; redirectTo: string };
+    const response = await POST(buildRequest({ role: "recruiter" }));
+    const body = (await response.json()) as { verified: string; hostTrusted: boolean };
+
+    expect(response.status).toBe(200);
+    expect(body.verified).toBe("recruiter");
+    expect(body.hostTrusted).toBe(false);
+    expect(markRoleAsVerifiedMock).toHaveBeenCalledWith("u_1", "recruiter", null);
+  });
+
+  it("happy path: flips recruiter on a candidate-only account, ignores older host form fields and says the account is trusted", async () => {
+    getServerSessionMock.mockResolvedValue(buildSession());
+    markRoleAsVerifiedMock.mockResolvedValue({
+      candidateVerified: true,
+      recruiterVerified: true,
+      hostTrusted: true,
+    });
+
+    const response = await POST(buildRequest({ role: "recruiter", ...olderHostFormFields }));
+    const body = (await response.json()) as {
+      verified: string;
+      redirectTo: string;
+      hostTrusted: boolean;
+    };
 
     expect(response.status).toBe(200);
     expect(body.verified).toBe("recruiter");
     expect(body.redirectTo).toBe("/recruiter-dashboard");
-    // Recruiter verification passes null for the candidate profile and the parsed form.
-    expect(markRoleAsVerifiedMock).toHaveBeenCalledWith("u_1", "recruiter", null, {
-      fullName: "Rendra Wijaya",
-      mobileNumber: "0812345678",
-      corporateEmail: "rendra@corp.co.id",
-    });
+    expect(body.hostTrusted).toBe(true);
+    expect(markRoleAsVerifiedMock).toHaveBeenCalledWith("u_1", "recruiter", null);
   });
 
   it("refuses a mismatched expected user before marking the role as verified", async () => {
@@ -194,7 +201,7 @@ describe("POST /api/v1/auth/verify-role", () => {
 
     const response = await POST(
       buildRequest(
-        { role: "recruiter", ...recruiterVerificationFields },
+        { role: "recruiter", ...olderHostFormFields },
         { [SESSION_USER_HEADER]: "someone_else" },
       ),
     );
@@ -235,10 +242,7 @@ describe("POST /api/v1/auth/verify-role", () => {
     });
 
     const response = await POST(
-      buildRequest(
-        { role: "recruiter", ...recruiterVerificationFields },
-        { [SESSION_USER_HEADER]: "u_1" },
-      ),
+      buildRequest({ role: "recruiter", ...olderHostFormFields }, { [SESSION_USER_HEADER]: "u_1" }),
     );
 
     expect(response.status).toBe(200);
@@ -260,12 +264,7 @@ describe("POST /api/v1/auth/verify-role", () => {
     expect(response.status).toBe(200);
     expect(body.verified).toBe("candidate");
     expect(body.redirectTo).toBe("/candidate-dashboard");
-    expect(markRoleAsVerifiedMock).toHaveBeenCalledWith(
-      "u_1",
-      "candidate",
-      candidateProfileFields,
-      null,
-    );
+    expect(markRoleAsVerifiedMock).toHaveBeenCalledWith("u_1", "candidate", candidateProfileFields);
   });
 
   // An operational account is created as a candidate or recruiter before being promoted, so it

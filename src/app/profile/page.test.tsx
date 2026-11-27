@@ -117,4 +117,32 @@ describe("the owner profile badges", () => {
     expect(html).not.toContain("Rekruter Terverifikasi");
     expect(html).not.toContain("Penyelenggara terverifikasi");
   });
+
+  it("offers a participant the host step as Mulai menyelenggarakan", async () => {
+    mockGetCurrentSession.mockResolvedValue({
+      user: {
+        id: "u1",
+        email: "john@example.com",
+        role: "candidate",
+        verifiedRoles: ["candidate"],
+      },
+      expires: new Date(Date.now() + 60_000).toISOString(),
+    });
+    mockGetOwnerProfile.mockResolvedValue(
+      buildOwnerProfileResponse(
+        {
+          ...baseRow,
+          candidateVerifiedAt: new Date(),
+          recruiterVerifiedAt: null,
+          recruiterVerificationTier: "unverified",
+        },
+        emptyProfileCollections(),
+      ),
+    );
+
+    const html = renderToStaticMarkup(await OwnerProfilePage());
+
+    expect(html).toContain("Mulai menyelenggarakan");
+    expect(html).not.toContain("Verifikasi sebagai Penyelenggara");
+  });
 });

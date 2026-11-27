@@ -8,7 +8,7 @@ import { isSelfServiceRole } from "@/lib/access/roles";
 import { useModal } from "@/components/ui/primitives";
 
 // Global event name. A component dispatches this on `window` to open the modal (the profile
-// page's "Verifikasi sebagai ..." button does).
+// page's second-role button does).
 export const SHOW_SECOND_ROLE_PROMPT_EVENT = "lombakita:show-second-role-prompt";
 
 const ROLE_COPY: Record<
@@ -22,10 +22,10 @@ const ROLE_COPY: Record<
     cta: "Verifikasi sebagai kandidat",
   },
   recruiter: {
-    headline: "Verifikasi akun penyelenggara Anda",
+    headline: "Mulai menyelenggarakan kompetisi",
     description:
-      "Akun Anda saat ini hanya terverifikasi sebagai kandidat. Verifikasi sebagai penyelenggara untuk dapat memposting peluang.",
-    cta: "Verifikasi sebagai penyelenggara",
+      "Akun Anda saat ini hanya untuk mengikuti kompetisi. Tambahkan peran penyelenggara untuk membuat dan menerbitkan kompetisi.",
+    cta: "Mulai menyelenggarakan",
   },
 };
 

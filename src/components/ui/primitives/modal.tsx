@@ -194,6 +194,9 @@ export function Modal() {
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        // A control inside the pop-up that handled Escape itself, such as an open SelectField list,
+        // has prevented its default, and that Escape is not also the pop-up's.
+        if (event.defaultPrevented) return;
         event.preventDefault();
         doSafeChoiceRef.current();
         return;

@@ -44,11 +44,12 @@ const unclassifiedRequiredNames = (
     );
 
 describe("the two name lists", () => {
-  it("OVERLAY_NAMES is exactly the nine secrets", () => {
+  it("OVERLAY_NAMES is exactly the ten secrets", () => {
     expect([...OVERLAY_NAMES].sort()).toEqual(
       [
         "AUTH_SECRET",
         "DATABASE_URL",
+        "HOST_IDENTITY_HASH_KEY",
         "MEILISEARCH_API_KEY",
         "MFA_SECRET_ENCRYPTION_KEY",
         "MIGRATION_DATABASE_URL",
@@ -73,9 +74,9 @@ describe("the two name lists", () => {
     );
   });
 
-  it("the required counts are still 15 in production and 13 in preview", () => {
-    expect(requiredIn("production")).toHaveLength(15);
-    expect(requiredIn("preview")).toHaveLength(13);
+  it("the required counts are still 16 in production and 14 in preview", () => {
+    expect(requiredIn("production")).toHaveLength(16);
+    expect(requiredIn("preview")).toHaveLength(14);
   });
 
   it("no name is in both lists", () => {
@@ -294,7 +295,7 @@ describe("the CLI 62 Sensitive placeholder", () => {
     expect(statusOf({ DATABASE_URL: value }, { DATABASE_URL: WRITABLE_SENTINEL })).toBe("drift");
   });
 
-  it("is found by name on keys outside the nine, and only there", () => {
+  it("is found by name on keys outside the ten, and only there", () => {
     const env = {
       GOOGLE_CLIENT_SECRET: SENSITIVE_PLACEHOLDER,
       SENTRY_DSN: "[sensitive]",
@@ -343,7 +344,7 @@ describe("a NEXT_PUBLIC_ variable holding the placeholder", () => {
     SENTRY_DSN: SENSITIVE_PLACEHOLDER,
   };
 
-  it("is reported sensitive-public-placeholder, by name, after the nine", () => {
+  it("is reported sensitive-public-placeholder, by name, after the ten", () => {
     const { report } = overlayDeployEnv(pulled, {});
     const extra = report.slice(OVERLAY_NAMES.length);
 
@@ -484,7 +485,7 @@ describe("deploy.yml wiring", () => {
       expect(text).toMatch(new RegExp(`^    environment: ${environment}$`, "m"));
     });
 
-    it("maps each of the nine names exactly once, from the matching secret", () => {
+    it("maps each of the ten names exactly once, from the matching secret", () => {
       for (const name of OVERLAY_NAMES) {
         const line = `MIRROR_${name}: \${{ secrets.${name} }}`;
 
@@ -493,13 +494,32 @@ describe("deploy.yml wiring", () => {
       }
     });
 
-    it("exposes the secrets to no other step: nine MIRROR_ lines and no job-level exposure", () => {
+    it("exposes the secrets to no other step: ten MIRROR_ lines and no job-level exposure", () => {
       expect(text.match(/MIRROR_[A-Z0-9_]+:/g)).toHaveLength(OVERLAY_NAMES.length);
       expect(
         text.match(
-          /secrets\.(DATABASE_URL|MIGRATION_DATABASE_URL|AUTH_SECRET|REDIS_URL|MEILISEARCH_API_KEY|R2_ACCESS_KEY_ID|R2_SECRET_ACCESS_KEY|RESEND_API_KEY|MFA_SECRET_ENCRYPTION_KEY)/g,
+          /secrets\.(DATABASE_URL|MIGRATION_DATABASE_URL|AUTH_SECRET|REDIS_URL|MEILISEARCH_API_KEY|R2_ACCESS_KEY_ID|R2_SECRET_ACCESS_KEY|RESEND_API_KEY|MFA_SECRET_ENCRYPTION_KEY|HOST_IDENTITY_HASH_KEY)/g,
         ),
       ).toHaveLength(OVERLAY_NAMES.length);
+    });
+
+    it("keeps every MIRROR_ line inside the overlay step", () => {
+      const overlayStepHeader =
+        "      - name: Overlay GitHub-mirrored secrets onto the pulled environment";
+      const nextStepMarker = "\n      - name: ";
+      const stepStart = text.indexOf(overlayStepHeader);
+      const stepEnd = text.indexOf(nextStepMarker, stepStart);
+
+      expect(stepStart).toBeGreaterThan(-1);
+      expect(stepEnd).toBeGreaterThan(stepStart);
+
+      const overlayStep = text.slice(stepStart, stepEnd);
+      for (const name of OVERLAY_NAMES) {
+        const line = `MIRROR_${name}: \${{ secrets.${name} }}`;
+
+        expect(overlayStep.split(line).length - 1).toBe(1);
+      }
+      expect(overlayStep.match(/MIRROR_[A-Z0-9_]+:/g)).toHaveLength(OVERLAY_NAMES.length);
     });
 
     it("never traces shell execution or echoes a mirror variable", () => {

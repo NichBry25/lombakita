@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 //
-// WHAT THE GOOGLE ROLE PICKER FILLS INTO "Nama lengkap".
+// WHAT THE GOOGLE DETAILS FORM FILLS INTO "Nama lengkap".
 //
-// The onboarding form that follows the role choice prefills the declared full name. The only
+// The details form prefills the declared full name. The only
 // truthful source for it is the `name` claim the identity carrier carried; the account's email is
 // not a name, and prefilling it is invisible until an operator reads the profile.
 //
@@ -37,85 +37,47 @@ const renderPicker = (name: string | null) =>
     </UIPrimitivesProvider>,
   );
 
-const chooseRole = (label: string) => {
-  fireEvent.click(screen.getByRole("radio", { name: new RegExp(label) }));
-};
-
 const nameField = () => screen.getByLabelText(/Nama lengkap/) as HTMLInputElement;
 
 const nameFieldValue = () => nameField().value;
 
-describe("the name the Google role picker prefills", () => {
-  it("carries the identity's name into the candidate form", () => {
+describe("the name the Google details form prefills", () => {
+  it("carries the identity's name into the details form", () => {
     renderPicker("Andi Saputra");
-
-    chooseRole("Daftar sebagai kandidat");
 
     expect(nameFieldValue()).toBe("Andi Saputra");
   });
 
-  it("carries the identity's name into the recruiter form", () => {
-    renderPicker("Andi Saputra");
-
-    chooseRole("Daftar sebagai penyelenggara");
-
-    expect(nameFieldValue()).toBe("Andi Saputra");
-  });
-
-  it("leaves the candidate field empty when the identity carried no name", () => {
+  it("leaves the field empty when the identity carried no name", () => {
     renderPicker(null);
 
-    chooseRole("Daftar sebagai kandidat");
-
     expect(nameFieldValue()).toBe("");
     expect(nameFieldValue()).not.toBe(EMAIL);
   });
 
-  it("leaves the recruiter field empty when the identity carried an empty name", () => {
+  it("leaves the field empty when the identity carried an empty name", () => {
     renderPicker("");
 
-    chooseRole("Daftar sebagai penyelenggara");
-
     expect(nameFieldValue()).toBe("");
     expect(nameFieldValue()).not.toBe(EMAIL);
   });
 });
 
-describe("the autofill token on the Google role picker's name field", () => {
-  it("carries autoComplete=name on the candidate form's field", () => {
+describe("the autofill token on the Google details form's name field", () => {
+  it("carries autoComplete=name on the name field", () => {
     renderPicker("Andi Saputra");
-
-    chooseRole("Daftar sebagai kandidat");
 
     expect(nameField().getAttribute("autocomplete")).toBe("name");
   });
 
-  it("carries autoComplete=name on the recruiter form's field", () => {
+  it("does not carry autoComplete=off on the name field", () => {
     renderPicker("Andi Saputra");
-
-    chooseRole("Daftar sebagai penyelenggara");
-
-    expect(nameField().getAttribute("autocomplete")).toBe("name");
-  });
-
-  it("does not carry autoComplete=off on the candidate form's field", () => {
-    renderPicker("Andi Saputra");
-
-    chooseRole("Daftar sebagai kandidat");
-
-    expect(nameField().getAttribute("autocomplete")).not.toBe("off");
-  });
-
-  it("does not carry autoComplete=off on the recruiter form's field", () => {
-    renderPicker("Andi Saputra");
-
-    chooseRole("Daftar sebagai penyelenggara");
 
     expect(nameField().getAttribute("autocomplete")).not.toBe("off");
   });
 });
 
-describe("where a Google sign-up returns", () => {
+describe("what a Google sign-up sends and where it returns", () => {
   afterEach(() => {
     window.sessionStorage.clear();
     vi.clearAllMocks();
@@ -123,11 +85,10 @@ describe("where a Google sign-up returns", () => {
 
   const finishCandidateSignUp = () => {
     renderPicker("Andi Saputra");
-    chooseRole("Daftar sebagai kandidat");
     fireEvent.change(screen.getByLabelText(/^Nomor telepon(?: \* \(wajib\)| \(opsional\))?$/), {
       target: { value: "081234567890" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Status saat ini (wajib)" }));
+    fireEvent.click(screen.getByRole("combobox", { name: "Status saat ini (wajib)" }));
     fireEvent.click(screen.getByRole("option", { name: "Mahasiswa" }));
     fireEvent.change(screen.getByLabelText(/^Tanggal lahir(?: \* \(wajib\)| \(opsional\))?$/), {
       target: { value: "2000-01-31" },
@@ -178,5 +139,30 @@ describe("where a Google sign-up returns", () => {
         "Google belum memverifikasi email ini, sehingga akun tidak dapat dibuat dengan Google. Daftar dengan email dan password, lalu masukkan kode verifikasi yang kami kirim ke email Anda.",
       ),
     ).toBeTruthy();
+  });
+
+  it("sends the participant details and no role", async () => {
+    finishCandidateSignUp();
+
+    await vi.waitFor(() => expect(signIn).toHaveBeenCalledOnce());
+    expect(vi.mocked(signIn).mock.calls[0]).toEqual([
+      "oauth-finalize",
+      {
+        carrier: CARRIER,
+        fullName: "Andi Saputra",
+        phoneNumber: "081234567890",
+        occupation: "college_student",
+        dateOfBirth: "2000-01-31",
+        callbackUrl: "/",
+        redirect: false,
+      },
+    ]);
+  });
+
+  it("offers no role choice", () => {
+    renderPicker("Andi Saputra");
+
+    expect(screen.queryAllByRole("radio")).toHaveLength(0);
+    expect(screen.getByLabelText(/^Nomor telepon(?: \* \(wajib\)| \(opsional\))?$/)).toBeTruthy();
   });
 });

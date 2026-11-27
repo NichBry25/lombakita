@@ -346,33 +346,26 @@ export const authOptions: NextAuthOptions = {
         };
       },
     }),
-    // OAuth finalization provider. A brand-new Google user is routed to the role
-    // picker (the signIn callback returns a redirect, so no users row is created by the OAuth
-    // adapter). Once a role is declared, the client calls signIn("oauth-finalize", { carrier, role
-    // }); authorize verifies the integrity-protected carrier, creates the account transactionally,
-    // and returns the user — next-auth then mints a JWT session indistinguishable from a
-    // credentials session. This provider performs no password check: its trust anchor is the
-    // HMAC-signed carrier, which only our signIn callback can issue after Google authenticated the
-    // identity. Kept AFTER the email-password provider so providers[0] remains the credentials
-    // login provider for existing tests/integrations.
+    // OAuth finalization provider. A brand-new Google user is routed to the details form (the
+    // signIn callback returns a redirect, so no users row is created by the OAuth adapter). The
+    // form calls signIn("oauth-finalize", { carrier, ...details }), and authorize verifies the
+    // integrity-protected carrier, creates the account transactionally and returns the user, so
+    // next-auth mints a JWT session indistinguishable from a credentials session. This provider
+    // performs no password check: its trust anchor is the HMAC-signed carrier, which only our
+    // signIn callback can issue after Google authenticated the identity. Kept AFTER the
+    // email-password provider so providers[0] remains the credentials login provider for existing
+    // tests and integrations.
     CredentialsProvider({
       id: OAUTH_FINALIZE_PROVIDER_ID,
       name: "oauth-finalize",
-      // A candidate signup carries the four onboarding fields, and a recruiter signup carries the
-      // affiliation form (fullName/mobileNumber/corporateEmail); authorizeOAuthFinalize parses
-      // whichever set matches the declared role (shared parseCandidateProfileInput /
-      // parseRecruiterVerificationInput) and writes the corresponding data in the finalize
-      // transaction. Each signup leaves the other role's fields empty. The HMAC identity carrier
-      // is unchanged.
+      // The four participant details ride beside the HMAC identity carrier, and
+      // authorizeOAuthFinalize parses them before the carrier is consumed.
       credentials: {
         carrier: { label: "Carrier", type: "text" },
-        role: { label: "Role", type: "text" },
         fullName: { label: "Full name", type: "text" },
         phoneNumber: { label: "Phone number", type: "text" },
         occupation: { label: "Occupation", type: "text" },
         dateOfBirth: { label: "Date of birth", type: "text" },
-        mobileNumber: { label: "Mobile number", type: "text" },
-        corporateEmail: { label: "Corporate email", type: "text" },
       },
       async authorize(credentials) {
         const finalized = await authorizeOAuthFinalize(credentials).catch((error: unknown) => {
@@ -427,7 +420,7 @@ export const authOptions: NextAuthOptions = {
     // providers this is a pass-through (their authorize already gated the sign-in). For Google we
     // delegate to resolveGoogleOAuthSignIn, which returns `true` to proceed (existing-linked or
     // safe-link) or a redirect string that aborts the flow with zero DB writes (suspended →
-    // /suspended, fail-closed deny, or brand-new user → role picker carrying the signed identity).
+    // /suspended, fail-closed deny, or brand-new user → details form carrying the signed identity).
     async signIn({ account, profile, user }) {
       if (account?.provider !== GOOGLE_PROVIDER_ID) {
         return true;

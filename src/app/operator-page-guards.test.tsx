@@ -39,6 +39,8 @@ vi.mock("./admin/featured/featured-row-form", () => ({ FeaturedRowForm: () => nu
 vi.mock("./admin/fee-rules/fee-rule-form", () => ({ FeeRuleForm: () => null }));
 vi.mock("./admin/payments/ops-payment-actions", () => ({ OpsPaymentActions: () => null }));
 vi.mock("./admin/moderation/moderation-console", () => ({ ModerationConsole: () => null }));
+vi.mock("@/components/admin/host-check-queue", () => ({ HostCheckQueue: () => null }));
+vi.mock("@/components/admin/host-trust-watch-list", () => ({ HostTrustWatchList: () => null }));
 vi.mock("./finance/payments/[paymentId]/dispute-proof-file-button", () => ({
   DisputeProofFileButton: () => null,
 }));
@@ -78,6 +80,12 @@ const CASES = [
     readers: [],
     run: async () =>
       (await import("./admin/moderation/page")).default({ searchParams: Promise.resolve({}) }),
+  },
+  {
+    path: "/admin/host-checks",
+    role: "platform_ops",
+    readers: [],
+    run: async () => (await import("./admin/host-checks/page")).default(),
   },
   {
     path: "/admin/payments",

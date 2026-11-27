@@ -31,9 +31,9 @@ const edgeName = (edge: { table: string; column: string }): string =>
   `${edge.table}.${edge.column}`;
 
 describe("the derived edges into users", () => {
-  it("derives 53 edges, 18 allowed and 35 blocking, as the census derives them", () => {
-    expect(derivedLeftoverEdges()).toHaveLength(53);
-    expect(LEFTOVER_RULINGS.filter((ruling) => ruling.ruling === "allowed")).toHaveLength(18);
+  it("derives 54 edges, 19 allowed and 35 blocking, as the census derives them", () => {
+    expect(derivedLeftoverEdges()).toHaveLength(54);
+    expect(LEFTOVER_RULINGS.filter((ruling) => ruling.ruling === "allowed")).toHaveLength(19);
     expect(blockingRulings()).toHaveLength(35);
   });
 

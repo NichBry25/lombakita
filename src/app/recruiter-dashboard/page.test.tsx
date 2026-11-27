@@ -3,9 +3,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-const { mockGetRecruiterTierForAccount, mockFindOwnedPersonalInstitution } = vi.hoisted(() => ({
+const {
+  mockGetRecruiterTierForAccount,
+  mockFindOwnedPersonalInstitution,
+  mockReadHostStatusForAccount,
+  mockHostStatusCard,
+} = vi.hoisted(() => ({
   mockGetRecruiterTierForAccount: vi.fn(),
   mockFindOwnedPersonalInstitution: vi.fn(),
+  mockReadHostStatusForAccount: vi.fn(),
+  mockHostStatusCard: vi.fn<(props: unknown) => null>(() => null),
 }));
 
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }));
@@ -21,15 +28,15 @@ vi.mock("@/server/auth/recruiter-tier", async () => {
   );
   return { ...actual, getRecruiterTierForAccount: mockGetRecruiterTierForAccount };
 });
-vi.mock("@/server/recruiter-verification/recruiter-verification-service", () => ({
-  getLatestRecruiterVerificationForUser: vi.fn().mockResolvedValue(null),
+vi.mock("@/server/host-trust/host-check-service", () => ({
+  readHostStatusForAccount: mockReadHostStatusForAccount,
 }));
 vi.mock("@/server/institution-workspace/institution-service", () => ({
   findOwnedPersonalInstitution: mockFindOwnedPersonalInstitution,
   listUserInstitutionMemberships: vi.fn().mockResolvedValue([]),
 }));
-vi.mock("@/app/recruiter-dashboard/recruiter-verification-panel", () => ({
-  RecruiterVerificationPanel: () => null,
+vi.mock("@/components/host/host-status-card", () => ({
+  HostStatusCard: mockHostStatusCard,
 }));
 vi.mock("@/components/auth/second-role-banner", () => ({
   SecondRoleBanner: () => null,
@@ -37,9 +44,16 @@ vi.mock("@/components/auth/second-role-banner", () => ({
 
 import RecruiterDashboardPage from "@/app/recruiter-dashboard/page";
 
-const renderDashboard = async (tier: string, personalInstitution: unknown) => {
+const NOT_TRUSTED_STATUS = { state: "not_trusted" };
+
+const renderDashboard = async (
+  tier: string,
+  personalInstitution: unknown,
+  hostStatus: unknown = NOT_TRUSTED_STATUS,
+) => {
   mockGetRecruiterTierForAccount.mockResolvedValue({ recruiterVerificationTier: tier });
   mockFindOwnedPersonalInstitution.mockResolvedValue(personalInstitution);
+  mockReadHostStatusForAccount.mockResolvedValue(hostStatus);
   return renderToStaticMarkup(await RecruiterDashboardPage());
 };
 
@@ -73,5 +87,17 @@ describe("the host dashboard cards", () => {
     expect(linkHolding(html, "Mulai menyelenggarakan")).toContain(
       'href="/institution/budi/competitions/new"',
     );
+  });
+
+  it("passes the account's host status to the status card", async () => {
+    const waitingStatus = { state: "pending", competitionTitle: "Lomba Esai Nasional" };
+
+    await renderDashboard("minimal", null, waitingStatus);
+
+    expect(mockReadHostStatusForAccount).toHaveBeenCalledWith("user_host");
+    expect(mockHostStatusCard.mock.calls[0]?.[0]).toEqual({
+      expectedUserId: "user_host",
+      status: waitingStatus,
+    });
   });
 });

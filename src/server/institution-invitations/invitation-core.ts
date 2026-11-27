@@ -51,6 +51,10 @@ type InstitutionInvitationErrorCode =
   | "invitation_accept_retry"
   // A personal institution is single-member and cannot invite staff or members.
   | "invitation_personal_institution"
+  // Staff removed the inviting account's host trust, and the invitation is for owner or staff.
+  | "invitation_blocked_trust_removed"
+  // Staff removed the host trust of the account that sent an owner or staff invitation.
+  | "invitation_inviter_trust_removed"
   // Thrown by the shared de-identified-account guard, not by this module: accepting an invitation
   // joins an account to an institution, and an account whose data has been deleted is not one an
   // institution can gain a member from.

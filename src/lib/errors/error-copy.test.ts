@@ -55,3 +55,14 @@ describe("refusalCopyKey", () => {
     expect(key).toBe("candidate_profile_invalid_value");
   });
 });
+
+describe("the onboarding field sentences", () => {
+  it("holds only the participant detail sentences", () => {
+    expect(Object.keys(ONBOARDING_FIELD_REFUSAL_COPY)).toEqual([
+      "candidate_profile_invalid_value.fullName",
+      "candidate_profile_invalid_value.phoneNumber",
+      "candidate_profile_invalid_value.occupation",
+      "candidate_profile_invalid_value.dateOfBirth",
+    ]);
+  });
+});

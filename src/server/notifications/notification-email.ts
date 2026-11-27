@@ -293,6 +293,7 @@ export const sendRecruiterVerificationRejectedEmail = async (options: {
   recipientId: string;
   rejectionReason: string;
   resubmissionAllowed: boolean;
+  hostCheckTurnDown?: { title: string; body: string };
 }): Promise<void> => {
   const delivery = resolveNotificationDelivery("recruiter_verification_rejected", options.toEmail);
 
@@ -306,21 +307,23 @@ export const sendRecruiterVerificationRejectedEmail = async (options: {
     ? "Perbarui data dan dokumen Anda di dasbor penyelenggara, lalu ajukan ulang."
     : "Akun Anda tidak dapat mengirim permohonan baru. Hubungi tim dukungan jika Anda merasa keputusan ini keliru.";
 
+  const dashboardLine = `Buka dasbor Anda di ${resolveBaseUrl()}/recruiter-dashboard.`;
+  const subject =
+    options.hostCheckTurnDown?.title ?? "Permohonan penyelenggara terverifikasi ditolak";
+  const text = options.hostCheckTurnDown
+    ? [options.hostCheckTurnDown.body, "", dashboardLine].join("\n")
+    : [
+        "Permohonan Anda untuk menjadi penyelenggara terverifikasi ditolak.",
+        "",
+        `Alasan: ${options.rejectionReason}`,
+        "",
+        nextStep,
+        "",
+        dashboardLine,
+      ].join("\n");
+
   const resend = new Resend(apiKey);
-  const { error } = await resend.emails.send({
-    from,
-    to: options.toEmail,
-    subject: "Permohonan penyelenggara terverifikasi ditolak",
-    text: [
-      "Permohonan Anda untuk menjadi penyelenggara terverifikasi ditolak.",
-      "",
-      `Alasan: ${options.rejectionReason}`,
-      "",
-      nextStep,
-      "",
-      `Buka dasbor Anda di ${resolveBaseUrl()}/recruiter-dashboard.`,
-    ].join("\n"),
-  });
+  const { error } = await resend.emails.send({ from, to: options.toEmail, subject, text });
 
   if (error) {
     throwEmailSendFailure("recruiter_verification_rejected", error);
@@ -335,7 +338,9 @@ export const sendRecruiterVerificationRejectedEmail = async (options: {
 export const sendRecruiterVerificationApprovedEmail = async (options: {
   toEmail: string;
   recipientId: string;
-  draft: { title: string; path: string } | null;
+  title: string;
+  body: string;
+  path: string;
 }): Promise<void> => {
   const delivery = resolveNotificationDelivery("recruiter_verification_approved", options.toEmail);
 
@@ -345,20 +350,12 @@ export const sendRecruiterVerificationApprovedEmail = async (options: {
 
   const { apiKey, from } = delivery;
 
-  const nextStep = options.draft
-    ? `Buka draf "${options.draft.title}" di ${resolveBaseUrl()}${options.draft.path}, lalu tekan Terbitkan.`
-    : `Buka dasbor penyelenggara di ${resolveBaseUrl()}/recruiter-dashboard.`;
-
   const resend = new Resend(apiKey);
   const { error } = await resend.emails.send({
     from,
     to: options.toEmail,
-    subject: "Anda kini penyelenggara terverifikasi",
-    text: [
-      "Akun Anda sudah disetujui sebagai penyelenggara terverifikasi. Sekarang Anda dapat menerbitkan kompetisi.",
-      "",
-      nextStep,
-    ].join("\n"),
+    subject: options.title,
+    text: [options.body, "", `${resolveBaseUrl()}${options.path}`].join("\n"),
   });
 
   if (error) {
@@ -367,6 +364,41 @@ export const sendRecruiterVerificationApprovedEmail = async (options: {
 
   logger.info("notification.sent", {
     event: "recruiter.verification.approved",
+    recipientId: options.recipientId,
+  });
+};
+
+// The notice of a staff trust removal: the notice's title as subject, its body and the dashboard.
+export const sendHostTrustRemovedEmail = async (options: {
+  toEmail: string;
+  recipientId: string;
+  title: string;
+  body: string;
+}): Promise<void> => {
+  const delivery = resolveNotificationDelivery("host_trust_removed", options.toEmail);
+
+  if (!delivery) {
+    return;
+  }
+
+  const { apiKey, from } = delivery;
+
+  const resend = new Resend(apiKey);
+  const { error } = await resend.emails.send({
+    from,
+    to: options.toEmail,
+    subject: options.title,
+    text: [options.body, "", `Buka dasbor Anda di ${resolveBaseUrl()}/recruiter-dashboard.`].join(
+      "\n",
+    ),
+  });
+
+  if (error) {
+    throwEmailSendFailure("host_trust_removed", error);
+  }
+
+  logger.info("notification.sent", {
+    event: "host.trust.removed",
     recipientId: options.recipientId,
   });
 };

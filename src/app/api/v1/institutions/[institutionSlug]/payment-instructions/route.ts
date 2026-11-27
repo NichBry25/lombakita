@@ -74,6 +74,7 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
     const body = isRecord(payload) ? payload : {};
 
     const instructions = await savePaymentInstructions(
+      session.user.id,
       institutionId,
       {
         bankName: optionalText(body.bankName),

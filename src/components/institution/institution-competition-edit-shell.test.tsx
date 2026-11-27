@@ -425,7 +425,7 @@ describe("InstitutionCompetitionEditShell after publish", () => {
         competition: { ...COMPETITION, status: "published", location },
         publishReadiness: READY,
       });
-    const locationControl = () => screen.getByRole("button", { name: /^Lokasi/ });
+    const locationControl = () => screen.getByRole("combobox", { name: /^Lokasi/ });
     const chooseLocation = (label: string) => {
       fireEvent.click(locationControl());
       fireEvent.click(screen.getByRole("option", { name: label }));
@@ -813,6 +813,38 @@ describe("InstitutionCompetitionEditShell after publish", () => {
       dialog: screen.queryByRole("alertdialog"),
     }).toEqual({
       toast: "Kompetisi ini baru saja diubah atau diterbitkan. Muat ulang halaman lalu coba lagi.",
+      fallback: null,
+      dialog: null,
+    });
+  });
+
+  it("tells a host whose trust staff removed that the live competition keeps its public fields", async () => {
+    stubFetchSequence([
+      loadPublishedTeam,
+      () => failedJson({ error: { code: "competition_public_edit_blocked_trust_removed" } }),
+    ]);
+    mount();
+    await screen.findByRole("button", { name: "Simpan" });
+
+    fireEvent.change(screen.getByLabelText(/Pendaftaran berakhir/), {
+      target: {
+        value: toLocalInput(
+          new Date(new Date(PUBLISHED_TEAM.registrationEndAt).getTime() + 4 * DAY),
+        ),
+      },
+    });
+    fireEvent.click(saveButton());
+    const toast = await screen.findByText(
+      "Status tepercaya akun Anda dicabut staf, jadi isi kompetisi yang sudah terbit tidak dapat Anda ubah. Kontak, pengumuman, bukti transfer, dan hasil tetap dapat Anda kelola.",
+    );
+
+    expect({
+      toast: toast.textContent,
+      fallback: screen.queryByText("Perubahan gagal disimpan. Coba lagi."),
+      dialog: screen.queryByRole("alertdialog"),
+    }).toEqual({
+      toast:
+        "Status tepercaya akun Anda dicabut staf, jadi isi kompetisi yang sudah terbit tidak dapat Anda ubah. Kontak, pengumuman, bukti transfer, dan hasil tetap dapat Anda kelola.",
       fallback: null,
       dialog: null,
     });
@@ -3198,6 +3230,42 @@ describe("InstitutionCompetitionEditShell steps", () => {
       ).toBeTruthy();
     });
 
+    it("tells a host whose trust staff removed that the live competition keeps its rounds", async () => {
+      const storedRound = {
+        title: "Penyisihan",
+        platformLabel: null,
+        startsAt: null,
+        endsAt: null,
+        description: null,
+      };
+      stubFetchRoutes({
+        ...partRoutes(PUBLISHED),
+        [`GET ${COMPETITION_URL}/rounds`]: [() => okJson({ rounds: [storedRound] })],
+        [`PUT ${COMPETITION_URL}/rounds`]: [
+          () => refusedWith("competition_public_edit_blocked_trust_removed"),
+        ],
+      });
+
+      render(shellWithPartsAt(3));
+
+      fireEvent.change(
+        await screen.findByLabelText(/^Nama tahapan(?: \* \(wajib\)| \(opsional\))?$/),
+        { target: { value: "Penyisihan Daring" } },
+      );
+      fireEvent.click(saveButton());
+
+      expect(
+        await screen.findByText(
+          "Tahapan & linimasa belum tersimpan. Status tepercaya akun Anda dicabut staf, jadi isi kompetisi yang sudah terbit tidak dapat Anda ubah. Kontak, pengumuman, bukti transfer, dan hasil tetap dapat Anda kelola.",
+        ),
+      ).toBeTruthy();
+      expect(
+        screen.queryByText(
+          "Tahapan & linimasa belum tersimpan. Gagal menyimpan tahapan. Coba lagi.",
+        ),
+      ).toBeNull();
+    });
+
     it("forgets a server refusal when the reload after a save throws", async () => {
       stubFetchSequence([() => loadOk(BLOCKED), () => patchOk, failingRequest]);
 
@@ -3213,5 +3281,134 @@ describe("InstitutionCompetitionEditShell steps", () => {
       expect(await screen.findByText(LOAD_FAILED_MESSAGE)).toBeTruthy();
       expect(screen.queryByText(SERVER_LOAD_FAILED_MESSAGE)).toBeNull();
     });
+  });
+});
+
+describe("InstitutionCompetitionEditShell host check on the whole-page editor", () => {
+  const NEEDED_SENTENCE =
+    "Kompetisi pertama Anda diperiksa staf sebelum tayang. Perkiraan 1x24 jam pada hari kerja.";
+  const PENDING_SENTENCE =
+    "Staf Lombakita sedang memeriksa kompetisi ini. Perkiraan 1x24 jam pada hari kerja.";
+  const OTHER_DRAFT_SENTENCE =
+    'Kompetisi "Lomba Poster Digital" masih diperiksa staf. Tunggu hasilnya sebelum mengirim kompetisi lain.';
+  const TURNED_DOWN_SENTENCE =
+    "Belum dapat tayang. Pedoman: Penyelenggara mencantumkan kontak yang benar-benar bisa dihubungi peserta. Catatan staf: Nomor kontak tidak aktif. Perbaiki draf lalu tekan Kirim untuk diperiksa lagi.";
+  const GET_COMPETITION = "GET /api/v1/competitions/comp_1";
+  const POST_PUBLISH = "POST /api/v1/institutions/institusi-contoh/competitions/comp_1/publish";
+
+  const readinessWith = (hostCheck: unknown) => ({ ...READY, hostCheck });
+  const note = () => document.getElementById("publish-host-check-note");
+  const barSentence = () => document.querySelector("#publish-readiness-message > span");
+  const noteOutsideTheBar = () => note()?.closest(".form-action-bar");
+
+  it("shows the needed host check sentence in the page flow, keeps the bar silent and names the sentence on the button", async () => {
+    stubFetchSequence([() => loadOk(readinessWith({ state: "needed" }))]);
+    mount();
+
+    const button = await screen.findByRole("button", { name: "Kirim untuk diperiksa" });
+
+    expect(button.hasAttribute("disabled")).toBe(false);
+    expect(note()?.textContent).toBe(NEEDED_SENTENCE);
+    expect(noteOutsideTheBar()).toBeNull();
+    expect(barSentence()?.textContent).toBe("");
+    expect(note()?.getAttribute("data-tone")).toBe("info");
+    expect(button.getAttribute("aria-describedby")).toBe(
+      "publish-readiness-message publish-host-check-note",
+    );
+  });
+
+  it("shows the pending sentence in the page flow and sends nothing from the bar", async () => {
+    const calls = stubFetchSequence([() => loadOk(readinessWith({ state: "pending" }))]);
+    mount();
+
+    const button = await screen.findByRole("button", { name: "Sedang diperiksa" });
+    fireEvent.click(button);
+
+    expect(button.hasAttribute("disabled")).toBe(true);
+    expect(note()?.textContent).toBe(PENDING_SENTENCE);
+    expect(noteOutsideTheBar()).toBeNull();
+    expect(barSentence()?.textContent).toBe("");
+    expect(calls).toEqual([GET_COMPETITION]);
+  });
+
+  it("names the other draft that waits for its check in the page flow", async () => {
+    stubFetchSequence([
+      () =>
+        loadOk(
+          readinessWith({ state: "pending_other_draft", competitionTitle: "Lomba Poster Digital" }),
+        ),
+    ]);
+    mount();
+
+    const button = await screen.findByRole("button", { name: "Kirim untuk diperiksa" });
+
+    expect(button.hasAttribute("disabled")).toBe(true);
+    expect(note()?.textContent).toBe(OTHER_DRAFT_SENTENCE);
+    expect(noteOutsideTheBar()).toBeNull();
+  });
+
+  it("keeps the staff note of a turn-down on screen while the host edits the draft", async () => {
+    stubFetchSequence([
+      () =>
+        loadOk(
+          readinessWith({
+            state: "turned_down",
+            guidelineItem: "kontak-nyata",
+            note: "Nomor kontak tidak aktif",
+          }),
+        ),
+    ]);
+    mount();
+    await screen.findByRole("button", { name: "Kirim untuk diperiksa" });
+
+    expect(note()?.textContent).toBe(TURNED_DOWN_SENTENCE);
+    expect(note()?.getAttribute("data-tone")).toBe("warning");
+    expect(noteOutsideTheBar()).toBeNull();
+
+    fireEvent.change(screen.getByLabelText(/^Judul/), {
+      target: { value: "Lomba Contoh 2026 Baru" },
+    });
+
+    expect(note()?.textContent).toBe(TURNED_DOWN_SENTENCE);
+    expect(barSentence()?.textContent).toBe("Simpan perubahan sebelum menerbitkan");
+  });
+
+  it("names the other draft in the toast when the press finds another draft waiting for its check", async () => {
+    const calls = stubFetchSequence([
+      () => loadOk(readinessWith({ state: "needed" })),
+      () =>
+        failedJson({
+          error: {
+            code: "host_check_pending_other_draft",
+            details: { pendingCompetitionTitle: "Lomba Poster Digital" },
+          },
+        }),
+    ]);
+    mount();
+    const button = await screen.findByRole("button", { name: "Kirim untuk diperiksa" });
+
+    fireEvent.click(button);
+
+    const toastText = await screen.findByText(OTHER_DRAFT_SENTENCE);
+    expect(toastText.closest("[data-toast-type]")).not.toBeNull();
+    expect(calls).toEqual([GET_COMPETITION, POST_PUBLISH]);
+  });
+
+  it("asks for the profile contact when the press is refused for a missing host check contact", async () => {
+    const calls = stubFetchSequence([
+      () => loadOk(readinessWith({ state: "needed" })),
+      () => failedJson({ error: { code: "host_check_contact_missing" } }),
+    ]);
+    mount();
+    const button = await screen.findByRole("button", { name: "Kirim untuk diperiksa" });
+
+    fireEvent.click(button);
+
+    expect(
+      await screen.findByText(
+        "Lengkapi nama dan nomor ponsel di profil Anda sebelum mengirim kompetisi.",
+      ),
+    ).toBeTruthy();
+    expect(calls).toEqual([GET_COMPETITION, POST_PUBLISH]);
   });
 });

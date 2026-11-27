@@ -22,6 +22,9 @@ import type { ConnectorStatusPayload } from "@/server/connectors/status";
 /** What the stubbed server answers with. Set per test. */
 const server = vi.hoisted(() => ({ rows: [] as readonly Record<string, unknown>[] }));
 
+// What the stubbed host identity key probe refuses with, or null when it passes. Set per test.
+const hostKeyProbe = vi.hoisted(() => ({ refusal: null as Error | null }));
+
 // /api/health gates its live checks on this, and the health case below is only meaningful when they
 // are genuinely on. Hoisted above the imports so `env.server`'s snapshot of `process.env` sees it.
 vi.hoisted(() => {
@@ -80,6 +83,13 @@ vi.mock("@/server/auth/mfa/mfa-encryption-probe", () => ({
   probeMfaEncryption: async () => undefined,
 }));
 
+vi.mock("@/server/host-trust/host-identity-key-probe", () => ({
+  isHostIdentityKeyConfigured: () => true,
+  probeHostIdentityKey: async () => {
+    if (hostKeyProbe.refusal !== null) throw hostKeyProbe.refusal;
+  },
+}));
+
 vi.mock("@/server/async/probe", () => ({
   isAsyncWorkersConfigured: () => true,
   probeAsyncWorkerLiveness: async () => undefined,
@@ -105,6 +115,7 @@ const statusWith = (options: {
 
 beforeEach(() => {
   server.rows = MATCHING;
+  hostKeyProbe.refusal = null;
 });
 
 describe("getConnectorStatusPayload — the database identity check", () => {
@@ -172,7 +183,7 @@ describe("getConnectorStatusPayload — the database identity check", () => {
   });
 
   // The payload a configuration-only run prints is the payload it printed before this check existed:
-  // same nine entries, in the same order, with the same summary.
+  // same ten entries, in the same order, with the same summary.
   it("leaves the payload otherwise untouched when it does not run", async () => {
     const payload = await statusWith({ includeLiveChecks: false, declaredEnvironment: "preview" });
 
@@ -185,9 +196,41 @@ describe("getConnectorStatusPayload — the database identity check", () => {
       "resend",
       "sentry",
       "mfa-encryption",
+      "host-identity-key",
       "worker",
     ]);
-    expect(payload.summary).toEqual({ configured: 9, liveUp: 0, liveDown: 0 });
+    expect(payload.summary).toEqual({ configured: 10, liveUp: 0, liveDown: 0 });
+  });
+});
+
+describe("getConnectorStatusPayload, the host identity key probe", () => {
+  it("runs the host identity key probe as a live check beside the MFA probe and reports it up", async () => {
+    const payload = await statusWith({ includeLiveChecks: true });
+
+    expect(entryNamed(payload, "host-identity-key")).toEqual({
+      name: "host-identity-key",
+      configured: true,
+      live: "up",
+    });
+    expect(names(payload).indexOf("host-identity-key")).toBe(
+      names(payload).indexOf("mfa-encryption") + 1,
+    );
+  });
+
+  it("reports a key that changed as down, with the probe's refusal as its detail, and counts it", async () => {
+    hostKeyProbe.refusal = new Error(
+      "A trust removal record was written under another HOST_IDENTITY_HASH_KEY",
+    );
+
+    const payload = await statusWith({ includeLiveChecks: true });
+
+    expect(entryNamed(payload, "host-identity-key")).toEqual({
+      name: "host-identity-key",
+      configured: true,
+      live: "down",
+      detail: "A trust removal record was written under another HOST_IDENTITY_HASH_KEY",
+    });
+    expect(payload.summary.liveDown).toBe(1);
   });
 });
 

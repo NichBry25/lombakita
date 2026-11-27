@@ -43,7 +43,11 @@ vi.mock("@/server/institutions/payment-instructions-service", async () => {
   const actual = await vi.importActual<
     typeof import("@/server/institutions/payment-instructions-service")
   >("@/server/institutions/payment-instructions-service");
-  return { ...actual, loadPaymentInstructionsForInstitution, savePaymentInstructions };
+  return {
+    ...actual,
+    loadPaymentInstructionsForInstitution,
+    savePaymentInstructions,
+  };
 });
 
 import { GET, PUT } from "./route";
@@ -83,6 +87,7 @@ describe("PUT …/payment-instructions", () => {
     expect(response.status).toBe(200);
     expect(requireOwnerInstitutionBySlug).toHaveBeenCalledWith("owner_1", "seed-academy", {});
     expect(savePaymentInstructions).toHaveBeenCalledWith(
+      "owner_1",
       "inst_a",
       expect.objectContaining({ accountNumber: "1370012345678" }),
       {},
@@ -131,6 +136,26 @@ describe("PUT …/payment-instructions", () => {
     expect((await PUT(putRequest(COMPLETE), context)).status).toBe(409);
     expect(requireOwnerInstitutionBySlug).not.toHaveBeenCalled();
     expect(savePaymentInstructions).not.toHaveBeenCalled();
+  });
+
+  it("passes the owner to the save and surfaces its refusal for an owner whose host trust staff removed", async () => {
+    requireAuthenticatedSession.mockResolvedValue(OWNER);
+    requireOwnerInstitutionBySlug.mockResolvedValue({ institutionId: "inst_a" });
+    savePaymentInstructions.mockRejectedValue(
+      new PaymentInstructionsError(
+        "payment_instructions_blocked_trust_removed",
+        "Status tepercaya akun Anda dicabut staf, jadi informasi pembayaran tidak dapat Anda ubah. Minta pemilik lain di ruang kerja ini mengubahnya, atau hubungi staf Lombakita.",
+        403,
+      ),
+    );
+
+    const response = await PUT(putRequest(COMPLETE), context);
+    const body = (await response.json()) as { error: { code: string } };
+
+    expect(response.status).toBe(403);
+    expect(body.error.code).toBe("payment_instructions_blocked_trust_removed");
+    expect(savePaymentInstructions).toHaveBeenCalledTimes(1);
+    expect(savePaymentInstructions.mock.calls[0]?.[0]).toBe("owner_1");
   });
 
   it("surfaces incomplete instructions as the service's refusal, in Indonesian", async () => {

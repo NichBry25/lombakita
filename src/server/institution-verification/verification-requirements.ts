@@ -16,7 +16,7 @@ export const DOCUMENT_TYPE_LABELS: Record<string, string> = {
 };
 
 // `personal` carries no documents: a personal institution is its owner, and the owner is vetted by
-// the account-level Trusted Recruiter review. createVerificationSubmission refuses a personal
+// host trust. createVerificationSubmission refuses a personal
 // institution outright, so this entry exists only to keep the map exhaustive over InstitutionType.
 export const REQUIRED_DOCUMENTS_BY_TYPE: Record<InstitutionType, readonly string[]> = {
   personal: [],
@@ -48,18 +48,49 @@ export const validateSubmissionDocuments = (
 
 // Known personal-provider email domains. Used to derive the email_domain_flag for university
 // and campus_organization submissions: true = institutional domain, false = personal provider.
+// The host trust rules read the same set.
 export const PERSONAL_EMAIL_DOMAINS: ReadonlySet<string> = new Set([
   "gmail.com",
+  "googlemail.com",
   "yahoo.com",
   "yahoo.co.id",
-  "outlook.com",
-  "hotmail.com",
+  "yahoo.co.uk",
+  "yahoo.co.jp",
   "ymail.com",
-  "icloud.com",
-  "protonmail.com",
+  "rocketmail.com",
+  "outlook.com",
+  "outlook.co.id",
+  "hotmail.com",
+  "hotmail.co.id",
   "live.com",
   "msn.com",
+  "icloud.com",
   "me.com",
+  "mac.com",
+  "aol.com",
+  "protonmail.com",
+  "protonmail.ch",
+  "proton.me",
+  "pm.me",
+  "gmx.com",
+  "gmx.net",
+  "gmx.de",
+  "web.de",
+  "mail.com",
+  "zoho.com",
+  "yandex.com",
+  "yandex.ru",
+  "tutanota.com",
+  "tutanota.de",
+  "tuta.io",
+  "mail.ru",
+  "qq.com",
+  "163.com",
+  "126.com",
+  "fastmail.com",
+  "hey.com",
+  "naver.com",
+  "rediffmail.com",
 ]);
 
 // Derives the email_domain_flag for university/campus_organization submissions.

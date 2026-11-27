@@ -531,6 +531,12 @@ const recruiterProbes: Probe[] = [
       values (${id}, ${submission}, 'recruiter-verification/oracle.pdf', 'oracle.pdf', 1024, 'application/pdf')`;
     return { table: "recruiter_verification_documents", identity: { id } };
   }),
+  probe(["host_trust_removals.user_id"], async (sql, fx) => {
+    const id = randomUUID();
+    await sql`insert into host_trust_removals (id, user_id, removed_at, key_check)
+      values (${id}, ${fx.subject}, now(), ${"0".repeat(64)})`;
+    return { table: "host_trust_removals", identity: { id } };
+  }),
 ];
 
 const platformOpsProbes: Probe[] = [

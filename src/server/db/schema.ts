@@ -120,15 +120,14 @@ export const institutionInvitationStatusEnum = pgEnum("institution_invitation_st
 ]);
 
 // Recruiter verification tier.
-// Per-account tier dimension that refines the recruiter role's capability surface. Auto-granted
-// to `minimal` at recruiter signup; only `platform_ops` can lift an account to `elevated` (manual
-// review at launch — there is no mechanical verification flow). The tier only rises, except
-// that the database allows elevated to minimal inside a transaction that set
-// lombakita.trust_removal to on.
-//   unverified — schema default for backfilled rows + non-recruiter accounts. Not reachable
-//                naturally for recruiter signups (signup auto-grants `minimal` atomically).
-//   minimal    — auto-granted on `?as=recruiter` signup. Satisfies the opportunity-creation gate.
-//   elevated   — manually granted by platform_ops via PATCH /api/platform-ops/accounts/[id]/recruiter-tier.
+// Per-account tier dimension that refines the recruiter role's capability surface. The tier only
+// rises, except that the database allows elevated to minimal inside a transaction that set
+// lombakita.trust_removal to its own transaction id (the staff trust removal).
+//   unverified: schema default. Every sign-up starts here, and an account without the host step stays.
+//   minimal:    written by the host step together with recruiter_verified_at. Satisfies the
+//               opportunity-creation gate.
+//   elevated:   a trusted host, by a confirmed Email organisasi or sign-in email on an organisation
+//               domain, a staff approval of a host check, or the staff raise.
 export const recruiterVerificationTierEnum = pgEnum("recruiter_verification_tier", [
   "unverified",
   "minimal",
@@ -256,7 +255,7 @@ export const users = pgTable(
     }),
     // Recruiter tier dimension. Placed on `users` (not a
     // parallel table) so it sits adjacent to the per-role verification timestamps and shares
-    // their lifecycle. Non-null with default `unverified`; recruiter signup writes `minimal`
+    // their lifecycle. Non-null with default `unverified`; the host step writes `minimal`
     // atomically alongside `recruiterVerifiedAt`. See `assertRecruiterTier` for the read path.
     recruiterVerificationTier: recruiterVerificationTierEnum("recruiter_verification_tier")
       .notNull()
@@ -294,8 +293,8 @@ export const users = pgTable(
     // recruiterVerifiedAt must also hold a tier above 'unverified'. Enforced at the DB so any
     // write path that forgets to set the tier (e.g. a future verification flow) is rejected at
     // INSERT/UPDATE time rather than silently producing an inconsistent row. The application
-    // already writes 'minimal' atomically at signup (credentials-auth.ts) and at the second-role
-    // stub (role-verification.ts); this CHECK is the safety net.
+    // writes 'minimal' at the host step (role-verification.ts) in the same UPDATE that sets
+    // recruiterVerifiedAt, and this CHECK is the safety net.
     check(
       "users_recruiter_tier_consistency_chk",
       sql`${table.recruiterVerifiedAt} IS NULL OR ${table.recruiterVerificationTier} <> 'unverified'`,
@@ -1709,8 +1708,8 @@ export type NotificationRecord = typeof notifications.$inferSelect;
 // An institution owner submits identity documents to platform ops for review. On approval,
 // verification_status transitions to verified; on upgrade (personal → full), the type flip and
 // display_name persistence happen in the same transaction.
-// `draft` is used by recruiter verification only: a submission the applicant has withdrawn from
-// the review queue in order to revise it. Institution verification never writes it.
+// `draft` stays for older host request rows. No path writes it, and institution verification never
+// writes it.
 export const verificationSubmissionStatusEnum = pgEnum("verification_submission_status", [
   "draft",
   "pending_review",
@@ -1782,12 +1781,10 @@ export const institutionVerificationDocuments = pgTable(
   (table) => [index("institution_verification_documents_submission_id_idx").on(table.submissionId)],
 );
 
-// Recruiter trust verification — a recruiter account submits a lightweight affiliation form
-// (full name, mobile number, optional corporate email, optional proof documents) reviewed by
-// platform ops. Approval elevates users.recruiter_verification_tier to `elevated` ("Trusted
-// Recruiter"), which gates competition publishing and full-institution creation. The three
-// priority signals (vouched_at, email_domain_flag, document presence) order the review queue
-// only — human review is always the gate.
+// Host checks, and the older host requests they replaced. A host check is a row with competition_id
+// set: the first publish press of a host who is not trusted opens it, and a staff approval trusts
+// the account and publishes that draft. A row with competition_id null is an older host request,
+// kept until the account is deleted. No path opens or approves one any more.
 export const recruiterVerificationSubmissions = pgTable(
   "recruiter_verification_submissions",
   {
@@ -1799,36 +1796,30 @@ export const recruiterVerificationSubmissions = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     fullName: text("full_name").notNull(),
     mobileNumber: text("mobile_number").notNull(),
-    // Optional declared work email — may differ from the login email. Ownership is NOT proven
-    // at MVP; it informs email_domain_flag and admin cross-checking only.
+    // The work email an older host request declared, never proven. No path writes it any more.
     corporateEmail: text("corporate_email"),
     // true = corporate_email uses a non-personal-provider domain, false = known personal
     // provider (e.g. @gmail.com), NULL = no corporate email declared.
     emailDomainFlag: boolean("email_domain_flag"),
-    // Set when the submitter accepts an owner/staff invitation from an institution that has a
-    // Trusted (elevated-tier) owner — the strongest queue-priority signal.
+    // Not written any more. Rows vouched before host checks replaced host requests keep their value.
     vouchedAt: timestamp("vouched_at", { mode: "date", withTimezone: true }),
     status: verificationSubmissionStatusEnum("status").notNull().default("pending_review"),
     reviewerUserId: text("reviewer_user_id").references(() => users.id, { onDelete: "set null" }),
-    // Reason for the most recent rejection. Retained across a reopen so the reviewer of a
-    // resubmission can see what the previous verdict objected to.
+    // The staff note of a turned-down host check or older host request, or the reason a row was
+    // closed without a staff decision.
     rejectionReason: text("rejection_reason"),
-    // Whether the recruiter may reopen this submission after a rejection. Set by the reviewer at
-    // rejection time and reversible from the platform-ops queue.
+    // Whether an older host request could be reopened after a rejection. A host check never reopens,
+    // so every close and turn-down writes false.
     resubmissionAllowed: boolean("resubmission_allowed").notNull().default(true),
-    // How many times the recruiter has reopened this submission after a rejection. 0 = the account
-    // has never been rejected; the review queue reads it to distinguish a first application from a
-    // resubmission.
+    // How many times an older host request was reopened after a rejection. No path writes it any
+    // more.
     resubmissionCount: integer("resubmission_count").notNull().default(0),
-    // When this account FIRST entered the review queue. Written once at creation and never
-    // touched again — this is what the queue orders by, so revising and resending does not cost
-    // the applicant their place in line.
+    // When the row was first sent. The staff queue orders by submitted_at, not by this.
     firstSubmittedAt: timestamp("first_submitted_at", { mode: "date", withTimezone: true })
       .defaultNow()
       .notNull(),
-    // When the submission was most recently sent for review. Bumped on every withdraw-resubmit and
-    // every reopen-after-rejection, so a reviewer can see how fresh the current attempt is. It does
-    // NOT affect queue order.
+    // When the row was last sent: the publish press that opened a host check, or the last send of an
+    // older host request. The staff queue orders host checks by it, oldest first.
     submittedAt: timestamp("submitted_at", { mode: "date", withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -1840,9 +1831,8 @@ export const recruiterVerificationSubmissions = pgTable(
   },
   (table) => [
     index("recruiter_verification_submissions_user_id_idx").on(table.userId),
-    // At most one OPEN submission per account, where open means awaiting review or withdrawn for
-    // revision. Covering both prevents an account holding a draft and a queued submission at once.
-    // rejected/approved history rows are unaffected.
+    // At most one open row per account: an open host check, or an older host request that a publish
+    // press has not closed yet. Rejected and approved rows are unaffected.
     uniqueIndex("recruiter_verification_submissions_user_pending_unique_idx")
       .on(table.userId)
       .where(sql`${table.status} in ('draft', 'pending_review')`),
@@ -1853,9 +1843,8 @@ export const recruiterVerificationSubmissions = pgTable(
   ],
 );
 
-// Optional affiliation-proof files attached to a recruiter verification submission. Free-form
-// evidence (employment letter, staff ID, etc.) — no per-type requirements; original_file_name
-// is the reviewer-facing label.
+// Proof files of older host requests. Nothing uploads new ones, and they stay until the account is
+// deleted.
 export const recruiterVerificationDocuments = pgTable(
   "recruiter_verification_documents",
   {
@@ -1922,6 +1911,55 @@ export const organizationEmailChallenges = pgTable(
     check("organization_email_challenges_failed_attempts_chk", sql`${table.failedAttempts} >= 0`),
     index("organization_email_challenges_email_created_at_idx").on(table.email, table.createdAt),
     index("organization_email_challenges_user_id_created_at_idx").on(table.userId, table.createdAt),
+  ],
+);
+
+// The record of a staff trust removal, kept when the account is deleted and matched against new
+// accounts for 2 years from the removal. Every writer copies users.host_trust_removed_at into
+// removed_at. The hash arrays and key_check hold only HMAC-SHA256 hex, so a raw address or number
+// can never be stored.
+export const hostTrustRemovals = pgTable(
+  "host_trust_removals",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    removedAt: timestamp("removed_at", { mode: "date", withTimezone: true }).notNull(),
+    organizationDomain: text("organization_domain"),
+    emailHashes: text("email_hashes")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    phoneHashes: text("phone_hashes")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    keyCheck: text("key_check").notNull(),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    // One standing record per account.
+    uniqueIndex("host_trust_removals_user_id_unique_idx")
+      .on(table.userId)
+      .where(sql`${table.userId} is not null`),
+    index("host_trust_removals_removed_at_idx").on(table.removedAt),
+    check(
+      "host_trust_removals_organization_domain_lower_chk",
+      sql`${table.organizationDomain} = lower(${table.organizationDomain})`,
+    ),
+    // array_to_string skips a NULL element unless it is given a text for one, so a NULL is written as
+    // null and fails the pattern. The length check refuses an empty element and an element that
+    // holds two hashes joined by a comma, which the pattern alone would accept.
+    check(
+      "host_trust_removals_email_hashes_hex_chk",
+      sql`array_to_string(${table.emailHashes}, ',', 'null') ~ '^([0-9a-f]{64}(,[0-9a-f]{64})*)?$' and length(array_to_string(${table.emailHashes}, '')) = 64 * cardinality(${table.emailHashes})`,
+    ),
+    check(
+      "host_trust_removals_phone_hashes_hex_chk",
+      sql`array_to_string(${table.phoneHashes}, ',', 'null') ~ '^([0-9a-f]{64}(,[0-9a-f]{64})*)?$' and length(array_to_string(${table.phoneHashes}, '')) = 64 * cardinality(${table.phoneHashes})`,
+    ),
+    check("host_trust_removals_key_check_hex_chk", sql`${table.keyCheck} ~ '^[0-9a-f]{64}$'`),
   ],
 );
 

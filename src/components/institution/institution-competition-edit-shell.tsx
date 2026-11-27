@@ -72,7 +72,9 @@ import {
 import { errorMessageFor, NETWORK_ERROR_MESSAGE } from "@/lib/errors/error-copy";
 import { resolveSessionMismatchMessage, sessionFetch } from "@/lib/session/session-fetch";
 import {
+  describePublishControl,
   getPublishBlockerReason,
+  HOST_CHECK_SENT_TOAST_TEXT,
   resolvePublishReasonHref,
   resolvePublishRefusalToastText,
   type PublishBlockerReason,
@@ -92,6 +94,7 @@ import {
   CLOSE_WAITS_FOR_TRANSFER_REVIEW_REASON,
   COMPETITION_CHANGED_DURING_EDIT_REASON,
   isPublishLockedField,
+  PUBLIC_EDIT_HELD_AFTER_TRUST_REMOVAL_REASON,
   PUBLISH_LOCK_REASONS,
   type PublishLockedField,
 } from "@/lib/competitions/publish-locks";
@@ -182,6 +185,7 @@ const REFUSAL_COPY: Record<RefusalAction, Partial<Record<string, string>>> = {
       "Institusi personal hanya dapat menjalankan kompetisi mode individu.",
     competition_slug_taken:
       "Slug ini sudah dipakai kompetisi lain di institusi ini. Pilih slug lain.",
+    competition_public_edit_blocked_trust_removed: PUBLIC_EDIT_HELD_AFTER_TRUST_REMOVAL_REASON,
   },
 };
 
@@ -196,6 +200,7 @@ const extractError = async (
   code?: string;
   failures?: PublishValidationFailure[];
   blockedFields?: string[];
+  pendingCompetitionTitle?: string;
 }> => {
   try {
     const payload = (await response.json()) as {
@@ -205,6 +210,7 @@ const extractError = async (
           failures?: PublishValidationFailure[];
           blockedFields?: string[];
           fields?: string[];
+          pendingCompetitionTitle?: string;
         };
       };
     };
@@ -213,6 +219,7 @@ const extractError = async (
       failures: payload.error?.details?.failures,
       // The competition service names the locked fields in `fields`.
       blockedFields: payload.error?.details?.blockedFields ?? payload.error?.details?.fields,
+      pendingCompetitionTitle: payload.error?.details?.pendingCompetitionTitle,
     };
   } catch {
     return {};
@@ -766,6 +773,12 @@ export const InstitutionCompetitionEditShell = ({
 
   const publishIsBlocked = clientPublishIsBlocked || serverBlockers.length > 0;
 
+  // The host check of this draft names the button and the sentence beside it. A readiness the
+  // shell could not refresh names none, so the control falls back to Terbitkan.
+  const publishControl = describePublishControl(
+    readinessIsKnown ? publishReadiness.hostCheck : undefined,
+  );
+
   // Every reason publishing is blocked, one item each, for the notice on step 5: the server's
   // first, then this form's own.
   const clientPublishReasons: PublishReason[] = [
@@ -803,7 +816,10 @@ export const InstitutionCompetitionEditShell = ({
   const readyStatusMessage = contactAwaitsPublish
     ? "Siap diterbitkan. Kontak tersimpan saat Anda menekan Terbitkan."
     : "Semua perubahan tersimpan dan siap diterbitkan";
-  let editorStatusMessage: string | null = publishIsBlocked ? null : readyStatusMessage;
+  // A host check sentence is too long for the fixed action bar, so it sits in the page flow
+  // (showsHostCheckNote) and the bar says nothing beside the button.
+  let editorStatusMessage: string | null =
+    publishIsBlocked || publishControl.note !== null ? null : readyStatusMessage;
   if (timelineIsInvalid) {
     editorStatusMessage = outOfOrderScheduleSentence(timelineErrors[0]?.message ?? "");
   } else if (hasUnsavedChanges) {
@@ -1227,7 +1243,7 @@ export const InstitutionCompetitionEditShell = ({
       { message: "Menyimpan kompetisi…" },
     );
 
-  // Resolves to whether the competition was published.
+  // Resolves to whether the press went through: the competition published, or a host check opened.
   const publishCompetition = async (): Promise<boolean> => {
     if (publishIsBlocked) {
       // The client's own reasons first: they are the ones this shell can see and the user can act
@@ -1257,17 +1273,22 @@ export const InstitutionCompetitionEditShell = ({
       }
       const response = await sessionFetch(expectedUserId, url, { method: "POST" });
       if (!response.ok) {
-        const { code, failures } = await extractError(response);
+        const { code, failures, pendingCompetitionTitle } = await extractError(response);
         addToast({
           type: "error",
           message: resolveSessionMismatchMessage(
             code,
-            resolvePublishRefusalToastText(code, failures),
+            resolvePublishRefusalToastText(code, failures, pendingCompetitionTitle),
           ),
         });
         // The readiness on screen was read before this attempt saved the contact.
         if (publishSavesParts) void load().catch(endThrownReload);
         return false;
+      }
+      // A 202 is the host check the press opened instead of publishing.
+      if (response.status === 202) {
+        addToast({ type: "success", message: HOST_CHECK_SENT_TOAST_TEXT });
+        return true;
       }
       addToast({ type: "success", message: "Kompetisi diterbitkan." });
       return true;
@@ -1281,17 +1302,17 @@ export const InstitutionCompetitionEditShell = ({
   };
 
   const onPublish = async () => {
-    const published = await publishCompetition();
-    if (published) void load();
+    const pressed = await publishCompetition();
+    if (pressed) void load();
   };
 
-  // No reload after a publish that succeeds: the user is leaving the editor, and a reload would
-  // announce a published competition here. A refused publish reloads inside publishCompetition.
+  // No reload after a press that goes through: the user is leaving the editor. A refused publish
+  // reloads inside publishCompetition.
   const onPublishAndOpenManagement = () =>
     runAndNavigate(
       async () => {
-        const published = await publishCompetition();
-        if (!published) return false;
+        const pressed = await publishCompetition();
+        if (!pressed) return false;
         router.push(
           `/institution/${encodeURIComponent(institutionSlug)}/competitions/${encodeURIComponent(savedCompetitionSlug)}`,
         );
@@ -1676,9 +1697,10 @@ export const InstitutionCompetitionEditShell = ({
           type="button"
           onClick={onPublishAndOpenManagement}
           loading={isPublishing}
-          disabled={isSubmitting}
+          disabled={isSubmitting || !publishControl.pressable}
+          aria-describedby={publishControl.note === null ? undefined : "publish-host-check-note"}
         >
-          Terbitkan
+          {publishControl.label}
         </Button>
       )
     ) : (
@@ -1748,14 +1770,26 @@ export const InstitutionCompetitionEditShell = ({
           type="button"
           onClick={onPublish}
           loading={isPublishing}
-          disabled={isSubmitting || publishIsBlocked}
-          aria-describedby="publish-readiness-message"
+          disabled={isSubmitting || publishIsBlocked || !publishControl.pressable}
+          aria-describedby={describedByIds(
+            "publish-readiness-message",
+            publishControl.note === null ? null : "publish-host-check-note",
+          )}
         >
-          Terbitkan
+          {publishControl.label}
         </Button>
       </div>
     </FormActionBar>
   );
+
+  // The host check sentence sits in the page flow and never in the fixed action bar. The last step
+  // of the wizard shows it beside its button, which shows only while nothing blocks publishing. The
+  // whole-page editor keeps it rendered while the host edits, because its publish button stays in
+  // the bar.
+  const showsHostCheckNote =
+    publishControl.note !== null &&
+    isDraft &&
+    (activeStep === null || (activeStep === COMPETITION_STEP_COUNT && !publishIsBlocked));
 
   return (
     <main className="page-shell app-page competition-form-page">
@@ -1801,6 +1835,15 @@ export const InstitutionCompetitionEditShell = ({
               </li>
             ))}
           </ul>
+        </Feedback>
+      ) : null}
+      {showsHostCheckNote ? (
+        <Feedback
+          tone={publishControl.tone}
+          className="publish-reasons-notice"
+          id="publish-host-check-note"
+        >
+          {publishControl.note}
         </Feedback>
       ) : null}
 

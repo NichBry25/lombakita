@@ -32,6 +32,7 @@ const wellFormedEnv = (): Record<string, string> => ({
   SENTRY_DSN: "https://key@o1.ingest.sentry.io/2",
   NEXT_PUBLIC_SENTRY_DSN: "https://key@o1.ingest.sentry.io/2",
   MFA_SECRET_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString("base64"),
+  HOST_IDENTITY_HASH_KEY: Buffer.alloc(32, 8).toString("base64"),
 });
 
 const errorsIn = (problems: DeployConfigProblem[]): DeployConfigProblem[] =>
@@ -239,6 +240,36 @@ describe("findDeployConfigProblems", () => {
     expect(problem?.problem).toContain("32 raw bytes");
   });
 
+  it("catches a HOST_IDENTITY_HASH_KEY that does not decode to 32 bytes, and never prints it", () => {
+    const shortKey = Buffer.alloc(16, 3).toString("base64");
+    const env = { ...wellFormedEnv(), HOST_IDENTITY_HASH_KEY: shortKey };
+
+    const problems = findDeployConfigProblems(env, "production");
+
+    expect(problemFor(problems, "HOST_IDENTITY_HASH_KEY")).toEqual({
+      key: "HOST_IDENTITY_HASH_KEY",
+      severity: "error",
+      problem:
+        "value does not look like 32 raw bytes, base64-encoded (44 characters, base64 padding included)",
+    });
+    expect(JSON.stringify(problems)).not.toContain(shortKey);
+  });
+
+  it("requires HOST_IDENTITY_HASH_KEY in preview and in production", () => {
+    const env = wellFormedEnv();
+    delete env.HOST_IDENTITY_HASH_KEY;
+
+    for (const environment of ["preview", "production"] as const) {
+      const problems = findDeployConfigProblems(env, environment);
+
+      expect(problemFor(problems, "HOST_IDENTITY_HASH_KEY")).toEqual({
+        key: "HOST_IDENTITY_HASH_KEY",
+        severity: "error",
+        problem: "not set",
+      });
+    }
+  });
+
   // THE VALUE, NOT THE SHAPE. `https://example.com` is a flawless https origin, so every check in
   // this repository accepted it, and it would have pointed robots.txt, all 46 sitemap entries and
   // every canonical and Open Graph URL at someone else's domain. This is the one key whose exact
@@ -327,6 +358,7 @@ describe("findDeployConfigProblems", () => {
       "SENTRY_DSN",
       "NEXT_PUBLIC_SENTRY_DSN",
       "MFA_SECRET_ENCRYPTION_KEY",
+      "HOST_IDENTITY_HASH_KEY",
     ]);
   });
 });

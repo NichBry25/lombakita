@@ -6,7 +6,6 @@ import {
   competitions,
   institutionMemberships,
   institutions,
-  users,
   type CompetitionCategory,
   type CompetitionLocation,
   type CompetitionMode,
@@ -15,7 +14,7 @@ import {
   type InstitutionType,
   type InstitutionVerificationStatus,
 } from "@/server/db/schema";
-import { meetsRecruiterTier, OPPORTUNITY_PUBLISH_MIN_TIER } from "@/server/auth/recruiter-tier";
+import { isHostTrustRemoved, isPublishTrustSatisfied } from "@/server/host-trust/publish-trust";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 import { CompetitionError } from "@/server/competitions/competition-core";
 import {
@@ -30,7 +29,7 @@ assertServerOnly("server/competitions/competition-access");
 //   "admin"  — only active institution_owner in the owning institution
 // institution_member is excluded: no operational access to competition surfaces.
 // Mutating routes (PATCH fields, DELETE) require "member".
-// Status transitions and publish/unpublish/archive require "admin".
+// Publishing and unpublishing require "member".
 export type CompetitionAccessLevel = "member" | "admin";
 
 // Output projection for every public competition response. fee_amount, fee_currency, and
@@ -214,27 +213,59 @@ export const isCompetitionHost = async (
   return role !== null && MEMBER_ROLES.includes(role);
 };
 
-// Recruiter trust gate for publishing. The acting account must hold the Trusted Recruiter tier
-// (`elevated`); sandboxed recruiters (`minimal`) may draft but not publish. Reads the tier from
-// the DB (not the JWT) so a fresh platform-ops approval takes effect on the next request.
+// The publish trust gate. Trust is read from the database, not the JWT, so a staff decision takes
+// effect on the next request. The caller passes the institution id of the competition row that
+// assertCompetitionAccess loaded, because isPublishTrustSatisfied reads no membership of the actor.
 // Throws CompetitionError 403 competition_recruiter_not_trusted otherwise.
-export const assertActorIsTrustedRecruiter = async (
+export const assertPublishTrustSatisfied = async (
   actorUserId: string,
+  institutionId: string,
   db: Database = getDb(),
 ): Promise<void> => {
-  const [row] = await db
-    .select({ recruiterVerificationTier: users.recruiterVerificationTier })
-    .from(users)
-    .where(eq(users.id, actorUserId))
-    .limit(1);
-
-  if (!row || !meetsRecruiterTier(row.recruiterVerificationTier, OPPORTUNITY_PUBLISH_MIN_TIER)) {
+  const trusted = await isPublishTrustSatisfied(actorUserId, institutionId, db);
+  if (!trusted) {
     throw new CompetitionError(
       "competition_recruiter_not_trusted",
       403,
-      "Publishing requires a Trusted Recruiter account — complete recruiter verification first",
+      "Publishing requires a trusted host, or a trusted owner of the institution",
     );
   }
+};
+
+// After staff remove a person's host trust, that person still runs a live competition but no longer
+// changes what the public reads on it. Other members of the workspace are not bound. The caller
+// passes only the held fields its write would change, so an unchanged value goes through.
+// Throws CompetitionError 403 competition_public_edit_blocked_trust_removed.
+export const assertPublicFieldsUnchangedByRemovedHost = async (
+  actorUserId: string,
+  changedPublicFields: readonly string[],
+  db: Database = getDb(),
+): Promise<void> => {
+  if (changedPublicFields.length === 0) return;
+  const trustRemoved = await isHostTrustRemoved(actorUserId, db);
+  if (!trustRemoved) return;
+  throw new CompetitionError(
+    "competition_public_edit_blocked_trust_removed",
+    403,
+    "A host whose trust staff removed cannot change what the public reads on a published competition",
+    { fields: [...changedPublicFields] },
+  );
+};
+
+// Withdrawing a live competition cancels every registration, so a person whose host trust staff
+// removed does not withdraw one. Other members of the workspace are not bound.
+// Throws CompetitionError 403 competition_unpublish_blocked_trust_removed.
+export const assertUnpublishNotByRemovedHost = async (
+  actorUserId: string,
+  db: Database = getDb(),
+): Promise<void> => {
+  const trustRemoved = await isHostTrustRemoved(actorUserId, db);
+  if (!trustRemoved) return;
+  throw new CompetitionError(
+    "competition_unpublish_blocked_trust_removed",
+    403,
+    "A host whose trust staff removed cannot withdraw a published competition",
+  );
 };
 
 // Publishing needs the contact participants reach the organiser through. Read here because
@@ -291,8 +322,8 @@ export const assertCompetitionHasAudience = async (
 //
 // Verification gates the right to CHARGE MONEY, never the right to publish. An unverified
 // institution runs free competitions and publishes them normally; what it may not do is take
-// payment. Publishing is gated separately by assertActorIsTrustedRecruiter, the account-level trust
-// gate, which is why this is not on the generic publish path.
+// payment. Publishing is gated separately by assertPublishTrustSatisfied, the trust of the actor or
+// of an owner of the institution, which is why this is not on the generic publish path.
 //
 // Revocation is read live through this call rather than snapshotted, so an institution whose
 // verification is withdrawn stops being able to enable charging immediately. That is a CREDIBILITY

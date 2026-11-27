@@ -6,6 +6,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
 import { randomUUID } from "node:crypto";
 import { generatePresignedPutUrl, isR2Available } from "@/server/storage/r2.client";
+import { isHostTrustRemoved } from "@/server/host-trust/publish-trust";
 import {
   QRIS_FORMAT_HINT,
   qrisMimeTypeForFileName,
@@ -88,7 +89,8 @@ export type PaymentInstructionsErrorCode =
   | "payment_instructions_missing"
   | "payment_instructions_qris_key_invalid"
   | "payment_instructions_qris_format_unsupported"
-  | "payment_instructions_upload_unavailable";
+  | "payment_instructions_upload_unavailable"
+  | "payment_instructions_blocked_trust_removed";
 
 export class PaymentInstructionsError extends Error {
   constructor(
@@ -206,6 +208,22 @@ export const requirePaymentInstructions = async (
   return instructions;
 };
 
+// A person whose host trust staff removed does not change where registrants are told to pay. The
+// instructions are saved whole on their own form, so every save of theirs is refused.
+// Throws PaymentInstructionsError 403 payment_instructions_blocked_trust_removed.
+const assertPaymentInstructionsSaveNotByRemovedHost = async (
+  actorUserId: string,
+  db: Database,
+): Promise<void> => {
+  const trustRemoved = await isHostTrustRemoved(actorUserId, db);
+  if (!trustRemoved) return;
+  throw new PaymentInstructionsError(
+    "payment_instructions_blocked_trust_removed",
+    "Status tepercaya akun Anda dicabut staf, jadi informasi pembayaran tidak dapat Anda ubah. Minta pemilik lain di ruang kerja ini mengubahnya, atau hubungi staf Lombakita.",
+    403,
+  );
+};
+
 export type SavePaymentInstructionsInput = {
   bankName: string | null;
   accountNumber: string | null;
@@ -223,11 +241,14 @@ export type SavePaymentInstructionsInput = {
  * individual payer was told, is snapshotted onto their payment instead.
  */
 export const savePaymentInstructions = async (
+  actorUserId: string,
   institutionId: string,
   input: SavePaymentInstructionsInput,
   db: Database = getDb(),
   now: Date = new Date(),
 ): Promise<InstitutionPaymentInstructionsRecord> => {
+  await assertPaymentInstructionsSaveNotByRemovedHost(actorUserId, db);
+
   const bankName = normalizeOptional(input.bankName);
   const accountNumber = normalizeOptional(input.accountNumber);
   const accountHolderName = normalizeOptional(input.accountHolderName);

@@ -50,7 +50,7 @@ const popUpOnly = () => (
 
 const popUpBesideProfileButton = () => (
   <UIPrimitivesProvider>
-    <VerifyOtherRoleButton unverifiedRoleLabel="Kandidat" />
+    <VerifyOtherRoleButton label="Verifikasi sebagai Kandidat" />
     <SecondRolePromptModal />
   </UIPrimitivesProvider>
 );
@@ -109,18 +109,19 @@ describe("the second role pop-up", () => {
     expect(mocks.push).toHaveBeenCalledWith("/auth/verify-role?as=candidate");
   });
 
-  it("names the host role penyelenggara for a participant", () => {
+  it("offers a participant the host step", () => {
     signInAs("candidate", ["candidate"]);
     render(popUpOnly());
 
     openFromProfileButton();
 
     const dialog = screen.getByRole("dialog");
-    expect(dialog.textContent).toContain("Verifikasi akun penyelenggara Anda");
+    expect(dialog.textContent).toContain("Mulai menyelenggarakan kompetisi");
     expect(dialog.textContent).toContain(
-      "Akun Anda saat ini hanya terverifikasi sebagai kandidat. Verifikasi sebagai penyelenggara untuk dapat memposting peluang.",
+      "Akun Anda saat ini hanya untuk mengikuti kompetisi. Tambahkan peran penyelenggara untuk membuat dan menerbitkan kompetisi.",
     );
-    expect(screen.getByRole("button", { name: "Verifikasi sebagai penyelenggara" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Mulai menyelenggarakan" }));
+    expect(mocks.push).toHaveBeenCalledWith("/auth/verify-role?as=recruiter");
   });
 
   it("offers nothing to an operational account", () => {

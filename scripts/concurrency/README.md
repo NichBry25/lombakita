@@ -50,12 +50,12 @@ wrong, and that will silently produce a test proving nothing:
 
 Two techniques beyond the basic shape, both already implemented here:
 
-- **`raceBehindRowLock`** (`verification-cas-races.ts`) — a CAS race needs both transactions to have
-  read the row before either commits. A third connection holds `SELECT … FOR UPDATE` on the
-  contended row; both racers park at their UPDATE with their snapshots already taken. It also
-  **staggers** the starts: Postgres grants a contended row lock in arrival order, so starting both
-  at once always hands the win to whichever operation does less work before its UPDATE, and one of
-  the two legal outcomes never gets exercised.
+- **`raceBehindRowLock`** (`verification-cas-races.ts`): a CAS race needs both racers parked before
+  either commits. A third connection holds `SELECT … FOR UPDATE` on the contended row. The first
+  racer parks at its UPDATE, and the second parks behind it (in the host check race, on the host's
+  users row the first racer already locked). It also **staggers** the starts: Postgres grants a
+  contended row lock in arrival order, so starting both at once always hands the win to whichever
+  operation does less work before its UPDATE, and one of the two legal outcomes never gets exercised.
 - **A pinned clock** (`competition-participation.ts`) — where a DB constraint makes the overlap
   between two operations a single instant, pin each racer's injectable `now` either side of that
   boundary. This reproduces the production interleaving; it does not invent one.

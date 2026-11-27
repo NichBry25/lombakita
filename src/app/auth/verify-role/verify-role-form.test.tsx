@@ -13,6 +13,12 @@ vi.mock("next-auth/react", () => ({ useSession: () => ({ update: vi.fn() }) }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/auth/verify-role" }));
 
 const VERIFY_ROLE_URL = "/api/v1/auth/verify-role";
+const CODE_URL = "/api/v1/me/organization-email/code";
+const CONFIRM_URL = "/api/v1/me/organization-email/confirm";
+const ADDRESS = "sekretaris@kampus.example";
+const STAFF_CHECK_SENTENCE =
+  "Tanpa email organisasi yang terkonfirmasi, kompetisi pertama Anda diperiksa staf dulu sebelum tayang, kecuali email akun Anda sudah memakai domain organisasi. Perkiraan 1x24 jam pada hari kerja.";
+const REGISTERED_CONTACT = { fullName: "Andi Saputra", phoneNumber: "081234567890" };
 
 const fetchMock = vi.fn();
 
@@ -46,15 +52,16 @@ describe("the account the role form is bound to", () => {
       }
       throw new Error(`unexpected request: ${String(input)}`);
     });
-    renderForm(<VerifyRoleForm role="recruiter" expectedUserId="user-42" returnPath={null} />);
+    renderForm(
+      <VerifyRoleForm
+        role="recruiter"
+        expectedUserId="user-42"
+        returnPath={null}
+        registeredContact={REGISTERED_CONTACT}
+      />,
+    );
 
-    fireEvent.change(screen.getByLabelText(/^Nama lengkap(?: \* \(wajib\)| \(opsional\))?$/), {
-      target: { value: "Andi Saputra" },
-    });
-    fireEvent.change(screen.getByLabelText(/^Nomor ponsel(?: \* \(wajib\)| \(opsional\))?$/), {
-      target: { value: "081234567890" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Selesai" }));
+    fireEvent.click(screen.getByRole("button", { name: "Mulai menyelenggarakan" }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
     const [url, init] = fetchMock.mock.calls[0]! as [string, RequestInit];
@@ -89,7 +96,7 @@ describe("where the role form goes once the role is added", () => {
     fireEvent.change(screen.getByLabelText(/^Nomor telepon(?: \* \(wajib\)| \(opsional\))?$/), {
       target: { value: "081234567890" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Status saat ini (wajib)" }));
+    fireEvent.click(screen.getByRole("combobox", { name: "Status saat ini (wajib)" }));
     fireEvent.click(screen.getByRole("option", { name: "Mahasiswa" }));
     fireEvent.change(screen.getByLabelText(/^Tanggal lahir(?: \* \(wajib\)| \(opsional\))?$/), {
       target: { value: "2000-01-31" },
@@ -105,6 +112,7 @@ describe("where the role form goes once the role is added", () => {
         role="candidate"
         expectedUserId="user-42"
         returnPath="/competitions/acme/lomba-1"
+        registeredContact={null}
       />,
     );
 
@@ -120,12 +128,192 @@ describe("where the role form goes once the role is added", () => {
   it("goes to the dashboard the server names when there is no return address", async () => {
     answerVerified();
     const assign = stubNavigation();
-    renderForm(<VerifyRoleForm role="candidate" expectedUserId="user-42" returnPath={null} />);
+    renderForm(
+      <VerifyRoleForm
+        role="candidate"
+        expectedUserId="user-42"
+        returnPath={null}
+        registeredContact={null}
+      />,
+    );
 
     fillCandidateForm();
 
     await waitFor(() => expect(assign).toHaveBeenCalledOnce());
     expect(assign).toHaveBeenCalledWith("/candidate-dashboard");
     expect(await screen.findByText("Menyiapkan akun Anda…")).toBeTruthy();
+  });
+
+  const answerHostStep = (hostTrusted: boolean) => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      if (String(input) === VERIFY_ROLE_URL) {
+        return jsonResponse(200, {
+          verified: "recruiter",
+          redirectTo: "/recruiter-dashboard",
+          hostTrusted,
+        });
+      }
+      throw new Error(`unexpected request: ${String(input)}`);
+    });
+  };
+
+  const renderHostStep = () =>
+    renderForm(
+      <VerifyRoleForm
+        role="recruiter"
+        expectedUserId="user-42"
+        returnPath={null}
+        registeredContact={REGISTERED_CONTACT}
+      />,
+    );
+
+  it("sends only the role from the host step and goes on when the account is not yet trusted", async () => {
+    answerHostStep(false);
+    const assign = stubNavigation();
+    renderHostStep();
+
+    fireEvent.click(screen.getByRole("button", { name: "Mulai menyelenggarakan" }));
+
+    await waitFor(() => expect(assign).toHaveBeenCalledOnce());
+    expect(assign).toHaveBeenCalledWith("/recruiter-dashboard");
+    const [, init] = fetchMock.mock.calls[0]! as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toEqual({ role: "recruiter" });
+    expect(await screen.findByText("Menyiapkan akun Anda…")).toBeTruthy();
+  });
+
+  it("says the account is trusted and waits for the host to go on", async () => {
+    answerHostStep(true);
+    const assign = stubNavigation();
+    renderHostStep();
+
+    fireEvent.click(screen.getByRole("button", { name: "Mulai menyelenggarakan" }));
+
+    expect(
+      await screen.findByText(
+        "Akun Anda tepercaya. Kompetisi yang Anda terbitkan langsung tayang.",
+      ),
+    ).toBeTruthy();
+    expect(assign).not.toHaveBeenCalled();
+    expect(screen.getByRole("link", { name: "Lanjut" }).getAttribute("href")).toBe(
+      "/recruiter-dashboard",
+    );
+    expect(screen.queryByRole("button", { name: "Mulai menyelenggarakan" })).toBeNull();
+    await waitFor(() => expect(document.activeElement?.getAttribute("tabindex")).toBe("-1"));
+  });
+
+  it("goes on after the participant step even when the answer says the account is trusted", async () => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      if (String(input) === VERIFY_ROLE_URL) {
+        return jsonResponse(200, {
+          verified: "candidate",
+          redirectTo: "/candidate-dashboard",
+          hostTrusted: true,
+        });
+      }
+      throw new Error(`unexpected request: ${String(input)}`);
+    });
+    const assign = stubNavigation();
+    renderForm(
+      <VerifyRoleForm
+        role="candidate"
+        expectedUserId="user-42"
+        returnPath={null}
+        registeredContact={null}
+      />,
+    );
+
+    fillCandidateForm();
+
+    await waitFor(() => expect(assign).toHaveBeenCalledOnce());
+    expect(assign).toHaveBeenCalledWith("/candidate-dashboard");
+  });
+});
+
+describe("the host step form", () => {
+  const renderHostStepWith = (registeredContact: typeof REGISTERED_CONTACT | null) =>
+    renderForm(
+      <VerifyRoleForm
+        role="recruiter"
+        expectedUserId="user-42"
+        returnPath={null}
+        registeredContact={registeredContact}
+      />,
+    );
+
+  it("shows the name and phone from sign-up as locked values", () => {
+    renderHostStepWith(REGISTERED_CONTACT);
+
+    const nameField = screen.getByLabelText("Nama") as HTMLInputElement;
+    const phoneField = screen.getByLabelText("Nomor ponsel") as HTMLInputElement;
+    expect(nameField.value).toBe("Andi Saputra");
+    expect(nameField.readOnly).toBe(true);
+    expect(phoneField.value).toBe("081234567890");
+    expect(phoneField.readOnly).toBe(true);
+    expect(
+      screen.getByText("Nama dan nomor ponsel diambil dari data pendaftaran Anda."),
+    ).toBeTruthy();
+  });
+
+  it("shows no sign-up values when the account has none", () => {
+    renderHostStepWith(null);
+
+    expect(screen.queryByLabelText("Nama")).toBeNull();
+    expect(
+      screen.queryByText("Nama dan nomor ponsel diambil dari data pendaftaran Anda."),
+    ).toBeNull();
+    expect(screen.getByRole("button", { name: "Mulai menyelenggarakan" })).toBeTruthy();
+  });
+
+  it("offers the optional Email organisasi and says what happens without it", () => {
+    renderHostStepWith(REGISTERED_CONTACT);
+
+    expect(screen.getByLabelText(/^Email organisasi(?: \(opsional\))?$/)).toBeTruthy();
+    expect(screen.getByText(STAFF_CHECK_SENTENCE)).toBeTruthy();
+  });
+
+  it("drops the staff check sentence once the Email organisasi is confirmed", async () => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      if (String(input) === CODE_URL) {
+        return jsonResponse(200, {
+          organizationEmailCode: { email: ADDRESS, expiresAt: "2026-11-25T10:10:00.000Z" },
+        });
+      }
+      if (String(input) === CONFIRM_URL) {
+        return jsonResponse(200, { organizationEmail: { email: ADDRESS, trustSource: null } });
+      }
+      throw new Error(`unexpected request: ${String(input)}`);
+    });
+    renderHostStepWith(REGISTERED_CONTACT);
+    expect(screen.getByText(STAFF_CHECK_SENTENCE)).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText(/^Email organisasi(?: \(opsional\))?$/), {
+      target: { value: ADDRESS },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Kirim/ }));
+    fireEvent.change(
+      await screen.findByLabelText(/^Kode 6 angka(?: \* \(wajib\)| \(opsional\))?$/),
+      {
+        target: { value: "123456" },
+      },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Cocokkan kode" }));
+
+    expect(
+      await screen.findByText("Email organisasi sekretaris@kampus.example sudah terkonfirmasi."),
+    ).toBeTruthy();
+    expect(screen.queryByText(STAFF_CHECK_SENTENCE)).toBeNull();
+  });
+
+  it("shows Mulai menyelenggarakan busy while the host step is sent", async () => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      if (String(input) === VERIFY_ROLE_URL) return new Promise<Response>(() => {});
+      throw new Error(`unexpected request: ${String(input)}`);
+    });
+    renderHostStepWith(REGISTERED_CONTACT);
+
+    fireEvent.click(screen.getByRole("button", { name: "Mulai menyelenggarakan" }));
+
+    const hostButton = screen.getByRole("button", { name: "Mulai menyelenggarakan" });
+    await waitFor(() => expect(hostButton.getAttribute("aria-busy")).toBe("true"));
   });
 });

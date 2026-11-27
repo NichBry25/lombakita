@@ -13,6 +13,7 @@ import { isPersonalInstitutionType } from "@/server/institution-workspace/instit
 import { logger } from "@/lib/logger";
 import { COMPETITIONS_CHANGING_RETRY_MESSAGE } from "@/lib/errors/error-copy";
 import { MEMBER_ROLES } from "@/server/competitions/competition-access";
+import { isHostTrustRemoved } from "@/server/host-trust/publish-trust";
 import {
   holdsLivePlaceInInstitution,
   lockInstitutionCompetitionsForPlaceCheck,
@@ -31,37 +32,12 @@ import {
   resolveInviteRecipient,
 } from "@/server/invitations/invite-resolution";
 import { enqueueInstitutionInvitationDispatch } from "@/server/async/enqueue";
-import { markRecruiterSubmissionVouched } from "@/server/recruiter-verification/recruiter-verification-service";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 import { assertAccountNotDeactivated } from "@/server/accounts/deactivated-account";
 
 assertServerOnly("server/institution-invitations/invitation-service");
 
 const ADMIN_ROLES = ["institution_owner", "institution_staff"] as const;
-
-// Vouch signal: true when the institution has at least one active institution_owner whose
-// recruiter account is Trusted (tier `elevated`). A Trusted owner vouching for a new owner/staff
-// member is the strongest queue-priority signal — but only a priority bump, never an auto-grant.
-const institutionHasTrustedOwner = async (
-  institutionId: string,
-  db: Database,
-): Promise<boolean> => {
-  const [row] = await db
-    .select({ id: institutionMemberships.id })
-    .from(institutionMemberships)
-    .innerJoin(users, eq(users.id, institutionMemberships.userId))
-    .where(
-      and(
-        eq(institutionMemberships.institutionId, institutionId),
-        eq(institutionMemberships.membershipRole, "institution_owner"),
-        eq(institutionMemberships.status, "active"),
-        eq(users.recruiterVerificationTier, "elevated"),
-      ),
-    )
-    .limit(1);
-
-  return row !== undefined;
-};
 
 const requireAdminInstitution = async (
   userId: string,
@@ -100,6 +76,45 @@ const requireAdminInstitution = async (
   return row;
 };
 
+// A person whose host trust staff removed does not hand the owner or staff role to an account they
+// may control, which would act on the workspace free of the holds. A member invitation grants no
+// operational access, so it stays open to them. Other owners and staff are not bound.
+// Throws InstitutionInvitationError 403 invitation_blocked_trust_removed.
+const assertInvitationNotByRemovedHost = async (
+  actorUserId: string,
+  invitedRole: InvitationCreateInput["invitedRole"],
+  db: Database,
+): Promise<void> => {
+  if (invitedRole === "institution_member") return;
+  const trustRemoved = await isHostTrustRemoved(actorUserId, db);
+  if (!trustRemoved) return;
+  throw new InstitutionInvitationError(
+    "invitation_blocked_trust_removed",
+    403,
+    "A host whose trust staff removed cannot invite an owner or staff member",
+  );
+};
+
+// An owner or staff invitation sent before staff removed the inviter's host trust would still hand
+// that role to an account the inviter may control. A member invitation grants no operational access,
+// so it stays open. An invitation whose inviter row is gone has no inviter to hold.
+// Throws InstitutionInvitationError 403 invitation_inviter_trust_removed.
+const assertInvitationNotFromRemovedHost = async (
+  invitedRole: InvitationCreateInput["invitedRole"],
+  inviterUserId: string | null,
+  db: Database,
+): Promise<void> => {
+  if (invitedRole === "institution_member") return;
+  if (inviterUserId === null) return;
+  const trustRemoved = await isHostTrustRemoved(inviterUserId, db);
+  if (!trustRemoved) return;
+  throw new InstitutionInvitationError(
+    "invitation_inviter_trust_removed",
+    403,
+    "Staff removed the inviting host's trust, so this owner or staff invitation cannot be taken",
+  );
+};
+
 export const createInstitutionInvitation = async (
   userId: string,
   institutionSlug: string,
@@ -122,6 +137,8 @@ export const createInstitutionInvitation = async (
       "A personal institution cannot invite staff or members",
     );
   }
+
+  await assertInvitationNotByRemovedHost(userId, input.invitedRole, db);
 
   // Classify the identifier (username or email) and resolve the recipient. This is the
   // shared resolver (extends DEC-0082); the service never builds its own.
@@ -341,7 +358,7 @@ export const acceptInstitutionInvitationForUser = async (
           "invitation_role_verification_required",
           403,
           "Accepting this invitation requires a recruiter-verified account",
-          "/verify/recruiter",
+          "/auth/verify-role?as=recruiter",
         );
       }
     }
@@ -396,6 +413,12 @@ export const acceptInstitutionInvitationForUser = async (
       );
     }
 
+    await assertInvitationNotFromRemovedHost(
+      invitation.invitedRole,
+      invitation.invitedByUserId,
+      tx,
+    );
+
     if (existingMembership) {
       // The role comes from the NEW invitation, not the retained row: someone removed as staff and
       // re-invited as a member must come back as a member. joinedAt restarts because this is a new
@@ -424,17 +447,6 @@ export const acceptInstitutionInvitationForUser = async (
       .update(institutionInvitations)
       .set({ status: "accepted", acceptedAt: now })
       .where(eq(institutionInvitations.id, invitation.id));
-
-    // Vouch bump: accepting an owner/staff invite from an institution that already has a Trusted
-    // owner moves any open recruiter trust submission to the top of the review queue. Priority
-    // only — the platform-ops background check is still the gate. No-op when the accepter has no
-    // open submission (e.g. already Trusted) or the institution has no Trusted owner.
-    if (RECRUITER_VERIFIED_ROLES.includes(invitation.invitedRole)) {
-      const vouched = await institutionHasTrustedOwner(invitation.institutionId, tx);
-      if (vouched) {
-        await markRecruiterSubmissionVouched(userId, tx);
-      }
-    }
 
     logger.info("invitation.accepted", {
       institutionId: invitation.institutionId,

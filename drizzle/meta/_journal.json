@@ -498,6 +498,20 @@
       "when": 1795532646475,
       "tag": "0070_flow_trust_removal_txid",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1795538106537,
+      "tag": "0071_flow_host_trust_close_requests",
+      "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1795755167274,
+      "tag": "0072_flow_host_trust_removals",
+      "breakpoints": true
     }
   ]
 }

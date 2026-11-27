@@ -66,6 +66,9 @@ const recruiterSignupFor = (email: string) => ({
   password: "very-strong-password",
   signupRole: "recruiter",
   fullName: "Dinda Recruiter",
+  phoneNumber: "0812345678",
+  occupation: "college_student",
+  dateOfBirth: "2000-01-15",
   mobileNumber: "0812345678",
   corporateEmail: "dinda@seed.lombakita.local",
 });

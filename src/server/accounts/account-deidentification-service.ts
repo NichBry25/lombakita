@@ -14,6 +14,7 @@ import {
   competitionSubmissions,
   competitions,
   financePaymentInstructionSnapshots,
+  hostOrganizationEmails,
   institutionInvitations,
   institutionMemberships,
   institutionPaymentInstructions,
@@ -24,6 +25,7 @@ import {
   mfaFactors,
   mfaRecoveryCodes,
   notifications,
+  organizationEmailChallenges,
   platformOpsNotes,
   profileCertifications,
   profileEducations,
@@ -74,6 +76,7 @@ import {
   deidentifiedEmail,
   deidentifiedUsername,
 } from "@/server/accounts/deidentified-identity";
+import { recordRemovedHostIdentity } from "@/server/host-trust/removed-host-identity";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/accounts/account-deidentification-service");
@@ -867,6 +870,11 @@ const runDeidentificationWrites = async (
     lockedAccount.recruiterVerificationTier,
   );
 
+  // Recorded before the email flip and the deletes below, so the record of a staff trust removal
+  // gains every proven email the account holds now. Its phones stay as the removal recorded them.
+  // It writes nothing for an account with no removal in the last 2 years.
+  await recordRemovedHostIdentity(tx, accountId, "proven_emails_only");
+
   const flipped = await tx
     .update(users)
     .set({
@@ -1025,6 +1033,20 @@ const runDeidentificationWrites = async (
       .delete(recruiterVerificationSubmissions)
       .where(eq(recruiterVerificationSubmissions.userId, accountId))
       .returning({ id: recruiterVerificationSubmissions.id }),
+  );
+
+  await deleteFrom("host_organization_emails", () =>
+    tx
+      .delete(hostOrganizationEmails)
+      .where(eq(hostOrganizationEmails.userId, accountId))
+      .returning({ id: hostOrganizationEmails.userId }),
+  );
+
+  await deleteFrom("organization_email_challenges", () =>
+    tx
+      .delete(organizationEmailChallenges)
+      .where(eq(organizationEmailChallenges.userId, accountId))
+      .returning({ id: organizationEmailChallenges.id }),
   );
 
   // Invitations addressed to the person, by id or by an address that resolves to them. `lower()`

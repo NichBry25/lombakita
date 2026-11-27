@@ -34,6 +34,7 @@ const MIRROR_VALUES: Record<OverlayName, string> = {
   R2_SECRET_ACCESS_KEY: "d".repeat(64),
   RESEND_API_KEY: "re_abcdef123456",
   MFA_SECRET_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString("base64"),
+  HOST_IDENTITY_HASH_KEY: Buffer.alloc(32, 9).toString("base64"),
 };
 
 const PLAIN_LINES = [
@@ -133,7 +134,7 @@ describe("overlayEnvFileText", () => {
   });
 
   // Rule 32, removal direction: without the re-parse, this rewrite would silently corrupt NOTE.
-  it("refuses to write when the rewrite would change a key outside the nine", () => {
+  it("refuses to write when the rewrite would change a key outside the ten", () => {
     const original = 'NOTE="first line\nREDIS_URL=\nlast line"\nA=1\n';
 
     expect(() => overlayEnvFileText(original, { REDIS_URL: "r" })).toThrow(
@@ -192,12 +193,14 @@ describe("round trip", () => {
   it("leaves every other key's parsed value as it was, in both parsers", () => {
     const original = sensitivePulledText();
     const { text } = overlayEnvFileText(original, MIRROR_VALUES);
-    const nine = new Set<string>(OVERLAY_NAMES);
-    const outsideNine = (env: Record<string, string | undefined>) =>
-      Object.fromEntries(Object.entries(env).filter(([key]) => !nine.has(key)));
+    const overlayNames = new Set<string>(OVERLAY_NAMES);
+    const outsideOverlay = (env: Record<string, string | undefined>) =>
+      Object.fromEntries(Object.entries(env).filter(([key]) => !overlayNames.has(key)));
 
-    expect(outsideNine(parseEnv(text))).toEqual(outsideNine(parseEnv(original)));
-    expect(outsideNine(parseWithDotenv(text))).toEqual(outsideNine(parseWithDotenv(original)));
+    expect(outsideOverlay(parseEnv(text))).toEqual(outsideOverlay(parseEnv(original)));
+    expect(outsideOverlay(parseWithDotenv(text))).toEqual(
+      outsideOverlay(parseWithDotenv(original)),
+    );
   });
 });
 
@@ -287,7 +290,7 @@ describe("the script, run as `npm run deploy:overlay-env` runs it", { timeout: 6
   const allValues = Object.values(MIRROR_VALUES);
 
   describe("Sensitive on Vercel under CLI 62: the pulled value is the placeholder", () => {
-    it("all nine placeholder and none mirrored: exits 1, nine sensitive-unmirrored names, file untouched", () => {
+    it("all ten placeholder and none mirrored: exits 1, ten sensitive-unmirrored names, file untouched", () => {
       writeFileSync(filePath, placeholderPulledText());
 
       const overlay = runOverlay({});
@@ -301,7 +304,7 @@ describe("the script, run as `npm run deploy:overlay-env` runs it", { timeout: 6
       expectNoValueInOutput(overlay, allValues);
     });
 
-    it("all nine placeholder and all mirrored: nine filled-from-github, and layer 1 then passes", () => {
+    it("all ten placeholder and all mirrored: ten filled-from-github, and layer 1 then passes", () => {
       writeFileSync(filePath, placeholderPulledText());
 
       const overlay = runOverlay(mirrorFrom(MIRROR_VALUES));
@@ -322,7 +325,7 @@ describe("the script, run as `npm run deploy:overlay-env` runs it", { timeout: 6
       expect(layerOne.stdout).not.toContain("FAILED");
     });
 
-    it("eight mirrored and one not: exits 1 naming only that variable, file untouched", () => {
+    it("nine mirrored and one not: exits 1 naming only that variable, file untouched", () => {
       writeFileSync(filePath, placeholderPulledText());
       const mirrored: Partial<Record<OverlayName, string>> = {
         ...MIRROR_VALUES,
@@ -357,7 +360,7 @@ describe("the script, run as `npm run deploy:overlay-env` runs it", { timeout: 6
   });
 
   describe("Sensitive on Vercel and mirrored in GitHub", () => {
-    it("fills all nine, exits 0, and layer 1 then passes against the rewritten file", () => {
+    it("fills all ten, exits 0, and layer 1 then passes against the rewritten file", () => {
       writeFileSync(filePath, sensitivePulledText());
 
       const overlay = runOverlay(mirrorFrom(MIRROR_VALUES));

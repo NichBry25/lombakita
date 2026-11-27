@@ -1,10 +1,7 @@
 // @vitest-environment node
 //
-// Step 4.0c (4.0c-T2) — Recruiter signup atomic auto-grant assertion.
-//
-// Verifies that registerUserWithCredentials({ signupRole: "recruiter", ... }) writes both
-// `recruiterVerifiedAt` (a Date) and `recruiterVerificationTier="minimal"` in the SAME INSERT
-// `values()` call — i.e. one DB statement, not two separate writes.
+// The users insert of a sign-up: every sign-up writes the participant role and its verification
+// timestamp in the one insert, and leaves the recruiter tier to its column default.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -110,8 +107,8 @@ const buildRegistrationStubDb = () => {
 // Acquire a stable reference to the users table for identity comparison inside the insert stub.
 import { users as usersRef } from "@/server/db/schema";
 
-describe("registerUserWithCredentials — recruiter signup atomic auto-grant (4.0c-T2)", () => {
-  it("writes recruiterVerifiedAt and recruiterVerificationTier='minimal' in the SAME insert values() call", async () => {
+describe("registerUserWithCredentials, the users insert of a sign-up", () => {
+  it("writes a participant-only account even when the sign-up asks for the host role", async () => {
     const { db, captures } = buildRegistrationStubDb();
     mockGetDb.mockReturnValue(db);
     generateUsername.mockResolvedValue("dinda_recruiter_1234");
@@ -119,28 +116,27 @@ describe("registerUserWithCredentials — recruiter signup atomic auto-grant (4.
     sendRegistrationVerificationEmail.mockResolvedValue(undefined);
 
     await registerUserWithCredentials({
-      name: "Dinda Recruiter",
+      name: "Dinda Putri",
       email: "recruiter@example.com",
       password: "very-strong-password",
       signupRole: "recruiter",
-      fullName: "Dinda Recruiter",
+      fullName: "Dinda Putri",
+      phoneNumber: "0812345678",
+      occupation: "college_student",
+      dateOfBirth: "2000-01-15",
       mobileNumber: "0812345678",
       corporateEmail: "dinda@corp.co.id",
     });
 
     const values = captures.userInsertValues;
     expect(values).not.toBeNull();
-    // Atomic auto-grant: both fields ride the SAME .values() call.
-    expect(values).toHaveProperty("recruiterVerifiedAt");
-    expect(values?.recruiterVerifiedAt).toBeInstanceOf(Date);
-    expect(values).toHaveProperty("recruiterVerificationTier", "minimal");
-    // candidateVerifiedAt is null on recruiter signups.
-    expect(values?.candidateVerifiedAt).toBeNull();
-    // Top-level user-level role mirrors the signup declaration.
-    expect(values).toHaveProperty("role", "recruiter");
+    expect(values).toHaveProperty("role", "candidate");
+    expect(values?.candidateVerifiedAt).toBeInstanceOf(Date);
+    expect(values?.recruiterVerifiedAt).toBeNull();
+    expect(values).not.toHaveProperty("recruiterVerificationTier");
   });
 
-  it("leaves recruiterVerificationTier='unverified' on candidate signup (no premature grant)", async () => {
+  it("writes the participant role and its timestamp in the users insert", async () => {
     const { db, captures } = buildRegistrationStubDb();
     mockGetDb.mockReturnValue(db);
     generateUsername.mockResolvedValue("dinda_candidate_1234");
@@ -160,9 +156,10 @@ describe("registerUserWithCredentials — recruiter signup atomic auto-grant (4.
 
     const values = captures.userInsertValues;
     expect(values).not.toBeNull();
-    expect(values).toHaveProperty("recruiterVerificationTier", "unverified");
-    expect(values?.recruiterVerifiedAt).toBeNull();
+    expect(values).toHaveProperty("role", "candidate");
     expect(values?.candidateVerifiedAt).toBeInstanceOf(Date);
+    expect(values?.recruiterVerifiedAt).toBeNull();
+    expect(values).not.toHaveProperty("recruiterVerificationTier");
   });
 });
 

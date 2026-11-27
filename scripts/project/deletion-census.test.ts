@@ -45,6 +45,7 @@ import {
   unruledTables,
 } from "./deletion-census";
 import { renderEnumeration } from "./emit-deletion-enumeration";
+import { ORGANIZATION_EMAIL_DOMAIN_TRY_LIMIT } from "@/server/auth/rate-limit-constants";
 
 describe("the derived Postgres population", () => {
   it("derives the table list from the schema rather than from a written-down number", () => {
@@ -122,6 +123,7 @@ describe("the derived Postgres population", () => {
       "competition_reports.handled_by_user_id",
       "competitions.created_by_user_id",
       "competitions.frozen_by_user_id",
+      "host_trust_removals.user_id",
       "institution_audit_logs.actor_user_id",
       "institution_audit_logs.target_membership_id",
       "institution_invitations.invited_by_user_id",
@@ -247,6 +249,7 @@ describe("the rulings cover the derived population", () => {
       "finance_manual_payment_proofs: original_file_name, r2_key, rejection_reason",
       "finance_payment_events: metadata, reason",
       "finance_payment_instruction_snapshots: account_holder_name, account_number, bank_name, instructions_note, qris_r2_key",
+      "host_trust_removals: email_hashes, organization_domain, phone_hashes",
       "institution_audit_logs: metadata",
       "institution_invitations: invited_email",
       "institution_payment_instructions: account_holder_name, account_number, bank_name, instructions_note, qris_r2_key",
@@ -578,5 +581,13 @@ describe("the stores outside Postgres", () => {
       "Resend message log",
       "Sentry events",
     ]);
+  });
+
+  it("names the Email organisasi domain try counter in the Redis rate-limit entry", () => {
+    const entry = EXTERNAL_STORES.find((store) => store.store === "Redis rate-limit counters");
+    if (!entry) throw new Error("The Redis rate-limit entry is missing");
+
+    expect(entry.address).toContain(ORGANIZATION_EMAIL_DOMAIN_TRY_LIMIT.keyPrefix);
+    expect(entry.reason).toContain("or by an email domain (rl:org-email-domain-try:)");
   });
 });

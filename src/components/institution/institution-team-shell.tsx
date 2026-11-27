@@ -79,6 +79,10 @@ const TEAM_ERROR_COPY: Partial<Record<string, string>> = {
   invitation_already_pending: "Undangan untuk orang ini masih menunggu jawaban.",
   invitation_not_found: "Undangan tidak ditemukan. Muat ulang halaman lalu coba lagi.",
   invitation_not_actionable: "Undangan ini sudah tidak aktif, jadi tidak dapat dibatalkan.",
+  invitation_blocked_trust_removed:
+    "Status tepercaya akun Anda dicabut staf, jadi Anda tidak dapat mengundang pemilik atau staf. Minta pemilik atau staf lain di ruang kerja ini mengirim undangannya, atau hubungi staf Lombakita.",
+  member_role_blocked_trust_removed:
+    "Status tepercaya akun Anda dicabut staf, jadi Anda tidak dapat menjadikan siapa pun pemilik atau staf. Minta pemilik atau staf lain di ruang kerja ini mengubah perannya, atau hubungi staf Lombakita.",
 };
 
 const TEAM_FALLBACK: Record<RefusalAction, string> = {

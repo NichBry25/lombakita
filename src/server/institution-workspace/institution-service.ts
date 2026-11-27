@@ -874,8 +874,8 @@ const resolveFreeInstitutionSlug = async (
 // One-directional personal→full (or legacy-NULL→full) type upgrade, owner-initiated and
 // self-service. The upgrade is a declaration, not a review: it flips the type immediately and
 // leaves the institution unverified, because document verification is a separate, credibility-only
-// system that no longer gates publishing (publishing gates on the account-level Trusted Recruiter
-// status instead). In a single transaction it:
+// system that does not gate publishing (publishing gates on host trust, the actor's or a trusted
+// owner's). In a single transaction it:
 //   1. serializes same-owner cap-guarded mutations (acquireOwnerCapLock) BEFORE any count,
 //   2. asserts the actor holds the elevated recruiter tier (FULL_INSTITUTION_CREATION_MIN_TIER),
 //   3. asserts the actor is an active institution_owner of the target institution,

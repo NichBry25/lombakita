@@ -32,6 +32,7 @@ import { processEmailEgressProbeJob } from "@/server/async/jobs/email-egress-pro
 import { processTeamCloseCheckJob } from "@/server/async/jobs/team-close-check";
 import { processTeamJoinReminderJob } from "@/server/async/jobs/team-join-reminder";
 import { processTeamCancelledBelowMinimumJob } from "@/server/async/jobs/team-cancelled-below-minimum";
+import { processHostTrustRemovedJob } from "@/server/async/jobs/host-trust-removed";
 
 export type AsyncJobProcessor<Name extends AsyncJobName = AsyncJobName> = (
   job: Job<AsyncJobPayloadByName[Name], void, Name>,
@@ -92,6 +93,7 @@ export const ASYNC_JOB_REGISTRATIONS = [
   defineAsyncJob(ASYNC_JOB_NAMES.teamCloseCheck, processTeamCloseCheckJob),
   defineAsyncJob(ASYNC_JOB_NAMES.teamJoinReminder, processTeamJoinReminderJob),
   defineAsyncJob(ASYNC_JOB_NAMES.teamCancelledBelowMinimum, processTeamCancelledBelowMinimumJob),
+  defineAsyncJob(ASYNC_JOB_NAMES.hostTrustRemoved, processHostTrustRemovedJob),
 ] as const;
 
 const getUniqueQueueNames = (): AsyncQueueName[] => {

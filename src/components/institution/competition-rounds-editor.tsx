@@ -10,6 +10,7 @@ import {
 } from "@/components/institution/competition-editor-parts";
 import { errorMessageFor } from "@/lib/errors/error-copy";
 import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
+import { PUBLIC_EDIT_HELD_AFTER_TRUST_REMOVAL_REASON } from "@/lib/competitions/publish-locks";
 
 const SAVE_ERROR_COPY: Partial<Record<string, string>> = {
   forbidden: "Anda tidak memiliki akses ke kompetisi institusi ini.",
@@ -17,6 +18,7 @@ const SAVE_ERROR_COPY: Partial<Record<string, string>> = {
     "Permintaan tidak dapat diproses. Muat ulang halaman lalu coba lagi.",
   competition_rounds_invalid_value:
     "Periksa data tahapan lalu coba lagi. Tanggal selesai tidak boleh sebelum tanggal mulai.",
+  competition_public_edit_blocked_trust_removed: PUBLIC_EDIT_HELD_AFTER_TRUST_REMOVAL_REASON,
 };
 
 const SAVE_FALLBACK = "Gagal menyimpan tahapan. Coba lagi.";

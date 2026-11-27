@@ -34,6 +34,19 @@ const approvedJob = (): RecruiterVerificationApprovedJob =>
     data: { userId: "u_1", epoch: 1_700_000_000_000 },
   }) as unknown as RecruiterVerificationApprovedJob;
 
+const hostCheckApprovedJob = (): RecruiterVerificationApprovedJob =>
+  ({
+    id: "job_a",
+    data: { userId: "u_1", competitionId: "comp_1", epoch: 1_700_000_000_000 },
+  }) as unknown as RecruiterVerificationApprovedJob;
+
+const COMPETITION_ROW = {
+  title: "Lomba Esai",
+  slug: "lomba-esai",
+  status: "published",
+  institutionSlug: "budi",
+};
+
 describe("processRecruiterVerificationApprovedJob", () => {
   afterEach(() => vi.clearAllMocks());
 
@@ -48,13 +61,15 @@ describe("processRecruiterVerificationApprovedJob", () => {
       expect.anything(),
       "u_1",
       "recruiter_verification_approved",
-      "Anda kini penyelenggara terverifikasi",
-      expect.stringContaining("Lomba Esai"),
+      "Akun Anda kini penyelenggara tepercaya",
+      'Anda sekarang dapat menerbitkan kompetisi. Buka draf "Lomba Esai" lalu tekan Terbitkan.',
     );
     expect(mockSendRecruiterVerificationApprovedEmail).toHaveBeenCalledWith({
       toEmail: "host@seed.lombakita.local",
       recipientId: "u_1",
-      draft: { title: "Lomba Esai", path: "/institution/budi/competitions/lomba-esai" },
+      title: "Akun Anda kini penyelenggara tepercaya",
+      body: 'Anda sekarang dapat menerbitkan kompetisi. Buka draf "Lomba Esai" lalu tekan Terbitkan.',
+      path: "/institution/budi/competitions/lomba-esai",
     });
   });
 
@@ -69,13 +84,86 @@ describe("processRecruiterVerificationApprovedJob", () => {
       expect.anything(),
       "u_1",
       "recruiter_verification_approved",
-      "Anda kini penyelenggara terverifikasi",
+      "Akun Anda kini penyelenggara tepercaya",
       "Anda sekarang dapat menerbitkan kompetisi dari dasbor penyelenggara.",
     );
     expect(mockSendRecruiterVerificationApprovedEmail).toHaveBeenCalledWith({
       toEmail: "host@seed.lombakita.local",
       recipientId: "u_1",
-      draft: null,
+      title: "Akun Anda kini penyelenggara tepercaya",
+      body: "Anda sekarang dapat menerbitkan kompetisi dari dasbor penyelenggara.",
+      path: "/recruiter-dashboard",
+    });
+  });
+
+  it("tells a host check approval that the draft is live", async () => {
+    mockGetDb.mockReturnValue({ select: makeSequencedSelect([[USER_ROW], [COMPETITION_ROW]]) });
+    mockSendRecruiterVerificationApprovedEmail.mockResolvedValue(undefined);
+    mockWriteNotification.mockResolvedValue(undefined);
+
+    await processRecruiterVerificationApprovedJob(hostCheckApprovedJob());
+
+    expect(mockWriteNotification).toHaveBeenCalledWith(
+      expect.anything(),
+      "u_1",
+      "recruiter_verification_approved",
+      "Kompetisi Anda lolos pemeriksaan",
+      'Akun Anda kini tepercaya dan "Lomba Esai" sudah tayang.',
+    );
+    expect(mockSendRecruiterVerificationApprovedEmail).toHaveBeenCalledWith({
+      toEmail: "host@seed.lombakita.local",
+      recipientId: "u_1",
+      title: "Kompetisi Anda lolos pemeriksaan",
+      body: 'Akun Anda kini tepercaya dan "Lomba Esai" sudah tayang.',
+      path: "/competitions/budi/lomba-esai",
+    });
+  });
+
+  it("tells a host check approval whose publish was refused to press Terbitkan", async () => {
+    mockGetDb.mockReturnValue({
+      select: makeSequencedSelect([[USER_ROW], [{ ...COMPETITION_ROW, status: "draft" }]]),
+    });
+    mockSendRecruiterVerificationApprovedEmail.mockResolvedValue(undefined);
+    mockWriteNotification.mockResolvedValue(undefined);
+
+    await processRecruiterVerificationApprovedJob(hostCheckApprovedJob());
+
+    expect(mockWriteNotification).toHaveBeenCalledWith(
+      expect.anything(),
+      "u_1",
+      "recruiter_verification_approved",
+      "Kompetisi Anda lolos pemeriksaan",
+      'Akun Anda kini tepercaya. Buka draf "Lomba Esai" lalu tekan Terbitkan.',
+    );
+    expect(mockSendRecruiterVerificationApprovedEmail).toHaveBeenCalledWith({
+      toEmail: "host@seed.lombakita.local",
+      recipientId: "u_1",
+      title: "Kompetisi Anda lolos pemeriksaan",
+      body: 'Akun Anda kini tepercaya. Buka draf "Lomba Esai" lalu tekan Terbitkan.',
+      path: "/institution/budi/competitions/lomba-esai",
+    });
+  });
+
+  it("tells a host check approval whose competition is gone that the account is trusted", async () => {
+    mockGetDb.mockReturnValue({ select: makeSequencedSelect([[USER_ROW], []]) });
+    mockSendRecruiterVerificationApprovedEmail.mockResolvedValue(undefined);
+    mockWriteNotification.mockResolvedValue(undefined);
+
+    await processRecruiterVerificationApprovedJob(hostCheckApprovedJob());
+
+    expect(mockWriteNotification).toHaveBeenCalledWith(
+      expect.anything(),
+      "u_1",
+      "recruiter_verification_approved",
+      "Kompetisi Anda lolos pemeriksaan",
+      "Akun Anda kini tepercaya. Kompetisi yang Anda terbitkan langsung tayang.",
+    );
+    expect(mockSendRecruiterVerificationApprovedEmail).toHaveBeenCalledWith({
+      toEmail: "host@seed.lombakita.local",
+      recipientId: "u_1",
+      title: "Kompetisi Anda lolos pemeriksaan",
+      body: "Akun Anda kini tepercaya. Kompetisi yang Anda terbitkan langsung tayang.",
+      path: "/recruiter-dashboard",
     });
   });
 

@@ -13,6 +13,9 @@ const { enqueueInstitutionInvitationDispatch } = vi.hoisted(() => ({
   enqueueInstitutionInvitationDispatch: vi.fn(),
 }));
 vi.mock("@/server/async/enqueue", () => ({ enqueueInstitutionInvitationDispatch }));
+vi.mock("@/server/host-trust/publish-trust", () => ({
+  isHostTrustRemoved: vi.fn(async () => false),
+}));
 
 // The live-place read and its locks run against a real database in
 // host-promotion-refusal-db.integration.test.ts. Here they are the seam this file drives.
@@ -254,6 +257,22 @@ describe("acceptInstitutionInvitationForUser — CCR-08 verification gate at acc
       ),
     ).rejects.toMatchObject({ code: "invitation_role_verification_required", httpStatus: 403 });
     expect(tx.insert).not.toHaveBeenCalled();
+  });
+
+  it("names the host step as the next step when a candidate-only account takes a staff invitation", async () => {
+    const tx = makeTx([[baseInvitation({ invitedRole: "institution_staff" })]]);
+    await expect(
+      acceptInstitutionInvitationForUser(
+        INVITATION_ID,
+        TARGET_USER,
+        ["candidate"],
+        makeDb(tx) as never,
+      ),
+    ).rejects.toMatchObject({
+      code: "invitation_role_verification_required",
+      httpStatus: 403,
+      redirectTo: "/auth/verify-role?as=recruiter",
+    });
   });
 
   it("blocks a candidate-only account from an institution_owner invite", async () => {

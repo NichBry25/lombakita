@@ -14,6 +14,8 @@ import {
 import { sendRecruiterVerificationRejectedEmail } from "@/server/notifications/notification-email";
 import { writeInboxNotificationSafely } from "@/server/notifications/inbox-write";
 import { NOTIFICATION_TYPES } from "@/server/notifications/notification-types";
+import { competitionGuidelineTextOf } from "@/lib/competitions/competition-guidelines";
+import { asSentence } from "@/lib/finance/payment-display";
 
 export type RecruiterVerificationRejectedJob = Job<
   RecruiterVerificationRejectedPayload,
@@ -21,15 +23,39 @@ export type RecruiterVerificationRejectedJob = Job<
   typeof ASYNC_JOB_NAMES.recruiterVerificationRejected
 >;
 
-// Notifies a recruiter that their trust submission was rejected. Unlike the competition workers,
-// this one does NOT re-derive its subject from live state: the recruiter may already have reopened
-// the submission by the time the job runs, and re-reading the row would then describe the new
-// pending attempt instead of the verdict being announced. The reason and reopen decision travel on
-// the payload for exactly that reason. Only the recipient's address is looked up.
+type RejectionNotice = { title: string; body: string };
+
+const buildRequestRejectedNotice = (
+  rejectionReason: string,
+  resubmissionAllowed: boolean,
+): RejectionNotice => {
+  const nextStep = resubmissionAllowed
+    ? "Perbarui data dan dokumen Anda, lalu ajukan ulang."
+    : "Akun Anda tidak dapat mengirim permohonan baru.";
+  return {
+    title: "Permohonan penyelenggara terverifikasi ditolak",
+    body: `Alasan: ${rejectionReason} ${nextStep}`,
+  };
+};
+
+// A guideline sentence ends with its own full stop. An item the list does not know is shown by its
+// code.
+const buildHostCheckTurnDownNotice = (guidelineItem: string, note: string): RejectionNotice => {
+  const guidelineText = competitionGuidelineTextOf(guidelineItem) ?? guidelineItem;
+  return {
+    title: "Kompetisi Anda belum dapat tayang",
+    body: `Pedoman: ${guidelineText} Catatan staf: ${asSentence(note)} Perbaiki draf lalu tekan Kirim untuk diperiksa lagi.`,
+  };
+};
+
+// Notifies a host that a request was rejected or a host check turned down. Unlike the competition
+// workers, this one does NOT re-derive its subject from live state: the row may change before the
+// job runs, so the reason, the reopen choice and the guideline item travel on the payload. Only the
+// recipient's address is looked up.
 export const processRecruiterVerificationRejectedJob = async (
   job: RecruiterVerificationRejectedJob,
 ): Promise<void> => {
-  const { userId, rejectionReason, resubmissionAllowed } = job.data;
+  const { userId, rejectionReason, resubmissionAllowed, guidelineItem } = job.data;
 
   const db = getDb();
 
@@ -49,19 +75,20 @@ export const processRecruiterVerificationRejectedJob = async (
     return;
   }
 
-  const nextStep = resubmissionAllowed
-    ? "Perbarui data dan dokumen Anda, lalu ajukan ulang."
-    : "Akun Anda tidak dapat mengirim permohonan baru.";
+  const notice =
+    guidelineItem === undefined
+      ? buildRequestRejectedNotice(rejectionReason, resubmissionAllowed)
+      : buildHostCheckTurnDownNotice(guidelineItem, rejectionReason);
 
-  // Dual-channel (DEC-0076): in-app row written FIRST, isolated/swallowed; the email block keeps
+  // Dual-channel (DEC-0076): in-app row written FIRST, isolated and swallowed. The email block keeps
   // its rethrow-for-retry semantics so the row lands regardless of email outcome.
   await writeInboxNotificationSafely(
     db,
     {
       userId,
       type: NOTIFICATION_TYPES.recruiterVerificationRejected,
-      title: "Permohonan penyelenggara terverifikasi ditolak",
-      body: `Alasan: ${rejectionReason} ${nextStep}`,
+      title: notice.title,
+      body: notice.body,
     },
     { event: "recruiter.verification.rejected", jobId: job.id ?? undefined },
   );
@@ -72,6 +99,7 @@ export const processRecruiterVerificationRejectedJob = async (
       recipientId: userId,
       rejectionReason,
       resubmissionAllowed,
+      ...(guidelineItem === undefined ? {} : { hostCheckTurnDown: notice }),
     });
   } catch (error) {
     logger.error("notification.failed", {

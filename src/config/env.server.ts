@@ -158,6 +158,11 @@ export const buildServerEnv = (env: NodeJS.ProcessEnv) => {
     // base64-decoded) by mfa-encryption.ts on first use, not eagerly here — an absent/malformed key
     // must not crash every request that merely resolves a session.
     mfaSecretEncryptionKey: read(env.MFA_SECRET_ENCRYPTION_KEY),
+    // HMAC-SHA256 key of the trust removal records. Web runtime only. Deliberately NOT derived from
+    // AUTH_SECRET: an AUTH_SECRET rotation would silently stop every record from matching. Validated
+    // lazily (32 raw bytes once base64-decoded) by removed-host-identity.ts on first use, not eagerly
+    // here, so an environment without the key boots and fails only where a hash is needed.
+    hostIdentityHashKey: read(env.HOST_IDENTITY_HASH_KEY),
     sentryDsn: read(env.SENTRY_DSN),
     workerConcurrency: parseInteger(env.WORKER_CONCURRENCY, 5),
     workerRuntimeTarget: read(env.WORKER_RUNTIME_TARGET) ?? "pending_selection",

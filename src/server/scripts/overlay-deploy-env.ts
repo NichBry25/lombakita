@@ -1,10 +1,10 @@
 /**
- * Deploy gate, step zero: fill the nine Sensitive secrets into the file `vercel pull` wrote.
+ * Deploy gate, step zero: fill the ten Sensitive secrets into the file `vercel pull` wrote.
  *
  * A Sensitive Vercel variable is not pulled: CLI 56 writes an empty string (INFRA-D1), CLI 62 writes
- * the placeholder `[SENSITIVE]`. The workflow therefore also keeps the nine as
+ * the placeholder `[SENSITIVE]`. The workflow therefore also keeps the ten as
  * write-only GitHub environment secrets and passes them in here as `MIRROR_<NAME>`. This rewrites
- * only those nine keys in the pulled file, so layer 1, layer 2, the schema gate and `vercel build`
+ * only those ten keys in the pulled file, so layer 1, layer 2, the schema gate and `vercel build`
  * all read real values from the one file they already read.
  *
  *   npm run deploy:overlay-env -- --environment=preview
@@ -82,7 +82,7 @@ const withAppendedLines = (pieces: readonly string[], lines: readonly string[]):
   return `${base}${separator}${lines.map((line) => `${line}\n`).join("")}`;
 };
 
-// Re-parsing the whole file is what proves "only the nine keys changed": a line that merely LOOKED
+// Re-parsing the whole file is what proves "only the ten keys changed": a line that merely LOOKED
 // like an overlay key, inside another variable's multi-line value, would pass the line scan and
 // corrupt that variable here.
 const assertRewriteParsesToMerged = (rewritten: string, expected: EnvMap): void => {

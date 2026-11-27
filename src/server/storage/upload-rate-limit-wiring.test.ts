@@ -7,7 +7,7 @@
 // on the happy path and neither shows up in a unit test of the limiter itself:
 //
 //   1. The call is REMOVED from one of the entry points. That route is unbounded again while the
-//      other eleven keep the ceiling, so the platform reports a bound it is not enforcing.
+//      other ten keep the ceiling, so the platform reports a bound it is not enforcing.
 //   2. The call is MOVED below the presign service call. It still returns 429 — after the URL has
 //      already been signed and returned to nobody. The refusal is real and the harm already done.
 //   3. A handler that mints NOTHING draws the budget anyway. The refusal is correct and correctly
@@ -91,12 +91,6 @@ const ENTRY_POINTS: EntryPoint[] = [
     route: "src/app/api/v1/me/document-requests/[requestId]/files/route.ts",
     guard: "src/app/api/v1/me/document-requests/[requestId]/files/route.ts",
     presign: "prepareRequestDocumentUpload(",
-  },
-  {
-    name: "recruiter verification document",
-    route: "src/app/api/v1/recruiter/me/verification/documents/route.ts",
-    guard: "src/app/api/v1/recruiter/me/verification/documents/route.ts",
-    presign: "prepareVerificationDocumentUpload(",
   },
   {
     name: "institution verification submission",
@@ -250,7 +244,7 @@ const exportBody = (source: string, handler: string): string => {
 
 describe("the entry-point table is classified exhaustively", () => {
   it("puts every entry point in exactly one family, and neither family is empty", () => {
-    expect(DIRECT.length).toBe(6);
+    expect(DIRECT.length).toBe(5);
     expect(WRAPPED.length).toBe(6);
     expect(DIRECT.length + WRAPPED.length).toBe(ENTRY_POINTS.length);
     expect(new Set(ENTRY_POINTS.map((entry) => entry.name)).size).toBe(ENTRY_POINTS.length);
@@ -390,9 +384,9 @@ describe("no entry point that mints nothing draws the shared budget", () => {
 });
 
 describe("the budget is drawn at the choke points, not once per route", () => {
-  it("calls the limiter exactly eight times across the tree", () => {
-    // Six direct routes plus the two wrappers. Eleven would mean a wrapper call had been duplicated
-    // into its route files (and the two would drift); seven would mean one had been deleted.
+  it("calls the limiter exactly seven times across the tree", () => {
+    // Five direct routes plus the two wrappers. Ten would mean a wrapper call had been duplicated
+    // into its route files (and the two would drift), six would mean one had been deleted.
     const files = [...new Set(ENTRY_POINTS.map((entry) => entry.guard))];
 
     const counts = files.map((file) => ({
@@ -403,7 +397,7 @@ describe("the budget is drawn at the choke points, not once per route", () => {
     for (const { file, count } of counts) {
       expect(count, file).toBe(1);
     }
-    expect(counts).toHaveLength(8);
+    expect(counts).toHaveLength(7);
   });
 
   it("defines the budget once, in the module every guard imports", () => {

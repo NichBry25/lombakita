@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
 // Where a Google sign-up returns, run through the two real screens of the flow: the sign-in entry
-// that starts Google and the role picker that finishes the sign-up after Google sends the person
+// that starts Google and the details form that finishes the sign-up after Google sends the person
 // back. The tab is what carries the starting page between them.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -47,11 +47,10 @@ const finishCandidateSignUp = () => {
       </PageTransitionProvider>
     </UIPrimitivesProvider>,
   );
-  fireEvent.click(screen.getByRole("radio", { name: /Daftar sebagai kandidat/ }));
   fireEvent.change(screen.getByLabelText(/^Nomor telepon(?: \* \(wajib\)| \(opsional\))?$/), {
     target: { value: "081234567890" },
   });
-  fireEvent.click(screen.getByRole("button", { name: "Status saat ini (wajib)" }));
+  fireEvent.click(screen.getByRole("combobox", { name: "Status saat ini (wajib)" }));
   fireEvent.click(screen.getByRole("option", { name: "Mahasiswa" }));
   fireEvent.change(screen.getByLabelText(/^Tanggal lahir(?: \* \(wajib\)| \(opsional\))?$/), {
     target: { value: "2000-01-31" },
@@ -70,7 +69,7 @@ describe("where a Google sign-up returns", () => {
     await vi.waitFor(() =>
       expect(signIn).toHaveBeenCalledWith(
         "oauth-finalize",
-        expect.objectContaining({ carrier: CARRIER, role: "candidate", callbackUrl: RETURN_PATH }),
+        expect.objectContaining({ carrier: CARRIER, callbackUrl: RETURN_PATH }),
       ),
     );
   });

@@ -233,10 +233,10 @@ describe("oauth-finalize authorize — sign-in error signal", () => {
     const authorize = await loadOAuthFinalizeAuthorize();
     const { OAuthFinalizeError } = await import("@/server/auth/oauth-account");
     authorizeOAuthFinalizeMock.mockRejectedValue(
-      new OAuthFinalizeError("invalid_role", "Role is not selectable for this carrier"),
+      new OAuthFinalizeError("invalid_carrier", "Role is not selectable for this carrier"),
     );
 
-    await expect(authorize({ carrier: "c", role: "x" })).rejects.toThrow(/^invalid_role$/);
+    await expect(authorize({ carrier: "c", role: "x" })).rejects.toThrow(/^invalid_carrier$/);
     expect(reportUnexpectedErrorMock).not.toHaveBeenCalled();
   });
 

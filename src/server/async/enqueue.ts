@@ -268,6 +268,7 @@ export const enqueueRecruiterVerificationRejected = async (input: {
   userId: string;
   rejectionReason: string;
   resubmissionAllowed: boolean;
+  guidelineItem?: string;
   epoch: number;
 }): Promise<EnqueueAsyncJobResult<typeof ASYNC_JOB_NAMES.recruiterVerificationRejected>> => {
   return enqueueAsyncJob({
@@ -278,6 +279,7 @@ export const enqueueRecruiterVerificationRejected = async (input: {
       userId: input.userId,
       rejectionReason: input.rejectionReason,
       resubmissionAllowed: input.resubmissionAllowed,
+      ...(input.guidelineItem === undefined ? {} : { guidelineItem: input.guidelineItem }),
       epoch: input.epoch,
     },
   });
@@ -286,6 +288,7 @@ export const enqueueRecruiterVerificationRejected = async (input: {
 // Fire-and-forget from the approval paths; callers must catch errors.
 export const enqueueRecruiterVerificationApproved = async (input: {
   userId: string;
+  competitionId?: string;
   epoch: number;
 }): Promise<EnqueueAsyncJobResult<typeof ASYNC_JOB_NAMES.recruiterVerificationApproved>> => {
   return enqueueAsyncJob({
@@ -293,8 +296,23 @@ export const enqueueRecruiterVerificationApproved = async (input: {
     idempotencyKey: `${input.userId}__${input.epoch}`,
     payload: {
       userId: input.userId,
+      ...(input.competitionId === undefined ? {} : { competitionId: input.competitionId }),
       epoch: input.epoch,
     },
+  });
+};
+
+// Keyed by the account and the removal time, so each removal notifies once. Fire-and-forget from the
+// removal; callers must catch errors.
+export const enqueueHostTrustRemoved = async (input: {
+  userId: string;
+  reason: string;
+  epoch: number;
+}): Promise<EnqueueAsyncJobResult<typeof ASYNC_JOB_NAMES.hostTrustRemoved>> => {
+  return enqueueAsyncJob({
+    jobName: ASYNC_JOB_NAMES.hostTrustRemoved,
+    idempotencyKey: `${input.userId}__${input.epoch}`,
+    payload: { userId: input.userId, reason: input.reason, epoch: input.epoch },
   });
 };
 

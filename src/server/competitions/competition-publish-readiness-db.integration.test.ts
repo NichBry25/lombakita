@@ -160,8 +160,8 @@ type SeedOptions = {
   suspended?: boolean;
   /** The RECRUITER verification tier of the acting account. Publishing needs `elevated`. */
   actorTier?: "minimal" | "elevated";
-  /** The acting account's membership in this institution. Publishing needs `institution_owner`. */
-  actorRole?: "institution_owner" | "institution_staff";
+  /** The acting account's membership in this institution. Publishing needs `institution_owner` or `institution_staff`. */
+  actorRole?: "institution_owner" | "institution_staff" | "institution_member";
   mode?: "individual" | "team" | "both";
   minTeamSize?: number | null;
   maxTeamSize?: number | null;
@@ -353,13 +353,8 @@ type GateCase = {
 const GATE_CASES: GateCase[] = [
   {
     code: "forbidden",
-    // A staff member of the owning institution: real membership, wrong role for publishing.
-    seed: (tx) => seedFixture(tx, { actorRole: "institution_staff" }),
-    expectedHttpStatus: 403,
-  },
-  {
-    code: "competition_recruiter_not_trusted",
-    seed: (tx) => seedFixture(tx, { actorTier: "minimal" }),
+    // An institution_member of the owning institution: real membership, no access to competitions.
+    seed: (tx) => seedFixture(tx, { actorRole: "institution_member" }),
     expectedHttpStatus: 403,
   },
   {
@@ -418,8 +413,7 @@ describe.skipIf(skipWithoutDatabase)(
       contactGateState.skipGate = false;
     });
 
-    // The transition code is the one the endpoint gives a published competition and readiness
-    // does not report, so it has its own test below.
+    // Readiness never reports the transition code, the endpoint's answer for a published competition, tested below.
     it("covers every blocker code the module declares, except the transition code", () => {
       const exercised = GATE_CASES.map((gate) => gate.code).sort();
       const reportedByReadiness = COMPETITION_PUBLISH_BLOCKER_CODES.filter(
@@ -485,6 +479,31 @@ describe.skipIf(skipWithoutDatabase)("a competition that can publish", () => {
       // so an unverified organizer publishing a free competition must not be blocked anywhere —
       // least of all by the control that is supposed to predict the server.
       const fixture = await seedFixture(tx, { feeAmount: null });
+
+      const readiness = await readinessFor(fixture.actorUserId, fixture.competitionId, tx);
+      expect(readiness.blockers).toEqual([]);
+      expect(readiness.canPublish).toBe(true);
+
+      const published = await publishViaRoute(fixture, fixture.actorUserId, tx);
+      expect(published.status).toBe(200);
+      expect(published.code).toBeNull();
+
+      const [row] = await tx
+        .select({ status: competitions.status })
+        .from(competitions)
+        .where(eq(competitions.id, fixture.competitionId))
+        .limit(1);
+      expect(row?.status).toBe("published");
+    });
+  });
+
+  it("reports canPublish for staff on a paid draft of a verified institution, and the endpoint publishes it", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx, {
+        actorRole: "institution_staff",
+        feeAmount: 50_000,
+        verificationStatus: "verified",
+      });
 
       const readiness = await readinessFor(fixture.actorUserId, fixture.competitionId, tx);
       expect(readiness.blockers).toEqual([]);

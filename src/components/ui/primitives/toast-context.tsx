@@ -1,6 +1,14 @@
 "use client";
 
-import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 export type ToastType = "error" | "success" | "info";
 
@@ -106,6 +114,19 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     },
     [startTimer],
   );
+
+  // Strict Mode and Fast Refresh unmount the provider and mount it again with its toasts kept, so the
+  // cleanup pauses every dismiss timer and the mount resumes them. After a real unmount no timer is
+  // left to set state on a tree that is gone.
+  useEffect(() => {
+    const timers = timersRef.current;
+    for (const [id, timer] of timers) {
+      if (timer.handle === null) startTimer(id, timer);
+    }
+    return () => {
+      for (const id of timers.keys()) pauseToast(id);
+    };
+  }, [startTimer, pauseToast]);
 
   return (
     <ToastContext.Provider value={{ toasts, addToast, removeToast, pauseToast, resumeToast }}>

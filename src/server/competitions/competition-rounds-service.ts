@@ -5,7 +5,11 @@ assertServerOnly("server/competitions/competition-rounds-service");
 import { asc, eq } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
 import { competitionRounds } from "@/server/db/schema";
-import { assertCompetitionAccess } from "@/server/competitions/competition-access";
+import {
+  assertCompetitionAccess,
+  assertPublicFieldsUnchangedByRemovedHost,
+  type CompetitionRow,
+} from "@/server/competitions/competition-access";
 import {
   parseCompetitionRoundsInput,
   type CompetitionRoundInput,
@@ -39,6 +43,32 @@ const selectRoundsByCompetition = async (
     .where(eq(competitionRounds.competitionId, competitionId))
     .orderBy(asc(competitionRounds.sortOrder));
 
+// The parts of a round that the public page shows, in a form that compares by value.
+const toComparableRound = (round: CompetitionRoundInput) => ({
+  title: round.title,
+  description: round.description,
+  platformLabel: round.platformLabel,
+  startsAt: round.startsAt?.getTime() ?? null,
+  endsAt: round.endsAt?.getTime() ?? null,
+});
+
+// The rounds are public on a live competition: its page shows each round's title, description,
+// platform label and dates, in order. A host whose trust staff removed keeps them as they are there.
+// A save that resends the stored rounds in their order goes through.
+const assertRoundsUnchangedByRemovedHost = async (
+  actorUserId: string,
+  competition: CompetitionRow,
+  rounds: CompetitionRoundInput[],
+  db: Database,
+): Promise<void> => {
+  if (competition.status !== "published") return;
+  const storedRounds = await selectRoundsByCompetition(competition.id, db);
+  const storedKey = JSON.stringify(storedRounds.map(toComparableRound));
+  const nextKey = JSON.stringify(rounds.map(toComparableRound));
+  const changedFields = storedKey === nextKey ? [] : ["rounds"];
+  await assertPublicFieldsUnchangedByRemovedHost(actorUserId, changedFields, db);
+};
+
 // Owner/staff read for the authoring surface.
 export const getCompetitionRoundsForEditor = async (
   actorUserId: string,
@@ -58,6 +88,7 @@ export const setCompetitionRoundsForEditor = async (
 ): Promise<CompetitionRoundRecord[]> => {
   const { competition } = await assertCompetitionAccess(actorUserId, competitionId, "member", db);
   const rounds: CompetitionRoundInput[] = parseCompetitionRoundsInput(payload);
+  await assertRoundsUnchangedByRemovedHost(actorUserId, competition, rounds, db);
 
   await db.transaction(async (tx) => {
     await tx.delete(competitionRounds).where(eq(competitionRounds.competitionId, competition.id));

@@ -24,6 +24,7 @@ export const NOTIFICATION_TYPES = {
   paymentOutcome: "payment_outcome",
   teamJoinReminder: "team_join_reminder",
   teamCancelledBelowMinimum: "team_cancelled_below_minimum",
+  hostTrustRemoved: "host_trust_removed",
 } as const;
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[keyof typeof NOTIFICATION_TYPES];

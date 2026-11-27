@@ -5,18 +5,21 @@ assertServerOnly("server/competitions/competition-publish-readiness");
 import { AccessError } from "@/server/auth/access-core";
 import { getDb, type Database } from "@/server/db/client";
 import {
-  assertActorIsTrustedRecruiter,
   assertCompetitionAccess,
   assertCompetitionHasAudience,
   assertCompetitionHasOrganizerContact,
   assertInstitutionNotSuspended,
   assertInstitutionVerified,
   assertPersonalCompetitionPublishable,
-  type CompetitionRow,
+  type CompetitionAccessResult,
 } from "@/server/competitions/competition-access";
 import { CompetitionError, validatePublishChecklist } from "@/server/competitions/competition-core";
 import { loadCompetitionPricing } from "@/server/competitions/competition-service";
 import { isPaidCompetition } from "@/lib/competitions/paid-competition";
+import {
+  readHostCheckStateForActor,
+  type HostCheckReadout,
+} from "@/server/host-trust/host-check-service";
 
 // WHAT THIS ANSWERS, AND WHY IT IS NOT THE PUBLISH PATH.
 //
@@ -42,7 +45,6 @@ export const COMPETITION_PUBLISH_BLOCKER_CODES = [
   "forbidden",
   // The publish endpoint's refusal of a published competition. This read never reports it.
   "competition_invalid_transition",
-  "competition_recruiter_not_trusted",
   "institution_suspended",
   "competition_publish_validation_failed",
   "competition_organizer_contact_missing",
@@ -63,6 +65,9 @@ export const isCompetitionPublishBlockerCode = (
 export type CompetitionPublishReadiness = {
   canPublish: boolean;
   blockers: CompetitionPublishBlockerCode[];
+  // Present for a draft the caller may publish. Absent when the answer is forbidden or the
+  // competition is not a draft.
+  hostCheck?: HostCheckReadout;
 };
 
 // Runs one gate and records its refusal code. A gate that throws something outside the blocker set
@@ -87,8 +92,8 @@ const collectGate = async (
  *
  * `forbidden` is the first gate and is the only one that can end the evaluation early: the gates
  * after it need the competition row that `assertCompetitionAccess` is what hands over. A caller who
- * is not an owner learns that they are not an owner and nothing else — which is the same thing the
- * publish path tells them, in the same order.
+ * is neither an owner nor staff learns that and nothing else, which is the same thing the publish
+ * path tells them, in the same order.
  *
  * A competition that does not exist is NOT a readiness answer and is not reported as one. It
  * propagates as the 404 it is, because "you cannot publish this" is the wrong thing to say about a
@@ -99,15 +104,17 @@ export const resolveCompetitionPublishReadiness = async (
   competitionId: string,
   db: Database = getDb(),
 ): Promise<CompetitionPublishReadiness> => {
-  let competition: CompetitionRow;
+  let access: CompetitionAccessResult;
   try {
-    ({ competition } = await assertCompetitionAccess(actorUserId, competitionId, "admin", db));
+    access = await assertCompetitionAccess(actorUserId, competitionId, "member", db);
   } catch (error) {
     if (error instanceof AccessError && error.code === "forbidden") {
       return { canPublish: false, blockers: ["forbidden"] };
     }
     throw error;
   }
+
+  const { competition } = access;
 
   // A published competition has no publish control, so there is no refusal to explain. The publish
   // endpoint still refuses it with `competition_invalid_transition`; only this read stays silent.
@@ -117,7 +124,6 @@ export const resolveCompetitionPublishReadiness = async (
 
   const blockers: CompetitionPublishBlockerCode[] = [];
 
-  await collectGate(() => assertActorIsTrustedRecruiter(actorUserId, db), blockers);
   await collectGate(() => assertInstitutionNotSuspended(competition.institutionId, db), blockers);
 
   // The checklist returns rather than throws, so it is read rather than caught. Its input is the
@@ -170,5 +176,6 @@ export const resolveCompetitionPublishReadiness = async (
     blockers,
   );
 
-  return { canPublish: blockers.length === 0, blockers };
+  const hostCheck = await readHostCheckStateForActor(actorUserId, competition, db);
+  return { canPublish: blockers.length === 0, blockers, hostCheck };
 };

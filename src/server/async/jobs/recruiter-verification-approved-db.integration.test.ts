@@ -106,6 +106,13 @@ describe.skipIf(skipWithoutDatabase)(
           })
           .returning({ id: institutions.id });
         const institutionId = institution!.id;
+        // Planted directly: the host runs this institution as its owner.
+        await tx.insert(schema.institutionMemberships).values({
+          institutionId,
+          userId: hostU,
+          membershipRole: "institution_owner",
+          status: "active",
+        });
 
         await tx.insert(competitions).values([
           {
@@ -159,10 +166,7 @@ describe.skipIf(skipWithoutDatabase)(
         expect(mockSendApproved).toHaveBeenCalledOnce();
         expect(mockSendApproved).toHaveBeenCalledWith(
           expect.objectContaining({
-            draft: {
-              title: "Draf Baru",
-              path: `/institution/${institutionSlug}/competitions/draf-baru`,
-            },
+            path: `/institution/${institutionSlug}/competitions/draf-baru`,
           }),
         );
 
@@ -170,8 +174,66 @@ describe.skipIf(skipWithoutDatabase)(
           .select({ body: notifications.body })
           .from(notifications)
           .where(eq(notifications.userId, hostU));
-        expect(inbox).toHaveLength(1);
-        expect(inbox[0]!.body).toContain("Draf Baru");
+        expect(inbox).toEqual([
+          {
+            body: 'Anda sekarang dapat menerbitkan kompetisi. Buka draf "Draf Baru" lalu tekan Terbitkan.',
+          },
+        ]);
+      });
+    });
+
+    it("reads the competition of a host check approval when the job runs", async () => {
+      const suffix = randomUUID().slice(0, 8);
+      const institutionSlug = `seed-approval-inst-${suffix}`;
+      await inRollback(async (tx) => {
+        const hostU = await seedHost(tx, `host.u.${suffix}@example.com`, `host_u_${suffix}`);
+
+        const [institution] = await tx
+          .insert(institutions)
+          .values({
+            slug: institutionSlug,
+            displayName: "Seed Approval Inst",
+            institutionType: "company",
+          })
+          .returning({ id: institutions.id });
+        const institutionId = institution!.id;
+        // Planted directly: the host runs this institution as its owner.
+        await tx.insert(schema.institutionMemberships).values({
+          institutionId,
+          userId: hostU,
+          membershipRole: "institution_owner",
+          status: "active",
+        });
+
+        const [published] = await tx
+          .insert(competitions)
+          .values({
+            institutionId,
+            createdByUserId: hostU,
+            status: "published",
+            title: "Lomba Terbit",
+            slug: "lomba-terbit",
+          })
+          .returning({ id: competitions.id });
+
+        await processRecruiterVerificationApprovedJob({
+          id: "job-2",
+          data: { userId: hostU, competitionId: published!.id, epoch: 2 },
+        } as unknown as RecruiterVerificationApprovedJob);
+
+        const inbox = await tx
+          .select({ body: notifications.body })
+          .from(notifications)
+          .where(eq(notifications.userId, hostU));
+        expect(inbox).toEqual([
+          { body: 'Akun Anda kini tepercaya dan "Lomba Terbit" sudah tayang.' },
+        ]);
+        expect(mockSendApproved).toHaveBeenCalledWith(
+          expect.objectContaining({
+            title: "Kompetisi Anda lolos pemeriksaan",
+            path: `/competitions/${institutionSlug}/lomba-terbit`,
+          }),
+        );
       });
     });
   },

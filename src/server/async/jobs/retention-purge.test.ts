@@ -8,12 +8,16 @@ const {
   mockPurgeSubmissions,
   mockListDocumentsDue,
   mockPurgeDocuments,
+  mockGetDb,
+  mockPurgeRecords,
 } = vi.hoisted(() => ({
   mockIsR2Available: vi.fn(),
   mockListSubmissionsDue: vi.fn(),
   mockPurgeSubmissions: vi.fn(),
   mockListDocumentsDue: vi.fn(),
   mockPurgeDocuments: vi.fn(),
+  mockGetDb: vi.fn(),
+  mockPurgeRecords: vi.fn(),
 }));
 
 vi.mock("@/server/runtime/assert-server-only", () => ({ assertServerOnly: vi.fn() }));
@@ -29,10 +33,16 @@ vi.mock("@/server/registration-documents/registration-document-service", () => (
   listCompetitionsDueForDocumentPurge: mockListDocumentsDue,
   purgeDocumentsForCompetition: mockPurgeDocuments,
 }));
+vi.mock("@/server/db/client", () => ({ getDb: mockGetDb }));
+vi.mock("@/server/host-trust/removed-host-identity", () => ({
+  purgeExpiredHostTrustRemovals: mockPurgeRecords,
+}));
 
+import { logger } from "@/lib/logger";
 import { processRetentionPurgeJob, type RetentionPurgeJob } from "./retention-purge";
 
 const job = { data: { scheduledFor: "0 3 * * *" } } as RetentionPurgeJob;
+const JOB_DB = { name: "job-db" };
 
 beforeEach(() => {
   mockIsR2Available.mockReturnValue(true);
@@ -40,6 +50,8 @@ beforeEach(() => {
   mockListDocumentsDue.mockResolvedValue([]);
   mockPurgeSubmissions.mockResolvedValue({});
   mockPurgeDocuments.mockResolvedValue({});
+  mockGetDb.mockReturnValue(JOB_DB);
+  mockPurgeRecords.mockResolvedValue(0);
 });
 afterEach(() => vi.clearAllMocks());
 
@@ -80,7 +92,7 @@ describe("processRetentionPurgeJob", () => {
 
   // Skipping rather than failing: retrying against absent storage would spin the queue, and
   // retention windows are months long, so one missed day costs nothing.
-  it("skips entirely when storage is unavailable", async () => {
+  it("skips both competition sweeps when storage is unavailable", async () => {
     mockIsR2Available.mockReturnValue(false);
     mockListSubmissionsDue.mockResolvedValue(["comp_1"]);
 
@@ -95,5 +107,41 @@ describe("processRetentionPurgeJob", () => {
     await expect(processRetentionPurgeJob(job)).resolves.toBeUndefined();
     expect(mockPurgeSubmissions).not.toHaveBeenCalled();
     expect(mockPurgeDocuments).not.toHaveBeenCalled();
+  });
+
+  it("purges the trust removal records first, on the job's database", async () => {
+    mockListSubmissionsDue.mockResolvedValue(["comp_1"]);
+
+    await processRetentionPurgeJob(job);
+
+    expect(mockPurgeRecords).toHaveBeenCalledExactlyOnceWith(JOB_DB);
+    const purgeOrder = mockPurgeRecords.mock.invocationCallOrder[0] ?? Infinity;
+    const storageCheckOrder = mockIsR2Available.mock.invocationCallOrder[0] ?? 0;
+    expect(purgeOrder).toBeLessThan(storageCheckOrder);
+    expect(mockPurgeSubmissions).toHaveBeenCalledExactlyOnceWith("comp_1");
+  });
+
+  it("purges the trust removal records when storage is unavailable", async () => {
+    mockIsR2Available.mockReturnValue(false);
+
+    await processRetentionPurgeJob(job);
+
+    expect(mockPurgeRecords).toHaveBeenCalledExactlyOnceWith(JOB_DB);
+    expect(mockListSubmissionsDue).not.toHaveBeenCalled();
+    expect(mockListDocumentsDue).not.toHaveBeenCalled();
+  });
+
+  it("still runs both competition sweeps when the record purge fails, logs it and does not rethrow", async () => {
+    mockPurgeRecords.mockRejectedValue(new Error("records_down"));
+    mockListSubmissionsDue.mockResolvedValue(["comp_1"]);
+    mockListDocumentsDue.mockResolvedValue(["comp_3"]);
+
+    await expect(processRetentionPurgeJob(job)).resolves.toBeUndefined();
+
+    expect(mockPurgeSubmissions).toHaveBeenCalledExactlyOnceWith("comp_1");
+    expect(mockPurgeDocuments).toHaveBeenCalledExactlyOnceWith("comp_3");
+    expect(logger.error).toHaveBeenCalledWith("retention.purge.host_trust_removals_failed", {
+      error: "records_down",
+    });
   });
 });

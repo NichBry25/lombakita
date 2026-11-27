@@ -15,16 +15,15 @@ import {
   type RecruiterVerificationTier,
 } from "@/server/auth/recruiter-tier";
 import { sweepOrphanedObjectsForAccount } from "@/server/recruiter-verification/recruiter-verification-service";
+import { closeOpenHostCheckAsApproved } from "@/server/host-trust/host-check-decision-service";
+import { liftRemovedHostRecord } from "@/server/host-trust/removed-host-identity";
 import { assertAccountNotDeactivated } from "@/server/accounts/deactivated-account";
 
 assertServerOnly("server/recruiter-tier/recruiter-tier-service");
 
-// Platform-ops manual tier elevation.
-//
-// The endpoint is intentionally minimal: only `elevated` is accepted as a target. Other
-// tier transitions are not allowed at launch (no demotion, no setting back to `minimal`).
-// There is no mechanical/automated elevation path; this endpoint is the only
-// path to `elevated` at launch.
+// Platform-ops manual tier raise. The only target is `elevated`. A raise also clears a staff trust
+// removal and deletes its record, and closes the account's open host check as approved, naming it in
+// the audit row, without publishing its draft.
 
 export type TierElevationErrorCode =
   | "tier_invalid_payload"
@@ -48,8 +47,8 @@ export class RecruiterTierElevationError extends Error {
 // so route tests can pin against the same value the implementation uses.
 export const ELEVATION_TARGET_TIER: RecruiterVerificationTier = "elevated";
 
-// Audit event type for a manual elevation, distinct from `recruiter_verification.approved` so a
-// reader can tell whether the account went through document review or was elevated directly.
+// Audit event type for a manual elevation, distinct from `host_check.approved` so a reader can tell
+// whether staff approved a host check or raised the account directly.
 export const RECRUITER_TIER_ELEVATED_EVENT = "recruiter_tier.elevated";
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
@@ -120,9 +119,9 @@ export const elevateRecruiterTier = async (
   // matches zero rows and reports `changed: false`.
   //
   // The audit row is written in the same transaction as the flip, and only when the flip actually
-  // lands, so the trail records elevations that happened and never one that lost a race. This
-  // manual path carries the same audit weight as an approval through the review queue — the two
-  // routes reach an identical end state and must be equally visible.
+  // lands, so the trail records elevations that happened and never one that lost a race. The raise
+  // carries the same audit weight as a host check approval, because both reach the same tier and
+  // must be equally visible.
   const outcome = await db.transaction(async (tx) => {
     const actor = await resolvePlatformOpsActor(tx, actorUserId);
 
@@ -153,7 +152,7 @@ export const elevateRecruiterTier = async (
     // A recruiter sign-up before its address is proven may be a stranger's,
     // and verification never lowers the tier.
     const [emailState] = await tx
-      .select({ emailVerified: users.emailVerified })
+      .select({ emailVerified: users.emailVerified, hostTrustRemovedAt: users.hostTrustRemovedAt })
       .from(users)
       .where(eq(users.id, accountId))
       .limit(1);
@@ -174,6 +173,7 @@ export const elevateRecruiterTier = async (
       .update(users)
       .set({
         recruiterVerificationTier: ELEVATION_TARGET_TIER,
+        hostTrustRemovedAt: null,
         updatedAt: sql`now()`,
       })
       .where(
@@ -188,10 +188,21 @@ export const elevateRecruiterTier = async (
       return { changed: false, actorUserId: actor.userId, from: current.recruiterVerificationTier };
     }
 
+    // Only a raise that moved the tier ends the record. A raise that lost the race changed nothing, so
+    // the record is left to the writer that moved the tier.
+    await liftRemovedHostRecord(tx, accountId);
+
+    const closedHostCheckId = await closeOpenHostCheckAsApproved(tx, accountId, actor.userId);
+
     await recordOperatorAuditEntry(tx, actor, {
       targetUserId: accountId,
       eventType: RECRUITER_TIER_ELEVATED_EVENT,
-      metadata: { from: current.recruiterVerificationTier, to: ELEVATION_TARGET_TIER },
+      metadata: {
+        from: current.recruiterVerificationTier,
+        to: ELEVATION_TARGET_TIER,
+        clearedTrustRemoval: emailState.hostTrustRemovedAt !== null,
+        closedHostCheckId,
+      },
     });
 
     return { changed: true, actorUserId: actor.userId, from: current.recruiterVerificationTier };
@@ -217,9 +228,8 @@ export const elevateRecruiterTier = async (
     });
   }
 
-  // This manual path bypasses the review flow's terminal orphan sweep, so run it here: reclaim any
-  // upload the account left behind on its still-pending submission. Best-effort — never blocks the
-  // elevation it follows.
+  // Reclaims any upload an older host request of this account left with no document row. Best
+  // effort, never blocks the elevation it follows.
   await sweepOrphanedObjectsForAccount(accountId, db);
 
   return { accountId, tier: ELEVATION_TARGET_TIER, changed: true };

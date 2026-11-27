@@ -237,6 +237,10 @@ export const PERSONAL_COLUMNS: readonly string[] = Object.freeze([
   // host_organization_emails
   "host_organization_emails.email",
   "host_organization_emails.domain",
+  // host_trust_removals
+  "host_trust_removals.organization_domain",
+  "host_trust_removals.email_hashes",
+  "host_trust_removals.phone_hashes",
   // institution_audit_logs
   "institution_audit_logs.metadata",
   // institution_invitations
@@ -675,6 +679,19 @@ export const NOT_PERSONAL_COLUMNS: readonly NotPersonalColumn[] = Object.freeze(
   {
     column: "host_organization_emails.user_id",
     reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  // host_trust_removals
+  {
+    column: "host_trust_removals.id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "host_trust_removals.user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "host_trust_removals.key_check",
+    reason: "an HMAC of a fixed label under the hash key, holding nothing of any person",
   },
   // infrastructure_probe
   {
@@ -1432,7 +1449,7 @@ export const r2UploadModules = (root = process.cwd()): string[] => {
 export type R2Prefix = {
   prefix: string;
   scope: "user" | "institution" | "competition" | "registration";
-  /** The module whose presigned PUT writes under this prefix. */
+  /** The module whose presigned PUT writes under this prefix, or that still sweeps a prefix nothing writes. */
   module: string;
   /**
    * Columns holding the exact object key, as `table.column`. Empty when no row records the key, and
@@ -1631,13 +1648,15 @@ export const EXTERNAL_STORES: readonly ExternalStore[] = Object.freeze([
     store: "Redis rate-limit counters",
     address:
       "rl:identify: · rl:login-fail: · rl:register: · rl:register-resend-ip: · " +
-      "rl:verify-email-addr: · rl:mfa: · rl:register-verify-ip: · rl:register-code: · rl:register-code-day:",
+      "rl:verify-email-addr: · rl:mfa: · rl:register-verify-ip: · rl:register-code: · rl:register-code-day:" +
+      " · rl:org-email-domain-try:",
     scope: "user",
     reached: false,
     reason:
       "keyed by IP, or by IP:email, or by user id (rl:mfa:, rl:register-code-day:), or by a code's " +
-      "row id (rl:register-code:). Fixed-window keys with a TTL of minutes to a day, so they lapse " +
-      "on their own; nothing deletes them early and nothing needs to",
+      "row id (rl:register-code:), or by an email domain (rl:org-email-domain-try:). Fixed-window " +
+      "keys with a TTL of minutes to a day, so they lapse on their own; nothing deletes them early " +
+      "and nothing needs to",
   },
   {
     store: "Redis OAuth single-use nonce",
@@ -1808,6 +1827,17 @@ export const TABLE_RULINGS: readonly StoreRuling[] = Object.freeze([
       "what they were told. The bank name, the account number and the account holder are on it and " +
       "they are personal columns; they are the institution's payee details, and nothing in the " +
       "closure reaches the table",
+  },
+  {
+    store: "host_trust_removals",
+    survival: "detached",
+    reason:
+      "the record of a staff trust removal outlives the account on purpose: `user_id` is SET " +
+      "NULL, and the de-identification action keeps the row and adds the proven emails the " +
+      "account held. What survives is keyed hashes of the account's proven emails and of the " +
+      "phone numbers it gave by the removal, pseudonymous because whoever holds the key can " +
+      "reverse them, and its organization domain, kept 2 years from the removal and deleted by " +
+      "the daily retention job",
   },
   {
     store: "infrastructure_probe",
