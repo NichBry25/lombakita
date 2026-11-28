@@ -91,7 +91,8 @@ const expectRowOf = (
     time.getAttribute("datetime"),
   );
   expect(times).toEqual([trustedSince, item.watchEndsAt]);
-  const link = within(row).getByRole("link", { name: LINK_LABEL });
+  const link = within(row).getByRole("link", { name: `${LINK_LABEL}: ${item.name}` });
+  expect(link.textContent).toBe(LINK_LABEL);
   expect(link.getAttribute("href")).toBe(`${MODERATION_URL}${expectedSearch}`);
 };
 
@@ -105,7 +106,7 @@ const expectFailedBody = async () => {
 };
 
 describe("the staff domain watch", () => {
-  it("lists each newly trusted account with its emails, its domain, its dates and a link to the moderation console, in the order the route gives", async () => {
+  it("lists each newly trusted account with its emails, its domain, its dates and a link to the moderation console, in the order the route gives, each link named for its account", async () => {
     watchResponses = [() => jsonResponse({ watchList: [citra, andi] })];
     renderWatchList();
 

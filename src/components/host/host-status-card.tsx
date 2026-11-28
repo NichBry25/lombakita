@@ -10,7 +10,8 @@ const WAIT_SENTENCE = "Perkiraan 1x24 jam pada hari kerja.";
 const NOT_TRUSTED_SENTENCE = `Kompetisi pertama Anda diperiksa staf sebelum tayang. ${WAIT_SENTENCE} Konfirmasi email organisasi agar langsung tayang.`;
 const TRUST_REMOVED_SENTENCE =
   "Status tepercaya akun Anda dicabut staf. Kompetisi berikutnya diperiksa staf sebelum tayang.";
-const TRUSTED_WORKSPACE_SENTENCE = `Kompetisi yang Anda terbitkan di ruang kerja dengan pemilik tepercaya langsung tayang. Di ruang kerja lain, kompetisi pertama Anda diperiksa staf sebelum tayang. ${WAIT_SENTENCE} Konfirmasi email organisasi agar langsung tayang di semua ruang kerja.`;
+const TRUSTED_WORKSPACE_STATUS_SENTENCE = `Kompetisi yang Anda terbitkan di ruang kerja dengan pemilik tepercaya langsung tayang. Di ruang kerja lain, kompetisi pertama Anda diperiksa staf sebelum tayang. ${WAIT_SENTENCE}`;
+const TRUSTED_WORKSPACE_SENTENCE = `${TRUSTED_WORKSPACE_STATUS_SENTENCE} Konfirmasi email organisasi agar langsung tayang di semua ruang kerja.`;
 const ORGANIZATION_EMAIL_CONFIRMED_SENTENCE = `Email organisasi Anda sudah terkonfirmasi. Kompetisi pertama Anda tetap diperiksa staf sebelum tayang. ${WAIT_SENTENCE}`;
 
 // The server gives the title of the waiting draft only while the host still runs its institution.
@@ -25,8 +26,8 @@ type HostStatusCardProps = {
 };
 
 // An untrusted host can confirm an Email organisasi here. The card turns trusted when that confirm
-// trusts the account, and says the address is confirmed when it does not, as it does for an
-// account that already holds a confirmed Email organisasi.
+// trusts the account. Otherwise it says what happens to the host's next competition, as it does
+// for an account that already holds a confirmed Email organisasi.
 export function HostStatusCard({ expectedUserId, status }: HostStatusCardProps) {
   const [trustedByConfirm, setTrustedByConfirm] = useState(false);
   const trustedNoticeRef = useRef<HTMLDivElement>(null);
@@ -79,7 +80,11 @@ export function HostStatusCard({ expectedUserId, status }: HostStatusCardProps) 
       ) : null}
       {state === "not_trusted" && showsConfirmedSentence ? (
         <div ref={confirmedNoticeRef} tabIndex={-1}>
-          <p className="muted-copy">{ORGANIZATION_EMAIL_CONFIRMED_SENTENCE}</p>
+          <p className="muted-copy">
+            {status.runsTrustedWorkspace
+              ? TRUSTED_WORKSPACE_STATUS_SENTENCE
+              : ORGANIZATION_EMAIL_CONFIRMED_SENTENCE}
+          </p>
         </div>
       ) : null}
       {state === "not_trusted" && !showsConfirmedSentence ? (
