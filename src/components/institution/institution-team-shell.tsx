@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   Button,
   EmptyState,
-  Feedback,
   FormInput,
   FormLabel,
   IconButton,
@@ -73,7 +72,6 @@ const TEAM_ERROR_COPY: Partial<Record<string, string>> = {
     "Pemilik terakhir tidak dapat dihapus. Institusi harus memiliki paling sedikit satu pemilik.",
   invitation_invalid_identifier: "Masukkan username atau alamat email yang valid.",
   invitation_invalid_role: "Peran undangan tidak valid. Muat ulang halaman lalu coba lagi.",
-  invitation_personal_institution: "Institusi personal tidak dapat mengundang anggota.",
   invitation_recipient_not_found: "Tidak ada akun dengan username ini.",
   invitation_already_member: "Orang ini sudah menjadi anggota institusi.",
   invitation_already_pending: "Undangan untuk orang ini masih menunggu jawaban.",
@@ -129,17 +127,9 @@ const invitationsUrl = (institutionSlug: string) =>
 type Props = {
   institutionSlug: string;
   actorUserId: string;
-  // A personal institution is single-member: the invite affordance is hidden.
-  // The server guard (createInstitutionInvitation → invitation_personal_institution 403) remains the
-  // authoritative enforcement.
-  isPersonal?: boolean;
 };
 
-export const InstitutionTeamShell = ({
-  institutionSlug,
-  actorUserId,
-  isPersonal = false,
-}: Props) => {
+export const InstitutionTeamShell = ({ institutionSlug, actorUserId }: Props) => {
   const [members, setMembers] = useState<Member[]>([]);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [isLoadingMembers, setIsLoadingMembers] = useState(true);
@@ -425,40 +415,33 @@ export const InstitutionTeamShell = ({
             <h2>Tambah pengelola</h2>
           </div>
         </div>
-        {isPersonal ? (
-          <Feedback tone="info">
-            Institusi personal hanya bisa memiliki satu anggota, sehingga tidak dapat mengundang
-            staf atau anggota.
-          </Feedback>
-        ) : (
-          <form className="institution-invite-form" onSubmit={onInvite}>
-            <div className="form-field">
-              <FormLabel htmlFor="institution-invite-identifier" required>
-                Username atau Email
-              </FormLabel>
-              <FormInput
-                id="institution-invite-identifier"
-                type="text"
-                placeholder="Username atau Email"
-                value={identifier}
-                onChange={(event) => setIdentifier(event.target.value)}
-                required
-              />
-            </div>
-            <SelectField
-              label="Peran"
-              value={inviteRole}
-              onChange={(value) => setInviteRole(value as MemberRole)}
-              options={ROLE_OPTIONS.map((role) => ({
-                value: role,
-                label: getInstitutionRoleLabel(role),
-              }))}
+        <form className="institution-invite-form" onSubmit={onInvite}>
+          <div className="form-field">
+            <FormLabel htmlFor="institution-invite-identifier" required>
+              Username atau Email
+            </FormLabel>
+            <FormInput
+              id="institution-invite-identifier"
+              type="text"
+              placeholder="Username atau Email"
+              value={identifier}
+              onChange={(event) => setIdentifier(event.target.value)}
+              required
             />
-            <Button type="submit" loading={isInviting}>
-              Undang
-            </Button>
-          </form>
-        )}
+          </div>
+          <SelectField
+            label="Peran"
+            value={inviteRole}
+            onChange={(value) => setInviteRole(value as MemberRole)}
+            options={ROLE_OPTIONS.map((role) => ({
+              value: role,
+              label: getInstitutionRoleLabel(role),
+            }))}
+          />
+          <Button type="submit" loading={isInviting}>
+            Undang
+          </Button>
+        </form>
       </section>
 
       <section className="content-section">

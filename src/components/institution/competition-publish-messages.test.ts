@@ -13,7 +13,6 @@
 
 import { describe, expect, it } from "vitest";
 import { getCompetitionFieldLabel } from "@/lib/competitions/fields";
-import { MAX_PUBLISHED_COMPETITIONS_FOR_PERSONAL } from "@/lib/institutions/reach-caps";
 import type { CompetitionPublishBlockerCode } from "@/server/competitions/competition-publish-readiness";
 import {
   HOST_CHECK_SENT_TOAST_TEXT,
@@ -32,8 +31,6 @@ const BLOCKER_CODES: CompetitionPublishBlockerCode[] = [
   "competition_organizer_contact_missing",
   "competition_audience_missing",
   "competition_institution_not_verified",
-  "competition_personal_individual_only",
-  "competition_personal_publish_limit",
 ];
 
 const TITLE_OTHER = "Lomba Poster Digital";
@@ -47,8 +44,8 @@ const KONTAK_TEXT = "Penyelenggara mencantumkan kontak yang benar-benar bisa dih
 // The refusal messages the server actually sends, quoted from the functions the publish path calls:
 // assertCompetitionAccess (competition-access.ts:162,165), assertPublishTrustSatisfied (:215),
 // assertInstitutionNotSuspended (:302), transitionCompetitionStatus (competition-service.ts:889),
-// assertInstitutionVerified (competition-access.ts:274), assertPersonalCompetitionPublishable
-// (:342, :391), assertCompetitionInInstitution (competition-service.ts:133),
+// assertInstitutionVerified (competition-access.ts:274), assertCompetitionInInstitution
+// (competition-service.ts:133),
 // isAllowedStatusTransition (competition-service.ts:859), and
 // assertCompetitionHasOrganizerContact (competition-access.ts).
 const SERVER_REFUSAL_MESSAGES = [
@@ -58,8 +55,6 @@ const SERVER_REFUSAL_MESSAGES = [
   "This institution has been suspended by platform ops",
   "Cannot publish: 3 validation issue(s) — see details.failures",
   "Institusi harus terverifikasi sebelum dapat memungut biaya pendaftaran. Kompetisi gratis tetap dapat dipublikasikan.",
-  "A personal institution can only run individual-mode competitions",
-  `A personal institution may have at most ${MAX_PUBLISHED_COMPETITIONS_FOR_PERSONAL} published competitions`,
   "Competition not found",
   "Cannot transition competition from 'draft' to 'published'",
   "Publishing requires an organizer contact",
@@ -82,9 +77,6 @@ describe("publish blocker reasons", () => {
         "Untuk siapa kompetisi ini belum diisi. Pilih minimal satu pilihan Untuk di bagian Kelayakan.",
       competition_institution_not_verified:
         "Kompetisi berbayar hanya dapat diterbitkan oleh institusi yang sudah terverifikasi.",
-      competition_personal_individual_only:
-        "Institusi pribadi hanya dapat menjalankan kompetisi individu.",
-      competition_personal_publish_limit: `Institusi pribadi dapat memiliki paling banyak ${MAX_PUBLISHED_COMPETITIONS_FOR_PERSONAL} kompetisi yang diterbitkan.`,
     };
 
     for (const code of BLOCKER_CODES) {
@@ -102,8 +94,6 @@ describe("publish blocker reasons", () => {
       competition_organizer_contact_missing: "Isi kontak",
       competition_audience_missing: "Isi Untuk",
       competition_institution_not_verified: "Ajukan verifikasi",
-      competition_personal_individual_only: null,
-      competition_personal_publish_limit: null,
     };
 
     for (const code of BLOCKER_CODES) {
@@ -117,14 +107,6 @@ describe("publish blocker reasons", () => {
       kind: "edit",
       label: "Isi kontak",
     });
-  });
-
-  it("names the personal reach cap from the shared constant, never a literal", () => {
-    // A hardcoded 3 that outlived a change to the constant would keep promising a limit the server
-    // had stopped applying.
-    expect(getPublishBlockerReason("competition_personal_publish_limit").text).toContain(
-      String(MAX_PUBLISHED_COMPETITIONS_FOR_PERSONAL),
-    );
   });
 
   it("resolves each link kind to a path, encoding the slugs it carries", () => {

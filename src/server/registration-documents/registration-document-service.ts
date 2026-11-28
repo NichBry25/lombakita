@@ -24,7 +24,6 @@ import {
   competitions,
   institutionAuditLogs,
   institutions,
-  users,
   type CompetitionDocumentRequestFileRecord,
   type CompetitionDocumentRequestRecord,
   type RegistrationDocumentRequestStatus,
@@ -34,7 +33,6 @@ import {
   enqueueRegistrationDocumentRequested,
   enqueueRegistrationDocumentReviewed,
 } from "@/server/async/enqueue";
-import { getInstitutionDisplayName } from "@/server/institution-workspace/institution-display-name";
 import {
   allowedSourceStatesForVerdict,
   candidateMayModifyFiles,
@@ -404,22 +402,16 @@ const loadCompetitionContext = async (
     .select({
       title: competitions.title,
       displayName: institutions.displayName,
-      institutionType: institutions.institutionType,
-      ownerUsername: users.username,
     })
     .from(competitions)
     .innerJoin(institutions, eq(institutions.id, competitions.institutionId))
-    .leftJoin(users, eq(users.id, competitions.createdByUserId))
     .where(and(eq(competitions.id, competitionId), eq(competitions.institutionId, institutionId)))
     .limit(1);
 
   if (!row) return null;
   return {
     title: row.title,
-    institutionName: getInstitutionDisplayName(
-      { displayName: row.displayName, institutionType: row.institutionType },
-      { username: row.ownerUsername },
-    ),
+    institutionName: row.displayName,
   };
 };
 

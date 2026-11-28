@@ -9,7 +9,10 @@ import {
   SESSION_MISMATCH_MESSAGE,
   sessionFetch,
 } from "@/lib/session/session-fetch";
-import { COMPETITION_HOST_CANNOT_JOIN_MESSAGE } from "@/lib/errors/error-copy";
+import {
+  COMPETITION_HOST_CANNOT_JOIN_MESSAGE,
+  INSTITUTION_SUSPENDED_REGISTRATION_MESSAGE,
+} from "@/lib/errors/error-copy";
 
 type RegistrationStatus = "confirmed" | "cancelled" | "pending_payment";
 
@@ -52,6 +55,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   registration_already_exists:
     "Anda sudah pernah mendaftar untuk kompetisi ini. Pendaftaran ulang tidak tersedia.",
   registration_host_of_competition: COMPETITION_HOST_CANNOT_JOIN_MESSAGE,
+  institution_suspended: INSTITUTION_SUSPENDED_REGISTRATION_MESSAGE,
   competition_not_found: "Kompetisi tidak ditemukan.",
   registration_not_found: "Pendaftaran tidak ditemukan.",
   registration_not_owner: "Anda tidak dapat membatalkan pendaftaran orang lain.",

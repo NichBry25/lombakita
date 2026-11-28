@@ -4,6 +4,7 @@ assertServerOnly("server/teams/team-registration-service");
 
 import { and, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 import { logger } from "@/lib/logger";
+import { INSTITUTION_SUSPENDED_REGISTRATION_MESSAGE } from "@/lib/errors/error-copy";
 import { getDb, type Database } from "@/server/db/client";
 import { enqueueRegistrationConfirmed, enqueueRegistrationCancelled } from "@/server/async/enqueue";
 import {
@@ -23,7 +24,11 @@ import { MAX_CANCELLATION_REASON_LENGTH } from "@/server/registrations/registrat
 import { isParticipantCancellationClosedByConfirmation } from "@/lib/competitions/competition-participation";
 import { isPaidCompetition } from "@/lib/competitions/paid-competition";
 import { acquireCompetitionParticipationLock } from "@/server/competitions/competition-participation-lock";
-import { isCompetitionHost } from "@/server/competitions/competition-access";
+import {
+  assertInstitutionNotSuspended,
+  isCompetitionHost,
+} from "@/server/competitions/competition-access";
+import { CompetitionError } from "@/server/competitions/competition-core";
 import {
   findAnyTeamRegistrationRow,
   hasSubmittedPaymentProof,
@@ -49,6 +54,7 @@ const pgErrorCode = (error: unknown): string | undefined => {
 
 type CompetitionSnapshot = {
   id: string;
+  institutionId: string;
   status: "draft" | "published" | "archived";
   mode: "individual" | "team" | "both" | null;
   minTeamSize: number | null;
@@ -101,6 +107,7 @@ const loadCompetition = async (
   const [row] = await db
     .select({
       id: competitions.id,
+      institutionId: competitions.institutionId,
       status: competitions.status,
       mode: competitions.mode,
       minTeamSize: competitions.minTeamSize,
@@ -147,6 +154,22 @@ const assertCompetitionAcceptsTeamRegistration = (
     throw new TeamError("registration_window_closed", "Registration window has closed");
   }
   return competition.registrationEndAt;
+};
+
+// A competition whose institution is suspended, by staff or by an account deletion that anonymised
+// it, takes no new team and no new team member. Leaving and cancelling are not refused here.
+const assertInstitutionTakesNewTeamRegistrations = async (
+  institutionId: string,
+  tx: DbOrTx,
+): Promise<void> => {
+  try {
+    await assertInstitutionNotSuspended(institutionId, tx);
+  } catch (error) {
+    if (error instanceof CompetitionError && error.code === "institution_suspended") {
+      throw new TeamError("institution_suspended", INSTITUTION_SUSPENDED_REGISTRATION_MESSAGE);
+    }
+    throw error;
+  }
 };
 
 const assertTeamCancellationWindowOpen = (competition: CompetitionSnapshot, now: Date): void => {
@@ -388,6 +411,7 @@ export const submitTeamRegistration = async (
         throw new TeamError("team_competition_not_found", "Competition not found");
       }
       const closesAt = assertCompetitionAcceptsTeamRegistration(lockedCompetition, mutationAt);
+      await assertInstitutionTakesNewTeamRegistrations(lockedCompetition.institutionId, tx);
       const lockedCountsOpenInvitations = !isPaidCompetition(lockedCompetition.feeAmount);
       // The size rule was chosen from the fee read before the lock, so a fee changed since is refused.
       if (lockedCountsOpenInvitations !== countsOpenInvitations) {

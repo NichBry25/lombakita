@@ -4,10 +4,6 @@ import { institutions, users } from "@/server/db/schema";
 import type { InstitutionVerificationStatus } from "@/server/db/schema";
 import type { AppRole } from "@/lib/access/roles";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
-import {
-  getInstitutionDisplayName,
-  institutionOwnerUsernameSql,
-} from "@/server/institution-workspace/institution-display-name";
 
 assertServerOnly("server/moderation/lookup-service");
 
@@ -78,9 +74,7 @@ export const lookupInstitutionBySlug = async (
   const [row] = await db
     .select({
       id: institutions.id,
-      displayName: institutions.displayName,
-      institutionType: institutions.institutionType,
-      ownerUsername: institutionOwnerUsernameSql,
+      name: institutions.displayName,
       slug: institutions.slug,
       verificationStatus: institutions.verificationStatus,
       verifiedAt: institutions.verifiedAt,
@@ -114,16 +108,12 @@ export const lookupInstitutionBySlug = async (
     .where(eq(institutions.slug, slug))
     .limit(1);
 
-  return row ? mapInstitutionLookupRow(row) : null;
+  return row ?? null;
 };
 
 // Resolve an institution by slug OR display name (case-insensitive). Returns the first
 // match when multiple institutions share a display name. Slug match takes natural precedence
 // because the ORDER of the OR condition checks slug first in index-scan plans.
-//
-// Limitation (6.5f.1-Amendment): a personal institution stores display_name = NULL, so the
-// lower(display_name) = query branch never matches it — a personal institution is findable by slug
-// only, not by its derived name. Acceptable at MVP (platform_ops has the slug); noted as debt.
 export const lookupInstitutionBySlugOrName = async (
   query: string,
   db: Database = getDb(),
@@ -131,9 +121,7 @@ export const lookupInstitutionBySlugOrName = async (
   const [row] = await db
     .select({
       id: institutions.id,
-      displayName: institutions.displayName,
-      institutionType: institutions.institutionType,
-      ownerUsername: institutionOwnerUsernameSql,
+      name: institutions.displayName,
       slug: institutions.slug,
       verificationStatus: institutions.verificationStatus,
       verifiedAt: institutions.verifiedAt,
@@ -165,21 +153,5 @@ export const lookupInstitutionBySlugOrName = async (
     )
     .limit(1);
 
-  return row ? mapInstitutionLookupRow(row) : null;
-};
-
-// Resolve the institution name through the display-name helper, dropping the type/owner-username
-// projection columns so the returned shape stays exactly InstitutionLookupResult.
-type InstitutionLookupRow = Omit<InstitutionLookupResult, "name"> & {
-  displayName: string | null;
-  institutionType: Parameters<typeof getInstitutionDisplayName>[0]["institutionType"];
-  ownerUsername: string | null;
-};
-
-const mapInstitutionLookupRow = (row: InstitutionLookupRow): InstitutionLookupResult => {
-  const { displayName, institutionType, ownerUsername, ...rest } = row;
-  return {
-    ...rest,
-    name: getInstitutionDisplayName({ displayName, institutionType }, { username: ownerUsername }),
-  };
+  return row ?? null;
 };

@@ -77,7 +77,7 @@ export const PAGES = [
     id: "14-detail-personal-org",
     as: null,
     path: "/competitions/seed-rec-min/seed-personal-open",
-    label: "Detail — personal institution organizer (derived identity)",
+    label: "Detail, personal workspace organizer (stored name)",
   },
   {
     id: "15-institution-public",
@@ -486,13 +486,7 @@ export const PAGES = [
     id: "67-institution-create",
     as: "recElev",
     path: "/institution/create",
-    label: "Create full institution",
-  },
-  {
-    id: "68-institution-personal-create",
-    as: "recElev",
-    path: "/institution/personal",
-    label: "Create personal institution",
+    label: "Create workspace, any of the five kinds",
   },
   {
     id: "69-institution-board-pending",
@@ -516,19 +510,13 @@ export const PAGES = [
     id: "72-personal-institution-board",
     as: "recMin",
     path: "/institution/seed-rec-min",
-    label: "Personal institution board",
-  },
-  {
-    id: "73-personal-upgrade",
-    as: "recMin",
-    path: "/institution/seed-rec-min/verification",
-    label: "Personal institution upgrade surface",
+    label: "Personal workspace board",
   },
   {
     id: "74-personal-settings",
     as: "recMin",
     path: "/institution/seed-rec-min/settings",
-    label: "Personal institution settings (name/slug locked)",
+    label: "Personal workspace settings, name and address editable",
   },
   {
     id: "75-recruiter-dashboard-rejected",

@@ -95,4 +95,24 @@ describe("POST /api/v1/me/invitations/team/[invitationId]/accept", () => {
     const res = await POST(makeRequest(), makeContext());
     expect(res.status).toBe(422);
   });
+
+  it("answers 403 institution_suspended with the copy when the workspace is suspended", async () => {
+    signInAs(makeSession("candidate", ["candidate"]));
+    acceptTeamInvitationForUser.mockRejectedValue(
+      new TeamError(
+        "institution_suspended",
+        "Penyelenggara kompetisi ini sedang dinonaktifkan, jadi pendaftaran baru belum dapat diterima.",
+      ),
+    );
+    const res = await POST(makeRequest(), makeContext());
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({
+      error: {
+        code: "institution_suspended",
+        message:
+          "Penyelenggara kompetisi ini sedang dinonaktifkan, jadi pendaftaran baru belum dapat diterima.",
+        details: {},
+      },
+    });
+  });
 });

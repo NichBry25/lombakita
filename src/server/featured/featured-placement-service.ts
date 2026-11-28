@@ -4,10 +4,9 @@ assertServerOnly("server/featured/featured-placement-service");
 
 import { eq } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
-import { competitions, institutions } from "@/server/db/schema";
+import { competitions } from "@/server/db/schema";
 import { logger } from "@/lib/logger";
 import { enqueueCompetitionSearchSync } from "@/server/async/enqueue";
-import { isPersonalInstitutionType } from "@/server/institution-workspace/institution-type";
 import {
   assertOperatorHasNoInstitutionRelationship,
   OPERATOR_ACTOR_CONFLICTED_ACTION_MESSAGE,
@@ -17,11 +16,7 @@ import {
   resolvePlatformOpsActor,
 } from "@/server/platform-ops/operator-actor";
 
-export type FeaturedPlacementErrorCode =
-  | "competition_not_found"
-  | "competition_not_published"
-  // Personal institutions cannot receive featured placement.
-  | "competition_personal_not_featurable";
+export type FeaturedPlacementErrorCode = "competition_not_found" | "competition_not_published";
 
 export class FeaturedPlacementError extends Error {
   constructor(
@@ -76,10 +71,8 @@ export const setFeaturedPlacement = async (
         id: competitions.id,
         status: competitions.status,
         institutionId: competitions.institutionId,
-        institutionType: institutions.institutionType,
       })
       .from(competitions)
-      .innerJoin(institutions, eq(institutions.id, competitions.institutionId))
       .where(eq(competitions.id, competitionId))
       .limit(1);
 
@@ -93,16 +86,6 @@ export const setFeaturedPlacement = async (
       row.institutionId,
       OPERATOR_ACTOR_CONFLICTED_ACTION_MESSAGE,
     );
-
-    // Personal institutions are excluded from featured placement. No-op for full or
-    // legacy institutions (NULL type).
-    if (isPersonalInstitutionType(row.institutionType)) {
-      throw new FeaturedPlacementError(
-        "competition_personal_not_featurable",
-        409,
-        "Competitions owned by a personal institution cannot be featured",
-      );
-    }
 
     if (row.status !== "published") {
       throw new FeaturedPlacementError(

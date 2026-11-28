@@ -102,7 +102,7 @@ describe("institution-core", () => {
     expect(parsed.slug).toBeNull();
   });
 
-  it("requires a full institutionType at creation and returns it", () => {
+  it("requires an institutionType at creation and returns it", () => {
     const parsed = parseInstitutionWorkspaceCreateInput({
       displayName: "Yayasan Harapan",
       institutionType: "foundation",
@@ -127,13 +127,14 @@ describe("institution-core", () => {
     expect(cast.details?.fields).toContain("institutionType");
   });
 
-  it("rejects `personal` as a create-time institutionType (personal has its own path)", () => {
-    expect(() =>
-      parseInstitutionWorkspaceCreateInput({
-        displayName: "Bukan Personal",
-        institutionType: "personal",
-      }),
-    ).toThrow(InstitutionWorkspaceInputError);
+  it("accepts `personal` as a create-time institutionType", () => {
+    const parsed = parseInstitutionWorkspaceCreateInput({
+      displayName: "Ruang Pribadi",
+      institutionType: "personal",
+    });
+
+    expect(parsed.institutionType).toBe("personal");
+    expect(parsed.displayName).toBe("Ruang Pribadi");
   });
 
   it("rejects an unrecognized institutionType", () => {

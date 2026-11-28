@@ -1506,9 +1506,7 @@ export const R2_PREFIXES: readonly R2Prefix[] = Object.freeze([
     keyColumns: ["user_profiles.banner_r2_key"],
     reachedBy:
       "the user id in the prefix, or the key in `user_profiles` — closure row, read it first",
-    reason:
-      "profile banner, keyed by the owning user; the institution owner's banner also renders " +
-      "on their institution's public page",
+    reason: "profile banner, keyed by the owning user",
   },
   {
     prefix: R2_PREFIX_RESUMES,
@@ -1641,8 +1639,8 @@ export const EXTERNAL_STORES: readonly ExternalStore[] = Object.freeze([
     scope: "public",
     reached: false,
     reason:
-      "carries only published competition fields, plus `institutionOwnerUsername` — the owner's " +
-      "username, which survives a deletion and is a personal identifier under UU 27/2022",
+      "carries only published competition fields and the stored name and slug of each " +
+      "competition's institution",
   },
   {
     store: "Redis rate-limit counters",
@@ -1917,10 +1915,8 @@ export const TABLE_RULINGS: readonly StoreRuling[] = Object.freeze([
       "the institution is left standing with no owner. For an institution whose owner was also its " +
       "only member that is not a tenant outliving a staff member — it is a detachment, and the " +
       "survivor still carries the person: `description` and `about` are free text, the contact " +
-      "columns are theirs, and `slug` shares one namespace with usernames. A personal institution " +
-      "stores NULL `display_name` and derives its name from the owner's username at read time " +
-      "(`getInstitutionDisplayName`), so the row that survives renders as the bare placeholder " +
-      "`Personal Institution` — the name is gone and the person is still on the row",
+      "columns are theirs, and `slug` shares one namespace with usernames. Every institution " +
+      "stores its own `display_name`, and the row that survives keeps it",
   },
   {
     store: "recruiter_verification_submissions",

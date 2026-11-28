@@ -7,9 +7,7 @@ import {
   institutionMemberships,
   institutions,
   users,
-  type InstitutionType,
 } from "@/server/db/schema";
-import { isPersonalInstitutionType } from "@/server/institution-workspace/institution-type";
 import { logger } from "@/lib/logger";
 import { COMPETITIONS_CHANGING_RETRY_MESSAGE } from "@/lib/errors/error-copy";
 import { MEMBER_ROLES } from "@/server/competitions/competition-access";
@@ -18,6 +16,7 @@ import {
   holdsLivePlaceInInstitution,
   lockInstitutionCompetitionsForPlaceCheck,
 } from "@/server/institution-members/live-place";
+import { lockInstitutionOwnership } from "@/server/institution-members/owner-membership-lock";
 import {
   buildInvitationExpiresAt,
   generateRawToken,
@@ -43,15 +42,9 @@ const requireAdminInstitution = async (
   userId: string,
   institutionSlug: string,
   db: Database,
-): Promise<{
-  institutionId: string;
-  institutionType: InstitutionType | null;
-}> => {
+): Promise<{ institutionId: string }> => {
   const [row] = await db
-    .select({
-      institutionId: institutions.id,
-      institutionType: institutions.institutionType,
-    })
+    .select({ institutionId: institutions.id })
     .from(institutions)
     .innerJoin(
       institutionMemberships,
@@ -122,21 +115,7 @@ export const createInstitutionInvitation = async (
   db: Database = getDb(),
 ): Promise<{ id: string; invitedEmail: string; expiresAt: Date }> => {
   const input: InvitationCreateInput = parseInvitationCreateInput(payload);
-  const { institutionId, institutionType } = await requireAdminInstitution(
-    userId,
-    institutionSlug,
-    db,
-  );
-
-  // A personal institution is single-member: it cannot invite staff or members.
-  // No-op for full or legacy institutions (NULL type).
-  if (isPersonalInstitutionType(institutionType)) {
-    throw new InstitutionInvitationError(
-      "invitation_personal_institution",
-      403,
-      "A personal institution cannot invite staff or members",
-    );
-  }
+  const { institutionId } = await requireAdminInstitution(userId, institutionSlug, db);
 
   await assertInvitationNotByRemovedHost(userId, input.invitedRole, db);
 
@@ -253,15 +232,19 @@ export const createInstitutionInvitation = async (
 
 type TransactionClient = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
-// The institution whose competitions must be locked before this accept, or null when the accept
-// gives the caller no owner or staff role. A plain read that locks nothing: it decides which locks to
-// take, and the invitation the accept acts on is read again once the account row is locked. Lives
-// before that row lock because a participation lock is never requested while holding a users row lock.
-const findInstitutionToPlaceCheck = async (
+type InvitationLockScope = Pick<
+  typeof institutionInvitations.$inferSelect,
+  "institutionId" | "invitedRole" | "targetUserId" | "status"
+>;
+
+// The invitation fields that decide which locks this accept takes, or null when no invitation has
+// this id. A plain read that locks nothing: the invitation the accept acts on is read again once the
+// account row is locked. Lives before that row lock because a participation lock is never requested
+// while holding a users row lock.
+const readInvitationLockScope = async (
   tx: TransactionClient,
   invitationId: string,
-  userId: string,
-): Promise<string | null> => {
+): Promise<InvitationLockScope | null> => {
   const [invitation] = await tx
     .select({
       institutionId: institutionInvitations.institutionId,
@@ -273,6 +256,15 @@ const findInstitutionToPlaceCheck = async (
     .where(eq(institutionInvitations.id, invitationId))
     .limit(1);
 
+  return invitation ?? null;
+};
+
+// The institution whose competitions must be locked before this accept, or null when the accept
+// gives the caller no owner or staff role.
+const institutionToPlaceCheck = (
+  invitation: InvitationLockScope | null,
+  userId: string,
+): string | null => {
   if (!invitation) return null;
   if (invitation.targetUserId !== userId) return null;
   if (invitation.status !== "pending") return null;
@@ -295,7 +287,16 @@ export const acceptInstitutionInvitationForUser = async (
   db: Database = getDb(),
 ): Promise<void> => {
   await db.transaction(async (tx) => {
-    const placeCheckInstitutionId = await findInstitutionToPlaceCheck(tx, invitationId, userId);
+    const lockScope = await readInvitationLockScope(tx, invitationId);
+
+    // The first lock this accept takes, before the competition locks, as every other writer of an
+    // institution's members takes it. A de-identification counts the institution's active members
+    // under this lock, so an accept never lands a member in an institution that count found empty.
+    if (lockScope !== null) {
+      await lockInstitutionOwnership(tx, [lockScope.institutionId]);
+    }
+
+    const placeCheckInstitutionId = institutionToPlaceCheck(lockScope, userId);
 
     if (placeCheckInstitutionId !== null) {
       await lockInstitutionCompetitionsForPlaceCheck(

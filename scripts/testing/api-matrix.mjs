@@ -20,11 +20,18 @@ const REPO = resolve(new URL("../..", import.meta.url).pathname);
 const results = [];
 
 // `seed-comp-open`'s title and `seed-inst-a`'s displayName — the two values the public competition
-// page's metadata template composes its `<title>` from. scripts/seed-test-matrix.ts:705 and :419;
-// `organizer.name` resolves to that displayName for a full institution
-// (src/server/competitions/competition-public-service.ts:842).
+// page's metadata template composes its `<title>` from, at scripts/seed-test-matrix.ts:758 and
+// :419. `organizer.name` resolves to that displayName
+// (src/server/competitions/competition-public-service.ts:982).
 const SEEDED_OPEN_COMPETITION_TITLE = "Seed Hackathon Nusantara";
 const SEEDED_ORGANIZER_NAME = "Seed Academy";
+
+const TITLE_ELEMENT_PATTERN = /<title[^>]*>([\s\S]*?)<\/title>/i;
+
+// seed-comp-personal-open's title and the stored name of its workspace seed-inst-p, the name
+// migration 0073 gave every personal workspace that stored none.
+const SEEDED_PERSONAL_OPEN_COMPETITION_TITLE = "Kuis Mingguan Rina";
+const SEEDED_PERSONAL_ORGANIZER_NAME = "Ruang kerja pribadi";
 
 const record = (id, name, expected, actual, pass, note = "") => {
   results.push({ id, name, expected, actual, pass, note });
@@ -183,10 +190,10 @@ const main = async () => {
   // over the response bytes: the title also appears in the embedded server-component payload, in
   // `og:title`, and in any card this page renders for another competition, so a substring search
   // passes for reasons this case does not name. The template is
-  // src/app/competitions/[institutionSlug]/[slug]/page.tsx:329, and the root layout sets no
+  // src/app/competitions/[institutionSlug]/[slug]/page.tsx:242, and the root layout sets no
   // `title.template` (src/app/layout.tsx:27), so the element carries it verbatim.
   const publishedPageTitle = `${SEEDED_OPEN_COMPETITION_TITLE} · ${SEEDED_ORGANIZER_NAME} · Lombakita`;
-  const titleElement = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(String(publishedPage.body));
+  const titleElement = TITLE_ELEMENT_PATTERN.exec(String(publishedPage.body));
   record(
     "PUB-05",
     "Public page of a published comp of a verified institution",
@@ -205,12 +212,14 @@ const main = async () => {
   );
 
   const personalPage = await apiFetch(`/competitions/${INST.p.slug}/${COMP.personalOpen.slug}`);
+  const personalPageTitle = `${SEEDED_PERSONAL_OPEN_COMPETITION_TITLE} · ${SEEDED_PERSONAL_ORGANIZER_NAME} · Lombakita`;
+  const personalTitleElement = TITLE_ELEMENT_PATTERN.exec(String(personalPage.body));
   record(
     "PUB-07",
-    "Public page of a personal-institution comp (derived organizer)",
-    "200",
-    `${personalPage.status}`,
-    personalPage.status === 200,
+    "Public page of a personal workspace's comp names the workspace's stored name",
+    `200 <title>${personalPageTitle}</title>`,
+    `${personalPage.status} ${personalTitleElement ? `<title>${personalTitleElement[1]}</title>` : "no <title> element"}`,
+    personalPage.status === 200 && personalTitleElement?.[1] === personalPageTitle,
   );
 
   const suspPage = await apiFetch(`/competitions/${INST.c.slug}/${COMP.susp.slug}`);
@@ -618,6 +627,38 @@ const main = async () => {
     "403",
     `${orgSubmissionAsCand.status} ${errorCode(orgSubmissionAsCand)}`,
     orgSubmissionAsCand.status === 403,
+  );
+
+  // A Pribadi create is not exempt from the cap of 3. The address is rec-elev's own username slot,
+  // so a create that got past a broken cap is still refused by the username clash and writes nothing.
+  const createPersonalAtCap = await apiFetch("/api/v1/institutions", {
+    method: "POST",
+    cookie: sessions.recElev,
+    headers: { "X-Expected-User-Id": USERS.recElev.id },
+    json: { displayName: "Lomba Budi", institutionType: "personal", slug: "seed-rec-elev" },
+  });
+  record(
+    "INST-12",
+    "Pribadi workspace create refused at the cap of 3 workspaces",
+    "409 recruiter_institution_limit_reached",
+    `${createPersonalAtCap.status} ${errorCode(createPersonalAtCap)}`,
+    refusedWith(createPersonalAtCap, 409, "recruiter_institution_limit_reached"),
+  );
+
+  // The form was rendered for another account. A request past this guard meets the cap above and
+  // still writes nothing.
+  const createPersonalMismatch = await apiFetch("/api/v1/institutions", {
+    method: "POST",
+    cookie: sessions.recElev,
+    headers: { "X-Expected-User-Id": USERS.recMin.id },
+    json: { displayName: "Lomba Budi", institutionType: "personal" },
+  });
+  record(
+    "INST-13",
+    "Pribadi workspace create refused when the session changed since the form rendered",
+    "409 session_user_mismatch",
+    `${createPersonalMismatch.status} ${errorCode(createPersonalMismatch)}`,
+    refusedWith(createPersonalMismatch, 409, "session_user_mismatch"),
   );
 
   // publish gates

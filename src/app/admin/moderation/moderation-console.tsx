@@ -340,7 +340,10 @@ const DEIDENTIFY_ERROR_COPY: Partial<Record<string, string>> = {
 const DEIDENTIFY_SERVER_MESSAGE_CODES = [
   "deidentify_last_owner",
   "deidentify_team_captain",
-  "deidentify_personal_institution_has_published_competition",
+  "deidentify_sole_institution_has_transfer_awaiting_review",
+  "deidentify_sole_institution_has_open_payment",
+  "deidentify_sole_institution_has_open_invitation",
+  "deidentify_institution_named_after_username",
 ];
 
 async function readDeidentifyError(res: Response): Promise<string> {

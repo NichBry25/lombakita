@@ -1,4 +1,4 @@
-import { and, count, eq, inArray, isNotNull, ne, or, sql } from "drizzle-orm";
+import { and, count, eq, gt, inArray, isNotNull, ne, notInArray, or, sql } from "drizzle-orm";
 import { logger } from "@/lib/logger";
 import { toDialDigits } from "@/lib/competitions/organizer-contact";
 import { getDb, type Database } from "@/server/db/client";
@@ -65,7 +65,11 @@ import {
   R2_PREFIX_RESUMES,
   R2_PREFIX_VERIFICATION,
 } from "@/server/storage/r2-key-prefixes";
-import { findOwnedPersonalInstitution } from "@/server/institution-workspace/institution-service";
+import { enqueueCompetitionSearchSync } from "@/server/async/enqueue";
+import {
+  hasCompetitionTransferAwaitingReview,
+  hasInstitutionOpenPricedPayment,
+} from "@/server/finance/paid-registration";
 import { lockInstitutionOwnership } from "@/server/institution-members/owner-membership-lock";
 import {
   DEIDENTIFIED_DISPLAY_NAME,
@@ -77,6 +81,7 @@ import {
   deidentifiedUsername,
 } from "@/server/accounts/deidentified-identity";
 import { recordRemovedHostIdentity } from "@/server/host-trust/removed-host-identity";
+import { deriveInstitutionSlugBase } from "@/server/institution-workspace/institution-core";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/accounts/account-deidentification-service");
@@ -130,7 +135,10 @@ export type DeidentificationErrorCode =
   | "deidentify_already_done"
   | "deidentify_confirmation_mismatch"
   | "deidentify_last_owner"
-  | "deidentify_personal_institution_has_published_competition"
+  | "deidentify_sole_institution_has_transfer_awaiting_review"
+  | "deidentify_sole_institution_has_open_payment"
+  | "deidentify_sole_institution_has_open_invitation"
+  | "deidentify_institution_named_after_username"
   | "deidentify_team_captain"
   | "deidentify_retry"
   | "deidentify_storage_unavailable"
@@ -167,7 +175,7 @@ export type DeidentifyAccountInput = {
 
 export type DeidentifyAccountResult = {
   objectsDeleted: number;
-  personalInstitutionId: string | null;
+  soleOwnedInstitutionIds: string[];
 };
 
 /**
@@ -229,13 +237,16 @@ type TargetRegistration = {
 type TargetFacts = {
   originalEmail: string;
   registrations: TargetRegistration[];
-  personalInstitutionId: string | null;
+  soleOwnedInstitutionIds: string[];
 };
 
 type WriteOutcome = {
   rowsDeleted: Record<string, number>;
   rowsScrubbed: Record<string, number>;
-  personalInstitutionId: string | null;
+  soleOwnedInstitutionIds: string[];
+  // The competitions of those institutions, read by the writing transaction. Carried out of it
+  // because their search documents are synced after the commit and never inside it.
+  soleOwnedCompetitionIds: string[];
   // Carried out of the transaction because the storage stage needs them and must not read them for
   // itself: a listing taken before the stage runs is a listing a concurrent registration can overtake.
   registrations: TargetRegistration[];
@@ -270,14 +281,14 @@ const assertReasonPresent = (input: DeidentifyAccountInput): void => {
 };
 
 // The `preflight-owners` predicate from docs/operations/account-deletion-procedure.md, narrowed to
-// institutions that are NOT personal.
+// institutions where someone other than the target is still an active member.
 //
 // The narrowing is the difference between the two operations. The procedure hard-deletes the
 // account and its memberships, so an institution left without an active owner is left standing and
-// unadministrable for everyone. This action de-identifies instead: the owner's membership is
-// revoked but the row survives, and a PERSONAL institution belongs to exactly that one person, so
-// it is suspended and scrubbed by the caller rather than treated as orphaned. A full institution
-// has staff and members who would be stranded, which is what the refusal is for.
+// unadministrable for everyone. This action de-identifies instead: an institution where the target
+// is the only active member, of any kind, is suspended and scrubbed by the caller, because nobody
+// is left in it. Where other people are still active they would be stranded without an owner, which
+// is what the refusal is for.
 const findInstitutionsWhereTargetIsLastActiveOwner = async (
   tx: OperatorActorTransaction,
   accountId: string,
@@ -285,8 +296,7 @@ const findInstitutionsWhereTargetIsLastActiveOwner = async (
   const rows = await tx.execute(sql`
     select i.slug
     from institutions i
-    where i.institution_type is distinct from 'personal'
-      and exists (
+    where exists (
         select 1 from institution_memberships mine
         where mine.institution_id = i.id
           and mine.user_id = ${accountId}
@@ -300,21 +310,25 @@ const findInstitutionsWhereTargetIsLastActiveOwner = async (
           and other.status = 'active'
           and other.user_id <> ${accountId}
       )
+      and exists (
+        select 1 from institution_memberships remaining
+        where remaining.institution_id = i.id
+          and remaining.status = 'active'
+          and remaining.user_id <> ${accountId}
+      )
     order by i.slug
   `);
 
   return [...rows].map((row) => (row as { slug: string }).slug);
 };
 
-// Every institution this target holds an ACTIVE membership of, whatever the role and personal ones
-// included.
+// Every institution this target holds an ACTIVE membership of, whatever the role.
 //
 // The width is the point. What the writing transaction has to serialize is the institution, because
-// every operation it can collide with — a demotion, a removal, another de-identification — is keyed
-// on the institution rather than on the role the target happens to hold there. Narrowing this to the
-// ones the target OWNS would leave a membership of any other role locked by nobody, and a personal
-// institution is a membership like any other: the target is its owner and it is the one institution
-// whose rows this action writes outside the count.
+// every operation it can collide with, such as a demotion, a removal, the accept of an invitation or
+// another de-identification, is keyed on the institution rather than on the role the target happens
+// to hold there. Narrowing this to the ones the target OWNS would leave a membership of any other
+// role locked by nobody.
 const findInstitutionsWhereTargetIsActiveMember = async (
   tx: OperatorActorTransaction,
   accountId: string,
@@ -349,31 +363,219 @@ const assertNotLastActiveOwner = async (
   }
 };
 
-const assertNoPublishedPersonalCompetition = async (
+// Every institution the target actively owns where no one else holds an active membership of any
+// role. The writes suspend and scrub these in place, and their competitions stay as rows.
+const findInstitutionsOwnedSolelyByTarget = async (
   tx: OperatorActorTransaction,
-  personalInstitutionId: string | null,
+  accountId: string,
+): Promise<string[]> => {
+  const rows = await tx.execute(sql`
+    select i.id
+    from institutions i
+    where exists (
+        select 1 from institution_memberships mine
+        where mine.institution_id = i.id
+          and mine.user_id = ${accountId}
+          and mine.membership_role = 'institution_owner'
+          and mine.status = 'active'
+      )
+      and not exists (
+        select 1 from institution_memberships other
+        where other.institution_id = i.id
+          and other.status = 'active'
+          and other.user_id <> ${accountId}
+      )
+    order by i.id
+  `);
+
+  return [...rows].map((row) => (row as { id: string }).id);
+};
+
+const readInstitutionSlugs = async (
+  tx: OperatorActorTransaction,
+  institutionIds: readonly string[],
+): Promise<string[]> => {
+  const rows = await tx
+    .select({ slug: institutions.slug })
+    .from(institutions)
+    .where(inArray(institutions.id, [...institutionIds]))
+    .orderBy(institutions.slug);
+
+  return rows.map((row) => row.slug);
+};
+
+// The institutions among `institutionIds` that `holds` answers yes for, in the order given.
+const institutionsWhere = async (
+  institutionIds: readonly string[],
+  holds: (institutionId: string) => Promise<boolean>,
+): Promise<string[]> => {
+  const matching: string[] = [];
+
+  for (const institutionId of institutionIds) {
+    if (await holds(institutionId)) {
+      matching.push(institutionId);
+    }
+  }
+
+  return matching;
+};
+
+const institutionHasTransferAwaitingReview = async (
+  tx: OperatorActorTransaction,
+  institutionId: string,
+): Promise<boolean> => {
+  const scoped = tx as unknown as Database;
+  const competitionRows = await tx
+    .select({ id: competitions.id })
+    .from(competitions)
+    .where(eq(competitions.institutionId, institutionId));
+
+  for (const competition of competitionRows) {
+    if (await hasCompetitionTransferAwaitingReview(competition.id, scoped)) {
+      return true;
+    }
+  }
+
+  return false;
+};
+
+// An open invitation could be taken while the institution's files are deleted, which happens with no
+// lock held between the rehearsal and the commit, and would leave a member in an institution whose
+// files are gone. A row past `expires_at` is not counted: expiry is written lazily, and the accept
+// refuses it.
+const assertNoOpenInvitationInSoleOwnedInstitutions = async (
+  tx: OperatorActorTransaction,
+  soleOwnedInstitutionIds: readonly string[],
 ): Promise<void> => {
-  if (personalInstitutionId === null) {
+  if (soleOwnedInstitutionIds.length === 0) {
     return;
   }
 
-  const rows = await tx.execute(sql`
-    select c.slug
-    from competitions c
-    where c.institution_id = ${personalInstitutionId}
-      and c.status = 'published'
-    order by c.slug
-  `);
+  const rows = await tx
+    .selectDistinct({ slug: institutions.slug })
+    .from(institutionInvitations)
+    .innerJoin(institutions, eq(institutions.id, institutionInvitations.institutionId))
+    .where(
+      and(
+        inArray(institutionInvitations.institutionId, [...soleOwnedInstitutionIds]),
+        inArray(institutionInvitations.status, ["pending", "pending_claim"]),
+        gt(institutionInvitations.expiresAt, sql`now()`),
+      ),
+    )
+    .orderBy(institutions.slug);
 
-  const slugs = [...rows].map((row) => (row as { slug: string }).slug);
-
-  if (slugs.length > 0) {
-    throw new DeidentificationError(
-      "deidentify_personal_institution_has_published_competition",
-      409,
-      `Institusi pribadi akun ini masih punya kompetisi terbit: ${slugs.join(", ")}. Arsipkan atau batalkan dulu.`,
-    );
+  if (rows.length === 0) {
+    return;
   }
+
+  const slugs = rows.map((row) => row.slug);
+
+  throw new DeidentificationError(
+    "deidentify_sole_institution_has_open_invitation",
+    409,
+    `Institusi yang hanya dikelola akun ini masih punya undangan terbuka: ${slugs.join(", ")}. Batalkan undangannya dulu.`,
+  );
+};
+
+// A proof waiting for review needs an organizer to decide it, and the writes delete the payment
+// instructions it was paid against. A verified proof is settled and does not count.
+const assertNoTransferAwaitingReviewInSoleOwnedInstitutions = async (
+  tx: OperatorActorTransaction,
+  soleOwnedInstitutionIds: readonly string[],
+): Promise<void> => {
+  const blockedIds = await institutionsWhere(soleOwnedInstitutionIds, (institutionId) =>
+    institutionHasTransferAwaitingReview(tx, institutionId),
+  );
+
+  if (blockedIds.length === 0) {
+    return;
+  }
+
+  const slugs = await readInstitutionSlugs(tx, blockedIds);
+
+  throw new DeidentificationError(
+    "deidentify_sole_institution_has_transfer_awaiting_review",
+    409,
+    `Institusi yang hanya dikelola akun ini masih punya bukti transfer yang menunggu pemeriksaan: ${slugs.join(", ")}. Periksa buktinya dulu.`,
+  );
+};
+
+// A payer of an open priced payment may still transfer and send a proof that no organizer would be
+// left to review.
+const assertNoOpenPricedPaymentInSoleOwnedInstitutions = async (
+  tx: OperatorActorTransaction,
+  soleOwnedInstitutionIds: readonly string[],
+  now: Date,
+): Promise<void> => {
+  const scoped = tx as unknown as Database;
+  const blockedIds = await institutionsWhere(soleOwnedInstitutionIds, (institutionId) =>
+    hasInstitutionOpenPricedPayment(institutionId, now, scoped),
+  );
+
+  if (blockedIds.length === 0) {
+    return;
+  }
+
+  const slugs = await readInstitutionSlugs(tx, blockedIds);
+
+  throw new DeidentificationError(
+    "deidentify_sole_institution_has_open_payment",
+    409,
+    `Institusi yang hanya dikelola akun ini masih punya pembayaran peserta yang belum selesai: ${slugs.join(", ")}. Tunggu sampai batas waktunya lewat atau pembayarannya selesai.`,
+  );
+};
+
+// A workspace named or addressed after the username keeps the person findable by it after the
+// deletion. The address is read on every workspace the account ever joined, whatever its role
+// now, so a workspace it was moved out of still counts and one it never joined does not. The
+// name is free text any owner can type, so it is read only where the account is an active
+// member. A workspace the account owns alone is left out, because the deletion renames and
+// readdresses it.
+const assertNoInstitutionNamedAfterUsername = async (
+  tx: OperatorActorTransaction,
+  accountId: string,
+  username: string,
+  soleOwnedInstitutionIds: readonly string[],
+): Promise<void> => {
+  const usernameSlug = deriveInstitutionSlugBase(username);
+  const usernameName = `${username}'s Institution`;
+  const accountIsActiveMember = sql`exists (
+    select 1 from institution_memberships mine
+    where mine.institution_id = ${institutions.id}
+      and mine.user_id = ${accountId}
+      and mine.status = 'active'
+  )`;
+  const accountEverJoined = sql`exists (
+    select 1 from institution_memberships joined
+    where joined.institution_id = ${institutions.id}
+      and joined.user_id = ${accountId}
+  )`;
+
+  const rows = await tx
+    .select({ slug: institutions.slug })
+    .from(institutions)
+    .where(
+      and(
+        or(
+          and(eq(institutions.slug, usernameSlug), accountEverJoined),
+          and(eq(institutions.displayName, usernameName), accountIsActiveMember),
+        ),
+        notInArray(institutions.id, [...soleOwnedInstitutionIds]),
+      ),
+    )
+    .orderBy(institutions.slug);
+
+  if (rows.length === 0) {
+    return;
+  }
+
+  const slugs = rows.map((row) => row.slug);
+
+  throw new DeidentificationError(
+    "deidentify_institution_named_after_username",
+    409,
+    `Ganti nama dan alamat institusi ${slugs.join(", ")} dulu.`,
+  );
 };
 
 // How many teams this account is the captain of that are still being formed.
@@ -468,10 +670,18 @@ const assertTargetIsEligible = async (
 
   await assertNotLastActiveOwner(tx, accountId);
 
-  const personalInstitution = await findOwnedPersonalInstitution(accountId, tx);
-  const personalInstitutionId = personalInstitution?.institutionId ?? null;
+  const soleOwnedInstitutionIds = await findInstitutionsOwnedSolelyByTarget(tx, accountId);
 
-  await assertNoPublishedPersonalCompetition(tx, personalInstitutionId);
+  await assertNoInstitutionNamedAfterUsername(
+    tx,
+    accountId,
+    target.username,
+    soleOwnedInstitutionIds,
+  );
+
+  await assertNoOpenInvitationInSoleOwnedInstitutions(tx, soleOwnedInstitutionIds);
+  await assertNoTransferAwaitingReviewInSoleOwnedInstitutions(tx, soleOwnedInstitutionIds);
+  await assertNoOpenPricedPaymentInSoleOwnedInstitutions(tx, soleOwnedInstitutionIds, new Date());
 
   // A team still being formed is a dependency on the target that the writes cannot resolve, so it
   // has to be registered or disbanded before the account can go.
@@ -497,7 +707,7 @@ const assertTargetIsEligible = async (
   return {
     originalEmail: target.email,
     registrations,
-    personalInstitutionId,
+    soleOwnedInstitutionIds,
   };
 };
 
@@ -552,7 +762,7 @@ const prefixUpTo = (template: string, placeholder: string): string => {
 export const deidentificationObjectPrefixes = (target: {
   userId: string;
   registrations: readonly TargetRegistration[];
-  personalInstitutionId: string | null;
+  soleOwnedInstitutionIds: readonly string[];
 }): string[] => {
   const prefixes = [
     fillUserPrefix(R2_PREFIX_AVATARS, target.userId),
@@ -578,15 +788,12 @@ export const deidentificationObjectPrefixes = (target: {
     );
   }
 
-  if (target.personalInstitutionId !== null) {
+  for (const institutionId of target.soleOwnedInstitutionIds) {
     prefixes.push(
-      fillInstitutionPrefix(R2_PREFIX_INSTITUTION_LOGOS, target.personalInstitutionId),
-      fillInstitutionPrefix(R2_PREFIX_INSTITUTION_BANNERS, target.personalInstitutionId),
-      fillInstitutionPrefix(R2_PREFIX_PAYMENT_INSTRUCTIONS, target.personalInstitutionId),
-      fillInstitutionPrefix(
-        prefixUpTo(R2_PREFIX_VERIFICATION, "{institutionId}/"),
-        target.personalInstitutionId,
-      ),
+      fillInstitutionPrefix(R2_PREFIX_INSTITUTION_LOGOS, institutionId),
+      fillInstitutionPrefix(R2_PREFIX_INSTITUTION_BANNERS, institutionId),
+      fillInstitutionPrefix(R2_PREFIX_PAYMENT_INSTRUCTIONS, institutionId),
+      fillInstitutionPrefix(prefixUpTo(R2_PREFIX_VERIFICATION, "{institutionId}/"), institutionId),
     );
   }
 
@@ -664,8 +871,8 @@ const deleteTargetObjects = async (
  * Every QRIS object key a finance snapshot still points at.
  *
  * `finance_payment_instruction_snapshots` records what an institution's payment instructions said
- * when a payment was reviewed, so a snapshot naming the personal institution's QRIS is a row that
- * outlives the account, holding an image that has to outlive it too.
+ * when a payment was reviewed, so a snapshot naming the QRIS of an institution the account owned
+ * alone is a row that outlives the account, holding an image that has to outlive it too.
  *
  * Read from the writing transaction's handle, like every other fact the storage stage runs on. The
  * one residue is a snapshot written between this read and the delete, whose key can then be removed
@@ -716,18 +923,53 @@ const readSignupContactDigits = async (
 // ---------------------------------------------------------------------------------------------
 // The writes.
 
+// The competitions of the institutions the run suspends and scrubs, whatever their status. They stay
+// as rows, and their search documents still carry the institution's old name and slug.
+const readCompetitionIdsOf = async (
+  tx: OperatorActorTransaction,
+  institutionIds: readonly string[],
+): Promise<string[]> => {
+  if (institutionIds.length === 0) {
+    return [];
+  }
+
+  const rows = await tx
+    .select({ id: competitions.id })
+    .from(competitions)
+    .where(inArray(competitions.institutionId, [...institutionIds]));
+
+  return rows.map((row) => row.id);
+};
+
+// The storage stage deleted the files of the institutions the rehearsal found owned alone, so the
+// commit may anonymise only those. Both lists come from findInstitutionsOwnedSolelyByTarget, ordered
+// by id, so the same set is the same list. A set that changed between the two stages is refused
+// before anything is written, and a rerun lists the files of the new set.
+const assertSoleOwnedSetUnchangedSinceRehearsal = (
+  rehearsedIds: readonly string[],
+  committingIds: readonly string[],
+): void => {
+  if (committingIds.join(",") === rehearsedIds.join(",")) {
+    return;
+  }
+
+  throw new DeidentificationError("deidentify_retry", 503, DEIDENTIFY_RETRY_MESSAGE);
+};
+
 /**
  * Every write the action performs, against a transaction handle the caller owns.
  *
- * Called twice with the same arguments: once inside a transaction that rolls back, once inside the
- * one that commits. It does not know which, and it must not — a rehearsal flag threaded through
- * here would be a second code path wearing the first one's name.
+ * Called twice: once inside a transaction that rolls back, once inside the one that commits. Every
+ * write runs the same way in both. The commit alone is handed the institutions the rehearsal found
+ * owned alone, because the storage stage deleted the files of exactly those, and the rehearsal
+ * passes null, because no stage before it listed any file.
  */
 const runDeidentificationWrites = async (
   tx: OperatorActorTransaction,
   actorUserId: string,
   accountId: string,
   input: DeidentifyAccountInput,
+  rehearsedSoleOwnedInstitutionIds: readonly string[] | null,
 ): Promise<WriteOutcome> => {
   // Resolved from THIS handle, never passed in (LAUNCH-D141). An actor resolved in the pre-read is
   // one a suspension can overtake before this row is written.
@@ -782,11 +1024,17 @@ const runDeidentificationWrites = async (
   }
 
   // The pre-read's values are not reused: this transaction answers every question itself, from its
-  // own handle and under its own lock. That covers the personal institution, which is resolved
-  // here rather than handed in — an upgrade or a revocation between the two stages would otherwise
-  // leave this run writing to an institution the pre-read chose.
+  // own handle and under its own lock, the institutions the target owns alone included. The set
+  // the rehearsal found is handed in only to be compared with this one, below.
   const facts = await assertTargetIsEligible(tx, accountId, input);
-  const personalInstitutionId = facts.personalInstitutionId;
+  const soleOwnedInstitutionIds = facts.soleOwnedInstitutionIds;
+
+  if (rehearsedSoleOwnedInstitutionIds !== null) {
+    assertSoleOwnedSetUnchangedSinceRehearsal(
+      rehearsedSoleOwnedInstitutionIds,
+      soleOwnedInstitutionIds,
+    );
+  }
 
   const rowsDeleted: Record<string, number> = {};
   const rowsScrubbed: Record<string, number> = {};
@@ -1075,18 +1323,18 @@ const runDeidentificationWrites = async (
       .returning({ id: teamInvitations.id }),
   );
 
-  // A note names exactly one target — the single-target check makes the two clauses disjoint — and
-  // the personal institution is the person's own shell, so a note filed against it is a note about
-  // the person and goes with the ones that name them outright.
+  // A note names exactly one target, so the two clauses are disjoint. An institution the target
+  // owned alone held nobody else, so a note filed against it is a note about the person and goes
+  // with the ones that name them outright.
   await deleteFrom("platform_ops_notes", () =>
     tx
       .delete(platformOpsNotes)
       .where(
-        personalInstitutionId === null
+        soleOwnedInstitutionIds.length === 0
           ? eq(platformOpsNotes.targetUserId, accountId)
           : or(
               eq(platformOpsNotes.targetUserId, accountId),
-              eq(platformOpsNotes.targetInstitutionId, personalInstitutionId),
+              inArray(platformOpsNotes.targetInstitutionId, soleOwnedInstitutionIds),
             ),
       )
       .returning({ id: platformOpsNotes.id }),
@@ -1233,13 +1481,13 @@ const runDeidentificationWrites = async (
       .returning({ id: institutionMemberships.id }),
   );
 
-  if (personalInstitutionId !== null) {
+  if (soleOwnedInstitutionIds.length > 0) {
     await scrubIn("institutions", () =>
       tx
         .update(institutions)
         .set({
           displayName: DEIDENTIFIED_INSTITUTION_NAME,
-          slug: `deleted-${personalInstitutionId}`,
+          slug: sql`'deleted-' || ${institutions.id}`,
           description: null,
           rejectionReason: null,
           logoR2Key: null,
@@ -1253,14 +1501,14 @@ const runDeidentificationWrites = async (
           suspensionReason: DEIDENTIFIED_INSTITUTION_SUSPENSION_REASON,
           updatedAt: sql`now()`,
         })
-        .where(eq(institutions.id, personalInstitutionId))
+        .where(inArray(institutions.id, soleOwnedInstitutionIds))
         .returning({ id: institutions.id }),
     );
 
     await deleteFrom("institution_social_links", () =>
       tx
         .delete(institutionSocialLinks)
-        .where(eq(institutionSocialLinks.institutionId, personalInstitutionId))
+        .where(inArray(institutionSocialLinks.institutionId, soleOwnedInstitutionIds))
         .returning({ id: institutionSocialLinks.id }),
     );
 
@@ -1270,7 +1518,7 @@ const runDeidentificationWrites = async (
     await deleteFrom("institution_payment_instructions", () =>
       tx
         .delete(institutionPaymentInstructions)
-        .where(eq(institutionPaymentInstructions.institutionId, personalInstitutionId))
+        .where(inArray(institutionPaymentInstructions.institutionId, soleOwnedInstitutionIds))
         .returning({ id: institutionPaymentInstructions.id }),
     );
 
@@ -1289,7 +1537,9 @@ const runDeidentificationWrites = async (
             tx
               .select({ id: institutionVerificationSubmissions.id })
               .from(institutionVerificationSubmissions)
-              .where(eq(institutionVerificationSubmissions.institutionId, personalInstitutionId)),
+              .where(
+                inArray(institutionVerificationSubmissions.institutionId, soleOwnedInstitutionIds),
+              ),
           ),
         )
         .returning({ id: institutionVerificationDocuments.id }),
@@ -1302,7 +1552,7 @@ const runDeidentificationWrites = async (
       tx
         .update(institutionVerificationSubmissions)
         .set({ proposedDisplayName: null, reviewerNotes: null })
-        .where(eq(institutionVerificationSubmissions.institutionId, personalInstitutionId))
+        .where(inArray(institutionVerificationSubmissions.institutionId, soleOwnedInstitutionIds))
         .returning({ id: institutionVerificationSubmissions.id }),
     );
   } else {
@@ -1313,6 +1563,8 @@ const runDeidentificationWrites = async (
     rowsScrubbed.institution_verification_submissions = 0;
   }
 
+  const soleOwnedCompetitionIds = await readCompetitionIdsOf(tx, soleOwnedInstitutionIds);
+
   await recordOperatorAuditEntry(tx, actor, {
     targetUserId: accountId,
     eventType: ACCOUNT_DEIDENTIFIED_EVENT,
@@ -1320,7 +1572,7 @@ const runDeidentificationWrites = async (
     metadata: {
       rowsDeleted,
       rowsScrubbed,
-      personalInstitutionId,
+      soleOwnedInstitutionIds,
       clearedOrganizerContacts,
     },
   });
@@ -1328,7 +1580,8 @@ const runDeidentificationWrites = async (
   return {
     rowsDeleted,
     rowsScrubbed,
-    personalInstitutionId,
+    soleOwnedInstitutionIds,
+    soleOwnedCompetitionIds,
     registrations: facts.registrations,
     submissionKeys,
     documentKeys,
@@ -1352,12 +1605,19 @@ const performWrites = async (
   accountId: string,
   input: DeidentifyAccountInput,
   rehearsal: boolean,
+  rehearsedSoleOwnedInstitutionIds: readonly string[] | null,
 ): Promise<WriteOutcome> => {
   let rollbackThrown = false;
 
   const outcome = await db
     .transaction(async (tx) => {
-      const written = await runDeidentificationWrites(tx, actorUserId, accountId, input);
+      const written = await runDeidentificationWrites(
+        tx,
+        actorUserId,
+        accountId,
+        input,
+        rehearsedSoleOwnedInstitutionIds,
+      );
 
       if (rehearsal) {
         rollbackThrown = true;
@@ -1416,6 +1676,21 @@ const isTransientTransactionAbort = (error: unknown): boolean => {
   return state !== null && TRANSIENT_TRANSACTION_SQLSTATES.includes(state);
 };
 
+// After the commit and never awaited, as every search sync is: the job rewrites each document from
+// its row, so the old name and slug leave search. A queue that is down costs a stale document, never
+// the deletion.
+const enqueueSearchSyncForCompetitions = (competitionIds: readonly string[]): void => {
+  for (const competitionId of competitionIds) {
+    enqueueCompetitionSearchSync({ competitionId, action: "upsert" }).catch((error: unknown) => {
+      logger.error("competition.search-sync.enqueue-failed", {
+        competitionId,
+        action: "upsert",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
+};
+
 /**
  * De-identify one account.
  *
@@ -1465,7 +1740,7 @@ export const deidentifyAccount = async (
   let rehearsal: WriteOutcome;
 
   try {
-    rehearsal = await performWrites(db, actorUserId, accountId, input, true);
+    rehearsal = await performWrites(db, actorUserId, accountId, input, true, null);
   } catch (error) {
     // A refusal this service already knows how to name is the answer, even from inside the
     // rehearsal: the re-run preconditions run in the same statement order here as they do in the
@@ -1497,7 +1772,7 @@ export const deidentifyAccount = async (
   const prefixes = deidentificationObjectPrefixes({
     userId: accountId,
     registrations: rehearsal.registrations,
-    personalInstitutionId: rehearsal.personalInstitutionId,
+    soleOwnedInstitutionIds: rehearsal.soleOwnedInstitutionIds,
   });
 
   const retainedKeys = new Set(rehearsal.retainedKeys);
@@ -1526,7 +1801,14 @@ export const deidentifyAccount = async (
   let outcome: WriteOutcome;
 
   try {
-    outcome = await performWrites(db, actorUserId, accountId, input, false);
+    outcome = await performWrites(
+      db,
+      actorUserId,
+      accountId,
+      input,
+      false,
+      rehearsal.soleOwnedInstitutionIds,
+    );
   } catch (error) {
     if (error instanceof DeidentificationError || error instanceof OperatorActorError) {
       throw error;
@@ -1552,8 +1834,10 @@ export const deidentifyAccount = async (
     accountId,
     actorUserId,
     objectsDeleted,
-    personalInstitutionId: outcome.personalInstitutionId,
+    soleOwnedInstitutionIds: outcome.soleOwnedInstitutionIds,
   });
 
-  return { objectsDeleted, personalInstitutionId: outcome.personalInstitutionId };
+  enqueueSearchSyncForCompetitions(outcome.soleOwnedCompetitionIds);
+
+  return { objectsDeleted, soleOwnedInstitutionIds: outcome.soleOwnedInstitutionIds };
 };

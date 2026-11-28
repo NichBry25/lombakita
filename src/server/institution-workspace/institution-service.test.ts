@@ -7,12 +7,7 @@ import { institutionMemberships, institutions } from "@/server/db/schema";
 import {
   NEW_INSTITUTION_DEFAULT_STATUS,
   createInstitutionWorkspaceForUser,
-  createPersonalInstitutionForUser,
-  findOwnedPersonalInstitution,
   institutionSlugCollidesWithUsername,
-  InstitutionUpgradeError,
-  rewritePersonalInstitutionSlugForUsername,
-  upgradeInstitutionType,
   usernameCollidesWithInstitutionSlug,
   getInstitutionWorkspaceForOwnerBySlug,
   updateInstitutionWorkspaceForOwnerBySlug,
@@ -21,10 +16,10 @@ import {
   InstitutionWorkspaceInputError,
   MAX_INSTITUTIONS_PER_RECRUITER,
 } from "@/server/institution-workspace/institution-core";
-import {
-  InstitutionTypeTransitionError,
-  MAX_PERSONAL_INSTITUTIONS_PER_RECRUITER,
-} from "@/server/institution-workspace/institution-type";
+
+vi.mock("@/server/host-trust/publish-trust", () => ({
+  isHostTrustRemoved: vi.fn(async () => false),
+}));
 
 // Every create-path insert transaction now (1) acquires a per-owner advisory lock via tx.execute and
 // (2) re-counts the owner's institutions under that lock via tx.select before inserting (the true cap
@@ -506,415 +501,8 @@ describe("institution-service", () => {
   });
 });
 
-// Step 6.5f.1 (+ Amendment) — personal institution creation. No name/slug input: display_name is
-// written NULL, the name derives from the owner username at read time, and the slug derives from the
-// owner username. The create path issues two reads (personal count, then owner-username load) before
-// the insert transaction.
-describe("createPersonalInstitutionForUser", () => {
-  const makePersonalCreateDb = (personalCount: number, username = "owneruser") => {
-    const insertedDisplayNames: (string | null)[] = [];
-    const insertedTypes: (string | null)[] = [];
-    const insertedSlugs: string[] = [];
-    const membershipRoles: string[] = [];
-    let selectCalls = 0;
-
-    const tx = {
-      ...txCapGuards(personalCount),
-      insert: vi.fn((table: unknown) => {
-        if (table === institutions) {
-          return {
-            values: (values: {
-              displayName: string | null;
-              slug: string;
-              status: string;
-              institutionType: string | null;
-            }) => {
-              insertedDisplayNames.push(values.displayName ?? null);
-              insertedTypes.push(values.institutionType ?? null);
-              insertedSlugs.push(values.slug);
-              return {
-                returning: async () => [
-                  {
-                    institutionId: "inst_p",
-                    institutionDisplayName: values.displayName ?? null,
-                    institutionSlug: values.slug,
-                    institutionStatus: values.status,
-                    institutionType: values.institutionType ?? null,
-                    institutionCreatedAt: new Date("2026-06-08T00:00:00.000Z"),
-                    institutionUpdatedAt: new Date("2026-06-08T00:00:00.000Z"),
-                  },
-                ],
-              };
-            },
-          };
-        }
-        if (table === institutionMemberships) {
-          return {
-            values: (values: { membershipRole: string; status: string }) => {
-              membershipRoles.push(values.membershipRole);
-              return {
-                returning: async () => [
-                  {
-                    membershipId: "mem_p",
-                    membershipRole: values.membershipRole,
-                    membershipStatus: values.status,
-                    membershipJoinedAt: new Date("2026-06-08T00:00:00.000Z"),
-                  },
-                ],
-              };
-            },
-          };
-        }
-        throw new Error("Unexpected table");
-      }),
-    };
-
-    // Chainable thenable node: resolves to `result` when awaited at any terminal in the chain.
-    const makeNode = (result: unknown[]) => {
-      const node: Record<string, unknown> = {};
-      for (const m of ["from", "innerJoin", "where", "limit", "orderBy"]) {
-        node[m] = () => node;
-      }
-      node.then = (resolve: (v: unknown) => void) => resolve(result);
-      return node;
-    };
-
-    return {
-      db: {
-        // Call 1 — personal-count query; call 2 — owner-username load.
-        select: vi.fn(() => {
-          selectCalls += 1;
-          return selectCalls === 1
-            ? makeNode([{ value: personalCount }])
-            : makeNode([{ username }]);
-        }),
-        transaction: vi.fn(async (cb: (t: typeof tx) => Promise<unknown>) => cb(tx)),
-      } as unknown as Database,
-      insertedDisplayNames,
-      insertedTypes,
-      insertedSlugs,
-      membershipRoles,
-      getSelectCalls: () => selectCalls,
-    };
-  };
-
-  it("creates a personal-typed institution with NULL display_name, name + slug from username", async () => {
-    const { db, insertedDisplayNames, insertedTypes, insertedSlugs, membershipRoles } =
-      makePersonalCreateDb(0, "owneruser");
-    const workspace = await createPersonalInstitutionForUser("user_1", db);
-
-    // Stored row: NULL display_name, personal type, slug derived from the owner username.
-    expect(insertedDisplayNames).toEqual([null]);
-    expect(insertedTypes).toEqual(["personal"]);
-    expect(insertedSlugs).toEqual(["owneruser"]);
-    expect(membershipRoles).toEqual(["institution_owner"]);
-
-    // Resolved shell: name derived from the owner username; slug equals the username.
-    expect(workspace.institutionType).toBe("personal");
-    expect(workspace.displayName).toBe("owneruser's Institution");
-    expect(workspace.slug).toBe("owneruser");
-    expect(workspace.ownerMembership.membershipRole).toBe("institution_owner");
-  });
-
-  it("refuses a second personal institution (one-per-recruiter)", async () => {
-    const { db, insertedTypes } = makePersonalCreateDb(MAX_PERSONAL_INSTITUTIONS_PER_RECRUITER);
-    await createPersonalInstitutionForUser("user_at_personal_limit", db).catch((err: unknown) => {
-      expect(err).toBeInstanceOf(InstitutionWorkspaceInputError);
-      expect((err as InstitutionWorkspaceInputError).code).toBe(
-        "personal_institution_already_exists",
-      );
-      expect((err as InstitutionWorkspaceInputError).httpStatus).toBe(409);
-    });
-    // The transaction insert must not have run.
-    expect(insertedTypes).toEqual([]);
-  });
-
-  it("consults only the personal count + username — never the full-institution limit (seed 7)", async () => {
-    // personalCount=0 succeeds regardless of how many FULL institutions the recruiter owns: the
-    // personal path issues exactly one personal-count query and one owner-username load (2 selects),
-    // and never the full-institution limit query.
-    const { db, getSelectCalls } = makePersonalCreateDb(0);
-    await createPersonalInstitutionForUser("recruiter_with_3_full", db);
-    expect(getSelectCalls()).toBe(2);
-  });
-});
-
-// Step 6.5f.1 — one-directional type-upgrade primitive (no live caller; F10 calls it in 6.5g).
-describe("upgradeInstitutionType", () => {
-  const ELEVATED = [{ recruiterVerifiedAt: new Date(), recruiterVerificationTier: "elevated" }];
-  const MINIMAL = [{ recruiterVerifiedAt: new Date(), recruiterVerificationTier: "minimal" }];
-  const UNVERIFIED = [{ recruiterVerifiedAt: null, recruiterVerificationTier: "unverified" }];
-
-  const OFFICIAL_NAME = "Yayasan Harapan";
-
-  // Sequenced db: each awaited terminal (.limit / .where / .returning) consumes the next result.
-  // `execute` (the advisory lock) is a no-op and consumes nothing. Order of awaited reads in
-  // upgradeInstitutionType:
-  //   [0] recruiter tier, [1] institution+owner membership, [2] full-count,
-  //   [3] slug-taken probe, [4] username-collision probe, [5] update returning,
-  //   [6] published competitions to re-sync.
-  const makeSequencedDb = (results: unknown[][]) => {
-    let idx = 0;
-    const node = (): Record<string, unknown> => {
-      const n: Record<string, unknown> = {};
-      for (const m of [
-        "from",
-        "innerJoin",
-        "leftJoin",
-        "where",
-        "limit",
-        "orderBy",
-        "set",
-        "returning",
-        "values",
-      ]) {
-        n[m] = () => node();
-      }
-      n.then = (resolve: (v: unknown) => void) => resolve(results[idx++] ?? []);
-      return n;
-    };
-    const db: Record<string, unknown> = {
-      select: () => node(),
-      update: () => node(),
-      insert: () => node(),
-      execute: async () => undefined,
-      transaction: (cb: (tx: unknown) => Promise<unknown>) => cb(db),
-    };
-    return db as unknown as Database;
-  };
-
-  // The free-slug probes: [] = slug not taken, [] = no username collision.
-  const SLUG_FREE: unknown[][] = [[], []];
-
-  it("flips personal → full subtype, writes the official name, and re-derives the slug", async () => {
-    const db = makeSequencedDb([
-      ELEVATED,
-      [{ institutionType: "personal", ownerMembershipId: "m1", slug: "nikau-bryan" }],
-      [{ value: 0 }],
-      ...SLUG_FREE,
-      [{ institutionId: "inst_1" }],
-      [{ id: "comp_1" }, { id: "comp_2" }],
-    ]);
-    const result = await upgradeInstitutionType(
-      "actor_1",
-      "inst_1",
-      "company",
-      OFFICIAL_NAME,
-      null,
-      db,
-    );
-    expect(result).toEqual({
-      institutionId: "inst_1",
-      previousType: "personal",
-      institutionType: "company",
-      displayName: OFFICIAL_NAME,
-      // Derived from the official name — NOT carried over from the owner-username slug.
-      slug: "yayasan-harapan",
-      previousSlug: "nikau-bryan",
-      resyncCompetitionIds: ["comp_1", "comp_2"],
-    });
-  });
-
-  it("flips a legacy NULL-type institution → full subtype (first declaration)", async () => {
-    const db = makeSequencedDb([
-      ELEVATED,
-      [{ institutionType: null, ownerMembershipId: "m1", slug: "legacy-inst" }],
-      [{ value: 2 }], // 2 existing full + this one = 3 ≤ limit
-      ...SLUG_FREE,
-      [{ institutionId: "inst_1" }],
-      [],
-    ]);
-    const result = await upgradeInstitutionType(
-      "actor_1",
-      "inst_1",
-      "university",
-      OFFICIAL_NAME,
-      null,
-      db,
-    );
-    expect(result.previousType).toBeNull();
-    expect(result.institutionType).toBe("university");
-  });
-
-  it("suffixes the derived slug when the name's slug form is already taken", async () => {
-    const db = makeSequencedDb([
-      ELEVATED,
-      [{ institutionType: "personal", ownerMembershipId: "m1", slug: "nikau-bryan" }],
-      [{ value: 0 }],
-      [{ id: "other_inst" }], // attempt 0: slug taken by another institution
-      [], // attempt 1: free
-      [], // attempt 1: no username collision
-      [{ institutionId: "inst_1" }],
-      [],
-    ]);
-    const result = await upgradeInstitutionType(
-      "actor_1",
-      "inst_1",
-      "company",
-      OFFICIAL_NAME,
-      null,
-      db,
-    );
-    expect(result.slug).toBe("yayasan-harapan-2");
-  });
-
-  it("skips a derived slug that collides with an existing username", async () => {
-    const db = makeSequencedDb([
-      ELEVATED,
-      [{ institutionType: "personal", ownerMembershipId: "m1", slug: "nikau-bryan" }],
-      [{ value: 0 }],
-      [], // attempt 0: no institution holds it
-      [{ id: "user_9" }], // attempt 0: but a username does — flat namespace, skip
-      [], // attempt 1: free
-      [], // attempt 1: no username collision
-      [{ institutionId: "inst_1" }],
-      [],
-    ]);
-    const result = await upgradeInstitutionType(
-      "actor_1",
-      "inst_1",
-      "company",
-      OFFICIAL_NAME,
-      null,
-      db,
-    );
-    expect(result.slug).toBe("yayasan-harapan-2");
-  });
-
-  it("rejects an invalid official name before touching the database", async () => {
-    const db = makeSequencedDb([ELEVATED]);
-    await expect(
-      upgradeInstitutionType("actor_1", "inst_1", "company", "x", null, db),
-    ).rejects.toMatchObject({ code: "institution_invalid_value" });
-  });
-
-  it("refuses an upgrade when the actor is below the elevated tier", async () => {
-    const db = makeSequencedDb([MINIMAL]);
-    await expect(
-      upgradeInstitutionType("actor_1", "inst_1", "company", OFFICIAL_NAME, null, db),
-    ).rejects.toMatchObject({
-      code: "institution_upgrade_tier_insufficient",
-      status: 403,
-    });
-  });
-
-  it("refuses an upgrade when the recruiter mode is not verified", async () => {
-    const db = makeSequencedDb([UNVERIFIED]);
-    await expect(
-      upgradeInstitutionType("actor_1", "inst_1", "company", OFFICIAL_NAME, null, db),
-    ).rejects.toBeInstanceOf(InstitutionUpgradeError);
-  });
-
-  it("returns 404 when the institution does not exist", async () => {
-    const db = makeSequencedDb([ELEVATED, []]);
-    await expect(
-      upgradeInstitutionType("actor_1", "inst_x", "company", OFFICIAL_NAME, null, db),
-    ).rejects.toMatchObject({
-      code: "institution_not_found",
-      status: 404,
-    });
-  });
-
-  it("forbids an upgrade by a non-owner of the institution", async () => {
-    const db = makeSequencedDb([
-      ELEVATED,
-      [{ institutionType: "personal", ownerMembershipId: null, slug: "nikau-bryan" }],
-    ]);
-    await expect(
-      upgradeInstitutionType("actor_1", "inst_1", "company", OFFICIAL_NAME, null, db),
-    ).rejects.toMatchObject({
-      code: "institution_upgrade_forbidden",
-      status: 403,
-    });
-  });
-
-  it("propagates the fail-closed transition guard on a full → different-full change", async () => {
-    const db = makeSequencedDb([
-      ELEVATED,
-      [{ institutionType: "company", ownerMembershipId: "m1", slug: "acme" }],
-    ]);
-    await expect(
-      upgradeInstitutionType("actor_1", "inst_1", "foundation", OFFICIAL_NAME, null, db),
-    ).rejects.toBeInstanceOf(InstitutionTypeTransitionError);
-  });
-
-  it("re-checks the full limit INCLUDING the upgrading institution (seed 11)", async () => {
-    const db = makeSequencedDb([
-      ELEVATED,
-      [{ institutionType: "personal", ownerMembershipId: "m1", slug: "nikau-bryan" }],
-      [{ value: MAX_INSTITUTIONS_PER_RECRUITER }], // already at the limit → +1 exceeds
-    ]);
-    await expect(
-      upgradeInstitutionType("actor_1", "inst_1", "company", OFFICIAL_NAME, null, db),
-    ).rejects.toMatchObject({
-      code: "institution_upgrade_limit_reached",
-      status: 409,
-    });
-  });
-
-  it("throws a conflict when the CAS flip matches no row (concurrent change)", async () => {
-    const db = makeSequencedDb([
-      ELEVATED,
-      [{ institutionType: "personal", ownerMembershipId: "m1", slug: "nikau-bryan" }],
-      [{ value: 0 }],
-      ...SLUG_FREE,
-      [], // update returning empty → concurrent modification
-    ]);
-    await expect(
-      upgradeInstitutionType("actor_1", "inst_1", "company", OFFICIAL_NAME, null, db),
-    ).rejects.toMatchObject({
-      code: "institution_upgrade_conflict",
-      status: 409,
-    });
-  });
-
-  it("acquires the per-owner advisory lock before counting (tripwire 6.5-HARDENING.2-D2)", async () => {
-    const calls: string[] = [];
-    let idx = 0;
-    const results: unknown[][] = [
-      ELEVATED,
-      [{ institutionType: "personal", ownerMembershipId: "m1", slug: "nikau-bryan" }],
-      [{ value: 0 }],
-      ...SLUG_FREE,
-      [{ institutionId: "inst_1" }],
-      [],
-    ];
-    const node = (): Record<string, unknown> => {
-      const n: Record<string, unknown> = {};
-      for (const m of ["from", "innerJoin", "leftJoin", "where", "limit", "set", "returning"]) {
-        n[m] = () => node();
-      }
-      n.then = (resolve: (v: unknown) => void) => {
-        calls.push("read");
-        resolve(results[idx++] ?? []);
-      };
-      return n;
-    };
-    const db: Record<string, unknown> = {
-      select: () => node(),
-      update: () => node(),
-      execute: async () => {
-        calls.push("advisory-lock");
-      },
-      transaction: (cb: (tx: unknown) => Promise<unknown>) => cb(db),
-    };
-
-    await upgradeInstitutionType(
-      "actor_1",
-      "inst_1",
-      "company",
-      OFFICIAL_NAME,
-      null,
-      db as unknown as Database,
-    );
-
-    expect(calls[0]).toBe("advisory-lock");
-  });
-});
-
-// Step 6.5f.1 (post-step-9) — personal institution slug follows the owner's username. A username
-// change rewrites the slug and re-indexes the institution's published competitions.
-describe("personal institution slug ↔ username sync", () => {
+// The personal institution lookup and the username-to-slug collision check.
+describe("personal institution lookup and the username namespace", () => {
   // Generic thenable chain mock. `selectResults` are returned in call order for every awaited
   // read (collision probes and the published-competition query). The slug written by the single
   // UPDATE is captured for assertion.
@@ -944,88 +532,26 @@ describe("personal institution slug ↔ username sync", () => {
     return { db, captured };
   };
 
-  describe("findOwnedPersonalInstitution", () => {
-    it("returns the institution when the user actively owns a personal institution", async () => {
-      const { db } = makeSlugSyncDb([[{ institutionId: "inst_1", slug: "alice" }]]);
-      await expect(findOwnedPersonalInstitution("user_1", db)).resolves.toEqual({
-        institutionId: "inst_1",
-        slug: "alice",
-      });
-    });
-
-    it("returns null when the user owns no personal institution", async () => {
-      const { db } = makeSlugSyncDb([[]]);
-      await expect(findOwnedPersonalInstitution("user_1", db)).resolves.toBeNull();
-    });
-  });
-
   describe("usernameCollidesWithInstitutionSlug", () => {
     it("returns true when another institution already holds the username-derived slug", async () => {
       const { db } = makeSlugSyncDb([[{ id: "inst_other" }]]);
-      await expect(
-        usernameCollidesWithInstitutionSlug("universitas-indonesia", null, db),
-      ).resolves.toBe(true);
-    });
-
-    it("returns false when no other institution holds the slug", async () => {
-      const { db } = makeSlugSyncDb([[]]);
-      await expect(usernameCollidesWithInstitutionSlug("bob", "inst_self", db)).resolves.toBe(
-        false,
+      await expect(usernameCollidesWithInstitutionSlug("universitas-indonesia", db)).resolves.toBe(
+        true,
       );
     });
-  });
 
-  describe("rewritePersonalInstitutionSlugForUsername", () => {
-    it("rewrites the slug to the username-derived base and returns published competition ids", async () => {
-      const { db, captured } = makeSlugSyncDb([
-        [], // collision probe attempt 0 → base "bob" is free
-        [], // UPDATE ... WHERE resolve (ignored)
-        [{ id: "comp_1" }, { id: "comp_2" }], // published competitions to re-sync
-      ]);
-
-      const ids = await rewritePersonalInstitutionSlugForUsername("inst_1", "bob", db);
-
-      expect(captured.updatedSlug).toBe("bob");
-      expect(ids).toEqual(["comp_1", "comp_2"]);
-    });
-
-    it("no-op self-match: a username equal to the current slug resolves to itself (self excluded)", async () => {
-      const { db, captured } = makeSlugSyncDb([
-        [], // collision probe excludes self → base "alice" is free
-        [], // UPDATE resolve
-        [], // no published competitions
-      ]);
-
-      const ids = await rewritePersonalInstitutionSlugForUsername("inst_1", "alice", db);
-
-      expect(captured.updatedSlug).toBe("alice");
-      expect(ids).toEqual([]);
-    });
-
-    it("falls back to a numeric suffix when the base slug is held by another institution", async () => {
-      const { db, captured } = makeSlugSyncDb([
-        [{ id: "inst_other" }], // attempt 0 → base "shared" taken by another institution
-        [], // attempt 1 → "shared-2" free
-        [], // UPDATE resolve
-        [], // no published competitions
-      ]);
-
-      const ids = await rewritePersonalInstitutionSlugForUsername("inst_1", "shared", db);
-
-      expect(captured.updatedSlug).toBe("shared-2");
-      expect(ids).toEqual([]);
+    it("returns false when no institution holds the slug", async () => {
+      const { db } = makeSlugSyncDb([[]]);
+      await expect(usernameCollidesWithInstitutionSlug("bob", db)).resolves.toBe(false);
     });
   });
 });
 
-// A personal institution's slug derives from the owner username and is read-only in institution
-// settings (it changes only when the username changes). The settings update must ignore a slug
-// patch on the personal path — this is the authoritative server-side enforcement behind the
-// read-only field in the settings UI.
+// The settings update takes a name and a slug patch for every kind.
 describe("updateInstitutionWorkspaceForOwnerBySlug — slug editability by type", () => {
   const ownerRow = (overrides: Record<string, unknown>) => ({
     institutionId: "inst_1",
-    institutionDisplayName: null,
+    institutionDisplayName: "Ruang Lama",
     institutionSlug: "alice",
     institutionStatus: "inactive",
     institutionType: null,
@@ -1035,7 +561,6 @@ describe("updateInstitutionWorkspaceForOwnerBySlug — slug editability by type"
     membershipRole: "institution_owner",
     membershipStatus: "active",
     membershipJoinedAt: new Date("2026-06-08T00:00:00.000Z"),
-    ownerUsername: "alice",
     ...overrides,
   });
 
@@ -1066,20 +591,36 @@ describe("updateInstitutionWorkspaceForOwnerBySlug — slug editability by type"
     return { db, captured };
   };
 
-  it("ignores a slug patch on a personal institution (slug stays bound to the username)", async () => {
+  it("applies a slug patch on a personal institution", async () => {
     const { db, captured } = makeSettingsDb([
-      [ownerRow({ institutionType: "personal", institutionSlug: "alice" })],
+      [
+        ownerRow({
+          institutionType: "personal",
+          institutionSlug: "ruang-lama",
+          institutionDisplayName: "Ruang Lama",
+        }),
+      ],
+      [], // institutionSlugCollidesWithUsername("ruang-baru") → no colliding username
+      [], // UPDATE resolve
+      [
+        ownerRow({
+          institutionType: "personal",
+          institutionSlug: "ruang-baru",
+          institutionDisplayName: "Ruang Lama",
+        }),
+      ],
     ]);
 
     const result = await updateInstitutionWorkspaceForOwnerBySlug(
       "user_1",
-      "alice",
-      { slug: "chosen-by-owner" },
+      "ruang-lama",
+      { slug: "ruang-baru" },
       db,
     );
 
-    expect(captured.updateCalls).toBe(0);
-    expect(result.slug).toBe("alice");
+    expect(captured.updateCalls).toBe(1);
+    expect(captured.updatedSlug).toBe("ruang-baru");
+    expect(result.slug).toBe("ruang-baru");
   });
 
   it("still applies a slug patch on a full institution", async () => {
@@ -1186,7 +727,6 @@ describe("updateInstitutionWorkspaceForOwnerBySlug — slug editability by type"
       membershipRole: "institution_owner",
       membershipStatus: "active",
       membershipJoinedAt: new Date("2026-06-08T00:00:00.000Z"),
-      ownerUsername: "owner",
     };
     const selectResults: unknown[][] = [[ownerSeed], []]; // owner lookup; Fix D probe → no username collision
     const node = (): Record<string, unknown> => {
@@ -1473,7 +1013,7 @@ describe("createInstitutionWorkspaceForUser — Fix E suffixed-slug username re-
 // transactions, so these drive the guard directly: a create whose pre-check passed but whose in-tx
 // count is already at the cap must reject with the SAME 409 and write nothing, and distinct owners
 // must derive distinct lock keys (so one owner never blocks another).
-describe("createInstitutionWorkspaceForUser / createPersonalInstitutionForUser — owner-cap lock", () => {
+describe("createInstitutionWorkspaceForUser owner-cap lock", () => {
   const makeSeqNode = (result: unknown[]) => {
     const node: Record<string, unknown> = {};
     for (const m of ["from", "innerJoin", "where", "limit"]) node[m] = () => node;
@@ -1533,70 +1073,7 @@ describe("createInstitutionWorkspaceForUser / createPersonalInstitutionForUser �
     return { db, capturedLockKeys, insertedMemberships };
   };
 
-  // Personal create-path mock. db.select #1 = personal pre-check count; #2 = owner-username load.
-  const makePersonalRaceDb = (opts: {
-    preCheckCount: number;
-    inTxCount: number;
-    username?: string;
-  }) => {
-    const capturedLockKeys: string[] = [];
-    const insertedMemberships: Array<Record<string, unknown>> = [];
-    let sel = 0;
-    const tx = {
-      ...txCapGuards(opts.inTxCount, capturedLockKeys),
-      insert: vi.fn((table: unknown) => {
-        if (table === institutions) {
-          return {
-            values: (values: {
-              displayName: string | null;
-              slug: string;
-              status: string;
-              institutionType: string | null;
-            }) => ({
-              returning: async () => [
-                {
-                  institutionId: "inst_p",
-                  institutionDisplayName: values.displayName ?? null,
-                  institutionSlug: values.slug,
-                  institutionStatus: values.status,
-                  institutionType: values.institutionType ?? null,
-                  institutionCreatedAt: new Date("2026-07-08T00:00:00.000Z"),
-                  institutionUpdatedAt: new Date("2026-07-08T00:00:00.000Z"),
-                },
-              ],
-            }),
-          };
-        }
-        return {
-          values: (values: Record<string, unknown>) => {
-            insertedMemberships.push(values);
-            return {
-              returning: async () => [
-                {
-                  membershipId: "mem_p",
-                  membershipRole: values.membershipRole,
-                  membershipStatus: values.status,
-                  membershipJoinedAt: new Date("2026-07-08T00:00:00.000Z"),
-                },
-              ],
-            };
-          },
-        };
-      }),
-    };
-    const db = {
-      select: vi.fn(() => {
-        sel += 1;
-        return sel === 1
-          ? makeSeqNode([{ value: opts.preCheckCount }])
-          : makeSeqNode([{ username: opts.username ?? "owneruser" }]);
-      }),
-      transaction: vi.fn(async (cb: (t: typeof tx) => Promise<unknown>) => cb(tx)),
-    } as unknown as Database;
-    return { db, capturedLockKeys, insertedMemberships };
-  };
-
-  it("full: the in-transaction guard rejects a racer that passed the pre-check (same 409, nothing written)", async () => {
+  it("the in-transaction guard rejects a racer that passed the pre-check (same 409, nothing written)", async () => {
     // Pre-check sees MAX-1 (passes); a concurrent create commits; the in-tx re-count sees MAX and trips.
     const { db, capturedLockKeys, insertedMemberships } = makeFullRaceDb({
       preCheckCount: MAX_INSTITUTIONS_PER_RECRUITER - 1,
@@ -1614,22 +1091,6 @@ describe("createInstitutionWorkspaceForUser / createPersonalInstitutionForUser �
     // Guard fired before any insert committed — no owner membership row written.
     expect(insertedMemberships).toEqual([]);
     // Lock acquired, keyed on the acting owner.
-    expect(capturedLockKeys).toEqual(["inst_owner_cap:racer_user"]);
-  });
-
-  it("personal: the in-transaction guard rejects a racer that passed the pre-check (same 409, nothing written)", async () => {
-    const { db, capturedLockKeys, insertedMemberships } = makePersonalRaceDb({
-      preCheckCount: 0, // pre-check passes (0 < 1)
-      inTxCount: MAX_PERSONAL_INSTITUTIONS_PER_RECRUITER, // racer created one → in-tx count = 1 trips
-      username: "solo",
-    });
-
-    await expect(createPersonalInstitutionForUser("racer_user", db)).rejects.toMatchObject({
-      code: "personal_institution_already_exists",
-      httpStatus: 409,
-    });
-
-    expect(insertedMemberships).toEqual([]);
     expect(capturedLockKeys).toEqual(["inst_owner_cap:racer_user"]);
   });
 
@@ -1652,5 +1113,67 @@ describe("createInstitutionWorkspaceForUser / createPersonalInstitutionForUser �
     expect(b.capturedLockKeys).toEqual(["inst_owner_cap:owner_B"]);
     // Distinct keys → owner A's lock can never block owner B's create.
     expect(a.capturedLockKeys[0]).not.toBe(b.capturedLockKeys[0]);
+  });
+
+  it("takes the owner lock after the account guard and before the in-transaction count", async () => {
+    const calls: string[] = [];
+    const guards = txCapGuards(0);
+    const tx = {
+      select: vi.fn(() => {
+        calls.push("select");
+        return guards.select();
+      }),
+      execute: vi.fn((query?: unknown) => {
+        calls.push("lock");
+        return guards.execute(query);
+      }),
+      insert: vi.fn((table: unknown) => {
+        calls.push("insert");
+        if (table === institutions) {
+          return {
+            values: (values: { displayName: string; slug: string; status: string }) => ({
+              returning: async () => [
+                {
+                  institutionId: "inst_new",
+                  institutionDisplayName: values.displayName,
+                  institutionSlug: values.slug,
+                  institutionStatus: values.status,
+                  institutionCreatedAt: new Date("2026-07-08T00:00:00.000Z"),
+                  institutionUpdatedAt: new Date("2026-07-08T00:00:00.000Z"),
+                },
+              ],
+            }),
+          };
+        }
+        return {
+          values: (values: Record<string, unknown>) => ({
+            returning: async () => [
+              {
+                membershipId: "mem_new",
+                membershipRole: values.membershipRole,
+                membershipStatus: values.status,
+                membershipJoinedAt: new Date("2026-07-08T00:00:00.000Z"),
+              },
+            ],
+          }),
+        };
+      }),
+    };
+    let sel = 0;
+    const db = {
+      select: vi.fn(() => {
+        sel += 1;
+        return makeSeqNode(sel === 1 ? [{ value: 0 }] : []);
+      }),
+      transaction: vi.fn(async (cb: (t: typeof tx) => Promise<unknown>) => cb(tx)),
+    } as unknown as Database;
+
+    await createInstitutionWorkspaceForUser(
+      "owner_A",
+      { displayName: "Kampus Urut", institutionType: "personal" },
+      db,
+    );
+
+    expect(calls).toEqual(["select", "lock", "select", "insert", "insert"]);
   });
 });

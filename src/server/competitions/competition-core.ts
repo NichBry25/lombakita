@@ -110,10 +110,7 @@ type CompetitionErrorCode =
   | "competition_fee_not_enabled"
   | "competition_already_cancelled"
   | "competition_participation_not_configured"
-  | "competition_participation_decision_unavailable"
-  // Personal-institution reach caps.
-  | "competition_personal_individual_only"
-  | "competition_personal_publish_limit";
+  | "competition_participation_decision_unavailable";
 
 // Structured publish-validation failure surfaced to clients.
 // Codes: `missing` (field is null/empty) | `out_of_order` (date pair inconsistent) |

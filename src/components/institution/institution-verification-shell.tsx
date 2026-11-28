@@ -25,10 +25,6 @@ import {
   REQUIRED_DOCUMENTS_BY_TYPE,
 } from "@/server/institution-verification/verification-requirements";
 import type { InstitutionType } from "@/server/db/schema";
-// Type-only: importing the enum VALUE would pull the Drizzle schema into the client bundle. The
-// exhaustive Record below is the compile-time guarantee instead — a new full subtype fails to build
-// until it is given a label here.
-import type { FullInstitutionType } from "@/server/institution-workspace/institution-type";
 import { INSTITUTION_TYPE_LABELS } from "@/lib/institutions/type-labels";
 import { formatDisplayToken } from "@/lib/text/capitalize";
 import { errorMessageFor, NETWORK_ERROR_MESSAGE } from "@/lib/errors/error-copy";
@@ -89,9 +85,9 @@ type DocField = {
 type InstitutionVerificationShellProps = {
   institutionSlug: string;
   expectedUserId: string;
-  // The institution's type, fixed at creation. Verification proves it; it never chooses or changes
-  // it. Personal institutions never reach this shell (they get the upgrade page).
-  institutionType: FullInstitutionType;
+  // The institution's type, fixed at creation. Verification proves it, and it never chooses or
+  // changes it. A personal workspace never reaches this shell (the page sends its owner to the hub).
+  institutionType: InstitutionType;
   // Read server-side from the institution's own verification_status, so the form is never rendered
   // for an institution that already has its verdict. The server refuses such a submission anyway;
   // this is what keeps the page from offering an action it would then reject.
@@ -110,7 +106,7 @@ const SUBMIT_ERROR_COPY: Partial<Record<string, string>> = {
   verification_storage_unavailable: "Unggahan berkas sedang tidak tersedia. Coba lagi nanti.",
   institution_not_found: "Institusi tidak ditemukan, atau Anda bukan pemiliknya.",
   institution_verification_not_applicable:
-    "Institusi personal tidak memerlukan verifikasi dokumen. Tingkatkan institusi terlebih dahulu.",
+    "Verifikasi dokumen belum tersedia untuk institusi pribadi.",
   institution_already_verified: "Institusi ini sudah terverifikasi.",
   missing_required_documents: "Lengkapi semua dokumen yang dibutuhkan lalu kirim lagi.",
   verification_submission_already_pending:

@@ -9,8 +9,6 @@ const FEATURED_ERROR_COPY: Partial<Record<string, string>> = {
   invalid_competition_id: "Permintaan tidak dapat diproses. Muat ulang halaman lalu coba lagi.",
   invalid_body: "Urutan harus berupa bilangan bulat.",
   competition_not_found: "Kompetisi tidak ditemukan.",
-  competition_personal_not_featurable:
-    "Kompetisi dari institusi personal tidak dapat dijadikan unggulan.",
   competition_not_published:
     "Hanya kompetisi berstatus terbit yang dapat dijadikan unggulan. Muat ulang halaman untuk melihat status terbaru.",
   operator_actor_not_found: "Akun Anda tidak ditemukan. Masuk lagi untuk melanjutkan.",

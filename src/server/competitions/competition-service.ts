@@ -56,8 +56,6 @@ import {
   assertInstitutionVerified,
   assertPublicFieldsUnchangedByRemovedHost,
   assertUnpublishNotByRemovedHost,
-  assertPersonalCompetitionPublishable,
-  assertPersonalInstitutionIndividualMode,
   hasActiveRegistrationsForCompetition,
   MEMBER_ROLES,
   PUBLIC_COMPETITION_COLUMNS,
@@ -239,10 +237,6 @@ export const createCompetitionDraft = async (
   // normalized to that mode so a freshly created draft never persists null/inconsistent sizes
   // (e.g. an individual competition must store 1/1, not null/null).
   const effectiveMode = input.mode ?? "individual";
-
-  // A personal institution can only run individual-mode competitions. No-op for full
-  // or legacy institutions; throws 422 competition_personal_individual_only for personal + team/both.
-  await assertPersonalInstitutionIndividualMode(institutionId, effectiveMode, db);
 
   const { minTeamSize, maxTeamSize } = resolveTeamSizesForMode(
     effectiveMode,
@@ -882,12 +876,6 @@ export const updateCompetitionDraft = async (
 
   validateRegistrationEndInFuture(patch.registrationEndAt);
 
-  // A draft edit may not move a personal-owned competition off individual mode.
-  // Only checked when the patch actually touches mode (no-op for full/legacy institutions).
-  if (patch.mode !== undefined) {
-    await assertPersonalInstitutionIndividualMode(competition.institutionId, patch.mode, db);
-  }
-
   const updates: Record<string, unknown> = { updatedAt: sql`now()` };
   applySimplePatchColumns(updates, patch);
 
@@ -1090,14 +1078,6 @@ export const transitionCompetitionStatus = async (
     if (isPaidCompetition(pricing.feeAmount)) {
       await assertInstitutionVerified(competition.institutionId, db);
     }
-
-    // Personal-institution reach cap: at most MAX_PUBLISHED_COMPETITIONS_FOR_PERSONAL
-    // competitions may be in published status at once, and the mode must be individual. No-op for
-    // full or legacy institutions.
-    await assertPersonalCompetitionPublishable(
-      { id: competition.id, institutionId: competition.institutionId, mode: competition.mode },
-      db,
-    );
 
     // Last, so an untrusted host's press opens a host check only for a draft that passes every
     // other check.

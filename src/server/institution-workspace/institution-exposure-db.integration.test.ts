@@ -2,17 +2,14 @@
 //
 // WHAT AN INSTITUTION EXPOSES PUBLICLY — against a real Postgres.
 //
-// Two questions are asked here, and they have DIFFERENT answers, which is the point (DEC-0158):
+// The page renders for every institution that is not suspended, and the sitemap lists exactly the
+// same institutions, of every kind and verification status. Verification is not a rendering gate,
+// because a free competition publishes from an unverified organizer (DEC-0158).
 //
-//   1. Does the page render?     Suspended institutions only. Verification is not a rendering gate,
-//                                because a free competition publishes from an unverified organizer.
-//   2. Does it get indexed?      Rendering, minus personal institutions, minus anything unverified.
-//
-// The sitemap answers (2) in a WHERE clause and `generateMetadata` answers it in memory, so the two
-// are separate spellings of one rule and nothing but a test keeps them in step. The grid below walks
-// every combination of verification status, institution type and suspension and asserts they agree —
-// because the failure this guards is a sitemap that starts advertising organizers whose own page
-// says "do not index", and the sitemap is the copy nobody opens.
+// The sitemap reads the render predicate in its WHERE clause, and the grid below walks every kind,
+// verification status and suspension and asserts that the sitemap and the page agree, because the
+// failure this guards is a sitemap that advertises an organizer whose own page does not render, and
+// the sitemap is the copy nobody opens.
 //
 // The contact fields are the other half. They are gated on verification AND on who is asking, and the
 // decision is made on the server against the database: the fields are nulled in the payload rather
@@ -31,14 +28,17 @@ import { competitions, institutionMemberships, institutions, users } from "@/ser
 import { TEST_DATABASE_URL, skipWithoutDatabase } from "@/server/testing/database-url";
 import type { Database } from "@/server/db/client";
 import { getPublicCompetitionDetail } from "@/server/competitions/competition-public-service";
-import { NEW_INSTITUTION_DEFAULT_STATUS } from "@/server/institution-workspace/institution-service";
+import {
+  NEW_INSTITUTION_DEFAULT_STATUS,
+  createInstitutionWorkspaceForUser,
+} from "@/server/institution-workspace/institution-service";
 import {
   ANONYMOUS_INSTITUTION_VIEWER,
   getPublicInstitution,
-  isIndexableInstitution,
   listSitemapInstitutions,
   type InstitutionPublicViewer,
 } from "@/server/institution-workspace/institution-public-service";
+import { suspendInstitution } from "@/server/moderation/moderation-service";
 
 const DATABASE_URL = TEST_DATABASE_URL;
 const client = DATABASE_URL ? postgres(DATABASE_URL, { max: 1 }) : null;
@@ -91,8 +91,7 @@ const seedInstitution = async (
     .values({
       slug: `exposure-inst-${id}`,
       institutionType,
-      // `institutions_display_name_type_chk` allows a null display name only for `personal`.
-      displayName: institutionType === "personal" ? null : `Exposure Fixture ${id}`,
+      displayName: `Exposure Fixture ${id}`,
       // The value the production creation path writes, not the column's schema default.
       status: NEW_INSTITUTION_DEFAULT_STATUS,
       verificationStatus: options.verificationStatus ?? "pending_verification",
@@ -141,101 +140,102 @@ const sitemapSlugs = async (tx: Tx): Promise<string[]> =>
 const pageFor = async (tx: Tx, slug: string, viewer?: InstitutionPublicViewer) =>
   getPublicInstitution(slug, viewer ?? ANONYMOUS_INSTITUTION_VIEWER, tx as unknown as Database);
 
-/**
- * The page's own indexing answer, composed exactly as `generateMetadata` composes it.
- *
- * A page that does not render emits no `robots` directive either — the not-found branch returns a
- * title and nothing else — so a missing page and a non-indexable page are the same answer here.
- */
-const pageIsIndexable = async (tx: Tx, slug: string): Promise<boolean> => {
-  const page = await pageFor(tx, slug);
-  return page !== null && isIndexableInstitution(page);
-};
+describe.skipIf(skipWithoutDatabase)("sitemap membership and the rendered page agree", () => {
+  it("the sitemap lists every workspace that is not suspended", async () => {
+    const kinds: InstitutionType[] = [
+      "personal",
+      "company",
+      "foundation",
+      "university",
+      "campus_organization",
+    ];
+    const statuses: VerificationStatus[] = [
+      "pending_verification",
+      "under_review",
+      "verified",
+      "rejected",
+    ];
 
-describe.skipIf(skipWithoutDatabase)(
-  "sitemap membership and the page's robots answer agree",
-  () => {
-    it("agrees over every verification status, institution type and suspension state", async () => {
-      const statuses: VerificationStatus[] = [
-        "pending_verification",
-        "under_review",
-        "verified",
-        "rejected",
-      ];
-      const types: InstitutionType[] = ["company", "personal"];
+    await inRollback(async (tx) => {
+      const seeded: { slug: string; suspended: boolean; label: string }[] = [];
 
-      await inRollback(async (tx) => {
-        const seeded: { slug: string; label: string }[] = [];
-
+      for (const institutionType of kinds) {
         for (const verificationStatus of statuses) {
-          for (const institutionType of types) {
-            for (const suspended of [false, true]) {
-              const institution = await seedInstitution(tx, {
-                verificationStatus,
-                institutionType,
-                suspended,
-              });
-              seeded.push({
-                slug: institution.slug,
-                label: `${verificationStatus}/${institutionType}/suspended=${suspended}`,
-              });
-            }
+          for (const suspended of [false, true]) {
+            const institution = await seedInstitution(tx, {
+              verificationStatus,
+              institutionType,
+              suspended,
+            });
+            seeded.push({
+              slug: institution.slug,
+              suspended,
+              label: `${verificationStatus}/${institutionType}/suspended=${suspended}`,
+            });
           }
         }
+      }
 
-        const sitemap = await sitemapSlugs(tx);
+      const sitemap = await sitemapSlugs(tx);
 
-        for (const { slug, label } of seeded) {
-          expect(
-            sitemap.includes(slug),
-            `${label}: the sitemap and the page's robots directive disagree`,
-          ).toBe(await pageIsIndexable(tx, slug));
-        }
+      for (const { slug, suspended, label } of seeded) {
+        expect(sitemap.includes(slug), `${label}: sitemap membership`).toBe(!suspended);
+        const page = await pageFor(tx, slug);
+        expect(page !== null, `${label}: the page renders`).toBe(!suspended);
+      }
 
-        // The grid is only meaningful if it produced both answers. Without this the whole block would
-        // pass against a sitemap that listed nothing and a page that indexed nothing.
-        const indexed = seeded.filter(({ slug }) => sitemap.includes(slug));
-        expect(indexed.length).toBeGreaterThan(0);
-        expect(indexed.length).toBeLessThan(seeded.length);
-      });
+      const listed = seeded.filter(({ slug }) => sitemap.includes(slug));
+      expect(listed.length).toBe(20);
+      expect(seeded.length).toBe(40);
     });
+  });
 
-    it("keeps rendering an unverified organizer's page while withholding it from the sitemap", async () => {
-      await inRollback(async (tx) => {
-        const institution = await seedInstitution(tx, {
-          verificationStatus: "pending_verification",
-          institutionType: "company",
-          suspended: false,
-        });
+  it("drops a workspace from the sitemap and from its page once staff suspend it", async () => {
+    await inRollback(async (tx) => {
+      const owner = await seedUser(tx, "recruiter");
+      const shell = await createInstitutionWorkspaceForUser(
+        owner,
+        { displayName: `Ruang Uji Sitemap ${uniqueSuffix()}`, institutionType: "personal" },
+        tx as unknown as Database,
+      );
+      const operator = await seedUser(tx, "platform_ops");
 
-        const page = await pageFor(tx, institution.slug);
+      const listedBefore = await sitemapSlugs(tx);
+      const pageBefore = await pageFor(tx, shell.slug);
 
-        expect(
-          page,
-          "a free competition may publish from an unverified institution (DEC-0158), so its page must render; only verified institutions are indexed",
-        ).not.toBeNull();
-        expect(isIndexableInstitution(page!)).toBe(false);
-        expect(await sitemapSlugs(tx)).not.toContain(institution.slug);
-      });
+      await suspendInstitution(
+        operator,
+        shell.institutionId,
+        "Uji penangguhan ruang kerja",
+        tx as unknown as Database,
+      );
+
+      const listedAfter = await sitemapSlugs(tx);
+      const pageAfter = await pageFor(tx, shell.slug);
+
+      expect(listedBefore).toContain(shell.slug);
+      expect(pageBefore?.institutionType).toBe("personal");
+      expect(listedAfter).not.toContain(shell.slug);
+      expect(pageAfter).toBeNull();
     });
+  });
 
-    it("keeps the render predicate on suspension alone", async () => {
-      await inRollback(async (tx) => {
-        const active = await seedInstitution(tx, { verificationStatus: "rejected" });
-        const suspended = await seedInstitution(tx, { suspended: true });
+  it("keeps the render predicate on suspension alone", async () => {
+    await inRollback(async (tx) => {
+      const active = await seedInstitution(tx, { verificationStatus: "rejected" });
+      const suspended = await seedInstitution(tx, { suspended: true });
 
-        // The render predicate is unchanged by this step, and the unverified-active row is what makes
-        // the assertion discriminating: a predicate that had quietly grown a verification term would
-        // still return the suspended row as null. `rejected` is used rather than `pending_verification`
-        // so the row cannot be accused of passing on a status the gate might plausibly allow.
-        expect(await pageFor(tx, active.slug)).not.toBeNull();
-        expect(await pageFor(tx, suspended.slug)).toBeNull();
-        // And the sitemap excludes the suspended row for the same reason the page does.
-        expect(await sitemapSlugs(tx)).not.toContain(suspended.slug);
-      });
+      // The render predicate is unchanged by this step, and the unverified-active row is what makes
+      // the assertion discriminating: a predicate that had quietly grown a verification term would
+      // still return the suspended row as null. `rejected` is used rather than `pending_verification`
+      // so the row cannot be accused of passing on a status the gate might plausibly allow.
+      expect(await pageFor(tx, active.slug)).not.toBeNull();
+      expect(await pageFor(tx, suspended.slug)).toBeNull();
+      // And the sitemap excludes the suspended row for the same reason the page does.
+      expect(await sitemapSlugs(tx)).not.toContain(suspended.slug);
     });
-  },
-);
+  });
+});
 
 describe.skipIf(skipWithoutDatabase)("contact disclosure by viewer", () => {
   const contactKeysOf = (page: {
@@ -403,7 +403,7 @@ describe.skipIf(skipWithoutDatabase)("contact disclosure by viewer", () => {
     });
   });
 
-  it("never carries a contact for a personal institution, whatever the viewer", async () => {
+  it("shows a personal workspace's contacts to its owner and withholds them from a stranger", async () => {
     await inRollback(async (tx) => {
       const institution = await seedInstitution(tx, {
         institutionType: "personal",
@@ -412,16 +412,25 @@ describe.skipIf(skipWithoutDatabase)("contact disclosure by viewer", () => {
       const owner = await seedUser(tx, "recruiter");
       await addMembership(tx, institution.id, owner, "institution_owner");
 
-      const page = (await pageFor(tx, institution.slug, {
+      const ownerPage = (await pageFor(tx, institution.slug, {
         userId: owner,
         isPlatformOps: false,
         isPreview: false,
       }))!;
+      const strangerPage = (await pageFor(tx, institution.slug))!;
 
-      // The page only redirects to the owner's profile, so no contact section is ever rendered —
-      // including for the owner, who would otherwise be told "only members can see this".
-      expect(page.contactDisclosure).toEqual({ kind: "hidden" });
-      expect(contactKeysOf(page)).toEqual({
+      expect(ownerPage.contactDisclosure).toEqual({
+        kind: "members_only",
+        viewerIsPlatformOps: false,
+      });
+      expect(contactKeysOf(ownerPage)).toEqual({
+        contactName: "Panitia Expo",
+        contactEmail: ownerPage.contactEmail,
+        contactPhone: "+62215550123",
+      });
+      expect(ownerPage.contactEmail).toContain("@example.test");
+      expect(strangerPage.contactDisclosure).toEqual({ kind: "hidden" });
+      expect(contactKeysOf(strangerPage)).toEqual({
         contactName: null,
         contactEmail: null,
         contactPhone: null,

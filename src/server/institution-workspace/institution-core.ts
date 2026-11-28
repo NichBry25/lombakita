@@ -6,9 +6,8 @@ import type {
   InstitutionType,
 } from "@/server/db/schema";
 import {
-  FULL_INSTITUTION_TYPES,
-  isFullInstitutionType,
-  type FullInstitutionType,
+  INSTITUTION_TYPES,
+  isInstitutionType,
 } from "@/server/institution-workspace/institution-type";
 import { RESERVED_WORDS } from "@/lib/username/reserved-words";
 
@@ -42,7 +41,7 @@ export type InstitutionWorkspaceShell = {
   displayName: string;
   slug: string;
   status: InstitutionStatus;
-  // "personal" for the capped single-member type; a full subtype for every other institution.
+  // The kind the host picked on the create form.
   // Never null — institution_type is NOT NULL and set at creation.
   institutionType: InstitutionType;
   // Short free-text description, editable in settings for every type. Null when unset.
@@ -60,9 +59,8 @@ export type InstitutionWorkspaceShell = {
 export type InstitutionWorkspaceCreateInput = {
   displayName: string;
   slug: string | null;
-  // A full institution declares its subtype at creation. `personal` is not accepted here — a
-  // personal institution is created through POST /api/v1/institutions/personal.
-  institutionType: FullInstitutionType;
+  // Every kind is allowed here, `personal` included, and the kind is fixed at creation.
+  institutionType: InstitutionType;
 };
 
 export type InstitutionWorkspaceSettingsPatch = {
@@ -85,11 +83,10 @@ type InstitutionWorkspaceInputErrorCode =
   | "institution_slug_reserved"
   | "institution_display_name_reserved"
   | "recruiter_institution_limit_reached"
-  // A recruiter may hold at most one personal institution.
-  | "personal_institution_already_exists"
-  // A full institution's slug shares one flat namespace with usernames; it may not take a slug an
+  // An institution's slug shares one flat namespace with usernames, so it may not take a slug an
   // existing user's username already occupies.
   | "institution_slug_conflicts_with_username"
+  | "institution_create_blocked_trust_removed"
   // Thrown by the shared de-identified-account guard, not by this module: creating an institution
   // gives the account an owner membership in it, and an account whose data has been deleted is not
   // one an institution can be created for.
@@ -112,8 +109,6 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 };
 
-// Exported as parseInstitutionDisplayName below so the type-upgrade path can validate the official
-// institution name it collects with exactly the rules the create and settings paths apply.
 const parseDisplayName = (value: unknown): string => {
   if (typeof value !== "string") {
     throw new InstitutionWorkspaceInputError(
@@ -331,12 +326,10 @@ export const parseInstitutionWorkspaceCreateInput = (
     );
   }
 
-  // Only the four full subtypes are valid here. `personal` (and any unrecognized value) is rejected —
-  // a personal institution has its own create path.
-  if (!isFullInstitutionType(record.institutionType)) {
+  if (!isInstitutionType(record.institutionType)) {
     throw new InstitutionWorkspaceInputError(
       "institution_invalid_value",
-      `institutionType must be one of: ${FULL_INSTITUTION_TYPES.join(", ")}`,
+      `institutionType must be one of: ${INSTITUTION_TYPES.join(", ")}`,
       { fields: ["institutionType"] },
     );
   }
@@ -370,21 +363,6 @@ export const parseInstitutionWorkspaceSettingsPatch = (
   }
 
   return patch;
-};
-
-// Standalone display-name validation for callers that supply a name outside the create/settings
-// payload shapes — currently the personal→full type upgrade, which collects the official
-// institution name in its own form.
-export const parseInstitutionDisplayName = (value: unknown): string => parseDisplayName(value);
-
-// Standalone optional-description validation for the personal→full upgrade, which collects an
-// optional description in its own form. `undefined` (field omitted) yields null; the same rules as
-// the settings-patch path otherwise.
-export const parseInstitutionDescription = (value: unknown): string | null => {
-  if (value === undefined) {
-    return null;
-  }
-  return parseDescription(value);
 };
 
 export const parseInstitutionSlugParam = (value: string): string => {

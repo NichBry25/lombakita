@@ -60,5 +60,6 @@ describe("InstitutionCreatePage — session guard redirects", () => {
     const result = await InstitutionCreatePage();
     expect(mockRedirect).not.toHaveBeenCalled();
     expect(result).toBeTruthy();
+    expect(result.props.expectedUserId).toBe("u_recruiter");
   });
 });

@@ -1,15 +1,9 @@
 import { logger } from "@/lib/logger";
-import {
-  resolveInstitutionMediaKeys,
-  type InstitutionMediaSource,
-  type InstitutionOwnerMedia,
-} from "@/server/institution-workspace/institution-media";
 import { generatePresignedGetUrl, isR2Available } from "@/server/storage/r2.client";
 
-// Turning stored object keys into displayable URLs. Kept apart from the key derivation itself so
-// that derivation stays a pure function with no storage dependency, and apart from
-// institution-media-service so read paths can use it without importing the write path (which
-// depends on institution-service and would form a cycle).
+// Turning stored object keys into displayable URLs. Kept apart from institution-media-service so read
+// paths can use it without importing the write path (which depends on institution-service and would
+// form a cycle).
 
 const READ_URL_EXPIRY_SECONDS = 3600;
 
@@ -29,15 +23,14 @@ export const resolveInstitutionMediaUrl = async (key: string | null): Promise<st
   }
 };
 
-// Resolves both display URLs for an institution in one step, applying the personal derivation.
-export const resolveInstitutionMediaUrls = async (
-  institution: InstitutionMediaSource,
-  ownerMedia?: InstitutionOwnerMedia | null,
-): Promise<{ logoUrl: string | null; bannerUrl: string | null }> => {
-  const { logoKey, bannerKey } = resolveInstitutionMediaKeys(institution, ownerMedia);
+// Resolves both display URLs of an institution in one step, from the logo and banner keys it stores.
+export const resolveInstitutionMediaUrls = async (institution: {
+  logoR2Key: string | null;
+  bannerR2Key: string | null;
+}): Promise<{ logoUrl: string | null; bannerUrl: string | null }> => {
   const [logoUrl, bannerUrl] = await Promise.all([
-    resolveInstitutionMediaUrl(logoKey),
-    resolveInstitutionMediaUrl(bannerKey),
+    resolveInstitutionMediaUrl(institution.logoR2Key),
+    resolveInstitutionMediaUrl(institution.bannerR2Key),
   ]);
   return { logoUrl, bannerUrl };
 };

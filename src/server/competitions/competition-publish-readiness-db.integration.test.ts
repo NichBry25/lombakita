@@ -6,7 +6,7 @@
 // do rather than what the FORM looks like. That promise is only worth anything if the two answers
 // are the same answer, so this suite builds a fixture that fails exactly ONE gate, asks readiness
 // what it thinks, and then POSTs the real publish endpoint and reads what IT thinks. Both must name
-// the same code, seven times over, once per gate.
+// the same code, once per gate.
 //
 // The publish call is the production route, not the service function. A route that mapped the code
 // to something else — or dropped it — would satisfy a service-level assertion while lying to the
@@ -262,8 +262,7 @@ const seedFixture = async (tx: Tx, options: SeedOptions = {}): Promise<Fixture> 
     .values({
       slug: `readiness-inst-${id}`,
       institutionType,
-      // `institutions_display_name_type_chk` allows a null display name only for `personal`.
-      displayName: institutionType === "personal" ? null : `Readiness Fixture ${id}`,
+      displayName: `Readiness Fixture ${id}`,
       status: NEW_INSTITUTION_DEFAULT_STATUS,
       verificationStatus: options.verificationStatus ?? "pending_verification",
       suspendedAt: options.suspended ? new Date() : null,
@@ -385,23 +384,6 @@ const GATE_CASES: GateCase[] = [
     seed: (tx) => seedFixture(tx, { feeAmount: 50_000 }),
     expectedHttpStatus: 422,
   },
-  {
-    code: "competition_personal_individual_only",
-    seed: (tx) =>
-      seedFixture(tx, {
-        institutionType: "personal",
-        mode: "team",
-        minTeamSize: 2,
-        maxTeamSize: 5,
-      }),
-    expectedHttpStatus: 422,
-  },
-  {
-    code: "competition_personal_publish_limit",
-    seed: (tx) =>
-      seedFixture(tx, { institutionType: "personal", mode: "individual", otherPublished: 2 }),
-    expectedHttpStatus: 422,
-  },
 ];
 
 describe.skipIf(skipWithoutDatabase)(
@@ -503,6 +485,33 @@ describe.skipIf(skipWithoutDatabase)("a competition that can publish", () => {
         actorRole: "institution_staff",
         feeAmount: 50_000,
         verificationStatus: "verified",
+      });
+
+      const readiness = await readinessFor(fixture.actorUserId, fixture.competitionId, tx);
+      expect(readiness.blockers).toEqual([]);
+      expect(readiness.canPublish).toBe(true);
+
+      const published = await publishViaRoute(fixture, fixture.actorUserId, tx);
+      expect(published.status).toBe(200);
+      expect(published.code).toBeNull();
+
+      const [row] = await tx
+        .select({ status: competitions.status })
+        .from(competitions)
+        .where(eq(competitions.id, fixture.competitionId))
+        .limit(1);
+      expect(row?.status).toBe("published");
+    });
+  });
+
+  it("reports canPublish for a team draft of a personal workspace with two published, and the endpoint publishes it", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx, {
+        institutionType: "personal",
+        mode: "team",
+        minTeamSize: 2,
+        maxTeamSize: 5,
+        otherPublished: 2,
       });
 
       const readiness = await readinessFor(fixture.actorUserId, fixture.competitionId, tx);

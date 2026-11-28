@@ -138,10 +138,7 @@ import {
   verifyEmailCodeAndSetPassword,
 } from "@/server/auth/credentials-auth";
 import { markRoleAsVerified } from "@/server/auth/role-verification";
-import {
-  createInstitutionWorkspaceForUser,
-  createPersonalInstitutionForUser,
-} from "@/server/institution-workspace/institution-service";
+import { createInstitutionWorkspaceForUser } from "@/server/institution-workspace/institution-service";
 import {
   createCompetitionDraft,
   updateCompetitionDraft,
@@ -265,8 +262,19 @@ const signUpHost = async (tx: Database, address: string): Promise<string> => {
 
 type Workspace = { institutionId: string; slug: string };
 
+// A name per owner gives each owner its own slug, so test files running at once never wait on one
+// another's uncommitted slug.
+const personalWorkspaceDetails = (ownerId: string) => ({
+  displayName: `Ruang Kerja ${ownerId.slice(0, 8)}`,
+  institutionType: "personal",
+});
+
 const ownWorkspace = async (tx: Database, ownerId: string): Promise<Workspace> => {
-  const workspace = await createPersonalInstitutionForUser(ownerId, tx);
+  const workspace = await createInstitutionWorkspaceForUser(
+    ownerId,
+    personalWorkspaceDetails(ownerId),
+    tx,
+  );
   return { institutionId: workspace.institutionId, slug: workspace.slug };
 };
 
@@ -885,6 +893,7 @@ describe.skipIf(skipWithoutDatabase)("the staff removal of a host's trust (rolle
   it("keeps a removed host untrusted through an Email organisasi confirm and sends its next press to a host check", async () => {
     await inRollback(async (tx) => {
       const host = await signUpHost(tx, HOST_ADDRESS);
+      const workspace = await ownWorkspace(tx, host);
       const operator = await plantOperator(tx, OPERATOR_ADDRESS);
       const removed = await removeThroughRoute(tx, operator, host, { reason: REASON });
       expect(removed.status).toBe(200);
@@ -895,7 +904,6 @@ describe.skipIf(skipWithoutDatabase)("the staff removal of a host's trust (rolle
       expect(confirmed).toEqual({ email: ORGANIZATION_ADDRESS, trustSource: null });
       expect(await tierOf(tx, host)).toBe("minimal");
 
-      const workspace = await ownWorkspace(tx, host);
       const draft = await createPublishableDraft(tx, host, workspace.slug, FIRST_TITLE);
 
       const pressed = await pressOn(tx, host, workspace, draft);
@@ -1636,7 +1644,6 @@ const WORKSPACE_DETAILS = {
   institutionType: "campus_organization",
 };
 
-// A personal workspace refuses every invitation, so these tests need a full one.
 const fullWorkspace = async (tx: Database, ownerId: string): Promise<Workspace> => {
   const workspace = await createInstitutionWorkspaceForUser(ownerId, WORKSPACE_DETAILS, tx);
   return { institutionId: workspace.institutionId, slug: workspace.slug };
@@ -1810,6 +1817,26 @@ describe.skipIf(skipWithoutDatabase)(
 
         expect(invited.status).toBe(201);
         expect(await invitedRolesOf(tx, workspace.institutionId)).toEqual(["institution_member"]);
+      });
+    });
+
+    it("refuses a host whose trust staff removed an invitation as staff from a personal workspace and writes no invitation", async () => {
+      await inRollback(async (tx) => {
+        const host = await signUpHost(tx, HOST_ADDRESS);
+        const workspace = await ownWorkspace(tx, host);
+        const operator = await plantOperator(tx, OPERATOR_ADDRESS);
+        const removed = await removeThroughRoute(tx, operator, host, { reason: REASON });
+        await signUpHost(tx, THIRD_HOST_ADDRESS);
+
+        const invited = await inviteThroughRoute(tx, host, workspace.slug, {
+          invitedIdentifier: THIRD_HOST_ADDRESS,
+          invitedRole: "institution_staff",
+        });
+
+        expect(removed.status).toBe(200);
+        expect(invited.status).toBe(403);
+        expect(invited.body.error?.code).toBe(INVITATION_REFUSAL_CODE);
+        expect(await invitedRolesOf(tx, workspace.institutionId)).toEqual([]);
       });
     });
 

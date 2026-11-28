@@ -3,11 +3,7 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 assertServerOnly("server/search/competition-index-documents");
 
 import { and, eq, isNull } from "drizzle-orm";
-import { competitions, institutions, type InstitutionType } from "@/server/db/schema";
-import {
-  getInstitutionDisplayName,
-  institutionOwnerUsernameSql,
-} from "@/server/institution-workspace/institution-display-name";
+import { competitions, institutions } from "@/server/db/schema";
 import type { CompetitionIndexDocument } from "@/server/search/competition-index";
 
 /**
@@ -22,9 +18,6 @@ import type { CompetitionIndexDocument } from "@/server/search/competition-index
 
 /**
  * The columns every index document is built from.
- *
- * `institutionOwnerUsername` is a correlated subquery rather than a join, so it is safe against a
- * multi-owner institution multiplying rows. It requires `institutions` in the FROM/JOIN set.
  */
 export const COMPETITION_INDEX_COLUMNS = {
   id: competitions.id,
@@ -38,8 +31,6 @@ export const COMPETITION_INDEX_COLUMNS = {
   featuredOrder: competitions.featuredOrder,
   institutionSlug: institutions.slug,
   institutionDisplayName: institutions.displayName,
-  institutionType: institutions.institutionType,
-  institutionOwnerUsername: institutionOwnerUsernameSql,
 } as const;
 
 export type CompetitionIndexRow = {
@@ -53,9 +44,7 @@ export type CompetitionIndexRow = {
   isFeatured: boolean;
   featuredOrder: number | null;
   institutionSlug: string;
-  institutionDisplayName: string | null;
-  institutionType: InstitutionType | null;
-  institutionOwnerUsername: string | null;
+  institutionDisplayName: string;
 };
 
 /**
@@ -70,10 +59,6 @@ export const publishedCompetitionsFilter = () =>
 /**
  * `deadline` is UNIX epoch SECONDS because Meilisearch range filters are numeric; a null
  * `registrationEndAt` means the competition never closes, which is not the same as a zero.
- *
- * `institutionName` resolves through `getInstitutionDisplayName` because a personal institution
- * stores NULL and derives its name from the owner's username. Reading the raw column here would put
- * an empty name on every personal institution's competitions in search.
  */
 export const toCompetitionIndexDocument = (row: CompetitionIndexRow): CompetitionIndexDocument => ({
   id: row.id,
@@ -86,9 +71,6 @@ export const toCompetitionIndexDocument = (row: CompetitionIndexRow): Competitio
   isFeatured: row.isFeatured,
   featuredOrder: row.featuredOrder ?? null,
   institutionSlug: row.institutionSlug,
-  institutionName: getInstitutionDisplayName(
-    { displayName: row.institutionDisplayName, institutionType: row.institutionType },
-    { username: row.institutionOwnerUsername },
-  ),
+  institutionName: row.institutionDisplayName,
   status: "published",
 });

@@ -2,7 +2,7 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/institution-workspace/institution-public-service");
 
-import { and, eq, isNull, ne, type SQL } from "drizzle-orm";
+import { and, eq, isNull, type SQL } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
 import {
   institutionSocialLinks,
@@ -10,16 +10,7 @@ import {
   type InstitutionType,
   type InstitutionVerificationStatus,
 } from "@/server/db/schema";
-import {
-  getInstitutionDisplayName,
-  institutionOwnerUsernameSql,
-} from "@/server/institution-workspace/institution-display-name";
-import {
-  institutionOwnerAvatarKeySql,
-  institutionOwnerBannerKeySql,
-} from "@/server/institution-workspace/institution-media";
 import { resolveInstitutionMediaUrls } from "@/server/institution-workspace/institution-media-urls";
-import { isPersonalInstitutionType } from "@/server/institution-workspace/institution-type";
 import { parseInstitutionSlugParam } from "@/server/institution-workspace/institution-core";
 import { isInstitutionMemberBySlug } from "@/server/institution-members/member-service";
 
@@ -90,9 +81,6 @@ export type PublicInstitution = {
   contactDisclosure: InstitutionContactDisclosure;
   websiteUrl: string | null;
   socialLinks: Array<{ platform: string; url: string }>;
-  // A personal institution has no public page of its own — the caller redirects to this username's
-  // profile instead. Null only when the institution has somehow lost its owner membership.
-  personalOwnerUsername: string | null;
 };
 
 /**
@@ -108,49 +96,10 @@ export type PublicInstitution = {
  * drifted unnoticed. Mirrors `buildPublicVisibilityCondition` on the competition side, which is
  * already shared by its listing, its detail page and its sitemap query.
  *
- * Deliberately NOT including the personal-institution exclusion. That is not a visibility rule —
- * a personal institution's page is reachable and simply redirects to its owner's profile — so it
- * belongs to the one caller that cares about page shape rather than to this predicate.
+ * The sitemap reads this same predicate, so every institution whose page renders is listed, of
+ * every kind and verification status.
  */
 export const buildPublicInstitutionCondition = (): SQL => isNull(institutions.suspendedAt)!;
-
-/**
- * Whether an institution has earned indexing, in SQL, for the sitemap's WHERE clause.
- *
- * STRICTLY NARROWER THAN THE RENDER PREDICATE, and the gap is the whole point (DEC-0158). Publishing
- * is gated on verification for PAID competitions only, so a free competition publishes from an
- * unverified institution — which means that institution's page must keep rendering. A crawler is a
- * different question: nothing about an unverified organizer needs to be in a search result, and
- * every page advertised here is one the operator has stood behind. So the page renders and the
- * sitemap does not list it, and the two are not two answers to one question.
- *
- * The personal exclusion is page shape rather than visibility, carried over from the inline clause
- * this replaces: `/institution/<personal-slug>` redirects to the owner's profile, which DEC-0196
- * withholds from search. Listing it would advertise a URL whose only purpose is to bounce a crawler
- * at a page it may not index.
- */
-export const buildIndexableInstitutionCondition = (): SQL =>
-  and(
-    buildPublicInstitutionCondition(),
-    ne(institutions.institutionType, "personal" satisfies InstitutionType),
-    eq(institutions.verificationStatus, "verified" satisfies InstitutionVerificationStatus),
-  )!;
-
-/**
- * The same rule as `buildIndexableInstitutionCondition`, for a row the caller already holds.
- *
- * TWO SPELLINGS, ONE RULE, and they are kept in step by a test rather than by proximity —
- * `sitemap-db.integration.test.ts` walks every combination of verification status, institution type
- * and suspension against the database and asserts the sitemap's membership and this function's
- * answer agree. The duplication is unavoidable: the sitemap's question is asked of Postgres in a
- * WHERE clause, and the page's is asked of a row already in memory, and a JS predicate cannot be a
- * WHERE clause (nor the reverse). What was NOT acceptable was the previous arrangement, where two
- * independently-written expressions agreed by luck and nothing made them go on agreeing.
- */
-export const isIndexableInstitution = (institution: {
-  institutionType: InstitutionType;
-  isVerified: boolean;
-}): boolean => !isPersonalInstitutionType(institution.institutionType) && institution.isVerified;
 
 /**
  * Which contact fields this viewer may see, and what to say above them.
@@ -227,9 +176,6 @@ export const getPublicInstitution = async (
       contactEmail: institutions.contactEmail,
       contactPhone: institutions.contactPhone,
       websiteUrl: institutions.websiteUrl,
-      ownerUsername: institutionOwnerUsernameSql,
-      ownerAvatarKey: institutionOwnerAvatarKeySql,
-      ownerBannerKey: institutionOwnerBannerKeySql,
     })
     .from(institutions)
     .where(and(eq(institutions.slug, normalizedSlug), buildPublicInstitutionCondition()))
@@ -237,39 +183,8 @@ export const getPublicInstitution = async (
 
   if (!row) return null;
 
-  const isPersonal = isPersonalInstitutionType(row.institutionType);
-
-  // A personal institution's page is a redirect, so its imagery and links are never rendered —
-  // skip the presign round-trips and the social-link query entirely.
-  if (isPersonal) {
-    return {
-      slug: row.slug,
-      name: getInstitutionDisplayName(row, { username: row.ownerUsername }),
-      institutionType: row.institutionType,
-      description: row.description,
-      about: row.about,
-      isVerified: row.verificationStatus === ("verified" satisfies InstitutionVerificationStatus),
-      logoUrl: null,
-      bannerUrl: null,
-      contactName: null,
-      contactEmail: null,
-      contactPhone: null,
-      // A personal institution is never verified, so the disclosure rule would say `members_only`
-      // for its own owner — and that answer would be misleading, because this page never renders a
-      // contact section at all: the caller redirects to the owner's profile before the view is
-      // reached. `hidden` is what is true of the page, which is the only thing a disclosure is for.
-      contactDisclosure: { kind: "hidden" },
-      websiteUrl: null,
-      socialLinks: [],
-      personalOwnerUsername: row.ownerUsername,
-    };
-  }
-
   const [media, socialLinks, contactDisclosure] = await Promise.all([
-    resolveInstitutionMediaUrls(row, {
-      avatarR2Key: row.ownerAvatarKey,
-      bannerR2Key: row.ownerBannerKey,
-    }),
+    resolveInstitutionMediaUrls(row),
     db
       .select({ platform: institutionSocialLinks.platform, url: institutionSocialLinks.url })
       .from(institutionSocialLinks)
@@ -295,7 +210,7 @@ export const getPublicInstitution = async (
 
   return {
     slug: row.slug,
-    name: getInstitutionDisplayName(row, { username: row.ownerUsername }),
+    name: row.displayName,
     institutionType: row.institutionType,
     description: row.description,
     about: row.about,
@@ -308,7 +223,6 @@ export const getPublicInstitution = async (
     contactDisclosure,
     websiteUrl: row.websiteUrl,
     socialLinks,
-    personalOwnerUsername: null,
   };
 };
 
@@ -319,13 +233,12 @@ export type SitemapInstitutionEntry = {
 };
 
 /**
- * Every institution whose public page a crawler is invited to fetch.
+ * Every institution whose public page a crawler is invited to fetch: exactly the institutions whose
+ * page renders, of every kind and verification status, through the one predicate the page reads.
  *
- * The rule — render predicate, minus personal institutions, minus anything unverified — is applied
- * in the WHERE clause rather than by filtering the result, so an organizer the operator has not
- * stood behind cannot be advertised by a query that simply returned more rows than the caller
- * remembered to drop. See `buildIndexableInstitutionCondition` for why the sitemap is narrower than
- * the page and why that is not a disagreement.
+ * The rule is applied in the WHERE clause rather than by filtering the result, so a suspended
+ * institution cannot be advertised by a query that simply returned more rows than the caller
+ * remembered to drop.
  */
 export const listSitemapInstitutions = async (
   db: Database = getDb(),
@@ -333,7 +246,7 @@ export const listSitemapInstitutions = async (
   const rows = await db
     .select({ slug: institutions.slug, updatedAt: institutions.updatedAt })
     .from(institutions)
-    .where(buildIndexableInstitutionCondition());
+    .where(buildPublicInstitutionCondition());
 
   return rows.map((row) => ({ slug: row.slug, updatedAt: row.updatedAt }));
 };

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { Icon, PageHeader } from "@/components/ui";
 import { InstitutionPublicView } from "@/components/institution/institution-public-view";
 import { isInstitutionAdminBySlug } from "@/server/institution-members/member-service";
@@ -13,7 +13,6 @@ import { loadInstitutionVerificationSummaryBySlug } from "@/server/institution-w
 import {
   ANONYMOUS_INSTITUTION_VIEWER,
   getPublicInstitution,
-  isIndexableInstitution,
   type InstitutionPublicViewer,
 } from "@/server/institution-workspace/institution-public-service";
 import { listPublicCompetitions } from "@/server/competitions/competition-public-service";
@@ -71,28 +70,12 @@ export async function generateMetadata({ params }: InstitutionHubPageProps): Pro
     institution.description ?? `Kompetisi yang diselenggarakan ${institution.name} di Lombakita.`;
   const path = `/institution/${institution.slug}`;
 
-  // A personal institution's public page is a redirect to the owner's profile, which is withheld
-  // from search (DEC-0196). It gets a title and nothing else: no `robots` (so it inherits the root
-  // layout's withholding default), and — the part that was wrong — no canonical and no Open Graph
-  // either. Those describe a URL that only ever bounces, and a canonical is a positive claim that
-  // this address is the right one to index, which is the opposite of what is meant here.
-  if (isPersonalInstitutionType(institution.institutionType)) {
-    return { title, description };
-  }
-
   return {
     title,
     description,
-    // `robots` IS OMITTED, NOT SET TO `NON_INDEXABLE_ROBOTS`, for an institution that has not
-    // earned indexing: the root layout already withholds the whole app and a page becomes indexable
-    // only by overriding it. Omitting the key therefore withholds, and does so without a second
-    // spelling of "do not index" that could drift from the layout's.
-    //
-    // An unverified institution reaches this branch — its page renders, because a free competition
-    // publishes from an unverified institution (DEC-0158) — and it gets a title, a description, a
-    // canonical and Open Graph, exactly as before. What it does not get is the invitation to index:
-    // the sitemap leaves it out, and so does this directive.
-    ...(isIndexableInstitution(institution) ? { robots: INDEXABLE_ROBOTS } : {}),
+    // Every institution page that renders is indexable, and listSitemapInstitutions lists the same
+    // institutions.
+    robots: INDEXABLE_ROBOTS,
     alternates: { canonical: path },
     openGraph: {
       title,
@@ -145,10 +128,6 @@ export default async function InstitutionHubPage({
 
   await requireRolePage("recruiter", { callbackPath: base });
 
-  // The /verification route serves the type upgrade for a personal institution and document
-  // verification for a full one, so its entry in this hub is labelled for whichever it will render —
-  // and, once a full institution is verified, for the result rather than for an action it no longer
-  // has.
   const verificationSummary = await loadInstitutionVerificationSummaryBySlug(slug);
   const isPersonal = isPersonalInstitutionType(verificationSummary?.institutionType ?? null);
   const isVerified = verificationSummary?.verificationStatus === "verified";
@@ -166,39 +145,32 @@ export default async function InstitutionHubPage({
       description: "Buat, terbitkan, dan tinjau partisipasi kompetisi.",
       icon: "trophy" as const,
     },
-    // A personal institution is single-member by definition and cannot invite staff, so the team
-    // card would lead to a page with nothing to manage.
-    ...(isPersonal
-      ? []
-      : [
-          {
-            href: `${base}/team`,
-            label: "Tim",
-            description: "Kelola anggota, peran, dan undangan pengelola.",
-            icon: "users" as const,
-          },
-        ]),
+    {
+      href: `${base}/team`,
+      label: "Tim",
+      description: "Kelola anggota, peran, dan undangan pengelola.",
+      icon: "users" as const,
+    },
     {
       href: `${base}/settings`,
       label: "Pengaturan",
       description: "Perbarui identitas institusi dan profil penyelenggara.",
       icon: "building" as const,
     },
-    isPersonal
-      ? {
-          href: `${base}/verification`,
-          label: "Tingkatkan level institusi",
-          description: "Ubah institusi personal menjadi institusi resmi. Bersifat permanen.",
-          icon: "building" as const,
-        }
-      : {
-          href: `${base}/verification`,
-          label: "Verifikasi dokumen",
-          description: isVerified
-            ? "Institusi ini sudah terverifikasi. Lihat hasil peninjauannya."
-            : "Ajukan bukti resmi dan pantau status tinjauan.",
-          icon: "check" as const,
-        },
+    // A personal workspace cannot submit verification documents (the verification service refuses
+    // its kind), so its hub offers no verification card.
+    ...(isPersonal
+      ? []
+      : [
+          {
+            href: `${base}/verification`,
+            label: "Verifikasi dokumen",
+            description: isVerified
+              ? "Institusi ini sudah terverifikasi. Lihat hasil peninjauannya."
+              : "Ajukan bukti resmi dan pantau status tinjauan.",
+            icon: "check" as const,
+          },
+        ]),
     {
       href: `${base}/fees`,
       label: "Biaya layanan tercatat",
@@ -219,16 +191,12 @@ export default async function InstitutionHubPage({
         title={verificationSummary?.displayName || slug}
         backHref="/recruiter-dashboard"
         backName="Dasbor penyelenggara"
-        action={
-          isPersonal
-            ? undefined
-            : {
-                kind: "text",
-                href: `${base}?tampilan=${PUBLIC_VIEW_PARAM}`,
-                label: "Lihat halaman publik",
-                icon: "eye",
-              }
-        }
+        action={{
+          kind: "text",
+          href: `${base}?tampilan=${PUBLIC_VIEW_PARAM}`,
+          label: "Lihat halaman publik",
+          icon: "eye",
+        }}
       />
       {chargingReadiness && !chargingReadiness.ready ? (
         <ChargingReadinessPanel blockers={chargingReadiness.blockers} institutionSlug={slug} />
@@ -255,16 +223,9 @@ export default async function InstitutionHubPage({
   );
 }
 
-// A personal institution has no identity of its own — its name, photo and banner are all the
-// owner's — so its public page is that person's profile rather than a near-duplicate of it.
 async function renderPublicView(slug: string, viewer: InstitutionPublicViewer) {
   const institution = await getPublicInstitution(slug, viewer);
   if (!institution) notFound();
-
-  if (isPersonalInstitutionType(institution.institutionType)) {
-    if (!institution.personalOwnerUsername) notFound();
-    redirect(`/${institution.personalOwnerUsername}`);
-  }
 
   // "all" rather than the default: an organizer's page is their public record, so finished
   // competitions belong on it — that record is what a participant returns to after the event.

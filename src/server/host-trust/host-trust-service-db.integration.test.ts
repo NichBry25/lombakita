@@ -96,7 +96,7 @@ import {
   verifyEmailCodeAndSetPassword,
 } from "@/server/auth/credentials-auth";
 import { dashboardPathForRole, markRoleAsVerified } from "@/server/auth/role-verification";
-import { createPersonalInstitutionForUser } from "@/server/institution-workspace/institution-service";
+import { createInstitutionWorkspaceForUser } from "@/server/institution-workspace/institution-service";
 import { elevateRecruiterTier } from "@/server/recruiter-tier/recruiter-tier-service";
 import { extractEmailDomain } from "./email-domain";
 import {
@@ -216,8 +216,19 @@ const trustByStaff = async (tx: Database, userId: string): Promise<void> => {
   await elevateRecruiterTier(operatorId, userId, tx);
 };
 
+// A name per owner gives each owner its own slug, so test files running at once never wait on one
+// another's uncommitted slug.
+const personalWorkspaceDetails = (ownerId: string) => ({
+  displayName: `Ruang Kerja ${ownerId.slice(0, 8)}`,
+  institutionType: "personal",
+});
+
 const ownWorkspace = async (tx: Database, userId: string): Promise<string> => {
-  const workspace = await createPersonalInstitutionForUser(userId, tx);
+  const workspace = await createInstitutionWorkspaceForUser(
+    userId,
+    personalWorkspaceDetails(userId),
+    tx,
+  );
   return workspace.institutionId;
 };
 

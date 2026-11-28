@@ -69,6 +69,35 @@ describe("the inbox actions of a team invitation", () => {
       ),
     ).toBeTruthy();
   });
+
+  it("says the organiser is suspended when the invitee takes a team invite", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ error: { code: "institution_suspended" } }), {
+            status: 403,
+            headers: { "content-type": "application/json" },
+          }),
+      ),
+    );
+    render(
+      <UIPrimitivesProvider>
+        <InboxInviteActions kind="team" invitationId="inv-1" expectedUserId="user-1" />
+      </UIPrimitivesProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Terima" }));
+    await screen.findByText("Terima undangan?");
+    const confirmButtons = screen.getAllByRole("button", { name: "Terima" });
+    fireEvent.click(confirmButtons[confirmButtons.length - 1]!);
+
+    expect(
+      await screen.findByText(
+        "Penyelenggara kompetisi ini sedang dinonaktifkan, jadi pendaftaran baru belum dapat diterima.",
+      ),
+    ).toBeTruthy();
+  });
 });
 
 describe("the inbox actions of an institution invitation", () => {

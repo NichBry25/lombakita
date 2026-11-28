@@ -72,8 +72,18 @@ vi.mock("@/server/storage/r2.client", () => ({
   },
 }));
 
+vi.mock("@/server/async/enqueue", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/server/async/enqueue")>()),
+  enqueueInstitutionInvitationDispatch: vi.fn().mockResolvedValue({}),
+  enqueueCompetitionSearchSync: vi.fn().mockResolvedValue({}),
+}));
+
 import { deidentifyAccount, DeidentificationError } from "./account-deidentification-service";
 import { changeMemberRole, removeMember } from "@/server/institution-members/member-service";
+import {
+  acceptInstitutionInvitationForUser,
+  createInstitutionInvitation,
+} from "@/server/institution-invitations/invitation-service";
 import { MemberError } from "@/server/institution-members/member-core";
 import { unsuspendUser } from "@/server/moderation/moderation-service";
 import { ModerationError } from "@/server/moderation/moderation-core";
@@ -84,9 +94,9 @@ import { ModerationError } from "@/server/moderation/moderation-core";
  *
  * THE MARKER HAS TO LIVE SOMEWHERE THE ACTION DOES NOT OVERWRITE. The target's username becomes
  * `deleted-<id>` and its email `deleted+<id>@deleted.invalid`, so neither can identify a tombstone a
- * killed run left behind; the personal institution's slug is rewritten the same way. What survives is
- * the membership row — revoked rather than deleted — joined to a NON-personal institution owned by
- * the operator, which is not a de-identification target and keeps its slug.
+ * killed run left behind. An institution the target owned alone has its slug rewritten the same way.
+ * What survives is the membership row, revoked rather than deleted, joined to an institution the
+ * operator owns, which is not a de-identification target and keeps its slug.
  *
  * That chain is the recovery mechanism for the case a signal handler cannot cover. A handler runs on
  * SIGINT; nothing runs on SIGKILL or on a laptop closing mid-run, and a harness that commits real
@@ -270,7 +280,8 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount under concurrency", () =
     // marker carrier the sweep reads.
     await control.db.insert(schema.institutions).values({
       id: institution,
-      slug: `${MARKER}-${suffix}`,
+      // Not the target's username slot, which would make the deletion refuse.
+      slug: `${MARKER}-w-${suffix}`,
       institutionType: "company",
       displayName: "Race Institution",
       status: "active",
@@ -460,6 +471,7 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount under concurrency", () =
     const operator = randomUUID();
     const ownerOne = randomUUID();
     const ownerTwo = randomUUID();
+    const staff = randomUUID();
     const institution = randomUUID();
     const ownerOneUsername = `${MARKER}_one_${suffix}`;
     const ownerTwoUsername = `${MARKER}_two_${suffix}`;
@@ -487,10 +499,18 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount under concurrency", () =
         name: "Owner Two",
         candidateVerifiedAt: new Date(),
       },
+      {
+        id: staff,
+        email: `${MARKER}-staff2-${suffix}@example.test`,
+        username: `${MARKER}_staff2_${suffix}`,
+        name: "Staff",
+        candidateVerifiedAt: new Date(),
+      },
     ]);
 
-    // Two owners and nobody else: each of them is the last owner only if the other's membership is
-    // gone, which is exactly the state the missing lock makes reachable.
+    // Two owners and a staff member: each owner is the last owner only if the other's membership is
+    // gone, which is exactly the state the missing lock makes reachable. The staff member is what
+    // makes the second run a refusal, because an owner left with nobody else is scrubbed instead.
     await control.db.insert(schema.institutions).values({
       id: institution,
       slug: `${MARKER}-${suffix}`,
@@ -512,6 +532,13 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount under concurrency", () =
         institutionId: institution,
         userId: ownerTwo,
         membershipRole: "institution_owner",
+        status: "active",
+      },
+      {
+        id: randomUUID(),
+        institutionId: institution,
+        userId: staff,
+        membershipRole: "institution_staff",
         status: "active",
       },
     ]);
@@ -805,7 +832,8 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount under concurrency", () =
 
     await control.db.insert(schema.institutions).values({
       id: institution,
-      slug: `${MARKER}-susp-${suffix}`,
+      // Not the target's username slot, which would make the deletion refuse.
+      slug: `${MARKER}-suspw-${suffix}`,
       institutionType: "company",
       displayName: "Race Institution",
       status: "active",
@@ -883,7 +911,8 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount under concurrency", () =
     const owner = randomUUID();
     const remover = randomUUID();
     const institution = randomUUID();
-    const slug = `${MARKER}-rm-${suffix}`;
+    // Not the owner's username slot, which would make the deletion refuse.
+    const slug = `${MARKER}-rmw-${suffix}`;
     const ownerUsername = `${MARKER}_rm_${suffix}`;
     const ownerMembership = randomUUID();
 
@@ -983,4 +1012,252 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount under concurrency", () =
 
     expect(owners[0]!.n, "the institution was left with no active owner").toBe(1);
   }, 60_000);
+
+  // ---------------------------------------------------------------------------------------------
+  // The accept of an invitation against the operations that count or move an institution's members.
+  //
+  // Every row below carries the marker in a username or a slug, so the sweep removes it, and every
+  // invitation is built through the invitation service.
+
+  type RaceHost = { id: string; username: string };
+  type RaceWorkspace = { id: string; slug: string };
+  type MembershipRole = (typeof schema.institutionMemberships.$inferInsert)["membershipRole"];
+
+  // Short on purpose: an invitee is addressed by username, and a username is at most 30 characters
+  // with the marker and a five letter label already taking 18 of them.
+  const newRaceSuffix = (): string =>
+    `${Date.now().toString(36)}${Math.floor(Math.random() * 1e3).toString(36)}`;
+
+  const plantRaceOperator = async (suffix: string): Promise<string> => {
+    const id = randomUUID();
+
+    await control.db.insert(schema.users).values({
+      id,
+      email: `${MARKER}-acops-${suffix}@example.test`,
+      username: `${MARKER}_acops_${suffix}`,
+      name: "Race Operator",
+      role: "platform_ops",
+      candidateVerifiedAt: new Date(),
+    });
+
+    return id;
+  };
+
+  const plantRaceHost = async (label: string, suffix: string): Promise<RaceHost> => {
+    const id = randomUUID();
+    const username = `${MARKER}_${label}_${suffix}`;
+
+    await control.db.insert(schema.users).values({
+      id,
+      email: `${MARKER}-${label}-${suffix}@example.test`,
+      username,
+      name: "Race Host",
+      candidateVerifiedAt: new Date(),
+      recruiterVerifiedAt: new Date(),
+      recruiterVerificationTier: "minimal",
+    });
+
+    return { id, username };
+  };
+
+  const plantRaceWorkspace = async (label: string, suffix: string): Promise<RaceWorkspace> => {
+    const id = randomUUID();
+    const slug = `${MARKER}-${label}-${suffix}`;
+
+    await control.db.insert(schema.institutions).values({
+      id,
+      slug,
+      institutionType: "company",
+      displayName: "Race Institution",
+      status: "active",
+    });
+
+    return { id, slug };
+  };
+
+  const plantRaceMembership = async (
+    institutionId: string,
+    userId: string,
+    membershipRole: MembershipRole,
+  ): Promise<string> => {
+    const id = randomUUID();
+
+    await control.db.insert(schema.institutionMemberships).values({
+      id,
+      institutionId,
+      userId,
+      membershipRole,
+      status: "active",
+    });
+
+    return id;
+  };
+
+  const inviteAsStaff = async (
+    owner: RaceHost,
+    workspace: RaceWorkspace,
+    invitee: RaceHost,
+  ): Promise<string> => {
+    const invitation = await createInstitutionInvitation(
+      owner.id,
+      workspace.slug,
+      { invitedIdentifier: invitee.username, invitedRole: "institution_staff" },
+      control.db,
+    );
+
+    return invitation.id;
+  };
+
+  const acceptAsStaff = (invitationId: string, invitee: RaceHost, connection: Connection) =>
+    acceptInstitutionInvitationForUser(
+      invitationId,
+      invitee.id,
+      ["candidate", "recruiter"],
+      connection.db,
+    );
+
+  const readMembershipOf = async (institutionId: string, userId: string) => {
+    const rows = await control.sql<{ status: string; membership_role: string }[]>`
+      select status, membership_role from institution_memberships
+      where institution_id = ${institutionId} and user_id = ${userId}`;
+
+    return rows[0];
+  };
+
+  it("never lets an invitation taken during a deletion land in a scrubbed workspace", async () => {
+    for (let iteration = 0; iteration < 10; iteration += 1) {
+      const suffix = `${newRaceSuffix()}${iteration}`;
+      const operator = await plantRaceOperator(suffix);
+      const owner = await plantRaceHost("acown", suffix);
+      const invitee = await plantRaceHost("acinv", suffix);
+      const workspace = await plantRaceWorkspace("ac", suffix);
+      await plantRaceMembership(workspace.id, owner.id, "institution_owner");
+
+      const logoKey = `institution-logos/${workspace.id}/logo.png`;
+      r2.objects = [`avatars/${owner.id}/a.jpg`, logoKey];
+      r2.deleted = [];
+
+      const invitationId = await inviteAsStaff(owner, workspace, invitee);
+
+      const [deletion, accept] = await Promise.allSettled([
+        deidentifyAccount(
+          operator,
+          owner.id,
+          { confirmUsername: owner.username, reason: "permintaan pemilik" },
+          racerOne.db,
+        ),
+        acceptAsStaff(invitationId, invitee, racerTwo),
+      ]);
+
+      expect(deletion.status).toBe("rejected");
+
+      const refusal = (deletion as PromiseRejectedResult).reason;
+
+      expect(refusal).toBeInstanceOf(DeidentificationError);
+      expect([
+        "deidentify_sole_institution_has_open_invitation",
+        "deidentify_last_owner",
+      ]).toContain((refusal as DeidentificationError).code);
+      expect(accept.status).toBe("fulfilled");
+
+      const membership = await readMembershipOf(workspace.id, invitee.id);
+
+      expect(membership?.status).toBe("active");
+      expect(membership?.membership_role).toBe("institution_staff");
+
+      const [stored] = await control.sql<{ slug: string; suspended_at: Date | null }[]>`
+        select slug, suspended_at from institutions where id = ${workspace.id}`;
+
+      expect(stored!.slug).toBe(workspace.slug);
+      expect(stored!.suspended_at).toBeNull();
+
+      const [ownerRow] = await control.sql<{ status: string }[]>`
+        select status from users where id = ${owner.id}`;
+
+      expect(ownerRow!.status).toBe("active");
+      expect(r2.objects).toContain(logoKey);
+    }
+  }, 120_000);
+
+  it("never deadlocks an accept against a member's promotion on the same workspace", async () => {
+    for (let iteration = 0; iteration < 10; iteration += 1) {
+      const suffix = `${newRaceSuffix()}${iteration}`;
+      const owner = await plantRaceHost("pmown", suffix);
+      const member = await plantRaceHost("pmmem", suffix);
+      const invitee = await plantRaceHost("pminv", suffix);
+      const workspace = await plantRaceWorkspace("pm", suffix);
+      await plantRaceMembership(workspace.id, owner.id, "institution_owner");
+      const memberMembershipId = await plantRaceMembership(
+        workspace.id,
+        member.id,
+        "institution_member",
+      );
+
+      await control.db.insert(schema.competitions).values({
+        id: randomUUID(),
+        institutionId: workspace.id,
+        slug: `${MARKER}-comp-${suffix}`,
+        title: `Kuis ${suffix}`,
+        status: "draft",
+        createdByUserId: owner.id,
+      });
+
+      const invitationId = await inviteAsStaff(owner, workspace, invitee);
+
+      // No lock timeout is set: Postgres detects a deadlock on its own and aborts one side with
+      // 40P01, which would arrive here as a rejection.
+      const results = await Promise.allSettled([
+        acceptAsStaff(invitationId, invitee, racerOne),
+        changeMemberRole(
+          owner.id,
+          workspace.slug,
+          memberMembershipId,
+          "institution_staff",
+          racerTwo.db,
+        ),
+      ]);
+
+      expect(results.map((result) => result.status)).toEqual(["fulfilled", "fulfilled"]);
+
+      const accepted = await readMembershipOf(workspace.id, invitee.id);
+
+      expect(accepted?.status).toBe("active");
+      expect(accepted?.membership_role).toBe("institution_staff");
+
+      const promoted = await readMembershipOf(workspace.id, member.id);
+
+      expect(promoted?.membership_role).toBe("institution_staff");
+    }
+  }, 120_000);
+
+  it("parks an accept on the workspace's ownership lock before anything else", async () => {
+    const suffix = newRaceSuffix();
+    const owner = await plantRaceHost("pkown", suffix);
+    const firstInvitee = await plantRaceHost("pkone", suffix);
+    const secondInvitee = await plantRaceHost("pktwo", suffix);
+    const workspace = await plantRaceWorkspace("pk", suffix);
+    await plantRaceMembership(workspace.id, owner.id, "institution_owner");
+
+    const firstInvitationId = await inviteAsStaff(owner, workspace, firstInvitee);
+    const secondInvitationId = await inviteAsStaff(owner, workspace, secondInvitee);
+
+    r2.objects = [];
+    r2.deleted = [];
+
+    const results = await parkOnOwnerMembershipLock(workspace.id, () =>
+      Promise.allSettled([
+        acceptAsStaff(firstInvitationId, firstInvitee, racerOne),
+        acceptAsStaff(secondInvitationId, secondInvitee, racerTwo),
+      ]),
+    );
+
+    expect(results.map((result) => result.status)).toEqual(["fulfilled", "fulfilled"]);
+
+    for (const invitee of [firstInvitee, secondInvitee]) {
+      const membership = await readMembershipOf(workspace.id, invitee.id);
+
+      expect(membership?.status).toBe("active");
+      expect(membership?.membership_role).toBe("institution_staff");
+    }
+  }, 120_000);
 });

@@ -76,6 +76,7 @@ const seedFixture = async (tx: Tx): Promise<Fixture> => {
     .insert(institutions)
     .values({
       slug: `viewreg-inst-${id}`,
+      displayName: `View Registration Fixture ${id}`,
       institutionType: "personal",
       verificationStatus: "verified",
     })

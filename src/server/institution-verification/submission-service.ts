@@ -21,7 +21,6 @@ import { isPersonalInstitutionType } from "@/server/institution-workspace/instit
 import { assertValidTransition } from "@/server/institution-verification/verification-core";
 import { resolvePlatformOpsActor } from "@/server/platform-ops/operator-actor";
 import { assertOperatorHasNoInstitutionRelationship } from "@/server/institution-verification/operator-institution-conflict";
-import { getInstitutionDisplayName } from "@/server/institution-workspace/institution-display-name";
 import { isR2Available, generatePresignedPutUrl } from "@/server/storage/r2.client";
 import { logger } from "@/lib/logger";
 import { deriveEmailDomainFlag, getMissingDocuments } from "./verification-requirements";
@@ -210,13 +209,12 @@ export const createVerificationSubmission = async (
   );
 
   // A personal institution is the person, and the person is judged through host trust, so there is
-  // nothing separate to document here. Reaching a full type is
-  // the self-service upgrade, not a document submission.
+  // nothing separate to document here.
   if (isPersonalInstitutionType(institutionType)) {
     throw new SubmissionError(
       "institution_verification_not_applicable",
       409,
-      "A personal institution has no document verification. Upgrade it to a full institution type first",
+      "A personal institution has no document verification yet",
     );
   }
 
@@ -377,15 +375,6 @@ export const getVerificationSubmissionDetail = async (
       institutionId: institutionVerificationSubmissions.institutionId,
       institutionSlug: institutions.slug,
       institutionDisplayName: institutions.displayName,
-      institutionType: institutions.institutionType,
-      ownerUsername: sql<string | null>`(
-        SELECT u.username FROM institution_memberships im
-        INNER JOIN users u ON u.id = im.user_id
-        WHERE im.institution_id = institutions.id
-          AND im.membership_role = 'institution_owner'
-          AND im.status = 'active'
-        ORDER BY im.created_at ASC LIMIT 1
-      )`,
       submittedByUserId: institutionVerificationSubmissions.submittedByUserId,
       targetInstitutionType: institutionVerificationSubmissions.targetInstitutionType,
       proposedDisplayName: institutionVerificationSubmissions.proposedDisplayName,
@@ -442,10 +431,7 @@ export const getVerificationSubmissionDetail = async (
     id: sub.id,
     institutionId: sub.institutionId,
     institutionSlug: sub.institutionSlug,
-    institutionDisplayName: getInstitutionDisplayName(
-      { displayName: sub.institutionDisplayName, institutionType: sub.institutionType ?? null },
-      { username: sub.ownerUsername },
-    ),
+    institutionDisplayName: sub.institutionDisplayName,
     submittedByUserId: sub.submittedByUserId,
     targetInstitutionType: sub.targetInstitutionType,
     proposedDisplayName: sub.proposedDisplayName,
@@ -474,15 +460,6 @@ export const listPendingVerificationSubmissions = async (
       institutionId: institutions.id,
       institutionSlug: institutions.slug,
       institutionDisplayName: institutions.displayName,
-      institutionType: institutions.institutionType,
-      ownerUsername: sql<string | null>`(
-        SELECT u.username FROM institution_memberships im
-        INNER JOIN users u ON u.id = im.user_id
-        WHERE im.institution_id = institutions.id
-          AND im.membership_role = 'institution_owner'
-          AND im.status = 'active'
-        ORDER BY im.created_at ASC LIMIT 1
-      )`,
       submitterEmail: sql<string | null>`(
         SELECT u.email FROM users u
         WHERE u.id = institution_verification_submissions.submitted_by_user_id
@@ -502,18 +479,11 @@ export const listPendingVerificationSubmissions = async (
     .where(eq(institutionVerificationSubmissions.status, "pending_review"))
     .orderBy(asc(institutionVerificationSubmissions.submittedAt));
 
-  return rows.map((r) => ({
-    ...r,
-    institutionDisplayName: getInstitutionDisplayName(
-      { displayName: r.institutionDisplayName, institutionType: r.institutionType ?? null },
-      { username: r.ownerUsername },
-    ),
-  }));
+  return rows;
 };
 
 // Platform ops: approve or reject a submission.
-// On approval of a regular verification: transitions verification_status to verified.
-// On approval of an upgrade (personal → full): upgrades type, persists display_name, then verifies.
+// On approval: transitions verification_status to verified. The institution's type never changes.
 // All writes are atomic in one transaction (closes 6.5f.1-S1).
 export const reviewVerificationSubmission = async (
   submissionId: string,
@@ -566,7 +536,6 @@ export const reviewVerificationSubmission = async (
       .select({
         id: institutions.id,
         displayName: institutions.displayName,
-        institutionType: institutions.institutionType,
         verificationStatus: institutions.verificationStatus,
       })
       .from(institutions)
@@ -692,7 +661,6 @@ export const reviewVerificationSubmission = async (
       status: "approved" as const,
       institutionId: sub.institutionId,
       institutionDisplayName: inst.displayName,
-      institutionType: inst.institutionType ?? null,
     };
   });
 
@@ -713,7 +681,7 @@ export const reviewVerificationSubmission = async (
 
   try {
     const [ownerRow] = await db
-      .select({ email: users.email, username: users.username })
+      .select({ email: users.email })
       .from(institutionMemberships)
       .innerJoin(users, eq(users.id, institutionMemberships.userId))
       .where(
@@ -727,13 +695,7 @@ export const reviewVerificationSubmission = async (
       .limit(1);
 
     if (ownerRow) {
-      const resolvedName = getInstitutionDisplayName(
-        {
-          displayName: reviewed.institutionDisplayName,
-          institutionType: reviewed.institutionType,
-        },
-        { username: ownerRow.username },
-      );
+      const resolvedName = reviewed.institutionDisplayName;
 
       const emailTask = sendInstitutionVerifiedEmail({
         toEmail: ownerRow.email,

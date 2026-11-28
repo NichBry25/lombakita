@@ -29,7 +29,7 @@ they drive the running app, assert behavior, and capture screenshots into `test-
 npm run db:reset                                # always first; a database from zero, seeded
 npm run db:seed:operators                       # second; operator accounts, factors, reviews
 npm run db:seed:payments                        # ONLY for the manual payment lane; append-only
-node scripts/testing/api-matrix.mjs             # 100 API, guard, and isolation assertions
+node scripts/testing/api-matrix.mjs             # 102 API, guard, and isolation assertions
 node scripts/testing/r2-flows.mjs               # 22 real-byte upload/validation assertions
 node scripts/testing/flows.mjs                  # UI flows + a screenshot of every reaction
 node scripts/testing/gallery.mjs                # every page × light/dark × desktop/mobile

@@ -36,9 +36,9 @@ export async function GET(
     // themselves, so this exposes nothing new.
     //
     // Publish readiness rides this same read. The publish control has to keep telling the truth
-    // after a save changes the answer — clearing the personal reach cap, setting a fee, fixing a
-    // date — and the shells already re-run this request after every successful mutation. A second
-    // endpoint for one boolean would be a second thing to keep in step with the first.
+    // after a save changes the answer, such as setting a fee or fixing a date, and the shells
+    // already re-run this request after every successful mutation. A second endpoint for one
+    // boolean would be a second thing to keep in step with the first.
     const [hasActiveRegistrations, participation, publishReadiness] = await Promise.all([
       hasActiveRegistrationsForCompetition(competitionId),
       getCompetitionParticipationSummary(competition),

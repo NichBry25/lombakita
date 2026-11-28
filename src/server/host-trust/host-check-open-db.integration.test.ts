@@ -8,7 +8,7 @@
 // connections.
 
 import { randomUUID } from "node:crypto";
-import { TransactionRollbackError, and, eq, inArray, sql } from "drizzle-orm";
+import { TransactionRollbackError, and, asc, eq, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -70,6 +70,7 @@ vi.mock("@/server/async/enqueue", async (importOriginal) => {
     enqueueCompetitionSearchSync: vi.fn(async () => ({})),
     enqueueCompetitionCancelled: vi.fn(async () => ({})),
     enqueueRegistrationConfirmed: vi.fn(async () => ({})),
+    enqueueInstitutionInvitationDispatch: vi.fn(async () => ({})),
   };
 });
 
@@ -95,9 +96,13 @@ import {
 import { markRoleAsVerified } from "@/server/auth/role-verification";
 import {
   NEW_INSTITUTION_DEFAULT_STATUS,
-  createPersonalInstitutionForUser,
+  createInstitutionWorkspaceForUser,
 } from "@/server/institution-workspace/institution-service";
 import { changeMemberRole } from "@/server/institution-members/member-service";
+import {
+  acceptInstitutionInvitationForUser,
+  createInstitutionInvitation,
+} from "@/server/institution-invitations/invitation-service";
 import {
   createCompetitionDraft,
   softDeleteCompetitionDraft,
@@ -196,8 +201,19 @@ const signUpLegacyHost = async (tx: Database, address: string): Promise<string> 
 
 type Workspace = { institutionId: string; slug: string };
 
+// A name per owner gives each owner its own slug, so test files running at once never wait on one
+// another's uncommitted slug.
+const personalWorkspaceDetails = (ownerId: string) => ({
+  displayName: `Ruang Kerja ${ownerId.slice(0, 8)}`,
+  institutionType: "personal",
+});
+
 const ownWorkspace = async (tx: Database, ownerId: string): Promise<Workspace> => {
-  const workspace = await createPersonalInstitutionForUser(ownerId, tx);
+  const workspace = await createInstitutionWorkspaceForUser(
+    ownerId,
+    personalWorkspaceDetails(ownerId),
+    tx,
+  );
   return { institutionId: workspace.institutionId, slug: workspace.slug };
 };
 
@@ -429,14 +445,6 @@ const plantApprovedRequestWithoutDraft = async (tx: Database, userId: string): P
   return row.id;
 };
 
-// Planted directly: a stand-in for the editor's mode change, which this file does not drive.
-const plantTeamMode = async (tx: Database, competitionId: string): Promise<void> => {
-  await tx
-    .update(schema.competitions)
-    .set({ mode: "team", minTeamSize: 2, maxTeamSize: 4 })
-    .where(eq(schema.competitions.id, competitionId));
-};
-
 const createDraftMissing = async (
   tx: Database,
   authorId: string,
@@ -573,6 +581,33 @@ const hostCheckRowOf = async (tx: Database, id: string) => {
   return row;
 };
 
+const activeMembershipRoleOf = async (
+  tx: Database,
+  institutionId: string,
+  userId: string,
+): Promise<string | null> => {
+  const [row] = await tx
+    .select({ membershipRole: schema.institutionMemberships.membershipRole })
+    .from(schema.institutionMemberships)
+    .where(
+      and(
+        eq(schema.institutionMemberships.institutionId, institutionId),
+        eq(schema.institutionMemberships.userId, userId),
+        eq(schema.institutionMemberships.status, "active"),
+      ),
+    );
+  return row?.membershipRole ?? null;
+};
+
+const invitedRolesOf = async (tx: Database, institutionId: string): Promise<string[]> => {
+  const rows = await tx
+    .select({ invitedRole: schema.institutionInvitations.invitedRole })
+    .from(schema.institutionInvitations)
+    .where(eq(schema.institutionInvitations.institutionId, institutionId))
+    .orderBy(asc(schema.institutionInvitations.createdAt));
+  return rows.map((row) => row.invitedRole);
+};
+
 type PressBody = {
   competition?: { id: string; status: string };
   hostCheck?: { id: string; status: string; submittedAt: string };
@@ -625,6 +660,9 @@ const SECOND_UNTRUSTED_HOST_ADDRESS = "sari.free@gmail.com";
 const CANDIDATE_ADDRESS = "dina.peserta@example.test";
 const FIRST_TITLE = "Lomba Esai Nasional";
 const SECOND_TITLE = "Lomba Poster Digital";
+const THIRD_TITLE = "Lomba Fotografi Pelajar";
+// The verified roles a host who took the host step carries in a session.
+const ACCEPTING_ROLES = ["candidate", "recruiter"] as const;
 const GONE_DRAFT_REASON = "Ditutup karena draf tidak lagi tersedia.";
 const NEEDED_READINESS = {
   canPublish: true,
@@ -1282,18 +1320,161 @@ describe.skipIf(skipWithoutDatabase)("the publish press (rolled back)", () => {
     });
   });
 
-  it("answers a team draft of a personal workspace with the personal refusal and opens no host check", async () => {
+  it("opens a host check for an untrusted host's team draft of a personal workspace", async () => {
     await inRollback(async (tx) => {
       const host = await signUpHost(tx, UNTRUSTED_HOST_ADDRESS);
       const workspace = await ownWorkspace(tx, host);
       const draft = await createPublishableDraft(tx, host, workspace.slug, FIRST_TITLE);
-      await plantTeamMode(tx, draft);
+      const edited = await updateCompetitionDraft(
+        host,
+        draft,
+        { mode: "team", minTeamSize: 2, maxTeamSize: 4 },
+        tx,
+      );
 
       const pressed = await pressOn(tx, host, workspace, draft);
 
+      expect(edited.mode).toBe("team");
+      expect(pressed.status).toBe(202);
+      expect(await openHostChecksOf(tx, host)).toEqual([expectedOpenCheck(draft)]);
+      expect(await competitionStatusOf(tx, draft)).toBe("draft");
+    });
+  });
+
+  it("lets a trusted host create a team draft in a personal workspace and publish it", async () => {
+    await inRollback(async (tx) => {
+      const owner = await signUpHost(tx, TRUSTED_BY_SIGN_IN_EMAIL);
+      const workspace = await ownWorkspace(tx, owner);
+      const draft = await createCompetitionDraft(
+        owner,
+        {
+          institutionSlug: workspace.slug,
+          title: FIRST_TITLE,
+          description: "Deskripsi kompetisi untuk pengujian.",
+          slug: null,
+          category: "hackathon",
+          mode: "team",
+          minTeamSize: 2,
+          maxTeamSize: 4,
+          ...validTimeline(),
+        },
+        tx,
+      );
+      await updateCompetitionDraft(owner, draft.id, { location: "online" }, tx);
+      await setCompetitionEligibilityForEditor(owner, draft.id, { audience: ["umum"] }, tx);
+      await setCompetitionOrganizerContactForEditor(
+        owner,
+        draft.id,
+        { kind: "whatsapp", value: "081298765432" },
+        tx,
+      );
+
+      const pressed = await pressOn(tx, owner, workspace, draft.id);
+
+      expect(draft.mode).toBe("team");
+      expect(draft.minTeamSize).toBe(2);
+      expect(draft.maxTeamSize).toBe(4);
+      expect(pressed.status).toBe(200);
+      expect(pressed.body.competition?.status).toBe("published");
+      expect(await competitionStatusOf(tx, draft.id)).toBe("published");
+      expect(await hostCheckRowsOf(tx, owner)).toEqual([]);
+    });
+  });
+
+  it("lets a trusted host publish a third competition of a personal workspace", async () => {
+    await inRollback(async (tx) => {
+      const owner = await signUpHost(tx, TRUSTED_BY_SIGN_IN_EMAIL);
+      const workspace = await ownWorkspace(tx, owner);
+      const first = await createPublishableDraft(tx, owner, workspace.slug, FIRST_TITLE);
+      const second = await createPublishableDraft(tx, owner, workspace.slug, SECOND_TITLE);
+      const third = await createPublishableDraft(tx, owner, workspace.slug, THIRD_TITLE);
+      const firstPress = await pressOn(tx, owner, workspace, first);
+      const secondPress = await pressOn(tx, owner, workspace, second);
+
+      const readiness = await readinessOf(tx, owner, third);
+      const thirdPress = await pressOn(tx, owner, workspace, third);
+
+      expect(firstPress.status).toBe(200);
+      expect(secondPress.status).toBe(200);
+      expect(readiness).toEqual(NOT_NEEDED_READINESS);
+      expect(thirdPress.status).toBe(200);
+      expect(await competitionStatusOf(tx, third)).toBe("published");
+      expect(await hostCheckRowsOf(tx, owner)).toEqual([]);
+    });
+  });
+
+  it("refuses a paid draft of a personal workspace that is not verified and opens no host check", async () => {
+    await inRollback(async (tx) => {
+      const owner = await signUpHost(tx, TRUSTED_BY_SIGN_IN_EMAIL);
+      const workspace = await ownWorkspace(tx, owner);
+      const draft = await createPublishableDraft(tx, owner, workspace.slug, FIRST_TITLE);
+      await plantPaidPrice(tx, draft);
+
+      const pressed = await pressOn(tx, owner, workspace, draft);
+
       expect(pressed.status).toBe(422);
-      expect(pressed.body.error?.code).toBe("competition_personal_individual_only");
-      expect(await hostCheckRowsOf(tx, host)).toEqual([]);
+      expect(pressed.body.error?.code).toBe("competition_institution_not_verified");
+      expect(await competitionStatusOf(tx, draft)).toBe("draft");
+      expect(await hostCheckRowsOf(tx, owner)).toEqual([]);
+    });
+  });
+
+  it("lets a host invited as staff of a personal workspace publish under its trusted owner", async () => {
+    await inRollback(async (tx) => {
+      const owner = await signUpHost(tx, TRUSTED_BY_SIGN_IN_EMAIL);
+      const workspace = await ownWorkspace(tx, owner);
+      const staff = await signUpHost(tx, UNTRUSTED_HOST_ADDRESS);
+      const invitation = await createInstitutionInvitation(
+        owner,
+        workspace.slug,
+        { invitedIdentifier: UNTRUSTED_HOST_ADDRESS, invitedRole: "institution_staff" },
+        tx,
+      );
+      await acceptInstitutionInvitationForUser(invitation.id, staff, [...ACCEPTING_ROLES], tx);
+      const draft = await createPublishableDraft(tx, staff, workspace.slug, FIRST_TITLE);
+
+      const pressed = await pressOn(tx, staff, workspace, draft);
+
+      expect(await activeMembershipRoleOf(tx, workspace.institutionId, staff)).toBe(
+        "institution_staff",
+      );
+      expect(pressed.status).toBe(200);
+      expect(await competitionStatusOf(tx, draft)).toBe("published");
+      expect(await hostCheckRowsOf(tx, staff)).toEqual([]);
+    });
+  });
+
+  it("refuses an invitation sent by a member of a personal workspace and writes no invitation", async () => {
+    await inRollback(async (tx) => {
+      const owner = await signUpHost(tx, TRUSTED_BY_SIGN_IN_EMAIL);
+      const workspace = await ownWorkspace(tx, owner);
+      const member = await signUpHost(tx, SECOND_UNTRUSTED_HOST_ADDRESS);
+      const memberInvitation = await createInstitutionInvitation(
+        owner,
+        workspace.slug,
+        { invitedIdentifier: SECOND_UNTRUSTED_HOST_ADDRESS, invitedRole: "institution_member" },
+        tx,
+      );
+      await acceptInstitutionInvitationForUser(
+        memberInvitation.id,
+        member,
+        [...ACCEPTING_ROLES],
+        tx,
+      );
+      await signUpHost(tx, UNTRUSTED_HOST_ADDRESS);
+
+      const refused = createInstitutionInvitation(
+        member,
+        workspace.slug,
+        { invitedIdentifier: UNTRUSTED_HOST_ADDRESS, invitedRole: "institution_staff" },
+        tx,
+      );
+
+      await expect(refused).rejects.toMatchObject({ code: "forbidden", status: 403 });
+      expect(await activeMembershipRoleOf(tx, workspace.institutionId, member)).toBe(
+        "institution_member",
+      );
+      expect(await invitedRolesOf(tx, workspace.institutionId)).toEqual(["institution_member"]);
     });
   });
 });

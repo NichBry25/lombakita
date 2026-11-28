@@ -276,7 +276,7 @@ describe("reviewVerificationSubmission", () => {
     slug: "pt-alice-corp",
   };
 
-  const ownerMembership = { email: "alice@company.co.id", username: "alice" };
+  const ownerMembership = { email: "alice@company.co.id" };
 
   // The acted-on account row `resolvePlatformOpsActor` reads. It is the FIRST select inside the
   // transaction, so every fixture below leads with it.

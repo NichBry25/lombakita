@@ -389,9 +389,7 @@ export default async function CompetitionDetailPage({
                 Diselenggarakan oleh{" "}
                 {/* The organizer page is indexable, so it cannot carry a `loading.tsx` — the
                     Suspense boundary one creates would strand its content outside the initial
-                    shell. Its navigation is acknowledged at the link instead (§14). This is also
-                    the entry point for a personal institution, whose page redirects server-side to
-                    the owner's profile: the longest wait on this page had no signal at either end. */}
+                    shell. Its navigation is acknowledged at the link instead (§14). */}
                 <Link
                   href={`/institution/${competition.organizer.slug}`}
                   className="detail-organizer-link"

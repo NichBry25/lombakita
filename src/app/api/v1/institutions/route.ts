@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
+import { assertSessionMatchesExpectedUser } from "@/server/auth/access-core";
 import { withApiRole } from "@/server/auth/api-guard";
 import {
   assertRecruiterTier,
-  FULL_INSTITUTION_CREATION_MIN_TIER,
+  INSTITUTION_CREATION_MIN_TIER,
   RecruiterTierError,
 } from "@/server/auth/recruiter-tier";
 import {
@@ -11,14 +12,16 @@ import {
 } from "@/server/institution-workspace/institution-core";
 import { createInstitutionWorkspaceForUser } from "@/server/institution-workspace/institution-service";
 
-// Institution creation is gated to recruiter-verified accounts only.
-// A candidate-only session receives 403 at this layer before any payload processing.
-// Full-institution creation additionally requires the `elevated` recruiter tier
-// (FULL_INSTITUTION_CREATION_MIN_TIER). A minimal-tier recruiter who wants a lightweight workspace
-// uses the personal-institution path (POST /api/v1/institutions/personal) instead.
+// Workspace creation for every kind, for an account that holds the host role (withApiRole) at the
+// minimal recruiter tier or above (INSTITUTION_CREATION_MIN_TIER). A candidate-only session receives
+// 403 at this layer before any payload processing.
 export const POST = withApiRole(["recruiter"], async (request, session) => {
+  // Rule #16: the caller creates an institution they will own, so a request whose rendered-for user
+  // no longer matches the active session (cross-tab or multi-account race) is refused.
+  assertSessionMatchesExpectedUser(request, session);
+
   try {
-    await assertRecruiterTier(session, FULL_INSTITUTION_CREATION_MIN_TIER);
+    await assertRecruiterTier(session, INSTITUTION_CREATION_MIN_TIER);
     const payload = await request.json();
     const institution = await createInstitutionWorkspaceForUser(session.user.id, payload);
 

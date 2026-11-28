@@ -68,12 +68,9 @@ type InstitutionOptions = {
   suspended?: boolean;
   personal?: boolean;
   /**
-   * Whether platform ops has verified this organizer. Defaults to FALSE, because that is what
-   * `createInstitutionWorkspaceForUser` writes (`"pending_verification"`, institution-service.ts:991)
-   * — the same reason `status` below is written from the constant rather than left to the column
-   * default. A test that wants sitemap membership must therefore ask for verification explicitly,
-   * which is the point: indexing follows verification, so a fixture that got it for free would hide
-   * the rule this suite exists to pin.
+   * Whether platform ops has verified this organizer. Defaults to FALSE, because
+   * `createInstitutionWorkspaceForUser` leaves the column default `"pending_verification"` in place.
+   * `status` below is written from the constant, as the production creation path writes it.
    */
   verified?: boolean;
 };
@@ -90,13 +87,8 @@ const seedInstitution = async (
     .values({
       slug: `sitemap-inst-${id}`,
       institutionType: personal ? "personal" : "company",
-      // institutions_display_name_type_chk allows a null display name only for `personal`.
-      displayName: personal ? null : `Sitemap Fixture ${id}`,
-      // The value the production creation path writes, not the column's schema default.
-      // `institutions.status` defaults to `active` and `createInstitutionWorkspaceForUser` writes
-      // `inactive`, so a fixture that omitted it described a row shape no institution has. Found by
-      // probing this suite: adding `status = 'active'` to the sitemap query alone left every test
-      // green while it would have emptied the sitemap in production.
+      displayName: `Sitemap Fixture ${id}`,
+      // Written from the constant the production creation path writes.
       status: NEW_INSTITUTION_DEFAULT_STATUS,
       verificationStatus: options.verified ? "verified" : "pending_verification",
       suspendedAt: options.suspended ? new Date() : null,
@@ -233,8 +225,7 @@ describe.skipIf(skipWithoutDatabase)("sitemap institution entries", () => {
 
   it("never advertises a suspended organizer", async () => {
     await inRollback(async (tx) => {
-      // Both verified: suspension must be the only reason the first one is absent, or this passes
-      // on the verification rule while claiming to test the suspension rule.
+      // Both verified, so suspension is the only difference between the two rows.
       const suspended = await seedInstitution(tx, { suspended: true, verified: true });
       const active = await seedInstitution(tx, { verified: true });
 
@@ -244,30 +235,23 @@ describe.skipIf(skipWithoutDatabase)("sitemap institution entries", () => {
     });
   });
 
-  it("never advertises a personal institution, whose page only redirects to a withheld profile", async () => {
+  it("advertises a personal workspace that is not verified", async () => {
     await inRollback(async (tx) => {
-      // A personal institution is never verifiable, so the control here is verified and the subject
-      // is not: this asserts the TYPE rule, on top of the verification rule it cannot satisfy.
       const personal = await seedInstitution(tx, { personal: true });
-      const organizer = await seedInstitution(tx, { verified: true });
 
-      const slugs = await institutionSlugsIn(tx);
-      expect(slugs).not.toContain(personal.slug);
-      expect(slugs).toContain(organizer.slug);
+      expect(await institutionSlugsIn(tx)).toContain(personal.slug);
     });
   });
 });
 
-// R6, pinned as a DECISION rather than left to drift (C2.2). The two lists answer different
-// questions and this step deliberately made them disagree: an organizer's page stops being
-// ADVERTISED until platform ops verifies it, while the competitions it runs stay advertised. The
-// reason is the same in both directions — at launch no institution is verified, so tying the
-// competition sitemap to verification would empty it, and the competition page discloses no
-// organizer contact for the entry to expose.
+// R6, pinned as a DECISION (C2.2): a published competition stays advertised whatever its
+// organizer's verification, because at launch no institution is verified and tying the competition
+// sitemap to verification would empty it. Its unverified organizer is advertised too, as every
+// institution that is not suspended is.
 describe.skipIf(skipWithoutDatabase)(
   "competition indexing is independent of organizer verification",
   () => {
-    it("keeps a published competition whose organizer is unverified, and withholds the organizer", async () => {
+    it("keeps a published competition whose organizer is unverified, and lists the organizer", async () => {
       await inRollback(async (tx) => {
         const unverified = await seedInstitution(tx);
         const published = await seedCompetition(tx, unverified.id, { status: "published" });
@@ -279,7 +263,7 @@ describe.skipIf(skipWithoutDatabase)(
           competitions,
           "competitions stay indexed regardless of organizer verification: at launch no institution is verified, and the competition page exposes no organizer contact (C2.2 R6)",
         ).toContain(published);
-        expect(organizers).not.toContain(unverified.slug);
+        expect(organizers).toContain(unverified.slug);
       });
     });
   },
@@ -321,45 +305,6 @@ describe.skipIf(skipWithoutDatabase)("institution visibility has one definition"
 
       expect(page?.slug).toBe(active.slug);
       expect(sitemap).toContain(active.slug);
-    });
-  });
-
-  // The one asymmetry, pinned so it reads as intended rather than as drift: a personal institution
-  // is VISIBLE (its page serves, then redirects) but is not SITEMAP-eligible.
-  it("serves a personal institution's page while keeping it out of the sitemap", async () => {
-    await inRollback(async (tx) => {
-      const personal = await seedInstitution(tx, { personal: true });
-
-      const page = await getPublicInstitution(
-        personal.slug,
-        ANONYMOUS_INSTITUTION_VIEWER,
-        tx as unknown as Database,
-      );
-      const sitemap = await institutionSlugsIn(tx);
-
-      expect(page?.slug).toBe(personal.slug);
-      expect(sitemap).not.toContain(personal.slug);
-    });
-  });
-
-  // The second asymmetry, and the one this step introduced: VERIFICATION GOVERNS INDEXING, NOT
-  // SERVICE. A free competition may publish from an unverified institution (DEC-0158), so the
-  // organizer's page has to keep rendering for it; being crawlable is the part that waits for
-  // platform ops. Asserted as the pair because either half alone is satisfiable by the wrong code —
-  // hiding the page would pass the sitemap assertion, and indexing it would pass the page one.
-  it("serves an unverified organizer's page while keeping it out of the sitemap", async () => {
-    await inRollback(async (tx) => {
-      const unverified = await seedInstitution(tx);
-
-      const page = await getPublicInstitution(
-        unverified.slug,
-        ANONYMOUS_INSTITUTION_VIEWER,
-        tx as unknown as Database,
-      );
-      const sitemap = await institutionSlugsIn(tx);
-
-      expect(page?.slug).toBe(unverified.slug);
-      expect(sitemap).not.toContain(unverified.slug);
     });
   });
 });

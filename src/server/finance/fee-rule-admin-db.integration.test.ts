@@ -77,7 +77,11 @@ const seedOperator = async (tx: Tx): Promise<string> => {
 const seedInstitution = async (tx: Tx): Promise<string> => {
   const [institution] = await tx
     .insert(institutions)
-    .values({ slug: `fee-rule-inst-${uniqueSuffix()}`, institutionType: "personal" })
+    .values({
+      slug: `fee-rule-inst-${uniqueSuffix()}`,
+      displayName: "Fee Rule Fixture",
+      institutionType: "personal",
+    })
     .returning({ id: institutions.id });
 
   if (!institution) throw new Error("institution seed failed");

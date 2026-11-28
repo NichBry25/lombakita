@@ -40,22 +40,12 @@ import {
 import { generatePresignedGetUrl, isR2Available } from "@/server/storage/r2.client";
 import { logger } from "@/lib/logger";
 
-// The service maps the joined institution columns (display_name / type / owner-username) through
-// getInstitutionDisplayName, so the mocked DB rows carry the RAW projection shape, not the resolved
-// output shape. institutionName on the result is computed, never read straight from the row, and
-// institutionLogoUrl is signed from the two key columns.
+// The mocked DB rows carry the raw projection shape, not the output shape: institutionName on
+// the result is read from institutionDisplayName, and institutionLogoUrl is signed from the logo
+// key column.
 type RawListingRow = Omit<PublicCompetitionItem, "institutionName" | "institutionLogoUrl"> & {
   institutionLogoR2Key: string | null;
-  institutionOwnerAvatarKey: string | null;
-  institutionDisplayName: string | null;
-  institutionType:
-    | "personal"
-    | "company"
-    | "foundation"
-    | "university"
-    | "campus_organization"
-    | null;
-  institutionOwnerUsername: string | null;
+  institutionDisplayName: string;
 };
 
 // Builds a chainable Drizzle mock where:
@@ -104,10 +94,7 @@ const makeRow = (overrides: Partial<RawListingRow> = {}): RawListingRow => ({
   isFeatured: false,
   institutionSlug: "lk-univ",
   institutionDisplayName: "Universitas LK",
-  institutionType: null,
-  institutionOwnerUsername: null,
   institutionLogoR2Key: null,
-  institutionOwnerAvatarKey: null,
   ...overrides,
 });
 
@@ -128,17 +115,6 @@ describe("listPublicCompetitions — DB path", () => {
     const db = makeDb([makeRow()], 1);
     const result = await listPublicCompetitions({}, db);
     expect(result.data[0]!.institutionName).toBe("Universitas LK");
-  });
-
-  it("derives a personal institution's organizer name from the owner username", async () => {
-    const personalRow = makeRow({
-      institutionDisplayName: null,
-      institutionType: "personal",
-      institutionOwnerUsername: "owneruser",
-    });
-    const db = makeDb([personalRow], 1);
-    const result = await listPublicCompetitions({}, db);
-    expect(result.data[0]!.institutionName).toBe("owneruser's Institution");
   });
 
   it("defaults page to 1 and limit to 20", async () => {
@@ -733,21 +709,6 @@ describe("organiser logo address — database path", () => {
     expect(result.data[0]!.institutionLogoUrl).toBe(signedUrlFor("logos/lk.png"));
   });
 
-  it("returns a personal institution's owner avatar, never its own logo column", async () => {
-    const personalRow = makeRow({
-      institutionDisplayName: null,
-      institutionType: "personal",
-      institutionOwnerUsername: "owneruser",
-      institutionLogoR2Key: "logos/ignored.png",
-      institutionOwnerAvatarKey: "avatars/owner.png",
-    });
-    const db = makeDb([personalRow], 1);
-
-    const result = await listPublicCompetitions({}, db);
-
-    expect(result.data[0]!.institutionLogoUrl).toBe(signedUrlFor("avatars/owner.png"));
-  });
-
   it("returns null and signs nothing for an institution with no logo", async () => {
     const db = makeDb([makeRow()], 1);
 
@@ -758,15 +719,11 @@ describe("organiser logo address — database path", () => {
   });
 
   it("never puts a storage key on the public item", async () => {
-    const db = makeDb(
-      [makeRow({ institutionLogoR2Key: "logos/lk.png", institutionOwnerAvatarKey: "a/b.png" })],
-      1,
-    );
+    const db = makeDb([makeRow({ institutionLogoR2Key: "logos/lk.png" })], 1);
 
     const result = await listPublicCompetitions({}, db);
 
     expect(result.data[0]).not.toHaveProperty("institutionLogoR2Key");
-    expect(result.data[0]).not.toHaveProperty("institutionOwnerAvatarKey");
   });
 
   it("reads a page's logo keys in the listing query, not one query per card", async () => {
@@ -850,14 +807,14 @@ describe("organiser logo address — database path", () => {
     }
   });
 
-  it("selects both logo key columns in the listing query's projection", async () => {
+  it("selects the institution's logo key and no key of its owner in the listing projection", async () => {
     const db = makeDb([makeRow()], 1);
 
     await listPublicCompetitions({}, db);
 
     const projection = vi.mocked(db.select).mock.calls[0]![0] as unknown as Record<string, unknown>;
     expect(projection).toHaveProperty("institutionLogoR2Key");
-    expect(projection).toHaveProperty("institutionOwnerAvatarKey");
+    expect(projection).not.toHaveProperty("institutionOwnerAvatarKey");
   });
 });
 

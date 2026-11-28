@@ -12,17 +12,15 @@ const OWNER_CAP_LOCK_NAMESPACE = "inst_owner_cap:";
 
 // Serializes the cap-guarded institution mutations of a single owner for the life of `tx`.
 //
-// Why this exists: the per-recruiter institution caps (full: MAX_INSTITUTIONS_PER_RECRUITER;
-// personal: MAX_PERSONAL_INSTITUTIONS_PER_RECRUITER) are enforced by COUNTING the owner's existing
-// institutions and refusing the mutation at the cap. Under READ COMMITTED that count is a
-// phantom-vulnerable predicate: two concurrent same-owner transactions each take a snapshot that
-// cannot see the other's uncommitted insert (create paths) or type-flip (approval path), so both
-// pass the count and the cap is exceeded. The count ranges over OTHER rows, so neither the
-// create-path INSERT nor an approval-path row CAS has a single shared row to serialize on — the
-// house WHERE-clause row CAS (transitionCompetitionStatus) cannot express a cross-row cap. A
-// transaction-scoped advisory lock keyed on the owner is the serialization point: same-owner
-// transactions run one at a time, so the count taken after the lock is acquired sees every
-// previously-committed same-owner mutation.
+// Why this exists: the per-owner institution cap (MAX_INSTITUTIONS_PER_RECRUITER, every kind) is
+// enforced by COUNTING the owner's existing institutions and refusing the create at the cap. Under
+// READ COMMITTED that count is a phantom-vulnerable predicate: two concurrent same-owner creates
+// each take a snapshot that cannot see the other's uncommitted insert, so both pass the count and
+// the cap is exceeded. The count ranges over OTHER rows, so the create INSERT has no single shared
+// row to serialize on, and the house WHERE-clause row CAS (transitionCompetitionStatus) cannot
+// express a cross-row cap. A transaction-scoped advisory lock keyed on the owner is the
+// serialization point: same-owner transactions run one at a time, so the count taken after the lock
+// is acquired sees every previously-committed same-owner create.
 //
 // Pooling safety: this is pg_advisory_xact_lock (transaction-scoped), acquired and released within a
 // single db.transaction(). Neon's pooled endpoint runs PgBouncer in transaction mode, which pins a

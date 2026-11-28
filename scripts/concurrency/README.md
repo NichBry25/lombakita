@@ -13,8 +13,8 @@ stays green.
 Local Postgres must be up (`DATABASE_URL` from `.env.local`). Railway is not required.
 
 ```bash
-node --import tsx scripts/verify-owner-cap-concurrency.ts              # per-owner cap, create sites
-node --import tsx scripts/concurrency/upgrade-owner-cap.ts             # per-owner cap, upgrade site
+node --import tsx scripts/verify-owner-cap-concurrency.ts              # per-owner cap, every kind
+node --import tsx scripts/concurrency/owner-cap-personal-kind.ts       # per-owner cap, personal creates
 node --import tsx scripts/concurrency/institution-verification-submission.ts
 node --import tsx scripts/concurrency/registration-document-request.ts
 node --import tsx scripts/concurrency/verification-cas-races.ts

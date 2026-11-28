@@ -181,8 +181,6 @@ const REFUSAL_COPY: Record<RefusalAction, Partial<Record<string, string>>> = {
     competition_changed_during_edit: COMPETITION_CHANGED_DURING_EDIT_REASON,
     competition_publish_validation_failed:
       "Bidang wajib pada kompetisi yang sudah terbit tidak dapat dikosongkan.",
-    competition_personal_individual_only:
-      "Institusi personal hanya dapat menjalankan kompetisi mode individu.",
     competition_slug_taken:
       "Slug ini sudah dipakai kompetisi lain di institusi ini. Pilih slug lain.",
     competition_public_edit_blocked_trust_removed: PUBLIC_EDIT_HELD_AFTER_TRUST_REMOVAL_REASON,
@@ -532,7 +530,6 @@ export const InstitutionCompetitionEditShell = ({
   competitionId,
   expectedUserId,
   initialPublishReadiness,
-  isPersonal = false,
   step,
   stepChildren,
   contactEditor,
@@ -543,10 +540,6 @@ export const InstitutionCompetitionEditShell = ({
   // Rule 16: the rendered-for user id, sent as `X-Expected-User-Id` on every mutation from here.
   expectedUserId: string;
   initialPublishReadiness: CompetitionPublishReadiness;
-  // A personal institution may only run individual-mode competitions. When true the
-  // mode selector offers individual only (no team/both); the server guard
-  // (assertPersonalInstitutionIndividualMode, 422) remains the authoritative enforcement.
-  isPersonal?: boolean;
   // Additional authoring surfaces (e.g. the prizes editor) rendered inside the page shell so the
   // page keeps a single <main>. Each reports its unsaved state and its save to the shell, which
   // saves them with the step.
@@ -963,16 +956,6 @@ export const InstitutionCompetitionEditShell = ({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [competition?.status]);
-
-  useEffect(() => {
-    if (isPersonal) {
-      addToast({
-        type: "info",
-        message: "Institusi personal hanya dapat menjalankan kompetisi mode individu.",
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPersonal]);
 
   // "Lanjut", the step "Kembali" and the "Tinggalkan" of a section link arrive as a step change,
   // which ends their screen.
@@ -1898,20 +1881,13 @@ export const InstitutionCompetitionEditShell = ({
                       aria-labelledby="competition-mode-label"
                     />
                   ) : (
-                    /* Personal institutions are individual-only. */
                     <SelectField
                       label="Mode"
                       id="competition-mode-label"
                       value={mode}
                       required
                       placeholder="Pilih"
-                      options={
-                        isPersonal
-                          ? COMPETITION_MODE_OPTIONS.filter(
-                              (option) => option.value === "individual",
-                            )
-                          : [...COMPETITION_MODE_OPTIONS]
-                      }
+                      options={[...COMPETITION_MODE_OPTIONS]}
                       onChange={(newMode) => {
                         setMode(newMode);
                         // Mode-driven team-size behaviour:

@@ -4,6 +4,7 @@ assertServerOnly("server/teams/team-service");
 
 import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { logger } from "@/lib/logger";
+import { INSTITUTION_SUSPENDED_REGISTRATION_MESSAGE } from "@/lib/errors/error-copy";
 import { getDb, type Database } from "@/server/db/client";
 import {
   competitionRegistrations,
@@ -36,7 +37,11 @@ import {
   enqueueTeamInvitationDispatch,
 } from "@/server/async/enqueue";
 import { acquireCompetitionParticipationLock } from "@/server/competitions/competition-participation-lock";
-import { isCompetitionHost } from "@/server/competitions/competition-access";
+import {
+  assertInstitutionNotSuspended,
+  isCompetitionHost,
+} from "@/server/competitions/competition-access";
+import { CompetitionError } from "@/server/competitions/competition-core";
 import { isRegistrationEndPast } from "@/lib/competitions/competition-timeline";
 import { assertRegisteredFreeTeamOpen } from "@/server/teams/registered-team";
 
@@ -67,6 +72,7 @@ const TEAM_COLUMNS = {
 
 type CompetitionTeamSnapshot = {
   id: string;
+  institutionId: string;
   title: string;
   status: "draft" | "published" | "archived";
   mode: "individual" | "team" | "both" | null;
@@ -81,6 +87,7 @@ const loadCompetitionForTeams = async (
   const [row] = await db
     .select({
       id: competitions.id,
+      institutionId: competitions.institutionId,
       title: competitions.title,
       status: competitions.status,
       mode: competitions.mode,
@@ -124,6 +131,22 @@ const assertCompetitionTeamPlayable = (
     );
   }
   return { ...competition, registrationEndAt: competition.registrationEndAt };
+};
+
+// A competition whose institution is suspended, by staff or by an account deletion that anonymised
+// it, takes no new team and no new team member. Leaving and cancelling are not refused here.
+const assertInstitutionTakesNewTeamRegistrations = async (
+  institutionId: string,
+  tx: DbOrTx,
+): Promise<void> => {
+  try {
+    await assertInstitutionNotSuspended(institutionId, tx);
+  } catch (error) {
+    if (error instanceof CompetitionError && error.code === "institution_suspended") {
+      throw new TeamError("institution_suspended", INSTITUTION_SUSPENDED_REGISTRATION_MESSAGE);
+    }
+    throw error;
+  }
 };
 
 // Find any active team membership the candidate currently holds for this competition. Used by
@@ -257,7 +280,8 @@ export const createTeam = async (
         competitionId,
         tx as unknown as Database,
       );
-      assertCompetitionTeamPlayable(lockedCompetition, now);
+      const lockedOpenCompetition = assertCompetitionTeamPlayable(lockedCompetition, now);
+      await assertInstitutionTakesNewTeamRegistrations(lockedOpenCompetition.institutionId, tx);
       await assertNotCompetitionHost(tx, userId, competition.id);
 
       const [team] = await tx
@@ -835,6 +859,7 @@ type InvitationForAccept = {
   targetUserId: string | null;
   expiresAt: Date;
   competitionId: string;
+  institutionId: string;
   registrationEndAt: Date | null;
 };
 
@@ -850,6 +875,7 @@ const loadInvitationForAccept = async (
       targetUserId: teamInvitations.targetUserId,
       expiresAt: teamInvitations.expiresAt,
       competitionId: teams.competitionId,
+      institutionId: competitions.institutionId,
       registrationEndAt: competitions.registrationEndAt,
     })
     .from(teamInvitations)
@@ -1153,6 +1179,7 @@ export const acceptTeamInvitationForUser = async (
     await acquireCompetitionParticipationLock(tx, invitation.competitionId);
     // Read after the lock, so a wait on it cannot carry a moment before the close past it.
     const mutationAt = now ?? new Date();
+    await assertInstitutionTakesNewTeamRegistrations(invitation.institutionId, tx);
 
     const [team] = await tx
       .select({

@@ -82,13 +82,9 @@ export const institutionMembershipRoleEnum = pgEnum("institution_membership_role
   "institution_member",
 ]);
 
-// Institution type taxonomy. The column is nullable: a NULL value is a legacy
-// full/standard institution whose concrete subtype was never declared (all rows created before
-// `personal` is the lightweight, single-member, capped institution a minimal-tier recruiter can
-// self-create. The four full subtypes (company|foundation|university|campus_organization) are
-// chosen at create time for a directly-created full institution, or at upgrade time for a
-// personal→full upgrade — never left undeclared. Predicate convention: "is personal" is
-// `institution_type = 'personal'`; "is full/standard" is `institution_type <> 'personal'`.
+// Institution type taxonomy. Every institution declares one kind at creation, on the one create
+// form, and no path changes it. Predicate convention: "is personal" is
+// `institution_type = 'personal'`.
 // `community` is intentionally absent (deferred post-Beta). The enum is forward-compatible with
 // Phase 8 opportunity types — no jobs/internship wiring is added here.
 export const institutionTypeEnum = pgEnum("institution_type", [
@@ -539,27 +535,21 @@ export const institutions = pgTable(
     id: text("id")
       .primaryKey()
       .default(sql`gen_random_uuid()::text`),
-    // Nullable: a personal institution stores NULL here and derives its user-facing name from the
-    // owner's current username at read time. Full/legacy institutions (type !== 'personal') store a
-    // non-null value, enforced at the service layer (createInstitutionWorkspaceForUser). ALWAYS read
-    // a user-facing institution name through getInstitutionDisplayName (institution-display-name.ts)
-    // — never read this column raw on any surface that shows a name to a user.
-    displayName: text("display_name"),
+    // Every institution of every kind stores its name here, and the name is edited in settings. It
+    // never follows the owner's username.
+    displayName: text("display_name").notNull(),
     slug: text("slug").notNull(),
     // Defaults to what every creation path writes (`NEW_INSTITUTION_DEFAULT_STATUS`). It was
     // `active`, a value no creation path ever produced, so a fixture that omitted the column got
     // a state production could not reach.
     status: institutionStatusEnum("status").notNull().default("inactive"),
-    // Institution type. NOT NULL: every institution declares a type at creation — `personal` via
-    // the personal-create path, or a full subtype via the full-create form / personal→full upgrade.
-    // `personal` rows are capped (≤2 published competitions, individual-only, no featured placement,
-    // no staff/member invites); full subtypes are unconstrained by those caps. See institution-type.ts
-    // for the predicates and the type-transition state machine.
+    // Institution type. NOT NULL: every institution declares its kind at creation, on the one create
+    // form, and no path changes it. See institution-type.ts for the kind predicates.
     institutionType: institutionTypeEnum("institution_type").notNull(),
     // Short free-text description of the institution, editable in institution settings for EVERY
     // type (personal included) and surfaced on the recruiter dashboard institution list. Nullable —
     // an institution that has not written one falls back to a placeholder. Distinct from the
-    // full-only public organizer `about` field below (which drives the competition-detail
+    // public organizer `about` field below (which drives the competition-detail
     // "Penyelenggara" surface and is edited on the separate /settings/profile sub-page).
     description: text("description"),
     verificationStatus: institutionVerificationStatusEnum("verification_status")
@@ -575,13 +565,13 @@ export const institutions = pgTable(
     suspendedAt: timestamp("suspended_at", { mode: "date", withTimezone: true }),
     suspensionReason: text("suspension_reason"),
     // Public organizer profile (competition detail "Penyelenggara" surface). All nullable —
-    // an organizer that has not enriched its profile falls back to the derived display name and
+    // an organizer that has not enriched its profile falls back to the stored display name and
     // a placeholder mark. `logoR2Key` is a private R2 object key; the read path signs a fresh GET
     // URL at render time (never a stored public URL). These fields are descriptive only.
     logoR2Key: text("logo_r2_key"),
     // Wide header image on the public institution page, same 4:1 frame as the profile banner.
-    // Personal institutions never write either key — their logo and banner are derived from the
-    // owner's own profile at read time (see resolveInstitutionMedia).
+    // Every kind of institution writes both keys through the media upload, and every surface shows
+    // only the keys stored here.
     bannerR2Key: text("banner_r2_key"),
     about: text("about"),
     contactName: text("contact_name"),
@@ -595,15 +585,7 @@ export const institutions = pgTable(
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
   },
-  (table) => [
-    uniqueIndex("institutions_slug_unique_idx").on(table.slug),
-    // Backstop for the 6.5f.1-S1 debt: full/legacy institutions must store a non-null
-    // display_name. Personal institutions are exempt (type = 'personal' short-circuits the OR).
-    check(
-      "institutions_display_name_type_chk",
-      sql`${table.institutionType} = 'personal' OR ${table.displayName} IS NOT NULL`,
-    ),
-  ],
+  (table) => [uniqueIndex("institutions_slug_unique_idx").on(table.slug)],
 );
 
 // Public organizer social links — mirrors profile_social_links but keyed to an institution.
@@ -1706,8 +1688,7 @@ export type NotificationRecord = typeof notifications.$inferSelect;
 
 // Institution document verification submission system.
 // An institution owner submits identity documents to platform ops for review. On approval,
-// verification_status transitions to verified; on upgrade (personal → full), the type flip and
-// display_name persistence happen in the same transaction.
+// verification_status transitions to verified. The institution's type never changes.
 // `draft` stays for older host request rows. No path writes it, and institution verification never
 // writes it.
 export const verificationSubmissionStatusEnum = pgEnum("verification_submission_status", [

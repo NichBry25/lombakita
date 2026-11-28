@@ -51,7 +51,7 @@ const main = async (): Promise<void> => {
   const { default: postgres } = await import("postgres");
   const { drizzle } = await import("drizzle-orm/postgres-js");
   const schema = await import("@/server/db/schema");
-  const { createInstitutionWorkspaceForUser, createPersonalInstitutionForUser } =
+  const { createInstitutionWorkspaceForUser } =
     await import("@/server/institution-workspace/institution-service");
 
   // max:8 → each concurrent db.transaction() gets its own backend connection, so the two racers
@@ -76,19 +76,14 @@ const main = async (): Promise<void> => {
     return id;
   };
 
-  const countOwned = async (userId: string, kind: "personal" | "full"): Promise<number> => {
-    const typePredicate =
-      kind === "personal"
-        ? client`i.institution_type = 'personal'`
-        : client`i.institution_type IS DISTINCT FROM 'personal'`;
+  // Every kind counts toward the cap.
+  const countOwned = async (userId: string): Promise<number> => {
     const rows = await client<{ n: number }[]>`
     SELECT COUNT(*)::int AS n
     FROM institution_memberships m
-    JOIN institutions i ON i.id = m.institution_id
     WHERE m.user_id = ${userId}
       AND m.membership_role = 'institution_owner'
       AND m.status = 'active'
-      AND ${typePredicate}
   `;
     return rows[0]?.n ?? 0;
   };
@@ -125,23 +120,34 @@ const main = async (): Promise<void> => {
     if (!cond) failures += 1;
   };
 
-  const runPersonalSite = async () => {
-    console.log(`\n[personal create] cap=1, ${ITERATIONS} iterations, two concurrent creates each`);
+  const runAnyKindSite = async () => {
+    console.log(
+      `\n[any-kind create] cap=3 counts every kind, ${ITERATIONS} iterations, seed a personal and a company then race a personal and a university create`,
+    );
     for (let i = 0; i < ITERATIONS; i += 1) {
       const userId = await seedRecruiter();
+      const create = (label: string, institutionType: string) =>
+        createInstitutionWorkspaceForUser(
+          userId,
+          { displayName: `Cap Conc Kind ${label} ${i} ${userId.slice(0, 6)}`, institutionType },
+          db,
+        );
+      await create("A", "personal");
+      await create("B", "company");
+      // Distinct display names give distinct slugs, so only the cap can stop a racer.
       const outcome = await race(
-        () => createPersonalInstitutionForUser(userId, db),
-        () => createPersonalInstitutionForUser(userId, db),
+        () => create("C", "personal"),
+        () => create("D", "university"),
       );
-      const finalCount = await countOwned(userId, "personal");
+      const finalCount = await countOwned(userId);
       check(
         outcome.ok === 1 &&
-          outcome.failCode === "personal_institution_already_exists" &&
+          outcome.failCode === "recruiter_institution_limit_reached" &&
           outcome.failStatus === 409 &&
           outcome.other.length === 0 &&
-          finalCount === 1,
+          finalCount === 3,
         `iter ${i}: ok=${outcome.ok} loser=${outcome.failCode}(${outcome.failStatus}) owned=${finalCount}` +
-          ` [want: ok=1 loser=personal_institution_already_exists(409) owned=1]` +
+          ` [want: ok=1 loser=recruiter_institution_limit_reached(409) owned=3]` +
           (outcome.other.length ? ` [unexpected: ${outcome.other.join("; ")}]` : ""),
       );
     }
@@ -170,7 +176,7 @@ const main = async (): Promise<void> => {
         () => createFull("C"),
         () => createFull("D"),
       );
-      const finalCount = await countOwned(userId, "full");
+      const finalCount = await countOwned(userId);
       check(
         outcome.ok === 1 &&
           outcome.failCode === "recruiter_institution_limit_reached" &&
@@ -186,17 +192,23 @@ const main = async (): Promise<void> => {
 
   const runCrossOwner = async () => {
     console.log(
-      `\n[cross-owner] two DIFFERENT owners create personal simultaneously — both must succeed`,
+      `\n[cross-owner] two DIFFERENT owners create a personal workspace simultaneously, both must succeed`,
     );
     for (let i = 0; i < ITERATIONS; i += 1) {
       const u1 = await seedRecruiter();
       const u2 = await seedRecruiter();
+      const createPersonal = (userId: string) =>
+        createInstitutionWorkspaceForUser(
+          userId,
+          { displayName: `Cap Conc Cross ${i} ${userId.slice(0, 6)}`, institutionType: "personal" },
+          db,
+        );
       const outcome = await race(
-        () => createPersonalInstitutionForUser(u1, db),
-        () => createPersonalInstitutionForUser(u2, db),
+        () => createPersonal(u1),
+        () => createPersonal(u2),
       );
-      const c1 = await countOwned(u1, "personal");
-      const c2 = await countOwned(u2, "personal");
+      const c1 = await countOwned(u1);
+      const c2 = await countOwned(u2);
       check(
         outcome.ok === 2 && outcome.failCode === null && c1 === 1 && c2 === 1,
         `iter ${i}: both succeed (ok=${outcome.ok}), each owns 1 (u1=${c1}, u2=${c2})`,
@@ -225,7 +237,7 @@ const main = async (): Promise<void> => {
       { iso: string }[]
     >`SELECT current_setting('default_transaction_isolation') AS iso`;
     console.log(`DATABASE default_transaction_isolation = ${iso[0]?.iso ?? "unknown"}`);
-    await runPersonalSite();
+    await runAnyKindSite();
     await runFullSite();
     await runCrossOwner();
   } finally {

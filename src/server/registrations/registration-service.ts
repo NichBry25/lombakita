@@ -11,10 +11,15 @@ import {
   type RegistrationRecord,
 } from "@/server/registrations/registration-core";
 import { logger } from "@/lib/logger";
+import { INSTITUTION_SUSPENDED_REGISTRATION_MESSAGE } from "@/lib/errors/error-copy";
 import { enqueueRegistrationConfirmed, enqueueRegistrationCancelled } from "@/server/async/enqueue";
 import { isParticipantCancellationClosedByConfirmation } from "@/lib/competitions/competition-participation";
 import { acquireCompetitionParticipationLock } from "@/server/competitions/competition-participation-lock";
-import { isCompetitionHost } from "@/server/competitions/competition-access";
+import {
+  assertInstitutionNotSuspended,
+  isCompetitionHost,
+} from "@/server/competitions/competition-access";
+import { CompetitionError } from "@/server/competitions/competition-core";
 import {
   hasSubmittedPaymentProof,
   lockPaymentGroupAnchorRow,
@@ -65,6 +70,7 @@ export const getStudentRegistration = async (
 
 type CompetitionGuardSnapshot = {
   id: string;
+  institutionId: string;
   status: "draft" | "published" | "archived";
   mode: "individual" | "team" | "both" | null;
   registrationEndAt: Date | null;
@@ -85,6 +91,7 @@ const loadCompetitionForRegistration = async (
   const [row] = await db
     .select({
       id: competitions.id,
+      institutionId: competitions.institutionId,
       status: competitions.status,
       mode: competitions.mode,
       registrationEndAt: competitions.registrationEndAt,
@@ -207,6 +214,25 @@ const assertCompetitionAcceptsIndividualRegistration = (
   }
 };
 
+// A competition whose institution is suspended, by staff or by an account deletion that anonymised
+// it, takes no new registration. Cancelling is not refused here.
+const assertInstitutionTakesNewRegistrations = async (
+  institutionId: string,
+  tx: DbOrTx,
+): Promise<void> => {
+  try {
+    await assertInstitutionNotSuspended(institutionId, tx);
+  } catch (error) {
+    if (error instanceof CompetitionError && error.code === "institution_suspended") {
+      throw new RegistrationError(
+        "institution_suspended",
+        INSTITUTION_SUSPENDED_REGISTRATION_MESSAGE,
+      );
+    }
+    throw error;
+  }
+};
+
 const assertParticipantCancellationWindowOpen = (
   competition: CompetitionGuardSnapshot,
   now: Date,
@@ -298,6 +324,7 @@ export const createIndividualRegistration = async (
         throw new RegistrationError("competition_not_found", "Competition not found");
       }
       assertCompetitionAcceptsIndividualRegistration(lockedCompetition, mutationAt);
+      await assertInstitutionTakesNewRegistrations(lockedCompetition.institutionId, tx);
       await assertNoPaymentProofOnCancelledIndividualRegistrations(studentId, competitionId, tx);
       if (await isCompetitionHost(studentId, competitionId, tx)) {
         throw new RegistrationError(

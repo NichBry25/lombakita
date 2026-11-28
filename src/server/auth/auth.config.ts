@@ -127,8 +127,7 @@ type LiveAccountState =
       suspendedAt: Date | null;
       // Read in the SAME indexed-PK SELECT as role/suspendedAt: `mfaInvalidatedAt` is
       // one extra projected column on `users` (the DEC-0112 precedent), and `hasVerifiedMfaFactor`
-      // is a correlated EXISTS subquery rather than a join — same shape as
-      // institutionOwnerAvatarKeySql elsewhere in this codebase. This stays ONE SELECT.
+      // is a correlated EXISTS subquery rather than a join. This stays ONE SELECT.
       mfaInvalidatedAt: Date | null;
       hasVerifiedMfaFactor: boolean;
       // One more projected column in the same SELECT: the session-revocation stamp.

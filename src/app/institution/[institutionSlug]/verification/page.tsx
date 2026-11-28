@@ -2,29 +2,15 @@ import { redirect } from "next/navigation";
 import { requireRolePage } from "@/server/auth/page-guard";
 import { isInstitutionAdminBySlug } from "@/server/institution-members/member-service";
 import { loadInstitutionVerificationSummaryBySlug } from "@/server/institution-workspace/institution-service";
-import {
-  isPersonalInstitutionType,
-  isFullInstitutionType,
-} from "@/server/institution-workspace/institution-type";
-import {
-  FULL_INSTITUTION_CREATION_MIN_TIER,
-  getRecruiterTierForAccount,
-  meetsRecruiterTier,
-} from "@/server/auth/recruiter-tier";
-import { InstitutionUpgradeShell } from "@/components/institution/institution-upgrade-shell";
+import { isPersonalInstitutionType } from "@/server/institution-workspace/institution-type";
 import { InstitutionVerificationShell } from "@/components/institution/institution-verification-shell";
 
 type InstitutionVerificationPageProps = {
   params: Promise<{ institutionSlug: string }>;
 };
 
-// One route, two surfaces, chosen by institution type:
-//   personal → "Tingkatkan level institusi" (self-service, immediate, one-way type upgrade)
-//   full     → "Verifikasi institusi" (optional document review, credibility only)
-// A personal institution has no document verification of its own. The person behind it is trusted
-// as a host (through the Email organisasi, a sign-in email on an organization domain or the staff
-// host check), so the upgrade surface replaces it until the institution becomes full, at which
-// point the verification surface takes its place.
+// Document verification for a workspace's owner and staff. A personal workspace has none yet, so the
+// page sends its owner to the workspace hub.
 export default async function InstitutionVerificationPage({
   params,
 }: InstitutionVerificationPageProps) {
@@ -39,29 +25,17 @@ export default async function InstitutionVerificationPage({
   }
 
   const summary = await loadInstitutionVerificationSummaryBySlug(institutionSlug);
-  const institutionType = summary?.institutionType ?? null;
 
-  if (isPersonalInstitutionType(institutionType)) {
-    const tierState = await getRecruiterTierForAccount(session.user.id);
-    const canUpgrade = Boolean(
-      tierState?.recruiterVerified &&
-      meetsRecruiterTier(tierState.recruiterVerificationTier, FULL_INSTITUTION_CREATION_MIN_TIER),
-    );
-
-    return (
-      <InstitutionUpgradeShell
-        institutionSlug={institutionSlug}
-        expectedUserId={session.user.id}
-        canUpgrade={canUpgrade}
-      />
-    );
+  // A null summary means the slug did not resolve, but the membership guard above already confirmed
+  // the institution exists, so this only fails closed against an unexpected state.
+  if (!summary) {
+    redirect("/recruiter-dashboard");
   }
 
-  // Every non-personal institution has a full subtype (institution_type is NOT NULL and set at
-  // creation). A null here means the slug did not resolve — but the membership guard above already
-  // confirmed the institution exists, so this only fails closed against an unexpected state.
-  if (!isFullInstitutionType(institutionType) || !summary) {
-    redirect("/recruiter-dashboard");
+  // A personal workspace cannot submit verification documents (the verification service refuses its
+  // kind), so its owner is sent to the workspace hub.
+  if (isPersonalInstitutionType(summary.institutionType)) {
+    redirect(`/institution/${institutionSlug}`);
   }
 
   // The verdict is read from the institution's own column rather than from an approved submission
@@ -72,7 +46,7 @@ export default async function InstitutionVerificationPage({
     <InstitutionVerificationShell
       institutionSlug={institutionSlug}
       expectedUserId={session.user.id}
-      institutionType={institutionType}
+      institutionType={summary.institutionType}
       isVerified={summary.verificationStatus === "verified"}
       verifiedAt={summary.verifiedAt?.toISOString() ?? null}
       // Written by a platform-ops decision on the institution itself — a denial, or the revocation

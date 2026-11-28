@@ -9,7 +9,7 @@ assertServerOnly("server/auth/mfa/mfa-factor-sql");
  * call site, so it can be executed against a real database by a test — the defect below is invisible
  * to every mocked one.
  *
- * Same shape AND same constraint as `institutionOwnerUsernameSql`: the correlation MUST name the
+ * The correlation MUST name the
  * outer table as the LITERAL TEXT `users.id`. Interpolating the Drizzle column (`${users.id}`)
  * renders a bare `"id"`, and inside this subquery a bare `"id"` binds to `mfa_factors.id` — so the
  * predicate silently becomes `mfa_factors.user_id = mfa_factors.id`, matches nothing, and reports

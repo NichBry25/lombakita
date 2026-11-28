@@ -152,6 +152,37 @@ describe("the register button's refusals", () => {
       ),
     ).toBeTruthy();
   });
+
+  it("says the organiser is suspended when the register button is refused", async () => {
+    vi.mocked(sessionFetch).mockResolvedValueOnce({
+      ok: false,
+      json: async () => ({ error: { code: "institution_suspended" } }),
+    } as unknown as Response);
+    render(
+      <UIPrimitivesProvider>
+        <IndividualRegistrationSection
+          competitionId="comp-1"
+          competitionTitle="Seed Hackathon Nusantara"
+          ctaState="open"
+          initialRegistration={null}
+          expectedUserId="user-1"
+          modeLabel="Daftar"
+          cancellationClosedByPaymentProof={false}
+          cancellationClosedForTeamRow={false}
+          registrationWithheld={false}
+          registerAgainClosedByPaymentProof={false}
+        />
+      </UIPrimitivesProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Daftar" }));
+
+    expect(
+      await screen.findByText(
+        "Penyelenggara kompetisi ini sedang dinonaktifkan, jadi pendaftaran baru belum dapat diterima.",
+      ),
+    ).toBeTruthy();
+  });
 });
 
 describe("the cancel pop-up", () => {

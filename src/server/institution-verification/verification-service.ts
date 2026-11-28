@@ -6,7 +6,6 @@ import {
   institutionVerificationAudit,
   institutions,
   users,
-  type InstitutionType,
   type InstitutionVerificationStatus,
 } from "@/server/db/schema";
 import { logger } from "@/lib/logger";
@@ -15,10 +14,6 @@ import {
   type EmailDeliveryOutcome,
 } from "@/server/email/delivery-outcome";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
-import {
-  getInstitutionDisplayName,
-  institutionOwnerUsernameSql,
-} from "@/server/institution-workspace/institution-display-name";
 import {
   isPersonalInstitutionType,
   PERSONAL_INSTITUTION_TYPE,
@@ -78,8 +73,7 @@ const PAGE_SIZE = 20;
 // by host trust. `createVerificationSubmission` refuses one
 // outright, so a personal row could only ever sit in this queue as a permanently inert entry an
 // operator has no evidence to act on. Excluded from both the page query and the count so
-// pagination and the total agree. A personal→full upgrade resets verification_status, so an
-// upgraded institution enters this queue on its own merits.
+// pagination and the total agree.
 const NON_PERSONAL_INSTITUTION = ne(institutions.institutionType, PERSONAL_INSTITUTION_TYPE);
 
 const requirePlatformOps = (actorRole: string): void => {
@@ -113,8 +107,6 @@ export const listInstitutionsForPlatformOps = async (options: {
     .select({
       id: institutions.id,
       displayName: institutions.displayName,
-      institutionType: institutions.institutionType,
-      ownerUsername: institutionOwnerUsernameSql,
       slug: institutions.slug,
       verificationStatus: institutions.verificationStatus,
       verifiedAt: institutions.verifiedAt,
@@ -146,20 +138,8 @@ export const listInstitutionsForPlatformOps = async (options: {
     .from(institutions)
     .where(listWhere);
 
-  // Resolve the display name through the helper: a personal institution stores NULL and derives its
-  // name from the owner username; full/legacy institutions use the stored value.
-  const institutionItems: InstitutionListItem[] = rows.map(
-    ({ institutionType, ownerUsername, ...rest }) => ({
-      ...rest,
-      displayName: getInstitutionDisplayName(
-        { displayName: rest.displayName, institutionType },
-        { username: ownerUsername },
-      ),
-    }),
-  );
-
   return {
-    institutions: institutionItems,
+    institutions: rows,
     total: countRow?.count ?? 0,
     page,
   };
@@ -223,8 +203,7 @@ export const verifyInstitution = async (options: {
     rejectionReason: string | null;
   };
   let current: {
-    displayName: string | null;
-    institutionType: InstitutionType;
+    displayName: string;
     verificationStatus: InstitutionVerificationStatus;
   };
 
@@ -358,7 +337,7 @@ export const verifyInstitution = async (options: {
   if (options.targetStatus === "verified" || options.targetStatus === "rejected") {
     try {
       const [adminRow] = await db
-        .select({ email: users.email, username: users.username })
+        .select({ email: users.email })
         .from(institutionMemberships)
         .innerJoin(users, eq(users.id, institutionMemberships.userId))
         .where(
@@ -372,12 +351,7 @@ export const verifyInstitution = async (options: {
         .limit(1);
 
       if (adminRow) {
-        // Resolve the name through the helper: a personal institution derives it from the owner
-        // username (the same owner whose email we just loaded).
-        const resolvedDisplayName = getInstitutionDisplayName(
-          { displayName: current!.displayName, institutionType: current!.institutionType },
-          { username: adminRow.username },
-        );
+        const resolvedDisplayName = current!.displayName;
         // A 'rejected' target means two different things to the owner depending on where the
         // institution came from: a denied application (from pending/under review) or a verification
         // withdrawn after it had been granted. They get different notices.

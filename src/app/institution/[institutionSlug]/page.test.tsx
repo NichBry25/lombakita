@@ -8,7 +8,7 @@ const {
   mockGetCurrentSession,
   mockIsInstitutionAdminBySlug,
   mockGetPublicInstitution,
-  mockIsIndexableInstitution,
+  mockRedirect,
   mockLoadVerificationSummary,
   mockResolveChargingReadiness,
   mockRequireRolePage,
@@ -18,7 +18,7 @@ const {
   mockGetCurrentSession: vi.fn(),
   mockIsInstitutionAdminBySlug: vi.fn(),
   mockGetPublicInstitution: vi.fn(),
-  mockIsIndexableInstitution: vi.fn(),
+  mockRedirect: vi.fn(),
   mockLoadVerificationSummary: vi.fn(),
   mockResolveChargingReadiness: vi.fn(),
   mockRequireRolePage: vi.fn(),
@@ -26,11 +26,22 @@ const {
   mockNotFound: vi.fn(),
 }));
 
-vi.mock("next/navigation", () => ({ notFound: mockNotFound, redirect: vi.fn() }));
+vi.mock("next/navigation", () => ({ notFound: mockNotFound, redirect: mockRedirect }));
 vi.mock("@/components/ui", () => ({
   ButtonLink: ({ children }: { children?: ReactNode }) => <a>{children}</a>,
   Icon: () => null,
-  PageHeader: ({ title }: { title?: ReactNode }) => <h1>{title}</h1>,
+  PageHeader: ({
+    title,
+    action,
+  }: {
+    title?: ReactNode;
+    action?: { href: string; label: string };
+  }) => (
+    <>
+      <h1>{title}</h1>
+      {action ? <a href={action.href}>{action.label}</a> : null}
+    </>
+  ),
 }));
 vi.mock("@/components/institution/institution-public-view", () => ({
   InstitutionPublicView: ({ institution }: { institution: { slug: string } }) => (
@@ -50,7 +61,6 @@ vi.mock("@/server/institution-workspace/institution-service", () => ({
 }));
 vi.mock("@/server/institution-workspace/institution-public-service", () => ({
   getPublicInstitution: mockGetPublicInstitution,
-  isIndexableInstitution: mockIsIndexableInstitution,
 }));
 vi.mock("@/server/finance/charging-readiness", () => ({
   resolveChargingReadiness: mockResolveChargingReadiness,
@@ -81,7 +91,13 @@ const INSTITUTION = {
   description: null,
   logoUrl: null,
   institutionType: "university",
-  personalOwnerUsername: null,
+};
+
+const UNIVERSITY_VERIFICATION_SUMMARY = {
+  institutionId: "institution_seed",
+  institutionType: "university",
+  verificationStatus: "verified",
+  displayName: "Seed Academy",
 };
 
 const props = () => ({
@@ -94,7 +110,18 @@ const metadataProps = (slug: string = TYPED_SLUG) => ({
   searchParams: Promise.resolve({}),
 });
 
-const renderPage = async (userId: string | null) => {
+type RenderPageReads = {
+  publicInstitution?: unknown;
+  verificationSummary?: unknown;
+};
+
+const renderPage = async (
+  userId: string | null,
+  {
+    publicInstitution = INSTITUTION,
+    verificationSummary = UNIVERSITY_VERIFICATION_SUMMARY,
+  }: RenderPageReads = {},
+) => {
   mockGetCurrentSession.mockResolvedValue(
     userId === null ? null : { user: { id: userId, role: "recruiter" } },
   );
@@ -102,13 +129,8 @@ const renderPage = async (userId: string | null) => {
     async (cookieUserId: string, slug: string) =>
       slug === NORMALISED_SLUG && MEMBER_USER_IDS.has(cookieUserId),
   );
-  mockGetPublicInstitution.mockResolvedValue(INSTITUTION);
-  mockLoadVerificationSummary.mockResolvedValue({
-    institutionId: "institution_seed",
-    institutionType: "university",
-    verificationStatus: "verified",
-    displayName: "Seed Academy",
-  });
+  mockGetPublicInstitution.mockResolvedValue(publicInstitution);
+  mockLoadVerificationSummary.mockResolvedValue(verificationSummary);
   mockResolveChargingReadiness.mockResolvedValue({ ready: true, blockers: [] });
   mockListPublicCompetitions.mockResolvedValue({ data: [] });
 
@@ -144,6 +166,52 @@ describe("InstitutionHubPage — which surface the URL segment selects", () => {
     expect(html).not.toContain("institution-hub-page");
   });
 
+  it("a personal workspace's public page renders and does not redirect", async () => {
+    const html = await renderPage(NON_MEMBER_USER_ID, {
+      publicInstitution: { ...INSTITUTION, institutionType: "personal", name: "Lomba Budi" },
+    });
+
+    expect(html).toContain(`PUBLIC_VIEW:${NORMALISED_SLUG}`);
+    expect(mockRedirect).not.toHaveBeenCalled();
+    expect(mockNotFound).not.toHaveBeenCalled();
+    expect(mockListPublicCompetitions).toHaveBeenCalledWith({
+      institutionSlug: NORMALISED_SLUG,
+      status: "all",
+      limit: 12,
+    });
+  });
+
+  it("the hub shows team and the public view link for a personal workspace", async () => {
+    const html = await renderPage("user_owner", {
+      verificationSummary: {
+        institutionId: "institution_seed",
+        institutionType: "personal",
+        verificationStatus: "pending_verification",
+        displayName: "Lomba Budi",
+      },
+    });
+
+    expect(html).toContain(`href="/institution/${NORMALISED_SLUG}/team"`);
+    expect(html).toContain("<h2>Tim</h2>");
+    expect(html).toContain(
+      `<a href="/institution/${NORMALISED_SLUG}?tampilan=publik">Lihat halaman publik</a>`,
+    );
+    expect(html).not.toContain("Tingkatkan level institusi");
+    expect(html).not.toContain("Verifikasi dokumen");
+    expect(html).not.toContain(`/institution/${NORMALISED_SLUG}/verification`);
+  });
+
+  it("keeps the verification card on the hub of a university workspace", async () => {
+    const html = await renderPage("user_owner");
+
+    expect(html).toContain(`href="/institution/${NORMALISED_SLUG}/verification"`);
+    expect(html).toContain("<h2>Verifikasi dokumen</h2>");
+    expect(html).toContain(`href="/institution/${NORMALISED_SLUG}/team"`);
+    expect(html).toContain(
+      `<a href="/institution/${NORMALISED_SLUG}?tampilan=publik">Lihat halaman publik</a>`,
+    );
+  });
+
   it.each(["ab", "!!!"])("is not found for %o, which is not a usable slug", async (slug) => {
     mockNotFound.mockImplementation(() => {
       throw new Error("NEXT_NOT_FOUND");
@@ -167,7 +235,6 @@ describe("generateMetadata — the address it declares", () => {
 
   it("declares the normalised slug as canonical for the uppercased URL, and gives Open Graph the same address", async () => {
     mockGetPublicInstitution.mockResolvedValue(INSTITUTION);
-    mockIsIndexableInstitution.mockReturnValue(true);
 
     const metadata = await generateMetadata(metadataProps());
 
@@ -184,5 +251,30 @@ describe("generateMetadata — the address it declares", () => {
     expect(metadata.alternates).toBeUndefined();
     expect(metadata.openGraph).toBeUndefined();
     expect(mockGetPublicInstitution).not.toHaveBeenCalled();
+  });
+
+  it("an institution page is indexable for every rendered workspace", async () => {
+    mockGetPublicInstitution.mockResolvedValue({
+      ...INSTITUTION,
+      institutionType: "personal",
+      isVerified: false,
+    });
+
+    const metadata = await generateMetadata(metadataProps());
+
+    expect(metadata.robots).toEqual({ index: true, follow: true });
+    expect(metadata.alternates?.canonical).toBe(`/institution/${NORMALISED_SLUG}`);
+    expect(metadata.openGraph?.url).toBe(`/institution/${NORMALISED_SLUG}`);
+    expect(metadata.title).toBe("Seed Academy · Lombakita");
+  });
+
+  it("declares no robots for a workspace whose page does not render", async () => {
+    mockGetPublicInstitution.mockResolvedValue(null);
+
+    const metadata = await generateMetadata(metadataProps());
+
+    expect(metadata.title).toBe("Institusi tidak ditemukan · Lombakita");
+    expect(metadata.robots).toBeUndefined();
+    expect(metadata.alternates).toBeUndefined();
   });
 });

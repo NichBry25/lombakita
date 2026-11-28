@@ -155,6 +155,7 @@ const seedFixture = async (
     .insert(institutions)
     .values({
       slug: `qris-inst-${id}`,
+      displayName: `QRIS Fixture ${id}`,
       institutionType: "personal",
       verificationStatus: "verified",
     })

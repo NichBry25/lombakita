@@ -283,8 +283,8 @@ const main = async (): Promise<void> => {
 
     const institution = oneRow(
       await client<{ id: string }[]>`
-        INSERT INTO institutions (id, slug, institution_type)
-        VALUES (${randomUUID()}, ${`fin-inst-${tag}`}, 'personal')
+        INSERT INTO institutions (id, display_name, slug, institution_type)
+        VALUES (${randomUUID()}, ${`Finance race host ${tag}`}, ${`fin-inst-${tag}`}, 'personal')
         RETURNING id
       `,
       "institutions",

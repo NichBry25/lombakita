@@ -22,6 +22,7 @@ import {
 
 const USER = "user-1";
 const INSTITUTION = "inst-1";
+const SECOND_INSTITUTION = "inst-2";
 
 const SERVICE = "src/server/accounts/account-deidentification-service.ts";
 
@@ -79,11 +80,11 @@ describe("parseDeidentifyInput", () => {
 });
 
 describe("deidentificationObjectPrefixes", () => {
-  it("lists the account's own prefixes when it has no registrations and no personal institution", () => {
+  it("lists the account's own prefixes when it has no registrations and owns no institution alone", () => {
     const prefixes = deidentificationObjectPrefixes({
       userId: USER,
       registrations: [],
-      personalInstitutionId: null,
+      soleOwnedInstitutionIds: [],
     });
 
     expect(prefixes).toEqual([
@@ -102,7 +103,7 @@ describe("deidentificationObjectPrefixes", () => {
         { registrationId: "reg-1", competitionId: "comp-1", teamId: null },
         { registrationId: "reg-2", competitionId: "comp-2", teamId: null },
       ],
-      personalInstitutionId: null,
+      soleOwnedInstitutionIds: [],
     });
 
     expect(prefixes).toContain("registration-documents/comp-1/reg-1/");
@@ -118,7 +119,7 @@ describe("deidentificationObjectPrefixes", () => {
         { registrationId: "reg-1", competitionId: "comp-1", teamId: null },
         { registrationId: "reg-2", competitionId: "comp-2", teamId: null },
       ],
-      personalInstitutionId: INSTITUTION,
+      soleOwnedInstitutionIds: [INSTITUTION],
     });
 
     expect(prefixes.some((prefix) => prefix.startsWith("submissions/"))).toBe(false);
@@ -131,7 +132,7 @@ describe("deidentificationObjectPrefixes", () => {
         { registrationId: "reg-solo", competitionId: "comp-1", teamId: null },
         { registrationId: "reg-team", competitionId: "comp-2", teamId: "team-1" },
       ],
-      personalInstitutionId: null,
+      soleOwnedInstitutionIds: [],
     });
 
     expect(prefixes).toContain("registration-documents/comp-1/reg-solo/");
@@ -144,24 +145,35 @@ describe("deidentificationObjectPrefixes", () => {
     const prefixes = deidentificationObjectPrefixes({
       userId: USER,
       registrations: [{ registrationId: "reg-1", competitionId: "comp-1", teamId: null }],
-      personalInstitutionId: null,
+      soleOwnedInstitutionIds: [],
     });
 
     expect(prefixes).toContain("registration-documents/comp-1/reg-1/");
     expect(prefixes.some((prefix) => prefix.includes("{requestId}"))).toBe(false);
   });
 
-  it("adds the personal institution's four prefixes when the account owns one", () => {
+  it("adds four prefixes for each institution the account owns alone", () => {
     const prefixes = deidentificationObjectPrefixes({
       userId: USER,
       registrations: [],
-      personalInstitutionId: INSTITUTION,
+      soleOwnedInstitutionIds: [INSTITUTION, SECOND_INSTITUTION],
     });
 
-    expect(prefixes).toContain(`institution-logos/${INSTITUTION}/`);
-    expect(prefixes).toContain(`institution-banners/${INSTITUTION}/`);
-    expect(prefixes).toContain(`payment-instructions/${INSTITUTION}/`);
-    expect(prefixes).toContain(`verification/${INSTITUTION}/`);
+    expect(prefixes).toEqual([
+      `avatars/${USER}/`,
+      `banners/${USER}/`,
+      `resumes/${USER}/`,
+      `profile-certifications/${USER}/`,
+      `recruiter-verification/${USER}/`,
+      `institution-logos/${INSTITUTION}/`,
+      `institution-banners/${INSTITUTION}/`,
+      `payment-instructions/${INSTITUTION}/`,
+      `verification/${INSTITUTION}/`,
+      `institution-logos/${SECOND_INSTITUTION}/`,
+      `institution-banners/${SECOND_INSTITUTION}/`,
+      `payment-instructions/${SECOND_INSTITUTION}/`,
+      `verification/${SECOND_INSTITUTION}/`,
+    ]);
   });
 
   it("never lists payment-proofs, on any target", () => {
@@ -173,7 +185,7 @@ describe("deidentificationObjectPrefixes", () => {
         { registrationId: "reg-1", competitionId: "comp-1", teamId: null },
         { registrationId: "reg-2", competitionId: "comp-2", teamId: null },
       ],
-      personalInstitutionId: INSTITUTION,
+      soleOwnedInstitutionIds: [INSTITUTION],
     });
 
     expect(prefixes.some((prefix) => prefix.startsWith("payment-proofs/"))).toBe(false);
@@ -183,7 +195,7 @@ describe("deidentificationObjectPrefixes", () => {
     const prefixes = deidentificationObjectPrefixes({
       userId: USER,
       registrations: [{ registrationId: "reg-1", competitionId: "comp-1", teamId: null }],
-      personalInstitutionId: INSTITUTION,
+      soleOwnedInstitutionIds: [INSTITUTION],
     });
 
     expect(prefixes.length).toBeGreaterThan(0);

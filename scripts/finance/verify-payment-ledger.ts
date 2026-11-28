@@ -71,14 +71,14 @@ const main = async (): Promise<void> => {
 
     const organizer = oneRow(
       await client<{ id: string }[]>`
-        INSERT INTO institutions (slug, institution_type)
-        VALUES (${`${tag}-org`}, 'personal') RETURNING id`,
+        INSERT INTO institutions (display_name, slug, institution_type)
+        VALUES (${`Ledger organizer ${tag}`}, ${`${tag}-org`}, 'personal') RETURNING id`,
       "institution",
     );
     const bystander = oneRow(
       await client<{ id: string }[]>`
-        INSERT INTO institutions (slug, institution_type)
-        VALUES (${`${tag}-other`}, 'personal') RETURNING id`,
+        INSERT INTO institutions (display_name, slug, institution_type)
+        VALUES (${`Ledger bystander ${tag}`}, ${`${tag}-other`}, 'personal') RETURNING id`,
       "institution",
     );
     created.institutions.push(organizer.id, bystander.id);

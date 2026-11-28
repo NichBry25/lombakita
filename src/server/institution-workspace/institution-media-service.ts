@@ -15,7 +15,6 @@ import {
   buildInstitutionWorkspaceAccessDeniedError,
   findInstitutionWorkspaceByOwnerAndSlug,
 } from "@/server/institution-workspace/institution-service";
-import { isPersonalInstitutionType } from "@/server/institution-workspace/institution-type";
 import { parseInstitutionSlugParam } from "@/server/institution-workspace/institution-core";
 import { generatePresignedPutUrl, isR2Available } from "@/server/storage/r2.client";
 
@@ -41,9 +40,8 @@ const mediaKeyUpdate = (
 
 export type InstitutionMediaUploadGrant = { uploadUrl: string; fileKey: string; expiresAt: Date };
 
-// Resolves the slug to an institution the caller owns and which is allowed to hold its own imagery.
-// A personal institution renders its owner's profile photo and banner instead, so it has nothing to
-// upload to — the refusal is what keeps the derived state the only state.
+// Resolves the slug to an institution the caller owns. Every kind of institution holds its own logo
+// and banner.
 const requireUploadableInstitution = async (
   userId: string,
   institutionSlug: string,
@@ -53,15 +51,6 @@ const requireUploadableInstitution = async (
   const current = await findInstitutionWorkspaceByOwnerAndSlug(userId, normalizedSlug, db);
   if (!current) {
     throw await buildInstitutionWorkspaceAccessDeniedError(userId, normalizedSlug, db);
-  }
-
-  if (isPersonalInstitutionType(current.institutionType ?? null)) {
-    throw new InstitutionProfileInputError(
-      "institution_profile_not_editable",
-      "A personal institution shows its owner's profile photo and banner, which are edited on the owner's profile",
-      undefined,
-      403,
-    );
   }
 
   return { institutionId: current.institutionId };

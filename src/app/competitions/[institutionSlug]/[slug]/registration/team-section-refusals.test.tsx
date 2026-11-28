@@ -113,6 +113,19 @@ describe("the team section's refusals", () => {
     ).toBeTruthy();
   });
 
+  it("says the organiser is suspended when the captain registers the team", async () => {
+    renderTeam(CAPTAIN);
+    stubRefusal("institution_suspended", 403);
+
+    fireEvent.click(screen.getByRole("button", { name: "Daftarkan tim" }));
+
+    expect(
+      await screen.findByText(
+        "Penyelenggara kompetisi ini sedang dinonaktifkan, jadi pendaftaran baru belum dapat diterima.",
+      ),
+    ).toBeTruthy();
+  });
+
   it("says why an owner or staff member of the competition's institution cannot create a team", async () => {
     render(
       <UIPrimitivesProvider>

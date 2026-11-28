@@ -516,8 +516,8 @@ describe("getCompetitionIdByInstitutionAndSlug", () => {
 // A personal institution is never document-verified — it has no documents, and it is excluded
 // from the platform-ops verification queue for exactly that reason. These tests pin the
 // consequence that matters: excluding it costs it no capability it would otherwise have. Publishing
-// a FREE competition is gated on host trust, the actor's or a trusted owner's, plus the personal
-// reach cap, and reads nothing about the institution's verification_status.
+// a FREE competition is gated on host trust, the actor's or a trusted owner's, and reads nothing
+// about the institution's verification_status.
 //
 // That does NOT mean assertInstitutionVerified has no caller on this path. It does, and the
 // distinction is the whole of DEC-0158. transitionCompetitionStatus calls it whenever the
@@ -551,24 +551,18 @@ describe("personal institution publish — capability is independent of institut
       participantConfirmationAt: future(15),
     });
 
-  // Serves exactly the reads the publish path is expected to make, in order:
-  //   1. the competition's fee, for the DEC-0158 charging gate → FREE here
-  //   2. loadInstitutionTypeById  → 'personal'
-  //   3. published-competition count for the reach cap
-  // Anything beyond that draws an empty result and fails the transition, so this mock is the
-  // tripwire, not just a stub.
+  // Serves exactly the read the publish path is expected to make: the competition's fee, for the
+  // DEC-0158 charging gate, FREE here. Anything beyond that draws an empty result and fails the
+  // transition, so this mock is the tripwire, not just a stub. A read of the institution's kind would
+  // draw that empty result.
   //
-  // Read 1 returns a null fee deliberately, and it is what these two tests are ABOUT: publishing is
-  // independent of institution verification, so a FREE competition must sail past the charging gate
-  // without a verification lookup happening at all. If the gate ever started firing on free
-  // competitions, the verification read would land here, draw an empty result, and fail, which is
-  // the tripwire working.
-  const makePersonalPublishDb = (publishedCount: number) => {
-    const selectResults: unknown[][] = [
-      [{ feeAmount: null }],
-      [{ institutionType: "personal" }],
-      [{ count: publishedCount }],
-    ];
+  // The fee is null deliberately, and it is what these tests are ABOUT: publishing is independent
+  // of institution verification, so a FREE competition must sail past the charging gate without a
+  // verification lookup happening at all. If the gate ever started firing on free competitions, the
+  // verification read would land here, draw an empty result, and fail, which is the tripwire
+  // working.
+  const makePersonalPublishDb = () => {
+    const selectResults: unknown[][] = [[{ feeAmount: null }]];
     let selectCall = 0;
     const capturedUpdates: Record<string, unknown>[] = [];
 
@@ -604,14 +598,14 @@ describe("personal institution publish — capability is independent of institut
     return { db, capturedUpdates };
   };
 
-  it("publishes an individual-mode competition for a personal institution under the cap", async () => {
+  it("publishes an individual-mode competition for a personal institution", async () => {
     assertCompetitionAccess.mockResolvedValue({
       competition: publishableDraft(),
       membershipRole: "institution_owner",
     });
     assertPublishTrustSatisfied.mockResolvedValue(undefined);
     assertInstitutionNotSuspended.mockResolvedValue(undefined);
-    const { db, capturedUpdates } = makePersonalPublishDb(1);
+    const { db, capturedUpdates } = makePersonalPublishDb();
 
     const result = await transitionCompetitionStatus("user_1", "comp_1", "published", db);
 
@@ -623,18 +617,20 @@ describe("personal institution publish — capability is independent of institut
     expect(assertCompetitionAccess).toHaveBeenCalledWith("user_1", "comp_1", "member", db);
   });
 
-  it("still enforces the personal reach cap — the capability is bounded, not unconditional", async () => {
+  it("publishes a team-mode competition of a personal institution and reads nothing of its kind", async () => {
     assertCompetitionAccess.mockResolvedValue({
-      competition: publishableDraft(),
+      competition: { ...publishableDraft(), mode: "team", minTeamSize: 2, maxTeamSize: 4 },
       membershipRole: "institution_owner",
     });
     assertPublishTrustSatisfied.mockResolvedValue(undefined);
     assertInstitutionNotSuspended.mockResolvedValue(undefined);
-    const { db } = makePersonalPublishDb(2);
+    const { db, capturedUpdates } = makePersonalPublishDb();
 
-    await expect(
-      transitionCompetitionStatus("user_1", "comp_1", "published", db),
-    ).rejects.toMatchObject({ code: "competition_personal_publish_limit", httpStatus: 422 });
+    const result = await transitionCompetitionStatus("user_1", "comp_1", "published", db);
+
+    expect(result.competition.status).toBe("published");
+    expect(capturedUpdates).toHaveLength(1);
+    expect(capturedUpdates[0]).toMatchObject({ status: "published" });
   });
 
   it("runs the trust gate last and writes nothing when it refuses", async () => {
@@ -650,7 +646,7 @@ describe("personal institution publish — capability is independent of institut
         "Publishing requires a trusted host, or a trusted owner of the institution",
       ),
     );
-    const { db, capturedUpdates } = makePersonalPublishDb(1);
+    const { db, capturedUpdates } = makePersonalPublishDb();
 
     await expect(
       transitionCompetitionStatus("user_1", "comp_1", "published", db),

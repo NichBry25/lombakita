@@ -466,6 +466,45 @@ export const hasCompetitionTransferAwaitingReview = async (
 };
 
 /**
+ * Whether this institution receives a priced payment that is still open: no outcome folded from its
+ * events, and its deadline not passed.
+ *
+ * The payer of an open payment may still transfer and send a proof, so the institution still needs
+ * an organizer. A payment past its deadline is not counted: the expiry sweep closes it and cancels
+ * its registration. Folded per payment, as the confirmed-paid question is, because a payment has no
+ * status column to read.
+ */
+export const hasInstitutionOpenPricedPayment = async (
+  institutionId: string,
+  now: Date,
+  db: Database = getDb(),
+): Promise<boolean> => {
+  const payments = await db
+    .select({ id: financePayments.id })
+    .from(financePayments)
+    .where(
+      and(
+        eq(financePayments.receivingInstitutionId, institutionId),
+        gt(financePayments.grossAmount, 0),
+        gt(financePayments.dueAt, now),
+      ),
+    );
+
+  if (payments.length === 0) return false;
+
+  const paymentIds = payments.map((payment) => payment.id);
+  const events = await db
+    .select()
+    .from(financePaymentEvents)
+    .where(inArray(financePaymentEvents.paymentId, paymentIds));
+
+  return paymentIds.some((paymentId) => {
+    const own = events.filter((event) => event.paymentId === paymentId);
+    return foldPaymentEvents(own).status === "pending";
+  });
+};
+
+/**
  * Whether anyone holds a non-cancelled registration on this competition that carries no price.
  *
  * DERIVED PER PAYMENT GROUP, not per row, for the reason `resolvePaymentGroupRegistrationIds`

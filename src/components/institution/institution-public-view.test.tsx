@@ -54,7 +54,6 @@ const institutionWith = (
   contactDisclosure,
   websiteUrl: null,
   socialLinks: [],
-  personalOwnerUsername: null,
 });
 
 const renderNotice = (contactDisclosure: PublicInstitution["contactDisclosure"]) =>

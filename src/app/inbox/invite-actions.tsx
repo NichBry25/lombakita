@@ -6,6 +6,7 @@ import {
   COMPETITION_HOST_CANNOT_JOIN_MESSAGE,
   COMPETITIONS_CHANGING_RETRY_MESSAGE,
   errorMessageFor,
+  INSTITUTION_SUSPENDED_REGISTRATION_MESSAGE,
   INVITEE_HOLDS_PLACE_MESSAGE,
 } from "@/lib/errors/error-copy";
 import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
@@ -51,6 +52,7 @@ const INVITE_ERROR_COPY: Partial<Record<string, string>> = {
   team_invite_candidate_required:
     "Undangan tim hanya bisa diterima oleh akun kandidat. Verifikasi akun kandidat Anda terlebih dahulu.",
   team_host_of_competition: COMPETITION_HOST_CANNOT_JOIN_MESSAGE,
+  institution_suspended: INSTITUTION_SUSPENDED_REGISTRATION_MESSAGE,
   team_candidate_already_member: "Anda sudah tergabung dalam tim untuk kompetisi ini.",
   forbidden: "Akun ini tidak dapat menerima undangan.",
 };

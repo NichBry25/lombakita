@@ -11,10 +11,6 @@ import {
   type CompetitionCategory,
   type CompetitionMode,
 } from "@/server/db/schema";
-import {
-  getInstitutionDisplayName,
-  institutionOwnerUsernameSql,
-} from "@/server/institution-workspace/institution-display-name";
 
 // Visibility decision for the saved competitions list:
 // - `draft` (unpublished) competitions are included but flagged as "unavailable" so the
@@ -74,11 +70,7 @@ const SAVED_COLUMNS = {
   registrationEndAt: competitions.registrationEndAt,
   status: competitions.status,
   institutionSlug: institutions.slug,
-  // institutionName resolved via getInstitutionDisplayName below — a personal institution stores
-  // NULL and derives its name from the owner username.
   institutionDisplayName: institutions.displayName,
-  institutionType: institutions.institutionType,
-  institutionOwnerUsername: institutionOwnerUsernameSql,
   institutionSuspendedAt: institutions.suspendedAt,
   savedAt: competitionSaves.savedAt,
 } as const;
@@ -178,10 +170,7 @@ export const listSavedCompetitions = async (
     slug: row.slug,
     title: row.title,
     institutionSlug: row.institutionSlug,
-    institutionName: getInstitutionDisplayName(
-      { displayName: row.institutionDisplayName, institutionType: row.institutionType },
-      { username: row.institutionOwnerUsername },
-    ),
+    institutionName: row.institutionDisplayName,
     category: row.category,
     mode: row.mode,
     registrationEndAt: row.registrationEndAt,
