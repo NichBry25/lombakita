@@ -51,21 +51,18 @@ import { TEST_DATABASE_URL, skipWithoutDatabase } from "@/server/testing/databas
 import type { Database } from "@/server/db/client";
 import { NEW_INSTITUTION_DEFAULT_STATUS } from "@/server/institution-workspace/institution-service";
 
-// THE ONE SEAM, drawn at the mail provider. Both services compose an owner notice after committing,
-// and there is no Resend here. Stubbed so a refusal is measured against the guard rather than against
-// an unreachable API — and the stubs are themselves the assertion that a refused decision composed
+// THE ONE SEAM, drawn at the notice enqueue. Both services enqueue an owner notice after committing,
+// and there is no Redis here. Stubbed so a refusal is measured against the guard rather than against
+// an unreachable queue — and the spy is itself the assertion that a refused decision enqueued
 // nothing.
-const { sendVerified, sendRevoked, sendRejected } = vi.hoisted(() => ({
-  sendVerified: vi.fn(async () => {}),
-  sendRevoked: vi.fn(async () => {}),
-  sendRejected: vi.fn(async () => {}),
+const { noticeSpy } = vi.hoisted(() => ({
+  noticeSpy: vi.fn(async () => ({})),
 }));
 
-vi.mock("@/server/institution-verification/verification-email", () => ({
-  sendInstitutionVerifiedEmail: sendVerified,
-  sendInstitutionVerificationRevokedEmail: sendRevoked,
-  sendInstitutionRejectedEmail: sendRejected,
-}));
+vi.mock("@/server/async/enqueue", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/server/async/enqueue")>();
+  return { ...actual, enqueueInstitutionTickNotice: noticeSpy };
+});
 
 const DATABASE_URL = TEST_DATABASE_URL;
 const client = DATABASE_URL ? postgres(DATABASE_URL, { max: 1 }) : null;
@@ -311,9 +308,7 @@ const expectRefusedAndWroteNothing = async (
       .from(platformOpsAuditLogs)
       .where(eq(platformOpsAuditLogs.actorUserId, fixture.actorUserId)),
   ).toHaveLength(0);
-  expect(sendVerified).not.toHaveBeenCalled();
-  expect(sendRevoked).not.toHaveBeenCalled();
-  expect(sendRejected).not.toHaveBeenCalled();
+  expect(noticeSpy).not.toHaveBeenCalled();
 };
 
 describe.skipIf(skipWithoutDatabase)("nobody decides their own institution", () => {
@@ -598,7 +593,10 @@ describe.skipIf(skipWithoutDatabase)("nobody decides their own institution", () 
       expect(await auditRowsFor(tx, institution.id)).toEqual([
         { actorUserId: operator, fromStatus: "pending_verification", toStatus: "verified" },
       ]);
-      expect(sendVerified).toHaveBeenCalledTimes(1);
+      expect(noticeSpy).toHaveBeenCalledTimes(1);
+      expect(noticeSpy).toHaveBeenCalledWith({
+        payload: expect.objectContaining({ institutionId: institution.id, kind: "tick_granted" }),
+      });
     });
   });
 

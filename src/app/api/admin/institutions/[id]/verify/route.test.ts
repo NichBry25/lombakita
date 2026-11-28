@@ -138,6 +138,29 @@ describe("PATCH /api/admin/institutions/[id]/verify", () => {
     expect(body.error.code).toBe("verification_invalid_transition");
   });
 
+  it("returns 409 verification_invalid_transition for the automatic removal move", async () => {
+    requireSessionRole.mockResolvedValue(platformOpsSession);
+    verifyInstitution.mockRejectedValue(
+      new VerificationError(
+        "verification_invalid_transition",
+        409,
+        "Cannot transition from 'verified' to 'pending_verification'",
+      ),
+    );
+
+    const response = await PATCH(
+      makeRequest({ targetStatus: "pending_verification" }) as never,
+      makeParams("inst_1"),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe("verification_invalid_transition");
+    expect(verifyInstitution).toHaveBeenCalledWith(
+      expect.objectContaining({ targetStatus: "pending_verification" }),
+    );
+  });
+
   it("returns 400 for invalid JSON body", async () => {
     requireSessionRole.mockResolvedValue(platformOpsSession);
 

@@ -65,7 +65,10 @@ import {
   R2_PREFIX_RESUMES,
   R2_PREFIX_VERIFICATION,
 } from "@/server/storage/r2-key-prefixes";
-import { enqueueCompetitionSearchSync } from "@/server/async/enqueue";
+import {
+  enqueueSearchSyncForCompetitions,
+  readCompetitionIdsOf,
+} from "@/server/search/institution-search-resync";
 import {
   hasCompetitionTransferAwaitingReview,
   hasInstitutionOpenPricedPayment,
@@ -923,24 +926,6 @@ const readSignupContactDigits = async (
 // ---------------------------------------------------------------------------------------------
 // The writes.
 
-// The competitions of the institutions the run suspends and scrubs, whatever their status. They stay
-// as rows, and their search documents still carry the institution's old name and slug.
-const readCompetitionIdsOf = async (
-  tx: OperatorActorTransaction,
-  institutionIds: readonly string[],
-): Promise<string[]> => {
-  if (institutionIds.length === 0) {
-    return [];
-  }
-
-  const rows = await tx
-    .select({ id: competitions.id })
-    .from(competitions)
-    .where(inArray(competitions.institutionId, [...institutionIds]));
-
-  return rows.map((row) => row.id);
-};
-
 // The storage stage deleted the files of the institutions the rehearsal found owned alone, so the
 // commit may anonymise only those. Both lists come from findInstitutionsOwnedSolelyByTarget, ordered
 // by id, so the same set is the same list. A set that changed between the two stages is refused
@@ -1497,6 +1482,7 @@ const runDeidentificationWrites = async (
           contactEmail: null,
           contactPhone: null,
           websiteUrl: null,
+          tickDomain: null,
           suspendedAt: sql`now()`,
           suspensionReason: DEIDENTIFIED_INSTITUTION_SUSPENSION_REASON,
           updatedAt: sql`now()`,
@@ -1547,11 +1533,17 @@ const runDeidentificationWrites = async (
 
     // The submission wrapper survives the documents it carries: it is a row in the institution's own
     // verification history, and the history is kept. What it holds of the person is the name they
-    // asked to trade under and the reviewer's prose about them.
+    // asked to trade under, the Instagram link they gave and the reviewer's prose about them. The
+    // link is replaced only where one is stored, because institution_verification_submissions_instagram_chk
+    // requires it on an Instagram request and forbids it on any other.
     await scrubIn("institution_verification_submissions", () =>
       tx
         .update(institutionVerificationSubmissions)
-        .set({ proposedDisplayName: null, reviewerNotes: null })
+        .set({
+          proposedDisplayName: null,
+          reviewerNotes: null,
+          instagramUrl: sql`CASE WHEN ${institutionVerificationSubmissions.instagramUrl} IS NULL THEN NULL ELSE ${DEIDENTIFIED_TEXT} END`,
+        })
         .where(inArray(institutionVerificationSubmissions.institutionId, soleOwnedInstitutionIds))
         .returning({ id: institutionVerificationSubmissions.id }),
     );
@@ -1674,21 +1666,6 @@ const isTransientTransactionAbort = (error: unknown): boolean => {
   const state = sqlStateOf(error);
 
   return state !== null && TRANSIENT_TRANSACTION_SQLSTATES.includes(state);
-};
-
-// After the commit and never awaited, as every search sync is: the job rewrites each document from
-// its row, so the old name and slug leave search. A queue that is down costs a stale document, never
-// the deletion.
-const enqueueSearchSyncForCompetitions = (competitionIds: readonly string[]): void => {
-  for (const competitionId of competitionIds) {
-    enqueueCompetitionSearchSync({ competitionId, action: "upsert" }).catch((error: unknown) => {
-      logger.error("competition.search-sync.enqueue-failed", {
-        competitionId,
-        action: "upsert",
-        error: error instanceof Error ? error.message : String(error),
-      });
-    });
-  }
 };
 
 /**

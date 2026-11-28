@@ -16,7 +16,6 @@ import {
   type InstitutionPublicViewer,
 } from "@/server/institution-workspace/institution-public-service";
 import { listPublicCompetitions } from "@/server/competitions/competition-public-service";
-import { isPersonalInstitutionType } from "@/server/institution-workspace/institution-type";
 import {
   InstitutionWorkspaceInputError,
   parseInstitutionSlugParam,
@@ -129,7 +128,6 @@ export default async function InstitutionHubPage({
   await requireRolePage("recruiter", { callbackPath: base });
 
   const verificationSummary = await loadInstitutionVerificationSummaryBySlug(slug);
-  const isPersonal = isPersonalInstitutionType(verificationSummary?.institutionType ?? null);
   const isVerified = verificationSummary?.verificationStatus === "verified";
 
   // DEC-0170: a defined runtime state, surfaced where the organiser can act on it rather than left
@@ -157,20 +155,14 @@ export default async function InstitutionHubPage({
       description: "Perbarui identitas institusi dan profil penyelenggara.",
       icon: "building" as const,
     },
-    // A personal workspace cannot submit verification documents (the verification service refuses
-    // its kind), so its hub offers no verification card.
-    ...(isPersonal
-      ? []
-      : [
-          {
-            href: `${base}/verification`,
-            label: "Verifikasi dokumen",
-            description: isVerified
-              ? "Institusi ini sudah terverifikasi. Lihat hasil peninjauannya."
-              : "Ajukan bukti resmi dan pantau status tinjauan.",
-            icon: "check" as const,
-          },
-        ]),
+    {
+      href: `${base}/verification`,
+      label: "Verifikasi ruang kerja",
+      description: isVerified
+        ? "Ruang kerja ini sudah terverifikasi. Lihat jalur centang dan riwayatnya."
+        : "Dapatkan centang lewat email organisasi, Instagram, atau dokumen.",
+      icon: "check" as const,
+    },
     {
       href: `${base}/fees`,
       label: "Biaya layanan tercatat",

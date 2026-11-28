@@ -256,7 +256,7 @@ describe("the rulings cover the derived population", () => {
       "institution_social_links: url",
       "institution_verification_audit: reason",
       "institution_verification_documents: content_type, document_type, original_file_name, r2_key",
-      "institution_verification_submissions: proposed_display_name, reviewer_notes",
+      "institution_verification_submissions: instagram_url, proposed_display_name, reviewer_notes",
       "institutions: about, banner_r2_key, contact_email, contact_name, contact_phone, description, display_name, logo_r2_key, rejection_reason, slug, suspension_reason, tick_domain, website_url",
       "platform_ops_audit_logs: metadata, reason",
       "platform_ops_notes: note",

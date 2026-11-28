@@ -2,15 +2,16 @@ import { redirect } from "next/navigation";
 import { requireRolePage } from "@/server/auth/page-guard";
 import { isInstitutionAdminBySlug } from "@/server/institution-members/member-service";
 import { loadInstitutionVerificationSummaryBySlug } from "@/server/institution-workspace/institution-service";
-import { isPersonalInstitutionType } from "@/server/institution-workspace/institution-type";
+import { readTickPageState } from "@/server/institution-verification/tick-service";
+import { absoluteSiteUrl } from "@/config/site-url";
 import { InstitutionVerificationShell } from "@/components/institution/institution-verification-shell";
 
 type InstitutionVerificationPageProps = {
   params: Promise<{ institutionSlug: string }>;
 };
 
-// Document verification for a workspace's owner and staff. A personal workspace has none yet, so the
-// page sends its owner to the workspace hub.
+// The tick page of a workspace for its owner and staff: the three ways to win the tick and the
+// state of each, for every kind of workspace.
 export default async function InstitutionVerificationPage({
   params,
 }: InstitutionVerificationPageProps) {
@@ -32,27 +33,29 @@ export default async function InstitutionVerificationPage({
     redirect("/recruiter-dashboard");
   }
 
-  // A personal workspace cannot submit verification documents (the verification service refuses its
-  // kind), so its owner is sent to the workspace hub.
-  if (isPersonalInstitutionType(summary.institutionType)) {
-    redirect(`/institution/${institutionSlug}`);
-  }
+  const tickState = await readTickPageState(session.user.id, summary.institutionId);
 
   // The verdict is read from the institution's own column rather than from an approved submission
-  // row: platform_ops can also verify an institution directly from the admin table, which writes
-  // this column and leaves no submission behind. Passed from the server so a verified institution
-  // never renders the submit form, not even for the moment before the history loads.
+  // row: a Path A tick and a staff verification both write this column and leave no submission
+  // behind. Passed from the server so a verified institution never renders the Email organisasi
+  // card, not even for the moment before the history loads.
   return (
     <InstitutionVerificationShell
       institutionSlug={institutionSlug}
       expectedUserId={session.user.id}
+      institutionId={summary.institutionId}
       institutionType={summary.institutionType}
+      displayName={summary.displayName}
+      pageUrl={absoluteSiteUrl(`/institution/${summary.slug}`)}
       isVerified={summary.verificationStatus === "verified"}
-      verifiedAt={summary.verifiedAt?.toISOString() ?? null}
       // Written by a platform-ops decision on the institution itself — a denial, or the revocation
       // of a verification that had already been granted. Without it a revoked owner would simply
       // find the form back with no explanation of what changed.
       rejectionReason={summary.verificationStatus === "rejected" ? summary.rejectionReason : null}
+      tickPath={summary.tickPath}
+      nameChecked={summary.nameCheckedAt !== null}
+      nameProofDueAt={summary.nameProofDueAt?.toISOString() ?? null}
+      tickState={tickState}
     />
   );
 }

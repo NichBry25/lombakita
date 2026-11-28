@@ -31,6 +31,7 @@ const BLOCKER_CODES: CompetitionPublishBlockerCode[] = [
   "competition_organizer_contact_missing",
   "competition_audience_missing",
   "competition_institution_not_verified",
+  "competition_institution_name_check_pending",
 ];
 
 const TITLE_OTHER = "Lomba Poster Digital";
@@ -42,12 +43,10 @@ const UNTITLED_OTHER_DRAFT_SENTENCE =
 const KONTAK_TEXT = "Penyelenggara mencantumkan kontak yang benar-benar bisa dihubungi peserta.";
 
 // The refusal messages the server actually sends, quoted from the functions the publish path calls:
-// assertCompetitionAccess (competition-access.ts:162,165), assertPublishTrustSatisfied (:215),
-// assertInstitutionNotSuspended (:302), transitionCompetitionStatus (competition-service.ts:889),
-// assertInstitutionVerified (competition-access.ts:274), assertCompetitionInInstitution
-// (competition-service.ts:133),
-// isAllowedStatusTransition (competition-service.ts:859), and
-// assertCompetitionHasOrganizerContact (competition-access.ts).
+// assertCompetitionAccess, assertPublishTrustSatisfied, assertInstitutionNotSuspended,
+// transitionCompetitionStatus, assertInstitutionVerified, assertInstitutionNameChecked,
+// assertCompetitionInInstitution, isAllowedStatusTransition and
+// assertCompetitionHasOrganizerContact. The toast must never show one of these sentences.
 const SERVER_REFUSAL_MESSAGES = [
   "Institution owner/staff access required",
   "institution_owner access required",
@@ -55,6 +54,7 @@ const SERVER_REFUSAL_MESSAGES = [
   "This institution has been suspended by platform ops",
   "Cannot publish: 3 validation issue(s) — see details.failures",
   "Institusi harus terverifikasi sebelum dapat memungut biaya pendaftaran. Kompetisi gratis tetap dapat dipublikasikan.",
+  "The institution name must be checked by staff before a paid competition can be published.",
   "Competition not found",
   "Cannot transition competition from 'draft' to 'published'",
   "Publishing requires an organizer contact",
@@ -77,6 +77,8 @@ describe("publish blocker reasons", () => {
         "Untuk siapa kompetisi ini belum diisi. Pilih minimal satu pilihan Untuk di bagian Kelayakan.",
       competition_institution_not_verified:
         "Kompetisi berbayar hanya dapat diterbitkan oleh institusi yang sudah terverifikasi.",
+      competition_institution_name_check_pending:
+        "Nama ruang kerja sedang diperiksa staf sebelum kompetisi berbayar pertama tayang. Perkiraan 1x24 jam pada hari kerja.",
     };
 
     for (const code of BLOCKER_CODES) {
@@ -94,6 +96,7 @@ describe("publish blocker reasons", () => {
       competition_organizer_contact_missing: "Isi kontak",
       competition_audience_missing: "Isi Untuk",
       competition_institution_not_verified: "Ajukan verifikasi",
+      competition_institution_name_check_pending: null,
     };
 
     for (const code of BLOCKER_CODES) {

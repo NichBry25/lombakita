@@ -57,6 +57,8 @@ export type { FilterOption } from "./filter-dropdown";
 export { RangeSlider } from "./range-slider";
 export type { RangeSliderValue } from "./range-slider";
 export { EmptyState } from "./empty-state";
+export { Tabs } from "./tabs";
+export type { TabItem } from "./tabs";
 export { Pagination } from "./pagination";
 export { PageHeader } from "./page-header";
 export { StepIndicator } from "./step-indicator";

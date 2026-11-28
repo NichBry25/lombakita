@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { UIPrimitivesProvider } from "@/components/ui/primitives";
 import { PageTransitionProvider } from "@/components/ui/page-transition";
+import type { TickPath } from "@/server/institution-verification/tick-transition";
 import { InstitutionSettingsShell } from "./institution-settings-shell";
 
 vi.mock("next/navigation", () => ({
@@ -80,7 +81,11 @@ describe("the account the settings save is bound to", () => {
     render(
       <UIPrimitivesProvider>
         <PageTransitionProvider>
-          <InstitutionSettingsShell institutionSlug="academy" expectedUserId="user-42" />
+          <InstitutionSettingsShell
+            institutionSlug="academy"
+            expectedUserId="user-42"
+            tickPath={null}
+          />
         </PageTransitionProvider>
       </UIPrimitivesProvider>,
     );
@@ -115,7 +120,11 @@ describe("the account the settings save is bound to", () => {
     render(
       <UIPrimitivesProvider>
         <PageTransitionProvider>
-          <InstitutionSettingsShell institutionSlug="academy" expectedUserId="user-42" />
+          <InstitutionSettingsShell
+            institutionSlug="academy"
+            expectedUserId="user-42"
+            tickPath={null}
+          />
         </PageTransitionProvider>
       </UIPrimitivesProvider>,
     );
@@ -150,7 +159,11 @@ describe("InstitutionSettingsShell payment instructions refusals", () => {
     render(
       <UIPrimitivesProvider>
         <PageTransitionProvider>
-          <InstitutionSettingsShell institutionSlug="academy" expectedUserId="user-42" />
+          <InstitutionSettingsShell
+            institutionSlug="academy"
+            expectedUserId="user-42"
+            tickPath={null}
+          />
         </PageTransitionProvider>
       </UIPrimitivesProvider>,
     );
@@ -182,7 +195,11 @@ describe("a personal workspace's identity in settings", () => {
     render(
       <UIPrimitivesProvider>
         <PageTransitionProvider>
-          <InstitutionSettingsShell institutionSlug="academy" expectedUserId="user-42" />
+          <InstitutionSettingsShell
+            institutionSlug="academy"
+            expectedUserId="user-42"
+            tickPath={null}
+          />
         </PageTransitionProvider>
       </UIPrimitivesProvider>,
     );
@@ -218,7 +235,11 @@ describe("the organizer profile section of settings", () => {
     render(
       <UIPrimitivesProvider>
         <PageTransitionProvider>
-          <InstitutionSettingsShell institutionSlug="academy" expectedUserId="user-42" />
+          <InstitutionSettingsShell
+            institutionSlug="academy"
+            expectedUserId="user-42"
+            tickPath={null}
+          />
         </PageTransitionProvider>
       </UIPrimitivesProvider>,
     );
@@ -240,12 +261,170 @@ describe("the organizer profile section of settings", () => {
     render(
       <UIPrimitivesProvider>
         <PageTransitionProvider>
-          <InstitutionSettingsShell institutionSlug="academy" expectedUserId="user-42" />
+          <InstitutionSettingsShell
+            institutionSlug="academy"
+            expectedUserId="user-42"
+            tickPath={null}
+          />
         </PageTransitionProvider>
       </UIPrimitivesProvider>,
     );
 
     expect(await screen.findByText("Gagal memuat profil penyelenggara.")).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Profil penyelenggara" })).toBeNull();
+  });
+});
+
+const NAME_LABEL = /^Nama institusi(?: \* \(wajib\)| \(opsional\))?$/;
+const SLUG_LABEL = /^Slug(?: \* \(wajib\)| \(opsional\))?$/;
+const WEBSITE_LABEL = /^Website(?: \* \(wajib\)| \(opsional\))?$/;
+
+const WARNING_TITLE = "Centang akan dicabut";
+const NAME_WARNING_BODY =
+  "Nama baru berbeda dari nama yang sudah diperiksa, jadi ruang kerja ini kehilangan centangnya. Selama itu, kompetisi berbayar baru tidak dapat diterbitkan dan peserta kompetisi berbayar yang sedang berjalan tidak dapat membayar.";
+const WEBSITE_WARNING_BODY =
+  "Mengganti situs web ruang kerja yang terverifikasi mencabut centangnya sampai lolos pemeriksaan lagi. Selama itu, kompetisi berbayar baru tidak dapat diterbitkan dan peserta kompetisi berbayar yang sedang berjalan tidak dapat membayar.";
+const REMOVAL_UNCONFIRMED_SENTENCE = "Perubahan ini mencabut centang. Setujui peringatannya dulu.";
+const INSTAGRAM_BIO_NOTE = "Perbarui juga tautan di bio Instagram Anda ke alamat baru.";
+
+const removalUnconfirmed = () =>
+  jsonResponse(409, { error: { code: "institution_tick_removal_unconfirmed", message: "x" } });
+
+const renderShellWithTick = (tickPath: TickPath | null) =>
+  render(
+    <UIPrimitivesProvider>
+      <PageTransitionProvider>
+        <InstitutionSettingsShell
+          institutionSlug="academy"
+          expectedUserId="user-42"
+          tickPath={tickPath}
+        />
+      </PageTransitionProvider>
+    </UIPrimitivesProvider>,
+  );
+
+// Answers each PATCH of the given url from the list in order, and every other request as the file's
+// default answers do.
+const stubPatchAnswers = (patchUrl: string, answers: Array<() => Response>) => {
+  const remainingAnswers = [...answers];
+  const stub = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (init?.method === "PATCH" && String(input) === patchUrl) {
+      const answer = remainingAnswers.shift();
+      if (!answer) throw new Error("unexpected extra PATCH");
+      return answer();
+    }
+    if ((init?.method ?? "GET") === "GET" && String(input) === PROFILE_URL) {
+      return jsonResponse(200, PROFILE);
+    }
+    return answerByUrlAndMethod(input, init);
+  });
+  vi.stubGlobal("fetch", stub);
+  return stub;
+};
+
+const patchRequestsOf = (stub: ReturnType<typeof vi.fn>) =>
+  stub.mock.calls.filter(([, init]) => init?.method === "PATCH");
+
+const changeNameAndPressSave = async () => {
+  fireEvent.change(await screen.findByLabelText(NAME_LABEL), {
+    target: { value: "Akademi Baru" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Simpan" }));
+};
+
+describe("the warning before a settings change removes the tick", () => {
+  it("a rename that removes the tick asks first, then saves with the acknowledgement", async () => {
+    const stub = stubPatchAnswers(SETTINGS_URL, [
+      removalUnconfirmed,
+      () => jsonResponse(200, institution("Akademi Baru")),
+    ]);
+    renderShellWithTick("domain");
+
+    await changeNameAndPressSave();
+
+    const dialog = await screen.findByRole("alertdialog", { name: WARNING_TITLE });
+    expect(within(dialog).getByText(NAME_WARNING_BODY)).toBeTruthy();
+    expect(within(dialog).getByRole("button", { name: "Batal" })).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Ganti nama dan cabut centang" }));
+
+    expect(await screen.findByText("Pengaturan institusi berhasil disimpan.")).toBeTruthy();
+    const patches = patchRequestsOf(stub);
+    expect(patches).toHaveLength(2);
+    expect(JSON.parse(String(patches[0]![1]!.body))).toEqual({
+      displayName: "Akademi Baru",
+      slug: "academy",
+    });
+    expect(JSON.parse(String(patches[1]![1]!.body))).toEqual({
+      displayName: "Akademi Baru",
+      slug: "academy",
+      acknowledgeTickRemoval: true,
+    });
+    expect(new Headers(patches[1]![1]!.headers).get("X-Expected-User-Id")).toBe("user-42");
+  });
+
+  it("Batal on the rename warning sends nothing more", async () => {
+    const stub = stubPatchAnswers(SETTINGS_URL, [removalUnconfirmed]);
+    renderShellWithTick("domain");
+
+    await changeNameAndPressSave();
+    const dialog = await screen.findByRole("alertdialog", { name: WARNING_TITLE });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Batal" }));
+
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(patchRequestsOf(stub)).toHaveLength(1);
+    expect(screen.queryByText("Pengaturan institusi berhasil disimpan.")).toBeNull();
+  });
+
+  it("a website change that removes the tick asks first, then saves with the acknowledgement", async () => {
+    const stub = stubPatchAnswers(PROFILE_URL, [
+      removalUnconfirmed,
+      () => jsonResponse(200, PROFILE),
+    ]);
+    renderShellWithTick("domain");
+
+    fireEvent.change(await screen.findByLabelText(WEBSITE_LABEL), {
+      target: { value: "https://www.other.example" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Simpan profil" }));
+
+    const dialog = await screen.findByRole("alertdialog", { name: WARNING_TITLE });
+    expect(within(dialog).getByText(WEBSITE_WARNING_BODY)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Simpan dan cabut centang" }));
+
+    expect(await screen.findByText("Profil penyelenggara berhasil disimpan.")).toBeTruthy();
+    const patches = patchRequestsOf(stub);
+    expect(patches).toHaveLength(2);
+    expect(JSON.parse(String(patches[1]![1]!.body))).toMatchObject({
+      websiteUrl: "https://www.other.example",
+      acknowledgeTickRemoval: true,
+    });
+  });
+
+  it("a repeated acknowledgement refusal shows its sentence in the warning", async () => {
+    stubPatchAnswers(SETTINGS_URL, [removalUnconfirmed, removalUnconfirmed]);
+    renderShellWithTick("domain");
+
+    await changeNameAndPressSave();
+    const dialog = await screen.findByRole("alertdialog", { name: WARNING_TITLE });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Ganti nama dan cabut centang" }));
+
+    const dialogAfterRefusal = await screen.findByRole("alertdialog", { name: WARNING_TITLE });
+    expect(await within(dialogAfterRefusal).findByText(REMOVAL_UNCONFIRMED_SENTENCE)).toBeTruthy();
+  });
+
+  it("a slug change of a workspace ticked by Instagram asks for the bio link", async () => {
+    const instagramTicked = renderShellWithTick("instagram");
+
+    const slugInput = await screen.findByLabelText(SLUG_LABEL);
+    expect(screen.queryByText(INSTAGRAM_BIO_NOTE)).toBeNull();
+    fireEvent.change(slugInput, { target: { value: "akademi-baru" } });
+    expect(screen.getByText(INSTAGRAM_BIO_NOTE)).toBeTruthy();
+    instagramTicked.unmount();
+
+    renderShellWithTick("documents");
+    fireEvent.change(await screen.findByLabelText(SLUG_LABEL), {
+      target: { value: "akademi-baru" },
+    });
+    expect(screen.queryByText(INSTAGRAM_BIO_NOTE)).toBeNull();
   });
 });

@@ -1,6 +1,7 @@
 import { InstitutionSettingsShell } from "@/components/institution/institution-settings-shell";
 import { requireRolePage } from "@/server/auth/page-guard";
 import { isInstitutionOwnerBySlug } from "@/server/institution-members/member-service";
+import { loadInstitutionVerificationSummaryBySlug } from "@/server/institution-workspace/institution-service";
 import { redirect } from "next/navigation";
 
 type InstitutionSettingsPageProps = {
@@ -23,7 +24,13 @@ export default async function InstitutionSettingsPage({ params }: InstitutionSet
     redirect("/");
   }
 
+  const summary = await loadInstitutionVerificationSummaryBySlug(institutionSlug);
+
   return (
-    <InstitutionSettingsShell institutionSlug={institutionSlug} expectedUserId={session.user.id} />
+    <InstitutionSettingsShell
+      institutionSlug={institutionSlug}
+      expectedUserId={session.user.id}
+      tickPath={summary?.tickPath ?? null}
+    />
   );
 }

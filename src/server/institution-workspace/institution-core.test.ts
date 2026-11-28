@@ -170,4 +170,59 @@ describe("institution-core", () => {
     const cast = error as InstitutionWorkspaceInputError;
     expect(cast.code).toBe("institution_slug_reserved");
   });
+
+  it("a typed slug that starts with deleted- is refused", () => {
+    const error = (() => {
+      try {
+        parseInstitutionWorkspaceSettingsPatch({ slug: "deleted-abc" });
+        return null;
+      } catch (e) {
+        return e;
+      }
+    })();
+
+    expect(error).toBeInstanceOf(InstitutionWorkspaceInputError);
+    const cast = error as InstitutionWorkspaceInputError;
+    expect(cast.code).toBe("institution_slug_reserved");
+    expect(cast.httpStatus).toBe(422);
+  });
+
+  it("refuses a typed deleted- slug at creation and keeps a derived name starting with deleted", () => {
+    expect(() =>
+      parseInstitutionWorkspaceCreateInput({
+        displayName: "Kampus Contoh",
+        slug: "deleted-abc",
+        institutionType: "company",
+      }),
+    ).toThrow(InstitutionWorkspaceInputError);
+    expect(deriveInstitutionSlugBase("Deleted Files Club")).toBe("deleted-files-club");
+  });
+
+  it("reads acknowledgeTickRemoval as true only when the boolean true is sent", () => {
+    expect(parseInstitutionWorkspaceSettingsPatch({ displayName: "Nama Baru" })).toEqual({
+      displayName: "Nama Baru",
+      acknowledgeTickRemoval: false,
+    });
+    expect(
+      parseInstitutionWorkspaceSettingsPatch({
+        displayName: "Nama Baru",
+        acknowledgeTickRemoval: true,
+      }).acknowledgeTickRemoval,
+    ).toBe(true);
+  });
+
+  it.each([false, "true", 1, null])("refuses acknowledgeTickRemoval %j", (value) => {
+    expect(() =>
+      parseInstitutionWorkspaceSettingsPatch({
+        displayName: "Nama Baru",
+        acknowledgeTickRemoval: value,
+      }),
+    ).toThrow(
+      expect.objectContaining({
+        code: "verification_invalid_payload",
+        status: 400,
+        message: "acknowledgeTickRemoval must be true when it is sent",
+      }),
+    );
+  });
 });

@@ -7,6 +7,7 @@ import {
   ASYNC_JOB_QUEUE_BY_NAME,
   type AsyncJobName,
   type AsyncJobPayloadByName,
+  type InstitutionTickNoticePayload,
   type PaymentOutcomePayload,
   type PaymentProofSubmittedPayload,
   type TeamCancelledBelowMinimumPayload,
@@ -313,6 +314,35 @@ export const enqueueHostTrustRemoved = async (input: {
     jobName: ASYNC_JOB_NAMES.hostTrustRemoved,
     idempotencyKey: `${input.userId}__${input.epoch}`,
     payload: { userId: input.userId, reason: input.reason, epoch: input.epoch },
+  });
+};
+
+// The two sweep kinds are keyed by the workspace and the due date in epoch seconds, so one proof
+// notifies once even when two sweeps race. Every other kind is keyed by the workspace, the kind and
+// the decision time. Fire-and-forget from the decisions; callers must catch errors.
+const buildInstitutionTickNoticeKey = (
+  payload: InstitutionTickNoticePayload,
+  dueEpochSeconds: number | undefined,
+): string => {
+  if (payload.kind === "name_proof_reminder") {
+    return `name-proof-reminder-${payload.institutionId}-${dueEpochSeconds}`;
+  }
+
+  if (payload.kind === "tick_removed_name_proof") {
+    return `name-proof-removed-${payload.institutionId}-${dueEpochSeconds}`;
+  }
+
+  return `${payload.institutionId}__${payload.kind}__${payload.epoch}`;
+};
+
+export const enqueueInstitutionTickNotice = async (input: {
+  payload: InstitutionTickNoticePayload;
+  dueEpochSeconds?: number;
+}): Promise<EnqueueAsyncJobResult<typeof ASYNC_JOB_NAMES.institutionTickNotice>> => {
+  return enqueueAsyncJob({
+    jobName: ASYNC_JOB_NAMES.institutionTickNotice,
+    idempotencyKey: buildInstitutionTickNoticeKey(input.payload, input.dueEpochSeconds),
+    payload: input.payload,
   });
 };
 

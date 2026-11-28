@@ -6,6 +6,7 @@ import {
   BarNote,
   Button,
   FormActionBar,
+  FormHelp,
   FormInput,
   FormLabel,
   FormLabelText,
@@ -16,7 +17,7 @@ import {
   Skeleton,
   usePageTransition,
 } from "@/components/ui";
-import { useToast } from "@/components/ui/primitives";
+import { useModal, useToast, type ModalOutcome } from "@/components/ui/primitives";
 import {
   InstitutionBannerUpload,
   InstitutionLogoUpload,
@@ -25,10 +26,11 @@ import { PaymentInstructionsSection } from "@/components/institution/payment-ins
 import { INSTITUTION_TYPE_LABELS } from "@/lib/institutions/type-labels";
 import { INSTITUTION_STATUS_LABELS } from "@/lib/institutions/status-labels";
 import { formatDisplayToken } from "@/lib/text/capitalize";
-import { errorMessageFor } from "@/lib/errors/error-copy";
+import { errorMessageFor, NETWORK_ERROR_MESSAGE } from "@/lib/errors/error-copy";
 import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
 import { hasUnsavedFields } from "@/lib/ui/unsaved-fields";
 import type { InstitutionType } from "@/server/db/schema";
+import type { TickPath } from "@/server/institution-verification/tick-transition";
 
 type SocialPlatform = "linkedin" | "github" | "instagram" | "x" | "website";
 
@@ -84,6 +86,8 @@ type RefusalAction = "load" | "identity" | "profile";
 
 const INVALID_PAYLOAD_MESSAGE =
   "Permintaan tidak dapat diproses. Muat ulang halaman lalu coba lagi.";
+const TICK_REMOVAL_UNCONFIRMED_MESSAGE =
+  "Perubahan ini mencabut centang. Setujui peringatannya dulu.";
 
 const REFUSAL_COPY: Record<RefusalAction, Partial<Record<string, string>>> = {
   load: {
@@ -100,6 +104,7 @@ const REFUSAL_COPY: Record<RefusalAction, Partial<Record<string, string>>> = {
     institution_slug_reserved: "Slug ini tidak dapat digunakan. Pilih slug lain.",
     institution_slug_conflicts_with_username:
       "Slug ini sudah dipakai sebagai username. Pilih slug lain.",
+    institution_tick_removal_unconfirmed: TICK_REMOVAL_UNCONFIRMED_MESSAGE,
   },
   profile: {
     forbidden: "Hanya pemilik institusi yang dapat mengubah profil penyelenggara.",
@@ -107,8 +112,18 @@ const REFUSAL_COPY: Record<RefusalAction, Partial<Record<string, string>>> = {
     institution_profile_invalid_fields: INVALID_PAYLOAD_MESSAGE,
     institution_profile_invalid_value:
       "Periksa kontak, situs web, dan tautan media sosial lalu coba lagi.",
+    institution_tick_removal_unconfirmed: TICK_REMOVAL_UNCONFIRMED_MESSAGE,
   },
 };
+
+const TICK_REMOVAL_UNCONFIRMED_CODE = "institution_tick_removal_unconfirmed";
+
+const TICK_REMOVAL_WARNING_TITLE = "Centang akan dicabut";
+const TICK_REMOVAL_WARNING_CONSEQUENCE =
+  "Selama itu, kompetisi berbayar baru tidak dapat diterbitkan dan peserta kompetisi berbayar yang sedang berjalan tidak dapat membayar.";
+const WEBSITE_TICK_REMOVAL_BODY = `Mengganti situs web ruang kerja yang terverifikasi mencabut centangnya sampai lolos pemeriksaan lagi. ${TICK_REMOVAL_WARNING_CONSEQUENCE}`;
+const NAME_TICK_REMOVAL_BODY = `Nama baru berbeda dari nama yang sudah diperiksa, jadi ruang kerja ini kehilangan centangnya. ${TICK_REMOVAL_WARNING_CONSEQUENCE}`;
+const INSTAGRAM_BIO_NOTE = "Perbarui juga tautan di bio Instagram Anda ke alamat baru.";
 
 const REFUSAL_FALLBACK: Record<RefusalAction, string> = {
   load: "Pengaturan institusi gagal dimuat. Muat ulang halaman lalu coba lagi.",
@@ -119,13 +134,16 @@ const REFUSAL_FALLBACK: Record<RefusalAction, string> = {
 export const InstitutionSettingsShell = ({
   institutionSlug,
   expectedUserId,
+  tickPath,
 }: {
   institutionSlug: string;
   expectedUserId: string;
+  tickPath: TickPath | null;
 }) => {
   const router = useRouter();
   const { begin: beginPageTransition } = usePageTransition();
   const { addToast } = useToast();
+  const { openModal } = useModal();
   const [activeSlug, setActiveSlug] = useState(institutionSlug);
 
   // Identity — the page's primary form, saved from the sticky action bar (§13.1 group 2).
@@ -231,45 +249,40 @@ export const InstitutionSettingsShell = ({
     };
   }, [loadInstitution, loadProfile]);
 
-  const saveIdentity = async (event?: React.FormEvent<HTMLFormElement>) => {
-    event?.preventDefault();
+  const openTickRemovalWarning = (warning: {
+    body: string;
+    confirmLabel: string;
+    confirmChange: () => Promise<ModalOutcome>;
+  }) => {
+    openModal({
+      title: TICK_REMOVAL_WARNING_TITLE,
+      body: warning.body,
+      alert: true,
+      actions: [
+        { label: "Batal" },
+        { label: warning.confirmLabel, variant: "primary", onClick: warning.confirmChange },
+      ],
+    });
+  };
 
-    if (displayName.trim().length < 2) {
-      addToast({ type: "error", message: "Nama institusi minimal terdiri dari 2 karakter." });
-      return;
-    }
-
-    if (slug.trim().length < 3) {
-      addToast({ type: "error", message: "Slug minimal terdiri dari 3 karakter." });
-      return;
-    }
-
-    setIsSaving(true);
-
-    // `description` is deliberately not sent: the organizer profile's `about` replaced it as the
-    // authored blurb, and omitting the key preserves whatever is stored.
-    const body = { displayName, slug };
-
-    const response = await sessionFetch(
+  // `description` is deliberately not sent: the organizer profile's `about` replaced it as the
+  // authored blurb, and omitting the key preserves whatever is stored.
+  const sendIdentityPatch = (options: { acknowledgeTickRemoval: boolean }) =>
+    sessionFetch(
       expectedUserId,
       `/api/v1/institutions/${encodeURIComponent(activeSlug)}/settings`,
       {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify(
+          options.acknowledgeTickRemoval
+            ? { displayName, slug, acknowledgeTickRemoval: true }
+            : { displayName, slug },
+        ),
       },
     );
 
-    if (!response.ok) {
-      const code = await readErrorCode(response);
-      addToast({
-        type: "error",
-        message: errorMessageFor(code, REFUSAL_COPY.identity, REFUSAL_FALLBACK.identity),
-      });
-      setIsSaving(false);
-      return;
-    }
-
+  const finishIdentitySave = async (response: Response) => {
     const data = (await response.json()) as InstitutionSettingsResponse;
     const nextSlug = data.institution.slug;
 
@@ -286,36 +299,129 @@ export const InstitutionSettingsShell = ({
     }
   };
 
+  const confirmIdentityChange = async (): Promise<ModalOutcome> => {
+    let response: Response;
+    try {
+      response = await sendIdentityPatch({ acknowledgeTickRemoval: true });
+    } catch {
+      return { ok: false, message: NETWORK_ERROR_MESSAGE };
+    }
+
+    if (!response.ok) {
+      const code = await readErrorCode(response);
+      return {
+        ok: false,
+        message: errorMessageFor(code, REFUSAL_COPY.identity, REFUSAL_FALLBACK.identity),
+      };
+    }
+
+    await finishIdentitySave(response);
+    return { ok: true };
+  };
+
+  const saveIdentity = async (event?: React.FormEvent<HTMLFormElement>) => {
+    event?.preventDefault();
+
+    if (displayName.trim().length < 2) {
+      addToast({ type: "error", message: "Nama institusi minimal terdiri dari 2 karakter." });
+      return;
+    }
+
+    if (slug.trim().length < 3) {
+      addToast({ type: "error", message: "Slug minimal terdiri dari 3 karakter." });
+      return;
+    }
+
+    setIsSaving(true);
+
+    const response = await sendIdentityPatch({ acknowledgeTickRemoval: false });
+
+    if (!response.ok) {
+      const code = await readErrorCode(response);
+      setIsSaving(false);
+      if (code === TICK_REMOVAL_UNCONFIRMED_CODE) {
+        openTickRemovalWarning({
+          body: NAME_TICK_REMOVAL_BODY,
+          confirmLabel: "Ganti nama dan cabut centang",
+          confirmChange: confirmIdentityChange,
+        });
+        return;
+      }
+      addToast({
+        type: "error",
+        message: errorMessageFor(code, REFUSAL_COPY.identity, REFUSAL_FALLBACK.identity),
+      });
+      return;
+    }
+
+    await finishIdentitySave(response);
+  };
+
+  const sendProfilePatch = (options: { acknowledgeTickRemoval: boolean }) => {
+    const socialLinks = SOCIAL_PLATFORMS.map(({ platform }) => ({
+      platform,
+      url: socials[platform].trim(),
+    })).filter((link) => link.url.length > 0);
+    const body = {
+      about,
+      contactName,
+      contactEmail,
+      contactPhone,
+      websiteUrl: socials.website,
+      socialLinks,
+    };
+
+    return sessionFetch(
+      expectedUserId,
+      `/api/v1/institutions/${encodeURIComponent(activeSlug)}/profile`,
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(
+          options.acknowledgeTickRemoval ? { ...body, acknowledgeTickRemoval: true } : body,
+        ),
+      },
+    );
+  };
+
+  const confirmProfileChange = async (): Promise<ModalOutcome> => {
+    let response: Response;
+    try {
+      response = await sendProfilePatch({ acknowledgeTickRemoval: true });
+    } catch {
+      return { ok: false, message: NETWORK_ERROR_MESSAGE };
+    }
+
+    if (!response.ok) {
+      const code = await readErrorCode(response);
+      return {
+        ok: false,
+        message: errorMessageFor(code, REFUSAL_COPY.profile, REFUSAL_FALLBACK.profile),
+      };
+    }
+
+    addToast({ type: "success", message: "Profil penyelenggara berhasil disimpan." });
+    return { ok: true };
+  };
+
   const saveProfile = async (event?: React.FormEvent<HTMLFormElement>) => {
     event?.preventDefault();
     if (isSavingProfile) return;
     setIsSavingProfile(true);
 
-    const socialLinks = SOCIAL_PLATFORMS.map(({ platform }) => ({
-      platform,
-      url: socials[platform].trim(),
-    })).filter((link) => link.url.length > 0);
-
     try {
-      const response = await sessionFetch(
-        expectedUserId,
-        `/api/v1/institutions/${encodeURIComponent(activeSlug)}/profile`,
-        {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            about,
-            contactName,
-            contactEmail,
-            contactPhone,
-            websiteUrl: socials.website,
-            socialLinks,
-          }),
-        },
-      );
+      const response = await sendProfilePatch({ acknowledgeTickRemoval: false });
 
       if (!response.ok) {
         const code = await readErrorCode(response);
+        if (code === TICK_REMOVAL_UNCONFIRMED_CODE) {
+          openTickRemovalWarning({
+            body: WEBSITE_TICK_REMOVAL_BODY,
+            confirmLabel: "Simpan dan cabut centang",
+            confirmChange: confirmProfileChange,
+          });
+          return;
+        }
         addToast({
           type: "error",
           message: errorMessageFor(code, REFUSAL_COPY.profile, REFUSAL_FALLBACK.profile),
@@ -381,6 +487,9 @@ export const InstitutionSettingsShell = ({
                 onChange={(event) => setSlug(event.target.value)}
                 required
               />
+              {tickPath === "instagram" && slug !== savedIdentity.slug ? (
+                <FormHelp>{INSTAGRAM_BIO_NOTE}</FormHelp>
+              ) : null}
             </div>
 
             <div className="form-field">

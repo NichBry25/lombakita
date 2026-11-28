@@ -197,18 +197,35 @@ describe("InstitutionHubPage — which surface the URL segment selects", () => {
       `<a href="/institution/${NORMALISED_SLUG}?tampilan=publik">Lihat halaman publik</a>`,
     );
     expect(html).not.toContain("Tingkatkan level institusi");
-    expect(html).not.toContain("Verifikasi dokumen");
-    expect(html).not.toContain(`/institution/${NORMALISED_SLUG}/verification`);
+    expect(html).toContain(`href="/institution/${NORMALISED_SLUG}/verification"`);
+    expect(html).toContain("<h2>Verifikasi ruang kerja</h2>");
   });
 
   it("keeps the verification card on the hub of a university workspace", async () => {
     const html = await renderPage("user_owner");
 
     expect(html).toContain(`href="/institution/${NORMALISED_SLUG}/verification"`);
-    expect(html).toContain("<h2>Verifikasi dokumen</h2>");
+    expect(html).toContain("<h2>Verifikasi ruang kerja</h2>");
+    expect(html).toContain(
+      "Ruang kerja ini sudah terverifikasi. Lihat jalur centang dan riwayatnya.",
+    );
     expect(html).toContain(`href="/institution/${NORMALISED_SLUG}/team"`);
     expect(html).toContain(
       `<a href="/institution/${NORMALISED_SLUG}?tampilan=publik">Lihat halaman publik</a>`,
+    );
+  });
+
+  it("the hub of a workspace that is not ticked describes the tick card so", async () => {
+    const html = await renderPage("user_owner", {
+      verificationSummary: {
+        ...UNIVERSITY_VERIFICATION_SUMMARY,
+        verificationStatus: "pending_verification",
+      },
+    });
+
+    expect(html).toContain("Dapatkan centang lewat email organisasi, Instagram, atau dokumen.");
+    expect(html).not.toContain(
+      "Ruang kerja ini sudah terverifikasi. Lihat jalur centang dan riwayatnya.",
     );
   });
 

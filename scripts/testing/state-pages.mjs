@@ -282,6 +282,15 @@ const verificationAndInvitationEntries = [
   ...stateEntries("/institution/seed-ventures/verification", "pending-review", ["recElev"], {
     withAnon: true,
   }),
+  ...stateEntries("/institution/seed-rec-min/verification", "pending", ["recMin"], {
+    withAnon: true,
+  }),
+  ...stateEntries("/institution/seed-lingkar/verification", "name-check-pending", ["recMin"], {
+    withAnon: true,
+  }),
+  ...stateEntries("/institution/seed-rec-rej/verification", "instagram-pending", ["recRej"], {
+    withAnon: true,
+  }),
   ...stateEntries("/institution/seed-academy/team", "invitations-pending", ACADEMY_ADMINS, {
     withAnon: true,
   }),

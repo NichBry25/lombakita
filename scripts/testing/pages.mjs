@@ -477,6 +477,18 @@ export const PAGES = [
     label: "Institution verification — pending panel",
   },
   {
+    id: "65b-institution-verification-domain",
+    as: "recMin",
+    path: "/institution/seed-lingkar/verification",
+    label: "Tick page, ticked by Email organisasi with the name check waiting",
+  },
+  {
+    id: "65c-institution-verification-instagram-pending",
+    as: "recRej",
+    path: "/institution/seed-rec-rej/verification",
+    label: "Tick page, an Instagram request waiting for staff",
+  },
+  {
     id: "66-institution-audit-log",
     as: "recElev",
     path: "/institution/seed-academy/audit-log",
@@ -511,6 +523,12 @@ export const PAGES = [
     as: "recMin",
     path: "/institution/seed-rec-min",
     label: "Personal workspace board",
+  },
+  {
+    id: "73-personal-upgrade",
+    as: "recMin",
+    path: "/institution/seed-rec-min/verification",
+    label: "Tick page of a personal workspace",
   },
   {
     id: "74-personal-settings",
@@ -588,10 +606,16 @@ export const PAGES = [
     label: "Staff host check queue",
   },
   {
-    id: "86-admin-verification",
+    id: "86-admin-host-checks-centang",
     as: "ops",
-    path: "/admin/verification",
-    label: "Institution document verification queue",
+    path: "/admin/host-checks?tab=centang",
+    label: "Staff queue, Centang tab: tick requests, name checks and running proofs",
+  },
+  {
+    id: "86a-admin-host-checks-laporan",
+    as: "ops",
+    path: "/admin/host-checks?tab=laporan",
+    label: "Staff queue, Laporan tab before reports exist",
   },
   {
     id: "86b-admin-fee-rules",

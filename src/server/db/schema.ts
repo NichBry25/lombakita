@@ -582,10 +582,33 @@ export const institutions = pgTable(
     tickDomain: text("tick_domain"),
     nameProofDueAt: timestamp("name_proof_due_at", { mode: "date", withTimezone: true }),
     nameProofRemindedAt: timestamp("name_proof_reminded_at", { mode: "date", withTimezone: true }),
+    nameCheckedAt: timestamp("name_checked_at", { mode: "date", withTimezone: true }),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
   },
-  (table) => [uniqueIndex("institutions_slug_unique_idx").on(table.slug)],
+  (table) => [
+    uniqueIndex("institutions_slug_unique_idx").on(table.slug),
+    check(
+      "institutions_tick_path_verified_chk",
+      sql`${table.tickPath} IS NULL OR ${table.verificationStatus} = 'verified'`,
+    ),
+    check(
+      "institutions_tick_domain_path_chk",
+      sql`${table.tickDomain} IS NULL OR ${table.tickPath} IS NOT DISTINCT FROM 'domain'`,
+    ),
+    check(
+      "institutions_name_proof_path_chk",
+      sql`(${table.nameProofDueAt} IS NULL AND ${table.nameCheckedAt} IS NULL) OR ${table.tickPath} IS NOT DISTINCT FROM 'domain'`,
+    ),
+    check(
+      "institutions_name_proof_reminder_chk",
+      sql`${table.nameProofRemindedAt} IS NULL OR ${table.nameProofDueAt} IS NOT NULL`,
+    ),
+    check(
+      "institutions_name_check_or_proof_chk",
+      sql`${table.nameCheckedAt} IS NULL OR ${table.nameProofDueAt} IS NULL`,
+    ),
+  ],
 );
 
 // Public organizer social links — mirrors profile_social_links but keyed to an institution.
@@ -1726,6 +1749,8 @@ export const institutionVerificationSubmissions = pgTable(
       .defaultNow()
       .notNull(),
     reviewedAt: timestamp("reviewed_at", { mode: "date", withTimezone: true }),
+    requestedPath: institutionTickPathEnum("requested_path").notNull().default("documents"),
+    instagramUrl: text("instagram_url"),
   },
   (table) => [
     index("institution_verification_submissions_institution_id_status_idx").on(
@@ -1740,6 +1765,14 @@ export const institutionVerificationSubmissions = pgTable(
     uniqueIndex("institution_verification_submissions_pending_unique_idx")
       .on(table.institutionId)
       .where(sql`${table.status} = 'pending_review'`),
+    check(
+      "institution_verification_submissions_requested_path_chk",
+      sql`${table.requestedPath} IN ('instagram', 'documents')`,
+    ),
+    check(
+      "institution_verification_submissions_instagram_chk",
+      sql`(${table.requestedPath} = 'instagram') = (${table.instagramUrl} IS NOT NULL)`,
+    ),
   ],
 );
 

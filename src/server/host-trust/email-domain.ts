@@ -4,7 +4,7 @@ import disposableEmailDomains from "./disposable-email-domains.json";
 
 const THROWAWAY_EMAIL_DOMAINS: ReadonlySet<string> = new Set(disposableEmailDomains);
 
-const DOMAIN_LABEL_PATTERN = /^[a-z0-9-]+$/;
+export const DOMAIN_LABEL_PATTERN = /^[a-z0-9-]+$/;
 const PRINTABLE_ASCII_PATTERN = /^[\x20-\x7E]*$/;
 
 // Second-level suffixes under which an organization registers its own name, so its domain is the

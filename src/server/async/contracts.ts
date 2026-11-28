@@ -35,6 +35,8 @@ export const ASYNC_JOB_NAMES = {
   teamJoinReminder: "team.join.reminder",
   teamCancelledBelowMinimum: "team.cancelled.below_minimum",
   hostTrustRemoved: "host.trust.removed",
+  nameProofSweep: "name.proof.sweep",
+  institutionTickNotice: "institution.tick.notice",
 } as const;
 
 export type AsyncJobName = (typeof ASYNC_JOB_NAMES)[keyof typeof ASYNC_JOB_NAMES];
@@ -280,6 +282,36 @@ export type TeamCancelledBelowMinimumPayload = {
   minTeamSize: number;
 };
 
+// No request triggers this one either. It fires on a timer (see `name-proof-scheduler.ts`), and the
+// payload carries the fire time only for log correlation. The sweep reads the due proofs itself.
+export type NameProofSweepPayload = {
+  scheduledFor: string;
+};
+
+export type InstitutionTickNoticeKind =
+  | "tick_granted"
+  | "tick_request_turned_down"
+  | "tick_revoked"
+  | "tick_removed_name_proof"
+  | "name_checked"
+  | "name_proof_requested"
+  | "name_proof_reminder"
+  | "renamed_by_staff";
+
+// One notice reaches every active owner of the workspace. reason is the staff note of a turn-down or
+// the reason of a revocation, a proof request or a staff rename. dueAt is present on the three proof
+// kinds, as the exact UTC text with microseconds of name_proof_due_at, which the reminder compares
+// with the column in SQL. epoch makes each staff decision its own notice. inboxWritten is set by the
+// job once its inbox rows are written, so a retry after a failed email writes none again.
+export type InstitutionTickNoticePayload = {
+  institutionId: string;
+  kind: InstitutionTickNoticeKind;
+  reason?: string;
+  dueAt?: string;
+  epoch: number;
+  inboxWritten?: true;
+};
+
 export type AsyncJobPayloadByName = {
   [ASYNC_JOB_NAMES.probePing]: AsyncProbeJobPayload;
   [ASYNC_JOB_NAMES.competitionSearchSync]: CompetitionSearchSyncPayload;
@@ -304,6 +336,8 @@ export type AsyncJobPayloadByName = {
   [ASYNC_JOB_NAMES.teamJoinReminder]: TeamJoinReminderPayload;
   [ASYNC_JOB_NAMES.teamCancelledBelowMinimum]: TeamCancelledBelowMinimumPayload;
   [ASYNC_JOB_NAMES.hostTrustRemoved]: HostTrustRemovedPayload;
+  [ASYNC_JOB_NAMES.nameProofSweep]: NameProofSweepPayload;
+  [ASYNC_JOB_NAMES.institutionTickNotice]: InstitutionTickNoticePayload;
 };
 
 export const ASYNC_JOB_QUEUE_BY_NAME = {
@@ -341,4 +375,8 @@ export const ASYNC_JOB_QUEUE_BY_NAME = {
   [ASYNC_JOB_NAMES.teamJoinReminder]: ASYNC_QUEUE_NAMES.notifications,
   [ASYNC_JOB_NAMES.teamCancelledBelowMinimum]: ASYNC_QUEUE_NAMES.notifications,
   [ASYNC_JOB_NAMES.hostTrustRemoved]: ASYNC_QUEUE_NAMES.notifications,
+  // Platform maintenance on the reasoning of the team close check. The notices it causes are
+  // participant events, so they sit on the notifications queue.
+  [ASYNC_JOB_NAMES.nameProofSweep]: ASYNC_QUEUE_NAMES.infrastructure,
+  [ASYNC_JOB_NAMES.institutionTickNotice]: ASYNC_QUEUE_NAMES.notifications,
 } as const satisfies Record<AsyncJobName, AsyncQueueName>;

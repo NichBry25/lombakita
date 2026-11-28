@@ -25,6 +25,7 @@ import { registerRetentionPurgeSchedule } from "@/server/async/retention-schedul
 import { registerPaymentExpirySchedule } from "@/server/async/payment-expiry-scheduler";
 import { registerEmailEgressSchedule } from "@/server/async/email-egress-scheduler";
 import { registerTeamCloseCheckSchedule } from "@/server/async/team-close-check-scheduler";
+import { registerNameProofSweepSchedule } from "@/server/async/name-proof-scheduler";
 import { captureWorkerJobFailure } from "@/server/observability/worker-sentry";
 import { createBullmqRedisClient } from "@/server/redis/client";
 
@@ -271,6 +272,16 @@ export const createAsyncWorkerRuntime = (): AsyncWorkerRuntime => {
       await registerTeamCloseCheckSchedule();
     } catch (error) {
       logger.error("Team close check schedule registration failed", {
+        detail: toSafeErrorMessage(error),
+      });
+    }
+
+    // Its own try, on the same reasoning as the blocks above: the name proof sweep is unrelated to
+    // the other scheduled jobs.
+    try {
+      await registerNameProofSweepSchedule();
+    } catch (error) {
+      logger.error("Name proof sweep schedule registration failed", {
         detail: toSafeErrorMessage(error),
       });
     }

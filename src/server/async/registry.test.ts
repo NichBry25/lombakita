@@ -16,8 +16,9 @@ describe("async queue registration baseline", () => {
     // rejection notice added recruiter.verification.rejected; participant document verification
     // added registration.document.requested + registration.document.reviewed — all on the
     // notifications queue. The scheduled jobs are on infrastructure: retention.purge,
-    // payment.expiry.sweep, email.egress.probe and team.close.check.
-    expect(ASYNC_JOB_REGISTRATIONS).toHaveLength(23);
+    // payment.expiry.sweep, email.egress.probe, team.close.check and name.proof.sweep.
+    // institution.tick.notice is on notifications.
+    expect(ASYNC_JOB_REGISTRATIONS).toHaveLength(25);
 
     const probe = getRegistrationByJobName(ASYNC_JOB_NAMES.probePing);
     expect(probe).toBeDefined();
@@ -135,11 +136,11 @@ describe("async queue registration baseline", () => {
         ASYNC_QUEUE_NAMES.notifications,
       ]),
     );
-    // probe.ping + the four scheduled jobs: retention.purge, payment.expiry.sweep, email.egress.probe
-    // and team.close.check.
-    expect(getQueueRegistrations(ASYNC_QUEUE_NAMES.infrastructure)).toHaveLength(5);
+    // probe.ping + the five scheduled jobs: retention.purge, payment.expiry.sweep, email.egress.probe,
+    // team.close.check and name.proof.sweep.
+    expect(getQueueRegistrations(ASYNC_QUEUE_NAMES.infrastructure)).toHaveLength(6);
     expect(getQueueRegistrations(ASYNC_QUEUE_NAMES.competition)).toHaveLength(1);
     expect(getQueueRegistrations(ASYNC_QUEUE_NAMES.results)).toHaveLength(1);
-    expect(getQueueRegistrations(ASYNC_QUEUE_NAMES.notifications)).toHaveLength(16);
+    expect(getQueueRegistrations(ASYNC_QUEUE_NAMES.notifications)).toHaveLength(17);
   });
 });

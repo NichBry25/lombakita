@@ -1,35 +1,34 @@
-import { and, asc, desc, eq, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { AccessError } from "@/server/auth/access-core";
 import { getDb, type Database } from "@/server/db/client";
 import {
-  institutionMemberships,
   institutionVerificationAudit,
   institutions,
-  users,
   type InstitutionVerificationStatus,
 } from "@/server/db/schema";
 import { logger } from "@/lib/logger";
-import {
-  awaitDeliveryAndReportFailure,
-  type EmailDeliveryOutcome,
-} from "@/server/email/delivery-outcome";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
-import {
-  isPersonalInstitutionType,
-  PERSONAL_INSTITUTION_TYPE,
-} from "@/server/institution-workspace/institution-type";
 import {
   assertValidTransition,
   isVerificationStatus,
   VerificationError,
 } from "@/server/institution-verification/verification-core";
-import { resolvePlatformOpsActor } from "@/server/platform-ops/operator-actor";
-import { assertOperatorHasNoInstitutionRelationship } from "@/server/institution-verification/operator-institution-conflict";
 import {
-  sendInstitutionRejectedEmail,
-  sendInstitutionVerificationRevokedEmail,
-  sendInstitutionVerifiedEmail,
-} from "@/server/institution-verification/verification-email";
+  closePendingRequestInTransaction,
+  trustTickSubmitterInTransaction,
+} from "@/server/institution-verification/tick-service";
+import {
+  writeTickTransition,
+  type TickPath,
+  type TickTransitionResult,
+} from "@/server/institution-verification/tick-transition";
+import {
+  resolvePlatformOpsActor,
+  type ResolvedPlatformOpsActor,
+} from "@/server/platform-ops/operator-actor";
+import { assertOperatorHasNoInstitutionRelationship } from "@/server/institution-verification/operator-institution-conflict";
+import { enqueueTickNoticeAfterCommit } from "@/server/institution-verification/name-check-service";
+import type { InstitutionTickNoticeKind } from "@/server/async/contracts";
 
 assertServerOnly("server/institution-verification/verification-service");
 
@@ -38,6 +37,7 @@ export type InstitutionListItem = {
   displayName: string;
   slug: string;
   verificationStatus: InstitutionVerificationStatus;
+  tickPath: TickPath | null;
   verifiedAt: Date | null;
   rejectedAt: Date | null;
   rejectionReason: string | null;
@@ -63,18 +63,9 @@ export type VerifyResult = {
     rejectionReason: string | null;
   };
   auditEntry: VerificationAuditEntry;
-  // null when no notice was due; otherwise whether it actually went out.
-  emailDelivery: EmailDeliveryOutcome | null;
 };
 
 const PAGE_SIZE = 20;
-
-// A personal institution has no document verification: it IS its owner, and that owner is vetted
-// by host trust. `createVerificationSubmission` refuses one
-// outright, so a personal row could only ever sit in this queue as a permanently inert entry an
-// operator has no evidence to act on. Excluded from both the page query and the count so
-// pagination and the total agree.
-const NON_PERSONAL_INSTITUTION = ne(institutions.institutionType, PERSONAL_INSTITUTION_TYPE);
 
 const requirePlatformOps = (actorRole: string): void => {
   if (actorRole !== "platform_ops") {
@@ -99,16 +90,13 @@ export const listInstitutionsForPlatformOps = async (options: {
       ? eq(institutions.verificationStatus, options.statusFilter)
       : undefined;
 
-  const listWhere = statusWhere
-    ? and(NON_PERSONAL_INSTITUTION, statusWhere)
-    : NON_PERSONAL_INSTITUTION;
-
   const rows = await db
     .select({
       id: institutions.id,
       displayName: institutions.displayName,
       slug: institutions.slug,
       verificationStatus: institutions.verificationStatus,
+      tickPath: institutions.tickPath,
       verifiedAt: institutions.verifiedAt,
       rejectedAt: institutions.rejectedAt,
       rejectionReason: institutions.rejectionReason,
@@ -127,7 +115,7 @@ export const listInstitutionsForPlatformOps = async (options: {
       )`,
     })
     .from(institutions)
-    .where(listWhere)
+    .where(statusWhere)
     .orderBy(desc(institutions.createdAt))
     .limit(PAGE_SIZE)
     .offset(offset);
@@ -136,7 +124,7 @@ export const listInstitutionsForPlatformOps = async (options: {
   const [countRow] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(institutions)
-    .where(listWhere);
+    .where(statusWhere);
 
   return {
     institutions: rows,
@@ -166,6 +154,184 @@ export const getInstitutionVerificationAudit = async (
     .orderBy(asc(institutionVerificationAudit.createdAt));
 };
 
+type TransactionClient = Parameters<Parameters<Database["transaction"]>[0]>[0];
+
+type StaffDecision = {
+  institution: VerifyResult["institution"];
+  auditEntry: VerificationAuditEntry;
+};
+
+type StaffDecisionInput = {
+  institutionId: string;
+  fromStatus: InstitutionVerificationStatus;
+  targetStatus: InstitutionVerificationStatus;
+  actor: ResolvedPlatformOpsActor;
+  reason: string | null;
+};
+
+const STAFF_TICK_CLOSED_REQUEST_NOTE = "Ditutup karena staf memberi centang langsung.";
+const TICK_TAKEN_CLOSED_REQUEST_NOTE =
+  "Ditutup karena centang ruang kerja dicabut atau ditolak staf. Centang hanya dapat didapat lagi lewat dokumen.";
+
+const toStaffDecision = (written: TickTransitionResult): StaffDecision => ({
+  institution: {
+    id: written.institution.id,
+    verificationStatus: written.institution.verificationStatus,
+    verifiedAt: written.institution.verifiedAt,
+    rejectedAt: written.institution.rejectedAt,
+    rejectionReason: written.institution.rejectionReason,
+  },
+  auditEntry: {
+    id: written.auditEntry.id,
+    actorUserId: written.auditEntry.actorUserId,
+    fromStatus: written.auditEntry.fromStatus,
+    toStatus: written.auditEntry.toStatus,
+    reason: written.auditEntry.reason,
+    createdAt: written.auditEntry.createdAt,
+  },
+});
+
+// Staff give the tick directly. A request the owner still had open asked for the same thing, so it
+// is closed as approved and its submitter is trusted as an approval would trust it.
+const grantStaffTick = async (
+  tx: TransactionClient,
+  input: StaffDecisionInput,
+): Promise<StaffDecision> => {
+  const written = await writeTickTransition(tx, {
+    institutionId: input.institutionId,
+    from: input.fromStatus,
+    to: "verified",
+    tickPath: "staff",
+    tickDomain: null,
+    nameState: "cleared",
+    actorUserId: input.actor.userId,
+    reason: input.reason,
+  });
+
+  const closedRequest = await closePendingRequestInTransaction(tx, {
+    institutionId: input.institutionId,
+    status: "approved",
+    reviewerUserId: input.actor.userId,
+    reviewerNotes: STAFF_TICK_CLOSED_REQUEST_NOTE,
+  });
+  if (closedRequest) {
+    await trustTickSubmitterInTransaction(tx, input.actor, {
+      institutionId: input.institutionId,
+      submissionId: closedRequest.id,
+      submitterUserId: closedRequest.submittedByUserId,
+      requestedPath: closedRequest.requestedPath,
+      closedByStaffOverride: true,
+    });
+  }
+  return toStaffDecision(written);
+};
+
+// A revocation or a denial. Every tick column is cleared, and a pending Path B request is closed
+// because the tick can only come back through documents now. A pending Path C request stays open.
+const rejectInstitution = async (
+  tx: TransactionClient,
+  input: StaffDecisionInput,
+): Promise<StaffDecision> => {
+  const written = await writeTickTransition(tx, {
+    institutionId: input.institutionId,
+    from: input.fromStatus,
+    to: "rejected",
+    tickPath: null,
+    tickDomain: null,
+    nameState: "cleared",
+    actorUserId: input.actor.userId,
+    reason: input.reason,
+  });
+
+  await closePendingRequestInTransaction(tx, {
+    institutionId: input.institutionId,
+    status: "rejected",
+    reviewerUserId: input.actor.userId,
+    reviewerNotes: TICK_TAKEN_CLOSED_REQUEST_NOTE,
+    onlyRequestedPath: "instagram",
+  });
+  return toStaffDecision(written);
+};
+
+// A move that neither grants nor takes a tick (a workspace sent to review). Pinned to the status
+// the decision was read against, so a decision that raced another one is refused.
+const moveStatusOnly = async (
+  tx: TransactionClient,
+  input: StaffDecisionInput,
+): Promise<StaffDecision> => {
+  const [updated] = await tx
+    .update(institutions)
+    .set({ verificationStatus: input.targetStatus, updatedAt: sql`now()` })
+    .where(
+      and(
+        eq(institutions.id, input.institutionId),
+        eq(institutions.verificationStatus, input.fromStatus),
+      ),
+    )
+    .returning({
+      id: institutions.id,
+      verificationStatus: institutions.verificationStatus,
+      verifiedAt: institutions.verifiedAt,
+      rejectedAt: institutions.rejectedAt,
+      rejectionReason: institutions.rejectionReason,
+    });
+
+  if (!updated) {
+    throw new VerificationError(
+      "verification_transition_conflict",
+      409,
+      "This institution's verification status changed while you were deciding. Reload and try again",
+    );
+  }
+
+  const [auditRow] = await tx
+    .insert(institutionVerificationAudit)
+    .values({
+      institutionId: input.institutionId,
+      actorUserId: input.actor.userId,
+      fromStatus: input.fromStatus,
+      toStatus: input.targetStatus,
+      reason: input.reason,
+    })
+    .returning();
+
+  if (!auditRow) {
+    throw new Error("Failed to insert verification audit entry");
+  }
+
+  return {
+    institution: updated,
+    auditEntry: {
+      id: auditRow.id,
+      actorUserId: auditRow.actorUserId,
+      fromStatus: auditRow.fromStatus,
+      toStatus: auditRow.toStatus,
+      reason: auditRow.reason,
+      createdAt: auditRow.createdAt,
+    },
+  };
+};
+
+const applyStaffDecision = async (
+  tx: TransactionClient,
+  input: StaffDecisionInput,
+): Promise<StaffDecision> => {
+  if (input.targetStatus === "verified") return grantStaffTick(tx, input);
+  if (input.targetStatus === "rejected") return rejectInstitution(tx, input);
+  return moveStatusOnly(tx, input);
+};
+
+// A rejection means two things to the owners: a revocation when the tick was verified before, a
+// turn-down of the request otherwise. Moving to under_review notifies nobody.
+const noticeKindOfStaffDecision = (
+  fromStatus: InstitutionVerificationStatus,
+  targetStatus: InstitutionVerificationStatus,
+): InstitutionTickNoticeKind | null => {
+  if (targetStatus === "verified") return "tick_granted";
+  if (targetStatus !== "rejected") return null;
+  return fromStatus === "verified" ? "tick_revoked" : "tick_request_turned_down";
+};
+
 export const verifyInstitution = async (options: {
   institutionId: string;
   targetStatus: InstitutionVerificationStatus;
@@ -175,33 +341,8 @@ export const verifyInstitution = async (options: {
 }): Promise<VerifyResult> => {
   const db = options.db ?? getDb();
 
-  const now = new Date();
-  const statusUpdates: {
-    verificationStatus: InstitutionVerificationStatus;
-    updatedAt: ReturnType<typeof sql>;
-    verifiedAt?: Date;
-    rejectedAt?: Date;
-    rejectionReason?: string;
-  } = {
-    verificationStatus: options.targetStatus,
-    updatedAt: sql`now()`,
-  };
-
-  if (options.targetStatus === "verified") {
-    statusUpdates.verifiedAt = now;
-  } else if (options.targetStatus === "rejected") {
-    statusUpdates.rejectedAt = now;
-    statusUpdates.rejectionReason = options.reason;
-  }
-
   let auditEntry: VerificationAuditEntry;
-  let institutionSnapshot: {
-    id: string;
-    verificationStatus: InstitutionVerificationStatus;
-    verifiedAt: Date | null;
-    rejectedAt: Date | null;
-    rejectionReason: string | null;
-  };
+  let institutionSnapshot: VerifyResult["institution"];
   let current: {
     displayName: string;
     verificationStatus: InstitutionVerificationStatus;
@@ -251,70 +392,18 @@ export const verifyInstitution = async (options: {
 
     current = row;
 
-    // Personal institutions are filtered out of the platform-ops queue, so this only fires for a
-    // request made directly against the endpoint by id. It is the actual guard, not a courtesy:
-    // without it the hidden row would still accept a transition and write a meaningless audit entry.
-    if (isPersonalInstitutionType(row.institutionType)) {
-      throw new VerificationError(
-        "institution_verification_not_applicable",
-        409,
-        "A personal institution has no document verification to review",
-      );
-    }
-
     assertValidTransition(row.verificationStatus, options.targetStatus);
 
-    const [updated] = await tx
-      .update(institutions)
-      .set(statusUpdates)
-      .where(
-        and(
-          eq(institutions.id, options.institutionId),
-          eq(institutions.verificationStatus, row.verificationStatus),
-        ),
-      )
-      .returning({
-        id: institutions.id,
-        verificationStatus: institutions.verificationStatus,
-        verifiedAt: institutions.verifiedAt,
-        rejectedAt: institutions.rejectedAt,
-        rejectionReason: institutions.rejectionReason,
-      });
-
-    if (!updated) {
-      throw new VerificationError(
-        "verification_transition_conflict",
-        409,
-        "This institution's verification status changed while you were deciding. Reload and try again",
-      );
-    }
-
-    institutionSnapshot = updated;
-
-    const [auditRow] = await tx
-      .insert(institutionVerificationAudit)
-      .values({
-        institutionId: options.institutionId,
-        // The RESOLVED id, not the claimed one.
-        actorUserId: actor.userId,
-        fromStatus: row.verificationStatus,
-        toStatus: options.targetStatus,
-        reason: options.reason ?? null,
-      })
-      .returning();
-
-    if (!auditRow) {
-      throw new Error("Failed to insert verification audit entry");
-    }
-
-    auditEntry = {
-      id: auditRow.id,
-      actorUserId: auditRow.actorUserId,
-      fromStatus: auditRow.fromStatus,
-      toStatus: auditRow.toStatus,
-      reason: auditRow.reason,
-      createdAt: auditRow.createdAt,
-    };
+    const decision = await applyStaffDecision(tx, {
+      institutionId: options.institutionId,
+      fromStatus: row.verificationStatus,
+      targetStatus: options.targetStatus,
+      // The RESOLVED actor, not the claimed id.
+      actor,
+      reason: options.reason ?? null,
+    });
+    institutionSnapshot = decision.institution;
+    auditEntry = decision.auditEntry;
   });
 
   logger.info("institution.verification.transitioned", {
@@ -325,76 +414,19 @@ export const verifyInstitution = async (options: {
     reason: options.reason,
   });
 
-  // Post-commit email dispatch — non-fatal, and awaited so the caller can be told the truth about
-  // it. The transition is already committed above; a failed notice never unwinds it.
-  // adminRow lookup runs after the committed transaction; wrap in try/catch so a DB error
-  // here does not produce a 500 response that makes the caller think the transition failed.
-  //
-  // Stays null when there was nothing to send (no owner, or a status that notifies nobody), which
-  // is what keeps "not attempted" distinguishable from "attempted and succeeded".
-  let emailDelivery: EmailDeliveryOutcome | null = null;
+  const noticeKind = noticeKindOfStaffDecision(current!.verificationStatus, options.targetStatus);
 
-  if (options.targetStatus === "verified" || options.targetStatus === "rejected") {
-    try {
-      const [adminRow] = await db
-        .select({ email: users.email })
-        .from(institutionMemberships)
-        .innerJoin(users, eq(users.id, institutionMemberships.userId))
-        .where(
-          and(
-            eq(institutionMemberships.institutionId, options.institutionId),
-            eq(institutionMemberships.membershipRole, "institution_owner"),
-            eq(institutionMemberships.status, "active"),
-          ),
-        )
-        .orderBy(asc(institutionMemberships.createdAt))
-        .limit(1);
-
-      if (adminRow) {
-        const resolvedDisplayName = current!.displayName;
-        // A 'rejected' target means two different things to the owner depending on where the
-        // institution came from: a denied application (from pending/under review) or a verification
-        // withdrawn after it had been granted. They get different notices.
-        const isRevocation =
-          options.targetStatus === "rejected" && current!.verificationStatus === "verified";
-
-        let emailTask: Promise<void>;
-        if (options.targetStatus === "verified") {
-          emailTask = sendInstitutionVerifiedEmail({
-            toEmail: adminRow.email,
-            institutionDisplayName: resolvedDisplayName,
-          });
-        } else if (isRevocation) {
-          emailTask = sendInstitutionVerificationRevokedEmail({
-            toEmail: adminRow.email,
-            institutionDisplayName: resolvedDisplayName,
-            revocationReason: options.reason!,
-          });
-        } else {
-          emailTask = sendInstitutionRejectedEmail({
-            toEmail: adminRow.email,
-            institutionDisplayName: resolvedDisplayName,
-            rejectionReason: options.reason!,
-          });
-        }
-
-        emailDelivery = await awaitDeliveryAndReportFailure(emailTask, {
-          event: `institution.verification.${options.targetStatus}`,
-          institutionId: options.institutionId,
-        });
-      }
-    } catch (err: unknown) {
-      logger.error("institution.verification.post_commit_lookup_failed", {
-        institutionId: options.institutionId,
-        targetStatus: options.targetStatus,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
+  if (noticeKind) {
+    const carriesReason = noticeKind !== "tick_granted" && options.reason !== undefined;
+    await enqueueTickNoticeAfterCommit({
+      institutionId: options.institutionId,
+      kind: noticeKind,
+      ...(carriesReason ? { reason: options.reason } : {}),
+    });
   }
 
   return {
     institution: institutionSnapshot!,
     auditEntry: auditEntry!,
-    emailDelivery,
   };
 };

@@ -3,6 +3,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccessError } from "@/server/auth/access-core";
 import { InstitutionWorkspaceInputError } from "@/server/institution-workspace/institution-core";
+import { VerificationError } from "@/server/institution-verification/verification-core";
 import { SESSION_USER_HEADER } from "@/lib/session/session-fetch";
 
 const {
@@ -210,5 +211,53 @@ describe("/api/v1/institutions/[institutionSlug]/settings", () => {
 
     expect(response.status).toBe(400);
     expect(body.error.code).toBe("institution_invalid_value");
+  });
+
+  it("answers an unconfirmed tick removal with 409", async () => {
+    requireAuthenticatedSession.mockResolvedValue(sessionFixture);
+    updateInstitutionWorkspaceForOwnerBySlug.mockRejectedValue(
+      new VerificationError(
+        "institution_tick_removal_unconfirmed",
+        409,
+        "This change removes the workspace tick. Send acknowledgeTickRemoval true to confirm it",
+      ),
+    );
+
+    const response = await PATCH(
+      new Request("http://localhost", {
+        method: "PATCH",
+        headers: { "content-type": "application/json", [SESSION_USER_HEADER]: "user_1" },
+        body: JSON.stringify({ displayName: "Nama Baru" }),
+      }) as never,
+      { params: Promise.resolve({ institutionSlug: "universitas-nusantara" }) },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe("institution_tick_removal_unconfirmed");
+  });
+
+  it("answers a tick write conflict with 409", async () => {
+    requireAuthenticatedSession.mockResolvedValue(sessionFixture);
+    updateInstitutionWorkspaceForOwnerBySlug.mockRejectedValue(
+      new VerificationError(
+        "verification_transition_conflict",
+        409,
+        "This institution's verification status changed while you were deciding. Reload and try again",
+      ),
+    );
+
+    const response = await PATCH(
+      new Request("http://localhost", {
+        method: "PATCH",
+        headers: { "content-type": "application/json", [SESSION_USER_HEADER]: "user_1" },
+        body: JSON.stringify({ displayName: "Nama Baru", acknowledgeTickRemoval: true }),
+      }) as never,
+      { params: Promise.resolve({ institutionSlug: "universitas-nusantara" }) },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe("verification_transition_conflict");
   });
 });

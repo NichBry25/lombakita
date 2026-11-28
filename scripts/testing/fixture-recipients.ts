@@ -444,11 +444,6 @@ export const ACCEPTED_ROUTABLE_TEST_ADDRESSES: readonly AcceptedRoutableTestFile
     reason: "mocked_delivery",
   },
   {
-    file: "src/server/institution-verification/submission-service.test.ts",
-    addresses: ["alice@company.co.id"],
-    reason: "mocked_delivery",
-  },
-  {
     file: "src/server/institution-verification/verification-requirements.test.ts",
     addresses: [
       "dosen@ui.ac.id",
@@ -462,7 +457,7 @@ export const ACCEPTED_ROUTABLE_TEST_ADDRESSES: readonly AcceptedRoutableTestFile
   },
   {
     file: "src/server/institution-verification/verification-service.test.ts",
-    addresses: ["owner@contoh.ac.id", "owner@contoh.co.id"],
+    addresses: ["owner@contoh.ac.id"],
     reason: "mocked_delivery",
   },
   {
@@ -545,7 +540,7 @@ export const scanGovernedTestFiles = (): FixtureRecipient[] =>
  * assertion true by construction and measure nothing, which is the defect this whole gate exists
  * to avoid shipping.
  */
-export const PINNED_ADDRESS_CEILING = 85;
+export const PINNED_ADDRESS_CEILING = 83;
 
 /** What the register actually holds right now. Compared against the literal above. */
 export const pinnedAddressTotal = (): number =>

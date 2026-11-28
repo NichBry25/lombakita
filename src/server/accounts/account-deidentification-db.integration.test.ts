@@ -1538,6 +1538,48 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
       });
     });
 
+    it("account deletion scrubs the tick domain and the Instagram link of a sole-owned workspace", async () => {
+      await inRollback(async (tx) => {
+        const operator = await plantPerson(tx, "ops", "operator");
+        const target = await plantPerson(tx, "target", "host");
+        const workspace = await createWorkspace(
+          tx,
+          target,
+          `Centang Domain ${uniqueSuffix()}`,
+          "company",
+        );
+        await tx
+          .update(institutions)
+          .set({
+            verificationStatus: "verified",
+            tickPath: "domain",
+            tickDomain: "acme.example",
+          })
+          .where(eq(institutions.id, workspace.id));
+        const [request] = await tx
+          .insert(institutionVerificationSubmissions)
+          .values({
+            institutionId: workspace.id,
+            submittedByUserId: target.id,
+            targetInstitutionType: "company",
+            requestedPath: "instagram",
+            instagramUrl: "https://instagram.example/centang-domain",
+          })
+          .returning({ id: institutionVerificationSubmissions.id });
+
+        await deleteAccountOf(tx, operator, target);
+
+        const row = await readWorkspaceRow(tx, workspace.id);
+        const [submission] = await tx
+          .select({ instagramUrl: institutionVerificationSubmissions.instagramUrl })
+          .from(institutionVerificationSubmissions)
+          .where(eq(institutionVerificationSubmissions.id, request!.id));
+        expect(row.tickDomain).toBeNull();
+        expect(row.tickPath).toBe("domain");
+        expect(submission!.instagramUrl).toBe("[dihapus]");
+      });
+    });
+
     it("scrubs every workspace the account owns alone and leaves a personal workspace it co-owns live and untouched", async () => {
       await inRollback(async (tx) => {
         const operator = await plantPerson(tx, "ops", "operator");

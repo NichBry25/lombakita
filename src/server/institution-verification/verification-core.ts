@@ -1,3 +1,4 @@
+import { NextResponse } from "next/server";
 import type { InstitutionVerificationStatus } from "@/server/db/schema";
 
 export type VerificationTransition = {
@@ -16,17 +17,40 @@ type VerificationErrorCode =
   | "verification_invalid_payload"
   // Shares its string with the SubmissionError of the same name: both mean "this institution
   // has no document verification to act on" and a client can branch on the one code.
-  | "institution_verification_not_applicable";
+  | "institution_verification_not_applicable"
+  | "institution_tick_owner_trust_removed"
+  | "institution_suspended"
+  | "institution_already_verified"
+  | "institution_tick_path_a_closed"
+  | "institution_tick_live_paid_competition"
+  | "institution_tick_no_organization_email"
+  | "institution_tick_no_website"
+  | "institution_tick_domain_mismatch"
+  | "institution_tick_instagram_invalid"
+  | "institution_tick_removal_unconfirmed"
+  | "institution_name_check_not_applicable"
+  | "institution_name_check_reason_required"
+  | "institution_name_proof_running"
+  | "institution_name_check_reason_invalid";
 
 export class VerificationError extends Error {
   constructor(
     public readonly code: VerificationErrorCode,
-    public readonly status: 404 | 409 | 422 | 400,
+    public readonly status: 404 | 409 | 422 | 400 | 403,
     message: string,
+    public readonly details?: Record<string, unknown>,
   ) {
     super(message);
   }
 }
+
+// The error envelope of a refusal. details is sent only when the refusal carries it, as the closure
+// refusals carry their cause.
+export const toVerificationErrorResponse = (error: VerificationError): NextResponse =>
+  NextResponse.json(
+    { error: { code: error.code, message: error.message, details: error.details } },
+    { status: error.status },
+  );
 
 // Every status change an institution's verification may legally make, whichever path requests it —
 // the platform_ops admin table (`verifyInstitution`) or the approval of a document submission
@@ -41,6 +65,10 @@ export class VerificationError extends Error {
 // reason — see parseVerifyInput), and a rejected one can be re-opened or approved on a fresh
 // submission. The audit trail is what distinguishes the two kinds of rejection: verified->rejected
 // is a revocation, under_review->rejected is a denial.
+//
+// verified->pending_verification is deliberately absent. It is the automatic removal of a tick
+// after a website change or an owner rename, and only removeTickAutomatically writes it, so no
+// staff request can ask for it.
 const ALLOWED_TRANSITIONS: ReadonlySet<string> = new Set([
   "pending_verification->under_review",
   "pending_verification->rejected",
@@ -117,4 +145,79 @@ export const parseVerifyInput = (body: unknown): VerifyInput => {
   }
 
   return { targetStatus };
+};
+
+// Absent means false. The only value that may be sent is the boolean true, so a client cannot
+// confirm a tick removal with a value that merely looks truthy.
+export const parseAcknowledgeTickRemoval = (value: unknown): boolean => {
+  if (value === undefined) return false;
+  if (value !== true) {
+    throw new VerificationError(
+      "verification_invalid_payload",
+      400,
+      "acknowledgeTickRemoval must be true when it is sent",
+    );
+  }
+  return true;
+};
+
+const INSTAGRAM_HOSTS: ReadonlySet<string> = new Set(["instagram.com", "www.instagram.com"]);
+const INSTAGRAM_HANDLE_PATTERN = /^[A-Za-z0-9._]{1,30}$/;
+
+const instagramInvalid = (): VerificationError =>
+  new VerificationError(
+    "institution_tick_instagram_invalid",
+    400,
+    "instagramUrl must be the link of an Instagram profile",
+  );
+
+export const normalizeInstagramProfileUrl = (value: unknown): string => {
+  if (typeof value !== "string") throw instagramInvalid();
+
+  let url: URL;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    throw instagramInvalid();
+  }
+
+  const hasCredentialsOrPort = url.username !== "" || url.password !== "" || url.port !== "";
+  if (url.protocol !== "https:" || hasCredentialsOrPort || !INSTAGRAM_HOSTS.has(url.hostname)) {
+    throw instagramInvalid();
+  }
+
+  const handle = url.pathname.replace(/^\//, "").replace(/\/$/, "");
+  if (!INSTAGRAM_HANDLE_PATTERN.test(handle)) throw instagramInvalid();
+
+  return `https://www.instagram.com/${handle.toLowerCase()}/`;
+};
+
+export type VerificationSubmitBody =
+  | { path: "documents"; documents: unknown }
+  | { path: "instagram"; instagramUrl: string };
+
+const invalidSubmitPayload = (message: string): VerificationError =>
+  new VerificationError("verification_invalid_payload", 400, message);
+
+export const parseVerificationSubmitBody = (body: unknown): VerificationSubmitBody => {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw invalidSubmitPayload("Request body must be a JSON object");
+  }
+
+  const raw = body as Record<string, unknown>;
+  const path = raw.path === undefined ? "documents" : raw.path;
+
+  if (path === "instagram") {
+    return { path, instagramUrl: normalizeInstagramProfileUrl(raw.instagramUrl) };
+  }
+
+  if (path !== "documents") {
+    throw invalidSubmitPayload("path must be one of: instagram, documents");
+  }
+
+  if (raw.instagramUrl !== undefined) {
+    throw invalidSubmitPayload("instagramUrl is allowed only on an instagram request");
+  }
+
+  return { path, documents: raw.documents };
 };

@@ -38,15 +38,78 @@ describe("resolveVerificationRefusalMessage", () => {
     expect(resolveVerificationRefusalMessage(undefined, "Gagal.")).toBe("Gagal.");
     expect(resolveVerificationRefusalMessage({ code: "x" }, "Gagal.")).toBe("Gagal.");
   });
+
+  it("resolves a closure refusal by its cause", () => {
+    const staffLine =
+      "Centang ruang kerja ini dicabut atau ditolak staf, jadi centang hanya bisa didapat lagi lewat dokumen.";
+    const automaticLine =
+      "Centang ruang kerja ini hilang karena nama atau situs webnya diubah saat bukti nama berjalan, atau karena bukti nama tidak dikirim tepat waktu, jadi centang hanya bisa didapat lagi lewat dokumen.";
+
+    expect(
+      resolveVerificationRefusalMessage(
+        { code: "institution_tick_closed_needs_documents", details: { cause: "staff" } },
+        "Gagal.",
+      ),
+    ).toBe(staffLine);
+    expect(
+      resolveVerificationRefusalMessage(
+        { code: "institution_tick_closed_needs_documents", details: { cause: "automatic" } },
+        "Gagal.",
+      ),
+    ).toBe(automaticLine);
+    expect(
+      resolveVerificationRefusalMessage(
+        { code: "institution_tick_closed_needs_documents" },
+        "Gagal.",
+      ),
+    ).toBe("Gagal.");
+  });
+
+  it("resolves the Path A closure refusal by its cause and the other new refusals by code", () => {
+    expect(
+      resolveVerificationRefusalMessage(
+        { code: "institution_tick_path_a_closed", details: { cause: "staff" } },
+        "Gagal.",
+      ),
+    ).toBe(VERIFICATION_REFUSAL_COPY["institution_tick_path_a_closed:staff"]);
+    expect(
+      resolveVerificationRefusalMessage(
+        { code: "institution_tick_live_paid_competition" },
+        "Gagal.",
+      ),
+    ).toBe(
+      "Ruang kerja ini punya kompetisi berbayar yang sedang tayang, jadi centang hanya bisa didapat lagi lewat dokumen agar staf memeriksa namanya.",
+    );
+    expect(
+      resolveVerificationRefusalMessage(
+        { code: "institution_name_proof_needs_documents" },
+        "Gagal.",
+      ),
+    ).toBe(
+      "Selama bukti nama berjalan, nama ruang kerja hanya dapat dibuktikan lewat dokumen. Kirim dokumen sebelum batas waktunya.",
+    );
+  });
 });
 
-// Both operator surfaces that decide a verification show this refusal, so both read the envelope
-// through the helper. The call sites are counted, not just detected: the institutions page has two
-// (the transition and the reject form), and a page that went back to `error.message` at either one
-// would show the English again while a presence check stayed green.
+describe("the name check refusal", () => {
+  it("translates the reason-required refusal of a name check", () => {
+    expect(
+      resolveVerificationRefusalMessage(
+        { code: "institution_name_check_reason_required" },
+        "Gagal.",
+      ),
+    ).toBe("Tulis alasan menerima nama ini, karena bukti nama sedang berjalan.");
+  });
+});
+
+// The tick queue and the institutions page show these refusals, so both read the envelope through
+// the helper. The call sites are counted, not just detected: the tick queue resolves every refusal
+// in one function, and the institutions page has three (the transition, the reject form and the
+// rename). A file that went back to `error.message` at one of them would show the English again
+// while a presence check stayed green.
 const CALL_SITES: Array<{ path: string; expected: number }> = [
-  { path: "src/app/admin/verification/page.tsx", expected: 1 },
-  { path: "src/app/admin/institutions/page.tsx", expected: 2 },
+  { path: "src/components/admin/tick-queue.tsx", expected: 1 },
+  { path: "src/app/admin/institutions/page.tsx", expected: 3 },
 ];
 
 describe("the operator verification surfaces", () => {

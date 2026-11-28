@@ -368,6 +368,45 @@ export const sendRecruiterVerificationApprovedEmail = async (options: {
   });
 };
 
+// The notice of a staff decision on a workspace's tick or name: the notice's title as subject, its
+// body and the link to the workspace's tick page.
+export const sendInstitutionTickNoticeEmail = async (options: {
+  toEmail: string;
+  recipientId: string;
+  title: string;
+  body: string;
+  institutionSlug: string;
+}): Promise<void> => {
+  const delivery = resolveNotificationDelivery("institution_tick_notice", options.toEmail);
+
+  if (!delivery) {
+    return;
+  }
+
+  const { apiKey, from } = delivery;
+
+  const resend = new Resend(apiKey);
+  const { error } = await resend.emails.send({
+    from,
+    to: options.toEmail,
+    subject: options.title,
+    text: [
+      options.body,
+      "",
+      `Buka halaman centang di ${resolveBaseUrl()}/institution/${options.institutionSlug}/verification.`,
+    ].join("\n"),
+  });
+
+  if (error) {
+    throwEmailSendFailure("institution_tick_notice", error);
+  }
+
+  logger.info("notification.sent", {
+    event: "institution.tick.notice",
+    recipientId: options.recipientId,
+  });
+};
+
 // The notice of a staff trust removal: the notice's title as subject, its body and the dashboard.
 export const sendHostTrustRemovedEmail = async (options: {
   toEmail: string;
