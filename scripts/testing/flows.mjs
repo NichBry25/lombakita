@@ -298,6 +298,10 @@ const main = async () => {
         "turn-down dialog: Pedoman yang tidak dipenuhi and a required Catatan untuk penyelenggara",
       );
     }
+    await visit(page, "/admin/host-checks");
+    await page.getByRole("tab", { name: "Centang", exact: true }).click();
+    await page.waitForTimeout(1200);
+    await capture("centang-tab", "Centang tab: tick requests, name checks and running proofs");
   });
 
   await runFlow(browser, "ops-moderation", "ops", async (page, capture) => {

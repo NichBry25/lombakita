@@ -10,6 +10,7 @@ import {
   isInstitutionType,
 } from "@/server/institution-workspace/institution-type";
 import { RESERVED_WORDS } from "@/lib/username/reserved-words";
+import { parseAcknowledgeTickRemoval } from "@/server/institution-verification/verification-core";
 
 const MIN_DISPLAY_NAME_LENGTH = 2;
 const MAX_DISPLAY_NAME_LENGTH = 160;
@@ -17,9 +18,10 @@ const MIN_SLUG_LENGTH = 3;
 const MAX_SLUG_LENGTH = 64;
 const MAX_DESCRIPTION_LENGTH = 500;
 const FALLBACK_SLUG_BASE = "institusi";
+const DELETED_SLUG_PREFIX = "deleted-";
 
 const CREATE_FIELDS = ["displayName", "slug", "institutionType"] as const;
-const UPDATE_FIELDS = ["displayName", "slug", "description"] as const;
+const UPDATE_FIELDS = ["displayName", "slug", "description", "acknowledgeTickRemoval"] as const;
 
 const PROTECTED_FIELDS = [
   "id",
@@ -69,6 +71,8 @@ export type InstitutionWorkspaceSettingsPatch = {
   // Present when the payload carried `description`. `null` clears the stored description; a
   // non-empty string sets it. Editable for every institution type (personal included).
   description?: string | null;
+  // True only when the owner confirmed that a name change removes the workspace tick.
+  acknowledgeTickRemoval: boolean;
 };
 
 // Maximum number of institutions a single recruiter account may own. Shared constant —
@@ -87,6 +91,7 @@ type InstitutionWorkspaceInputErrorCode =
   // existing user's username already occupies.
   | "institution_slug_conflicts_with_username"
   | "institution_create_blocked_trust_removed"
+  | "institution_rename_reason_required"
   // Thrown by the shared de-identified-account guard, not by this module: creating an institution
   // gives the account an owner membership in it, and an account whose data has been deleted is not
   // one an institution can be created for.
@@ -202,7 +207,9 @@ const parseSlug = (value: unknown): string => {
   // usernames. A user-provided slug that matches a reserved word is rejected here.
   // Auto-generated slugs (derived from display name when the caller omits slug) bypass
   // this check — consistent with the username auto-generation behaviour.
-  if (RESERVED_WORDS.includes(normalized)) {
+  // Account deletion writes deleted-<institution id> as a removed workspace's slug, so a typed slug
+  // may not start with that prefix.
+  if (RESERVED_WORDS.includes(normalized) || normalized.startsWith(DELETED_SLUG_PREFIX)) {
     throw new InstitutionWorkspaceInputError(
       "institution_slug_reserved",
       "slug is a reserved word and cannot be used as an institution slug",
@@ -348,7 +355,9 @@ export const parseInstitutionWorkspaceSettingsPatch = (
   payload: unknown,
 ): InstitutionWorkspaceSettingsPatch => {
   const record = assertPayloadShape(payload, updateFieldSet);
-  const patch: InstitutionWorkspaceSettingsPatch = {};
+  const patch: InstitutionWorkspaceSettingsPatch = {
+    acknowledgeTickRemoval: parseAcknowledgeTickRemoval(record.acknowledgeTickRemoval),
+  };
 
   if ("displayName" in record) {
     patch.displayName = parseDisplayName(record.displayName);

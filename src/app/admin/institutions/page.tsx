@@ -1,13 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import {
   Button,
   EmptyState,
   Feedback,
   FormError,
+  FormField,
+  FormInput,
   FormLabel,
   FormTextarea,
+  FormTextareaWithLimit,
   PageHeader,
   Pagination,
   SelectField,
@@ -15,21 +18,52 @@ import {
   Table,
   TableClamp,
   TableExpandToggle,
+  focusFirstInvalidField,
   type TableColumn,
   type TableRowData,
 } from "@/components/ui";
 import { useModal, useModalTask, useToast, type ModalOutcome } from "@/components/ui/primitives";
 import { LocalDate } from "@/components/ui/local-date";
-import { emailDeliveryWarning } from "@/lib/email/delivery-notice";
-import { NETWORK_ERROR_MESSAGE } from "@/lib/errors/error-copy";
-import { resolveVerificationRefusalMessage } from "@/lib/institutions/verification-refusal-copy";
+import { errorMessageFor, NETWORK_ERROR_MESSAGE } from "@/lib/errors/error-copy";
+import {
+  resolveVerificationRefusalMessage,
+  VERIFICATION_REFUSAL_COPY,
+} from "@/lib/institutions/verification-refusal-copy";
 import { INSTITUTION_VERIFICATION_STATUS_LABELS } from "@/lib/institutions/verification-status-labels";
 
 type VerificationStatus = "pending_verification" | "under_review" | "verified" | "rejected";
 
+type TickPath = "domain" | "instagram" | "documents" | "staff";
+
 const REJECT_FALLBACK = "Institusi gagal ditolak. Coba lagi.";
 const REVOKE_FALLBACK = "Verifikasi gagal dicabut. Coba lagi.";
 const TRANSITION_FALLBACK = "Status verifikasi gagal diubah. Coba lagi.";
+const RENAME_FALLBACK = "Nama gagal diubah. Coba lagi.";
+const RENAME_SUCCESS_MESSAGE = "Perubahan disimpan.";
+
+// The identity route's own refusals. The server modules that raise them load the database client,
+// and this is a client component.
+const RENAME_REFUSAL_COPY: Partial<Record<string, string>> = {
+  institution_rename_reason_required: VERIFICATION_REFUSAL_COPY.verification_reason_required,
+  institution_invalid_payload: VERIFICATION_REFUSAL_COPY.invalid_payload,
+  institution_invalid_value: "Periksa nama dan alamat lalu coba lagi.",
+  institution_slug_reserved: "Alamat ini tidak dapat digunakan. Pilih alamat lain.",
+  institution_display_name_reserved: "Nama ini tidak dapat digunakan. Pilih nama lain.",
+  institution_slug_conflicts_with_username:
+    "Alamat ini sudah dipakai sebagai username. Pilih alamat lain.",
+  operator_actor_conflicted:
+    "Anda tidak dapat mengambil tindakan atas institusi ini karena akun Anda pernah mengajukan verifikasi, diundang, atau menjadi anggota institusi tersebut.",
+};
+
+const TICK_PATH_LABELS: Record<TickPath, string> = {
+  domain: "Email organisasi",
+  instagram: "Instagram",
+  documents: "Dokumen",
+  staff: "Keputusan staf",
+};
+
+// The identity route caps a reason at 1000 characters.
+const RENAME_REASON_MAX_LENGTH = 1000;
 
 type AuditEntry = {
   id: string;
@@ -45,6 +79,7 @@ type InstitutionRow = {
   displayName: string;
   slug: string;
   verificationStatus: VerificationStatus;
+  tickPath: TickPath | null;
   verifiedAt: string | null;
   rejectedAt: string | null;
   rejectionReason: string | null;
@@ -82,6 +117,7 @@ const INSTITUTION_COLUMNS: readonly TableColumn[] = [
   { key: "name", header: "Nama", kind: "name" },
   { key: "adminEmail", header: "Admin email", kind: "text" },
   { key: "status", header: "Status", kind: "long" },
+  { key: "tickPath", header: "Jalur centang", kind: "text" },
   { key: "createdAt", header: "Terdaftar", kind: "date" },
   { key: "actions", header: "Tindakan", kind: "control", hideHeader: true },
   { key: "audit", header: "Riwayat status", kind: "control", hideHeader: true },
@@ -151,7 +187,6 @@ function RejectInstitutionForm({
   isRevocation: boolean;
   onSuccess: () => void;
 }) {
-  const { addToast } = useToast();
   const runModalTask = useModalTask();
   const [reason, setReason] = useState("");
   const [hasTriedToSubmit, setHasTriedToSubmit] = useState(false);
@@ -172,12 +207,6 @@ function RejectInstitutionForm({
       if (!res.ok) {
         const fallback = isRevocation ? REVOKE_FALLBACK : REJECT_FALLBACK;
         return { ok: false, message: resolveVerificationRefusalMessage(data?.error, fallback) };
-      }
-
-      // The status change is committed either way, so a failed notice is a warning on a success.
-      const deliveryWarning = emailDeliveryWarning(data?.emailDelivery);
-      if (deliveryWarning) {
-        addToast({ type: "error", message: deliveryWarning });
       }
 
       onSuccess();
@@ -227,6 +256,117 @@ function RejectInstitutionForm({
           <FormError id="reject-reason-error">{reasonMissingMessage}</FormError>
         ) : null}
       </div>
+    </form>
+  );
+}
+
+const RENAME_INSTITUTION_FORM_ID = "rename-institution-form";
+
+// The pop-up footer submits this form. A blank reason shows the field error and sends nothing,
+// and the identity route answers every other refusal.
+function RenameInstitutionForm({
+  institutionId,
+  initialDisplayName,
+  initialSlug,
+  onSuccess,
+}: {
+  institutionId: string;
+  initialDisplayName: string;
+  initialSlug: string;
+  onSuccess: () => void;
+}) {
+  const { addToast } = useToast();
+  const runModalTask = useModalTask();
+  const [displayName, setDisplayName] = useState(initialDisplayName);
+  const [slug, setSlug] = useState(initialSlug);
+  const [reason, setReason] = useState("");
+  const [hasTriedToSubmit, setHasTriedToSubmit] = useState(false);
+  const trimmedReason = reason.trim();
+  const showsReasonError = hasTriedToSubmit && trimmedReason.length === 0;
+  // A refused submit moves focus to the field it marks, after the render that marks it.
+  const formRef = useRef<HTMLFormElement>(null);
+  const [errorFocusRequest, setErrorFocusRequest] = useState(0);
+  useEffect(() => {
+    if (errorFocusRequest === 0) return;
+    focusFirstInvalidField(formRef.current);
+  }, [errorFocusRequest]);
+
+  const sendRename = async (): Promise<ModalOutcome> => {
+    try {
+      const res = await fetch(`/api/platform-ops/institutions/${institutionId}/identity`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ displayName, slug, reason: trimmedReason }),
+      });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null);
+        const fallbackMessage = resolveVerificationRefusalMessage(payload?.error, RENAME_FALLBACK);
+        return {
+          ok: false,
+          message: errorMessageFor(payload?.error?.code, RENAME_REFUSAL_COPY, fallbackMessage),
+        };
+      }
+      addToast({ type: "success", message: RENAME_SUCCESS_MESSAGE });
+      onSuccess();
+      return { ok: true };
+    } catch {
+      return { ok: false, message: NETWORK_ERROR_MESSAGE };
+    }
+  };
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setHasTriedToSubmit(true);
+    if (trimmedReason.length === 0) {
+      setErrorFocusRequest((request) => request + 1);
+      return;
+    }
+    void runModalTask(sendRename);
+  };
+
+  return (
+    <form
+      id={RENAME_INSTITUTION_FORM_ID}
+      ref={formRef}
+      noValidate
+      onSubmit={submit}
+      className="stack-md"
+    >
+      <FormField>
+        <FormLabel htmlFor="rename-display-name" required>
+          Nama
+        </FormLabel>
+        <FormInput
+          id="rename-display-name"
+          value={displayName}
+          onChange={(event) => setDisplayName(event.target.value)}
+        />
+      </FormField>
+      <FormField>
+        <FormLabel htmlFor="rename-slug" required>
+          Alamat
+        </FormLabel>
+        <FormInput
+          id="rename-slug"
+          value={slug}
+          onChange={(event) => setSlug(event.target.value)}
+        />
+      </FormField>
+      <FormField>
+        <FormLabel htmlFor="rename-reason" required>
+          Alasan
+        </FormLabel>
+        <FormTextareaWithLimit
+          id="rename-reason"
+          value={reason}
+          maxLength={RENAME_REASON_MAX_LENGTH}
+          rows={3}
+          error={
+            showsReasonError ? VERIFICATION_REFUSAL_COPY.verification_reason_required : undefined
+          }
+          onChange={(event) => setReason(event.target.value)}
+        />
+      </FormField>
     </form>
   );
 }
@@ -293,7 +433,7 @@ export default function AdminInstitutionsPage() {
           message: resolveVerificationRefusalMessage(data?.error, TRANSITION_FALLBACK),
         };
       }
-      return { ok: true as const, deliveryWarning: emailDeliveryWarning(data?.emailDelivery) };
+      return { ok: true as const };
     } catch {
       return { ok: false as const, message: NETWORK_ERROR_MESSAGE };
     } finally {
@@ -308,9 +448,6 @@ export default function AdminInstitutionsPage() {
     if (!result.ok) {
       addToast({ type: "error", message: result.message });
       return;
-    }
-    if (result.deliveryWarning) {
-      addToast({ type: "error", message: result.deliveryWarning });
     }
     await fetchInstitutions();
   };
@@ -333,6 +470,23 @@ export default function AdminInstitutionsPage() {
         />
       ),
       actions: [{ label: "Batal" }, { label: mainLabel, variant: "primary" }],
+    });
+  };
+
+  const openRenameModal = (row: InstitutionRow) => {
+    openModal({
+      title: "Ubah nama",
+      wide: true,
+      formId: RENAME_INSTITUTION_FORM_ID,
+      body: (
+        <RenameInstitutionForm
+          institutionId={row.id}
+          initialDisplayName={row.displayName}
+          initialSlug={row.slug}
+          onSuccess={() => void fetchInstitutions()}
+        />
+      ),
+      actions: [{ label: "Batal" }, { label: "Simpan", variant: "primary" }],
     });
   };
 
@@ -397,6 +551,7 @@ export default function AdminInstitutionsPage() {
             ) : null}
           </>
         ),
+        tickPath: row.tickPath === null ? null : TICK_PATH_LABELS[row.tickPath],
         createdAt: <LocalDate value={row.createdAt} format="shortDate" />,
         actions: (
           <div className="table-actions">
@@ -418,6 +573,9 @@ export default function AdminInstitutionsPage() {
                 {t.label}
               </Button>
             ))}
+            <Button variant="outline" size="sm" onClick={() => openRenameModal(row)}>
+              Ubah nama
+            </Button>
           </div>
         ),
         audit: (

@@ -22,12 +22,32 @@ import {
   parseInstitutionSlugParam,
   parseInstitutionWorkspaceCreateInput,
   parseInstitutionWorkspaceSettingsPatch,
+  type InstitutionWorkspaceSettingsPatch,
   type InstitutionWorkspaceShell,
 } from "@/server/institution-workspace/institution-core";
+import {
+  normalizedWebsiteHostOf,
+  tickOrganizationDomainOf,
+  websiteHostOf,
+} from "@/server/institution-verification/tick-domain";
+import {
+  removeTickAutomatically,
+  TICK_REMOVED_RENAME,
+  TICK_REMOVED_RENAME_DURING_PROOF,
+  TICK_REMOVED_WEBSITE,
+  TICK_REMOVED_WEBSITE_DURING_PROOF,
+  writeTickTransition,
+  type TickPath,
+} from "@/server/institution-verification/tick-transition";
+import { VerificationError } from "@/server/institution-verification/verification-core";
 import { resolveInstitutionMediaUrls } from "@/server/institution-workspace/institution-media-urls";
 import { acquireOwnerCapLock } from "@/server/institution-workspace/owner-cap-lock";
 import { assertAccountNotDeactivated } from "@/server/accounts/deactivated-account";
 import { isHostTrustRemoved } from "@/server/host-trust/publish-trust";
+import {
+  enqueueSearchSyncForCompetitions,
+  readCompetitionIdsOf,
+} from "@/server/search/institution-search-resync";
 
 // `assertAccountNotDeactivated` throws the shape every refusal class in the repository carries —
 // (code, status, message) — and this module's own error takes its status last, so that class cannot
@@ -57,7 +77,8 @@ const ACTIVE_MEMBERSHIP_STATUS = "active";
 
 // Accepts either a top-level Database handle or a transaction handle, so a lookup or the username
 // check can run inside a caller-owned transaction (the profile save) or standalone.
-type DbOrTx = Database | Parameters<Parameters<Database["transaction"]>[0]>[0];
+type TransactionClient = Parameters<Parameters<Database["transaction"]>[0]>[0];
+type DbOrTx = Database | TransactionClient;
 
 type InstitutionWorkspaceRow = {
   institutionId: string;
@@ -567,6 +588,154 @@ export const getInstitutionWorkspaceForOwnerBySlug = async (
   return mapInstitutionWorkspace(row);
 };
 
+type WorkspaceSettingsUpdates = {
+  displayName?: string;
+  slug?: string;
+  description?: string | null;
+  updatedAt?: ReturnType<typeof sql>;
+};
+
+const SLUG_CHANGE_AUDIT_REASON = "Alamat ruang kerja diubah.";
+
+const buildTickRemovalUnconfirmedError = (): VerificationError =>
+  new VerificationError(
+    "institution_tick_removal_unconfirmed",
+    409,
+    "This change removes the workspace tick. Send acknowledgeTickRemoval true to confirm it",
+  );
+
+export const buildWorkspaceSettingsUpdates = (
+  patch: InstitutionWorkspaceSettingsPatch,
+  row: { displayName: string | null; slug: string; description: string | null },
+): WorkspaceSettingsUpdates => {
+  const updates: WorkspaceSettingsUpdates = {};
+
+  if (patch.displayName !== undefined && patch.displayName !== row.displayName) {
+    updates.displayName = patch.displayName;
+  }
+
+  if (patch.slug !== undefined && patch.slug !== row.slug) {
+    updates.slug = patch.slug;
+  }
+
+  if (patch.description !== undefined && patch.description !== row.description) {
+    updates.description = patch.description;
+  }
+
+  return updates;
+};
+
+export const writeWorkspaceSettingsRow = async (
+  tx: TransactionClient,
+  institutionId: string,
+  updates: WorkspaceSettingsUpdates,
+): Promise<void> => {
+  try {
+    await tx.update(institutions).set(updates).where(eq(institutions.id, institutionId));
+  } catch (error) {
+    if (isInstitutionSlugUniqueViolation(error)) {
+      throw new InstitutionWorkspaceInputError(
+        "institution_invalid_value",
+        "slug is already used by another institution",
+        {
+          fields: ["slug"],
+        },
+      );
+    }
+
+    throw error;
+  }
+};
+
+// Usernames and institution slugs share one namespace. No exclusion carve-out: changing this
+// institution's slug moves no existing name onto a user, so any username match is a real conflict.
+export const assertSlugNotTakenByUsername = async (
+  slug: string,
+  tx: TransactionClient,
+): Promise<void> => {
+  if (!(await institutionSlugCollidesWithUsername(slug, tx))) {
+    return;
+  }
+
+  throw new InstitutionWorkspaceInputError(
+    "institution_slug_conflicts_with_username",
+    "This slug is already used as another user's username and cannot be used for an institution",
+    { fields: ["slug"] },
+    409,
+  );
+};
+
+// Saves the settings under a lock on the institution row, so the comparison that decides whether
+// the tick goes is made against the row as it stands. Returns the saved changes, or null when the
+// patch changed nothing. A rename of a verified workspace removes its tick and needs the owner's
+// acknowledgement first. A slug change alone keeps the tick, and on a Path A tick it clears the
+// name check because the public address can claim an institution too.
+const saveWorkspaceSettingsInTransaction = async (
+  tx: TransactionClient,
+  userId: string,
+  institutionId: string,
+  patch: InstitutionWorkspaceSettingsPatch,
+): Promise<WorkspaceSettingsUpdates | null> => {
+  const [locked] = await tx
+    .select({
+      displayName: institutions.displayName,
+      slug: institutions.slug,
+      description: institutions.description,
+      verificationStatus: institutions.verificationStatus,
+      tickPath: institutions.tickPath,
+      tickDomain: institutions.tickDomain,
+      nameProofDueAt: institutions.nameProofDueAt,
+    })
+    .from(institutions)
+    .where(eq(institutions.id, institutionId))
+    .for("update")
+    .limit(1);
+  if (!locked) {
+    throw new AccessError("forbidden", 403, "Institution owner access required");
+  }
+
+  const updates = buildWorkspaceSettingsUpdates(patch, locked);
+  if (Object.keys(updates).length === 0) return null;
+
+  const isVerified = locked.verificationStatus === "verified";
+  const removesTick = isVerified && updates.displayName !== undefined;
+  if (removesTick && !patch.acknowledgeTickRemoval) {
+    throw buildTickRemovalUnconfirmedError();
+  }
+
+  if (updates.slug !== undefined) {
+    await assertSlugNotTakenByUsername(updates.slug, tx);
+  }
+
+  updates.updatedAt = sql`now()`;
+  await writeWorkspaceSettingsRow(tx, institutionId, updates);
+
+  if (removesTick) {
+    await removeTickAutomatically(tx, {
+      institutionId,
+      actorUserId: userId,
+      reason:
+        locked.nameProofDueAt === null ? TICK_REMOVED_RENAME : TICK_REMOVED_RENAME_DURING_PROOF,
+    });
+    return updates;
+  }
+
+  if (isVerified && locked.tickPath === "domain" && updates.slug !== undefined) {
+    await writeTickTransition(tx, {
+      institutionId,
+      from: "verified",
+      to: "verified",
+      tickPath: "domain",
+      tickDomain: locked.tickDomain,
+      nameState: "keep",
+      actorUserId: userId,
+      reason: SLUG_CHANGE_AUDIT_REASON,
+      extraWhere: eq(institutions.tickPath, "domain"),
+    });
+  }
+  return updates;
+};
+
 export const updateInstitutionWorkspaceForOwnerBySlug = async (
   userId: string,
   institutionSlug: string,
@@ -581,61 +750,31 @@ export const updateInstitutionWorkspaceForOwnerBySlug = async (
     throw await buildInstitutionWorkspaceAccessDeniedError(userId, normalizedLookupSlug, db);
   }
 
-  const updates: {
-    displayName?: string;
-    slug?: string;
-    description?: string | null;
-    updatedAt?: ReturnType<typeof sql>;
-  } = {};
+  const saved = await db.transaction(async (tx) => {
+    const updates = await saveWorkspaceSettingsInTransaction(
+      tx,
+      userId,
+      current.institutionId,
+      patch,
+    );
+    if (updates === null) {
+      return null;
+    }
 
-  if (patch.displayName !== undefined && patch.displayName !== current.institutionDisplayName) {
-    updates.displayName = patch.displayName;
-  }
+    const changedNameOrSlug = updates.displayName !== undefined || updates.slug !== undefined;
+    const competitionIds = changedNameOrSlug
+      ? await readCompetitionIdsOf(tx, [current.institutionId])
+      : [];
+    return { updates, competitionIds };
+  });
 
-  if (patch.slug !== undefined && patch.slug !== current.institutionSlug) {
-    updates.slug = patch.slug;
-  }
-
-  if (patch.description !== undefined && patch.description !== current.institutionDescription) {
-    updates.description = patch.description;
-  }
-
-  if (Object.keys(updates).length === 0) {
+  if (saved === null) {
     return mapInstitutionWorkspace(current);
   }
 
-  // Flat-namespace guard: a new slug must not collide with an existing user's username. No exclusion
-  // carve-out: renaming this institution moves no existing name onto a user, so any username match is
-  // a real conflict. It sits beside the reserved-word check (in parseSlug) and the institutions.slug
-  // uniqueness catch below, and their order is functional only.
-  if (updates.slug !== undefined && (await institutionSlugCollidesWithUsername(updates.slug, db))) {
-    throw new InstitutionWorkspaceInputError(
-      "institution_slug_conflicts_with_username",
-      "This slug is already used as another user's username and cannot be used for an institution",
-      { fields: ["slug"] },
-      409,
-    );
-  }
+  enqueueSearchSyncForCompetitions(saved.competitionIds);
 
-  updates.updatedAt = sql`now()`;
-
-  try {
-    await db.update(institutions).set(updates).where(eq(institutions.id, current.institutionId));
-  } catch (error) {
-    if (isInstitutionSlugUniqueViolation(error)) {
-      throw new InstitutionWorkspaceInputError(
-        "institution_invalid_value",
-        "slug is already used by another institution",
-        {
-          fields: ["slug"],
-        },
-      );
-    }
-
-    throw error;
-  }
-
-  const nextSlug = updates.slug ?? current.institutionSlug;
+  const nextSlug = saved.updates.slug ?? current.institutionSlug;
   const updated = await findInstitutionWorkspaceByOwnerAndSlug(userId, nextSlug, db);
 
   if (!updated) {
@@ -708,6 +847,60 @@ export const getInstitutionProfileForOwnerBySlug = async (
   };
 };
 
+type LockedTickState = {
+  verificationStatus: InstitutionVerificationStatus;
+  tickPath: TickPath | null;
+  websiteUrl: string | null;
+  nameProofDueAt: Date | null;
+};
+
+const lockInstitutionTickState = async (
+  tx: TransactionClient,
+  institutionId: string,
+): Promise<LockedTickState> => {
+  const [locked] = await tx
+    .select({
+      verificationStatus: institutions.verificationStatus,
+      tickPath: institutions.tickPath,
+      websiteUrl: institutions.websiteUrl,
+      nameProofDueAt: institutions.nameProofDueAt,
+    })
+    .from(institutions)
+    .where(eq(institutions.id, institutionId))
+    .for("update")
+    .limit(1);
+  if (!locked) {
+    throw new AccessError("forbidden", 403, "Institution owner access required");
+  }
+  return locked;
+};
+
+const tickOrganizationDomainOfWebsite = (websiteUrl: string): string | null => {
+  const host = websiteHostOf(websiteUrl);
+  return host === null ? null : tickOrganizationDomainOf(host);
+};
+
+// A first website on a verified workspace keeps the tick. After that, the website changes when the
+// organization changes: by organization domain on a Path A tick, whose tick rests on that domain,
+// and by host on every other path, because the organization domain is null under an unlisted
+// suffix and would keep the tick through any change.
+const websiteChangeRemovesTick = (
+  locked: LockedTickState,
+  newWebsiteUrl: string | null,
+): boolean => {
+  const oldWebsiteUrl = locked.websiteUrl;
+  if (locked.verificationStatus !== "verified" || oldWebsiteUrl === null) return false;
+  if (newWebsiteUrl === null) return true;
+
+  if (locked.tickPath === "domain") {
+    return (
+      tickOrganizationDomainOfWebsite(newWebsiteUrl) !==
+      tickOrganizationDomainOfWebsite(oldWebsiteUrl)
+    );
+  }
+  return normalizedWebsiteHostOf(newWebsiteUrl) !== normalizedWebsiteHostOf(oldWebsiteUrl);
+};
+
 export const updateInstitutionProfileForOwnerBySlug = async (
   userId: string,
   institutionSlug: string,
@@ -724,6 +917,12 @@ export const updateInstitutionProfileForOwnerBySlug = async (
   const institutionId = current.institutionId;
 
   await db.transaction(async (tx) => {
+    const locked = await lockInstitutionTickState(tx, institutionId);
+    const removesTick = websiteChangeRemovesTick(locked, input.websiteUrl);
+    if (removesTick && !input.acknowledgeTickRemoval) {
+      throw buildTickRemovalUnconfirmedError();
+    }
+
     await tx
       .update(institutions)
       .set({
@@ -750,6 +949,15 @@ export const updateInstitutionProfileForOwnerBySlug = async (
         })),
       );
     }
+
+    if (removesTick) {
+      await removeTickAutomatically(tx, {
+        institutionId,
+        actorUserId: userId,
+        reason:
+          locked.nameProofDueAt === null ? TICK_REMOVED_WEBSITE : TICK_REMOVED_WEBSITE_DURING_PROOF,
+      });
+    }
   });
 
   return getInstitutionProfileForOwnerBySlug(userId, normalizedSlug, db);
@@ -759,17 +967,19 @@ export const updateInstitutionProfileForOwnerBySlug = async (
 
 export type InstitutionVerificationSummary = {
   institutionId: string;
+  slug: string;
   institutionType: InstitutionType;
   verificationStatus: InstitutionVerificationStatus;
   verifiedAt: Date | null;
   rejectionReason: string | null;
+  tickPath: TickPath | null;
+  nameCheckedAt: Date | null;
+  nameProofDueAt: Date | null;
   displayName: string;
 };
 
-// Everything the verification page of a workspace needs: the type decides whether the page sends a
-// personal workspace's owner to its hub, and the status decides whether the document-verification
-// view still accepts a submission or only reports the verdict already reached. Returns null for a
-// slug that does not resolve.
+// What the owner pages need to know about a workspace's tick: its status, the path that won it, and
+// whether its name was checked or is under proof. Returns null for a slug that does not resolve.
 export const loadInstitutionVerificationSummaryBySlug = async (
   institutionSlug: string,
   db: Database = getDb(),
@@ -778,10 +988,14 @@ export const loadInstitutionVerificationSummaryBySlug = async (
   const [row] = await db
     .select({
       institutionId: institutions.id,
+      slug: institutions.slug,
       institutionType: institutions.institutionType,
       verificationStatus: institutions.verificationStatus,
       verifiedAt: institutions.verifiedAt,
       rejectionReason: institutions.rejectionReason,
+      tickPath: institutions.tickPath,
+      nameCheckedAt: institutions.nameCheckedAt,
+      nameProofDueAt: institutions.nameProofDueAt,
       displayName: institutions.displayName,
     })
     .from(institutions)

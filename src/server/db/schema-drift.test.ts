@@ -179,7 +179,7 @@ describe("readJournalMigrations", () => {
   it("hashes every declared migration in the real journal", () => {
     const journal = readJournalMigrations("drizzle");
 
-    expect(journal).toHaveLength(75);
+    expect(journal).toHaveLength(77);
     expect(journal[0]?.index).toBe(0);
     expect(journal[74]?.index).toBe(74);
     for (const migration of journal) {

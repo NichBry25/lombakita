@@ -888,6 +888,70 @@ const main = async () => {
     refusedWith(hostStepDup, 409, "role_already_verified"),
   );
 
+  // Each tick route refuses an anonymous caller and a caller of the wrong role at its role gate,
+  // before any read or write.
+  const tickQueueAnon = await apiFetch("/api/platform-ops/tick-queue");
+  record(
+    "TICK-01",
+    "Centang queue refused anon",
+    "401 unauthenticated",
+    `${tickQueueAnon.status} ${errorCode(tickQueueAnon)}`,
+    refusedWith(tickQueueAnon, 401, "unauthenticated"),
+  );
+  const tickQueueAsRec = await apiFetch("/api/platform-ops/tick-queue", {
+    cookie: sessions.recElev,
+  });
+  record(
+    "TICK-02",
+    "Centang queue refused for a host",
+    "403 forbidden",
+    `${tickQueueAsRec.status} ${errorCode(tickQueueAsRec)}`,
+    refusedWith(tickQueueAsRec, 403, "forbidden"),
+  );
+  const pathAAnon = await apiFetch("/api/v1/institutions/seed-lingkar/tick/domain", {
+    method: "POST",
+  });
+  record(
+    "TICK-03",
+    "Path A tick refused anon",
+    "401 unauthenticated",
+    `${pathAAnon.status} ${errorCode(pathAAnon)}`,
+    refusedWith(pathAAnon, 401, "unauthenticated"),
+  );
+  const pathAAsOps = await apiFetch("/api/v1/institutions/seed-lingkar/tick/domain", {
+    method: "POST",
+    cookie: sessions.ops,
+    headers: { "X-Expected-User-Id": USERS.ops.id },
+  });
+  record(
+    "TICK-04",
+    "Path A tick refused for an operator account",
+    "403 forbidden",
+    `${pathAAsOps.status} ${errorCode(pathAAsOps)}`,
+    refusedWith(pathAAsOps, 403, "forbidden"),
+  );
+  const renameAnon = await apiFetch("/api/platform-ops/institutions/seed-inst-d/identity", {
+    method: "PATCH",
+  });
+  record(
+    "TICK-05",
+    "Staff rename refused anon",
+    "401 unauthenticated",
+    `${renameAnon.status} ${errorCode(renameAnon)}`,
+    refusedWith(renameAnon, 401, "unauthenticated"),
+  );
+  const renameAsRec = await apiFetch("/api/platform-ops/institutions/seed-inst-d/identity", {
+    method: "PATCH",
+    cookie: sessions.recElev,
+  });
+  record(
+    "TICK-06",
+    "Staff rename refused for a host",
+    "403 forbidden",
+    `${renameAsRec.status} ${errorCode(renameAsRec)}`,
+    refusedWith(renameAsRec, 403, "forbidden"),
+  );
+
   // ---- publish checklist -------------------------------------------------------
   // A trusted host, an incomplete draft, and a refusal that names what is missing.
   const publishIncomplete = await apiFetch(

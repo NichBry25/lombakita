@@ -84,7 +84,12 @@ const watchRowOf = (item: HostTrustWatchItem): TableRowData => ({
     trustedSince: <LocalDate value={item.trustedSince} format="shortDateTime" />,
     watchEndsAt: <LocalDate value={item.watchEndsAt} format="shortDate" />,
     moderation: (
-      <TableNameLink href={moderationHrefOf(item)}>{MODERATION_LINK_LABEL}</TableNameLink>
+      <TableNameLink
+        href={moderationHrefOf(item)}
+        aria-label={`${MODERATION_LINK_LABEL}: ${item.name}`}
+      >
+        {MODERATION_LINK_LABEL}
+      </TableNameLink>
     ),
   },
 });

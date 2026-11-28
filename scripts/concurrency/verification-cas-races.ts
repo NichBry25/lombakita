@@ -214,11 +214,12 @@ const main = async (): Promise<void> => {
       const expectedFinalStatus = approveFirst ? "verified" : "rejected";
 
       const finalRow = oneRow(
-        await client<{ verification_status: string }[]>`
-        SELECT verification_status FROM institutions WHERE id = ${institution.id}
+        await client<{ verification_status: string; tick_path: string | null }[]>`
+        SELECT verification_status, tick_path FROM institutions WHERE id = ${institution.id}
       `,
         "finalRow",
       );
+      const expectedTickPath = expectedFinalStatus === "verified" ? "documents" : null;
       const auditRows = await client<{ from_status: string; to_status: string }[]>`
         SELECT from_status, to_status FROM institution_verification_audit
         WHERE institution_id = ${institution.id}
@@ -240,9 +241,10 @@ const main = async (): Promise<void> => {
           outcome.failStatuses[0] === 409 &&
           outcome.other.length === 0 &&
           finalRow.verification_status === expectedFinalStatus &&
+          finalRow.tick_path === expectedTickPath &&
           auditMatchesReality,
-        `iter ${i} (${approveFirst ? "approve first" : "revoke first"}): ${describeOutcome(outcome)} barrier=${barrierHeld} final=${finalRow.verification_status} audit=[${auditRows.map((row) => `${row.from_status}->${row.to_status}`).join(",")}]` +
-          ` [want: barrier=true ok=1 loser=verification_transition_conflict(409) final=${expectedFinalStatus} exactly one audit row matching it]`,
+        `iter ${i} (${approveFirst ? "approve first" : "revoke first"}): ${describeOutcome(outcome)} barrier=${barrierHeld} final=${finalRow.verification_status} tick=${finalRow.tick_path} audit=[${auditRows.map((row) => `${row.from_status}->${row.to_status}`).join(",")}]` +
+          ` [want: barrier=true ok=1 loser=verification_transition_conflict(409) final=${expectedFinalStatus} tick_path=documents when verified, null when rejected exactly one audit row matching it]`,
       );
     }
   };

@@ -21,6 +21,8 @@ const ORGANIZATION_EMAIL_CONFIRMED_SENTENCE =
   "Email organisasi Anda sudah terkonfirmasi. Kompetisi pertama Anda tetap diperiksa staf sebelum tayang. Perkiraan 1x24 jam pada hari kerja.";
 const TRUSTED_WORKSPACE_PARAGRAPH =
   "Kompetisi yang Anda terbitkan di ruang kerja dengan pemilik tepercaya langsung tayang. Di ruang kerja lain, kompetisi pertama Anda diperiksa staf sebelum tayang. Perkiraan 1x24 jam pada hari kerja. Konfirmasi email organisasi agar langsung tayang di semua ruang kerja.";
+const TRUSTED_WORKSPACE_CONFIRMED_SENTENCE =
+  "Kompetisi yang Anda terbitkan di ruang kerja dengan pemilik tepercaya langsung tayang. Di ruang kerja lain, kompetisi pertama Anda diperiksa staf sebelum tayang. Perkiraan 1x24 jam pada hari kerja.";
 
 const fetchMock = vi.fn();
 let answerFor: Record<string, () => Response> = {};
@@ -174,15 +176,34 @@ describe("the host status card", () => {
     expect(screen.queryByText(/dicabut|Cocok/)).toBeNull();
   });
 
-  it("says the same to a host with a confirmed Email organisasi who also runs a workspace with a trusted owner", () => {
+  it("tells a host with a confirmed Email organisasi who runs a workspace with a trusted owner that competitions there go live at once, and asks for no Email organisasi", () => {
     renderCard({
       state: "not_trusted",
       runsTrustedWorkspace: true,
       organizationEmailConfirmed: true,
     });
 
-    expect(screen.getByText(ORGANIZATION_EMAIL_CONFIRMED_SENTENCE)).toBeTruthy();
+    expect(screen.getByText(TRUSTED_WORKSPACE_CONFIRMED_SENTENCE)).toBeTruthy();
+    expect(screen.queryByText(ORGANIZATION_EMAIL_CONFIRMED_SENTENCE)).toBeNull();
     expect(screen.queryByText(TRUSTED_WORKSPACE_PARAGRAPH)).toBeNull();
     expect(screen.queryByLabelText(EMAIL_FIELD_LABEL)).toBeNull();
+  });
+
+  it("after a confirm that does not trust the account, a host who runs a workspace with a trusted owner reads that competitions there go live at once", async () => {
+    answerFor[CODE_URL] = sentCode;
+    answerFor[CONFIRM_URL] = confirmAnswering(null);
+    renderCard({ state: "not_trusted", runsTrustedWorkspace: true });
+
+    await confirmTheOrganizationEmail();
+
+    expect(await screen.findByText(TRUSTED_WORKSPACE_CONFIRMED_SENTENCE)).toBeTruthy();
+    expect(screen.queryByText(ORGANIZATION_EMAIL_CONFIRMED_SENTENCE)).toBeNull();
+    expect(screen.queryByText(TRUSTED_WORKSPACE_PARAGRAPH)).toBeNull();
+    expect(screen.queryByText(TRUSTED_SENTENCE)).toBeNull();
+    expect(screen.queryByLabelText(EMAIL_FIELD_LABEL)).toBeNull();
+    await waitFor(() =>
+      expect(document.activeElement?.textContent).toContain(TRUSTED_WORKSPACE_CONFIRMED_SENTENCE),
+    );
+    expect(new Headers(requestTo(CONFIRM_URL)?.headers).get("X-Expected-User-Id")).toBe("user-42");
   });
 });

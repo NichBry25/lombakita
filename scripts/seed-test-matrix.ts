@@ -404,6 +404,10 @@ const main = async (): Promise<void> => {
       type: string;
       verification: string;
       verifiedAt: Date | null;
+      // The path a verified row won its tick by. A verified row with no approved document request
+      // holds staff. An unticked row holds null.
+      tickPath: string | null;
+      tickDomain: string | null;
       suspendedAt: Date | null;
       suspensionReason: string | null;
       description: string | null;
@@ -421,6 +425,8 @@ const main = async (): Promise<void> => {
         type: "university",
         verification: "verified",
         verifiedAt: d(-30),
+        tickPath: "staff",
+        tickDomain: null,
         suspendedAt: null,
         suspensionReason: null,
         description: "Universitas penyelenggara kompetisi data uji.",
@@ -438,6 +444,8 @@ const main = async (): Promise<void> => {
         type: "company",
         verification: "pending_verification",
         verifiedAt: null,
+        tickPath: null,
+        tickDomain: null,
         suspendedAt: null,
         suspensionReason: null,
         description: "Perusahaan data uji — menunggu verifikasi dokumen.",
@@ -460,6 +468,8 @@ const main = async (): Promise<void> => {
         type: "foundation",
         verification: "verified",
         verifiedAt: d(-35),
+        tickPath: "staff",
+        tickDomain: null,
         suspendedAt: null,
         suspensionReason: null,
         description: "Tenant kedua data uji, panggung uji batas antar-institusi.",
@@ -476,6 +486,8 @@ const main = async (): Promise<void> => {
         type: "company",
         verification: "verified",
         verifiedAt: d(-40),
+        tickPath: "staff",
+        tickDomain: null,
         suspendedAt: d(-2),
         suspensionReason: "Penangguhan operasional (data uji)",
         description: "Organisasi data uji dalam keadaan ditangguhkan.",
@@ -494,6 +506,8 @@ const main = async (): Promise<void> => {
         type: "personal",
         verification: "pending_verification",
         verifiedAt: null,
+        tickPath: null,
+        tickDomain: null,
         suspendedAt: null,
         suspensionReason: null,
         description: "Institusi personal milik Rina (data uji).",
@@ -511,6 +525,8 @@ const main = async (): Promise<void> => {
         type: "personal",
         verification: "pending_verification",
         verifiedAt: null,
+        tickPath: null,
+        tickDomain: null,
         suspendedAt: null,
         suspensionReason: null,
         description: "Institusi personal milik Raka (data uji).",
@@ -519,6 +535,26 @@ const main = async (): Promise<void> => {
         contactEmail: null,
         contactPhone: null,
         websiteUrl: null,
+      },
+      // Ticked by Email organisasi on its website's domain, with its name not yet checked by staff.
+      // It holds no published paid competition, because Path A refuses a workspace that has one.
+      {
+        id: "seed-inst-e",
+        displayName: "Seed Lingkar",
+        slug: "seed-lingkar",
+        type: "foundation",
+        verification: "verified",
+        verifiedAt: d(-5),
+        tickPath: "domain",
+        tickDomain: "seed-lingkar.example",
+        suspendedAt: null,
+        suspensionReason: null,
+        description: "Ruang kerja data uji yang dicentang lewat Email organisasi.",
+        about: null,
+        contactName: null,
+        contactEmail: null,
+        contactPhone: null,
+        websiteUrl: "https://www.seed-lingkar.example",
       },
     ];
 
@@ -539,11 +575,13 @@ const main = async (): Promise<void> => {
       await sql`
         INSERT INTO institutions (id, display_name, slug, status, institution_type, description,
           verification_status, verified_at, suspended_at, suspension_reason,
-          about, contact_name, contact_email, contact_phone, website_url)
+          about, contact_name, contact_email, contact_phone, website_url,
+          tick_path, tick_domain, name_checked_at, name_proof_due_at, name_proof_reminded_at)
         VALUES (${i.id}, ${i.displayName}, ${i.slug}, ${NEW_INSTITUTION_DEFAULT_STATUS},
           ${i.type}, ${i.description},
           ${i.verification}, ${i.verifiedAt}, ${i.suspendedAt}, ${i.suspensionReason},
-          ${i.about}, ${i.contactName}, ${i.contactEmail}, ${i.contactPhone}, ${i.websiteUrl})
+          ${i.about}, ${i.contactName}, ${i.contactEmail}, ${i.contactPhone}, ${i.websiteUrl},
+          ${i.tickPath}, ${i.tickDomain}, NULL, NULL, NULL)
         ON CONFLICT (id) DO UPDATE SET
           display_name = EXCLUDED.display_name, slug = EXCLUDED.slug,
           -- status is in the SET list, and its absence was load-bearing: a database seeded before
@@ -555,7 +593,12 @@ const main = async (): Promise<void> => {
           suspended_at = EXCLUDED.suspended_at, suspension_reason = EXCLUDED.suspension_reason,
           about = EXCLUDED.about, contact_name = EXCLUDED.contact_name,
           contact_email = EXCLUDED.contact_email, contact_phone = EXCLUDED.contact_phone,
-          website_url = EXCLUDED.website_url, updated_at = now()
+          website_url = EXCLUDED.website_url,
+          tick_path = EXCLUDED.tick_path, tick_domain = EXCLUDED.tick_domain,
+          -- A name check or a name proof left by a hand test is cleared, so every run starts from
+          -- the seeded tick.
+          name_checked_at = NULL, name_proof_due_at = NULL, name_proof_reminded_at = NULL,
+          updated_at = now()
       `;
     }
 
@@ -602,6 +645,13 @@ const main = async (): Promise<void> => {
         id: "seed-mem-rej-owner",
         inst: "seed-inst-rej",
         user: "seed-user-rec-rej",
+        role: "institution_owner",
+      },
+      // Rina's third workspace, the most one account may own.
+      {
+        id: "seed-mem-e-owner",
+        inst: "seed-inst-e",
+        user: "seed-user-rec-min",
         role: "institution_owner",
       },
     ];
@@ -882,6 +932,33 @@ const main = async (): Promise<void> => {
         featuredOrder: null,
         publishedAt: d(-6),
         feeAmount: 90000,
+      },
+      {
+        // The paid draft that puts Seed Lingkar, ticked by Email organisasi with its name not yet
+        // checked, on the staff name check list.
+        id: "seed-comp-e-paid-draft",
+        inst: "seed-inst-e",
+        createdBy: "seed-user-rec-min",
+        slug: "seed-lingkar-paid-draft",
+        title: "Lomba Desain Poster Berbayar",
+        description: "Kompetisi berbayar untuk menguji pemeriksaan nama sebelum tayang.",
+        status: "draft",
+        category: "other",
+        mode: null,
+        minTeam: null,
+        maxTeam: null,
+        rs: null,
+        re: null,
+        es: null,
+        ee: null,
+        ra: null,
+        allowCancel: false,
+        cutoffDays: null,
+        eligibilityNote: null,
+        featured: false,
+        featuredOrder: null,
+        publishedAt: null,
+        feeAmount: 50000,
       },
       {
         // Team-capable, registration open, and deliberately EMPTY of registrations. Every other
@@ -2054,15 +2131,52 @@ const main = async (): Promise<void> => {
     `;
 
     // ------------------------------ institution verification submissions
-    await sql`
-      INSERT INTO institution_verification_submissions (id, institution_id, submitted_by_user_id,
-        target_institution_type, status, email_domain_flag, submitted_at)
-      VALUES ('seed-ivs-b', 'seed-inst-b', 'seed-user-rec-elev', 'company', 'pending_review',
-        false, ${d(-3)})
-      ON CONFLICT (id) DO UPDATE SET
-        status = 'pending_review', submitted_at = EXCLUDED.submitted_at,
-        reviewed_at = NULL, reviewer_user_id = NULL, reviewer_notes = NULL
-    `;
+    type IvsSeed = {
+      id: string;
+      institution: string;
+      submittedBy: string;
+      targetType: string;
+      emailDomainFlag: boolean | null;
+      requestedPath: string;
+      instagramUrl: string | null;
+      submittedAt: Date;
+    };
+    const ivsSeeds: IvsSeed[] = [
+      {
+        id: "seed-ivs-b",
+        institution: "seed-inst-b",
+        submittedBy: "seed-user-rec-elev",
+        targetType: "company",
+        emailDomainFlag: false,
+        requestedPath: "documents",
+        instagramUrl: null,
+        submittedAt: d(-3),
+      },
+      // Older than the 7 days after which the Centang tab marks a request late.
+      {
+        id: "seed-ivs-rej-instagram",
+        institution: "seed-inst-rej",
+        submittedBy: "seed-user-rec-rej",
+        targetType: "personal",
+        emailDomainFlag: null,
+        requestedPath: "instagram",
+        instagramUrl: "https://www.instagram.com/seed.rec.rej/",
+        submittedAt: d(-9),
+      },
+    ];
+    for (const s of ivsSeeds) {
+      await sql`
+        INSERT INTO institution_verification_submissions (id, institution_id, submitted_by_user_id,
+          target_institution_type, status, email_domain_flag, requested_path, instagram_url,
+          submitted_at)
+        VALUES (${s.id}, ${s.institution}, ${s.submittedBy}, ${s.targetType}, 'pending_review',
+          ${s.emailDomainFlag}, ${s.requestedPath}, ${s.instagramUrl}, ${s.submittedAt})
+        ON CONFLICT (id) DO UPDATE SET
+          status = 'pending_review', requested_path = EXCLUDED.requested_path,
+          instagram_url = EXCLUDED.instagram_url, submitted_at = EXCLUDED.submitted_at,
+          reviewed_at = NULL, reviewer_user_id = NULL, reviewer_notes = NULL
+      `;
+    }
     const ivsDocs = [
       { id: "seed-ivd-npwp", type: "npwp", name: "npwp-seed-ventures.pdf" },
       { id: "seed-ivd-nib", type: "nib", name: "nib-seed-ventures.pdf" },

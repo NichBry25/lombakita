@@ -7459,6 +7459,46 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   display: block;
 }
 
+.ui-tablist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.ui-tab {
+  display: inline-flex;
+  min-height: var(--touch-target);
+  align-items: center;
+  gap: var(--space-2);
+  padding-inline: 1.125rem;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--color-raised);
+  box-shadow: inset 0 0 0 1.5px var(--color-field-ring);
+  color: var(--color-ink);
+  font-family: inherit;
+  font-size: var(--text-body);
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) var(--ease-primary),
+    box-shadow var(--duration-fast) var(--ease-primary);
+}
+
+.ui-tab:hover {
+  box-shadow: inset 0 0 0 var(--border-strong) var(--color-ink);
+}
+
+.ui-tab[aria-selected="true"] {
+  background: var(--color-hover-surface);
+  box-shadow: inset 0 0 0 var(--border-strong) var(--color-ink);
+}
+
+.ui-tab:focus-visible {
+  outline: var(--focus-width) solid var(--focus-color);
+  outline-offset: var(--border-strong);
+}
+
 .competition-policy-fieldset .checkbox-field {
   margin-block: calc(-1 * var(--space-3-5));
 }

@@ -52,6 +52,7 @@ describe("parseInstitutionProfileInput", () => {
       contactPhone: null,
       websiteUrl: null,
       socialLinks: [],
+      acknowledgeTickRemoval: false,
     });
   });
 
@@ -118,5 +119,22 @@ describe("parseInstitutionProfileInput", () => {
 
   it("rejects a non-array socialLinks", () => {
     expect(() => parseInstitutionProfileInput({ socialLinks: "nope" })).toThrow(/must be an array/);
+  });
+
+  it("reads acknowledgeTickRemoval as true only when the boolean true is sent", () => {
+    expect(
+      parseInstitutionProfileInput({ acknowledgeTickRemoval: true }).acknowledgeTickRemoval,
+    ).toBe(true);
+    expect(parseInstitutionProfileInput({}).acknowledgeTickRemoval).toBe(false);
+  });
+
+  it.each([false, "true", 1, null])("refuses acknowledgeTickRemoval %j", (value) => {
+    expect(() => parseInstitutionProfileInput({ acknowledgeTickRemoval: value })).toThrow(
+      expect.objectContaining({
+        code: "verification_invalid_payload",
+        status: 400,
+        message: "acknowledgeTickRemoval must be true when it is sent",
+      }),
+    );
   });
 });

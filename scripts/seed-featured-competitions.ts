@@ -99,17 +99,25 @@ const main = async (): Promise<void> => {
   try {
     await assertSeedTargetIsDisposable(client, databaseUrl);
 
+    // Verified directly, the way staff verify a workspace, so its tick path is staff.
     await client`
       INSERT INTO institutions (
-        id, display_name, slug, status, institution_type, verification_status, verified_at
+        id, display_name, slug, status, institution_type, verification_status, verified_at,
+        tick_path, tick_domain, name_checked_at, name_proof_due_at, name_proof_reminded_at
       ) VALUES (
-        ${INSTITUTION_ID}, ${INSTITUTION_NAME}, ${INSTITUTION_SLUG}, 'active', 'foundation', 'verified', now()
+        ${INSTITUTION_ID}, ${INSTITUTION_NAME}, ${INSTITUTION_SLUG}, 'active', 'foundation', 'verified', now(),
+        'staff', NULL, NULL, NULL, NULL
       )
       ON CONFLICT (id) DO UPDATE SET
         display_name = EXCLUDED.display_name,
         slug = EXCLUDED.slug,
         verification_status = 'verified',
         verified_at = now(),
+        tick_path = 'staff',
+        tick_domain = NULL,
+        name_checked_at = NULL,
+        name_proof_due_at = NULL,
+        name_proof_reminded_at = NULL,
         updated_at = now()
     `;
 

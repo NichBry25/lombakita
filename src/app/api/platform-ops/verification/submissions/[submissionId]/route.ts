@@ -7,7 +7,10 @@ import {
   reviewVerificationSubmission,
   SubmissionError,
 } from "@/server/institution-verification/submission-service";
-import { VerificationError } from "@/server/institution-verification/verification-core";
+import {
+  toVerificationErrorResponse,
+  VerificationError,
+} from "@/server/institution-verification/verification-core";
 import { OperatorActorError } from "@/server/platform-ops/operator-actor";
 
 type RouteContext = { params: Promise<{ submissionId: string }> };
@@ -75,7 +78,7 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Re
   } catch (error) {
     if (error instanceof SubmissionError) {
       return NextResponse.json(
-        { error: { code: error.code, message: error.message } },
+        { error: { code: error.code, message: error.message, details: error.details } },
         { status: error.status },
       );
     }
@@ -98,10 +101,7 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Re
     // Raised when the approval's status transition is refused — the institution moved (a revocation,
     // another approval) between this reviewer opening the queue and deciding.
     if (error instanceof VerificationError) {
-      return NextResponse.json(
-        { error: { code: error.code, message: error.message } },
-        { status: error.status },
-      );
+      return toVerificationErrorResponse(error);
     }
     return toAccessDeniedResponse(error);
   }

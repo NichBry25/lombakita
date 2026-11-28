@@ -4,17 +4,19 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@/server/db/client", () => ({ getDb: vi.fn(() => ({})) }));
 vi.mock("@/server/runtime/assert-server-only", () => ({ assertServerOnly: vi.fn() }));
-vi.mock("@/server/institution-verification/verification-email", () => ({
-  sendInstitutionVerifiedEmail: vi.fn(async () => {}),
-  sendInstitutionRejectedEmail: vi.fn(async () => {}),
-  sendInstitutionVerificationRevokedEmail: vi.fn(async () => {}),
+const { noticeSpy } = vi.hoisted(() => ({ noticeSpy: vi.fn(async () => ({})) }));
+vi.mock("@/server/async/enqueue", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/server/async/enqueue")>();
+  return { ...actual, enqueueInstitutionTickNotice: noticeSpy };
+});
+// The request that a decision closes and the trust of its submitter are read through the real
+// database in tick-staff-db.integration.test.ts. Here no request is pending.
+vi.mock("@/server/institution-verification/tick-service", () => ({
+  closePendingRequestInTransaction: vi.fn(async () => null),
+  trustTickSubmitterInTransaction: vi.fn(async () => false),
 }));
 
 import { VerificationError } from "./verification-core";
-import {
-  sendInstitutionRejectedEmail,
-  sendInstitutionVerificationRevokedEmail,
-} from "./verification-email";
 import { listInstitutionsForPlatformOps, verifyInstitution } from "./verification-service";
 
 // ─── Condition inspection ─────────────────────────────────────────────────────
@@ -98,15 +100,15 @@ const institutionRow = (overrides: Record<string, unknown> = {}) => ({
 
 // ─── listInstitutionsForPlatformOps ───────────────────────────────────────────
 
-describe("listInstitutionsForPlatformOps — personal institutions excluded", () => {
-  it("constrains institution_type away from 'personal' when no status filter is given", async () => {
+describe("listInstitutionsForPlatformOps lists every kind", () => {
+  it("puts no institution_type condition on the page query when no status filter is given", async () => {
     const { db, capturedWhere } = makeListDb([institutionRow()], 1);
 
     await listInstitutionsForPlatformOps({ actorRole: "platform_ops", db });
 
     const pageWhere = flattenCondition(capturedWhere[0]);
-    expect(pageWhere).toContain("institution_type");
-    expect(pageWhere).toContain("personal");
+    expect(pageWhere).not.toContain("institution_type");
+    expect(pageWhere).not.toContain("personal");
   });
 
   it("applies the same predicate to the count query so the total matches the rows", async () => {
@@ -120,7 +122,7 @@ describe("listInstitutionsForPlatformOps — personal institutions excluded", ()
     expect(capturedWhere[0]).toBe(capturedWhere[1]);
   });
 
-  it("keeps the personal exclusion when a status filter is also applied", async () => {
+  it("filters by status alone when a status filter is applied", async () => {
     const { db, capturedWhere } = makeListDb([], 0);
 
     await listInstitutionsForPlatformOps({
@@ -130,7 +132,7 @@ describe("listInstitutionsForPlatformOps — personal institutions excluded", ()
     });
 
     const pageWhere = flattenCondition(capturedWhere[0]);
-    expect(pageWhere).toContain("personal");
+    expect(pageWhere).not.toContain("personal");
     expect(pageWhere).toContain("verification_status");
     expect(pageWhere).toContain("verified");
   });
@@ -147,9 +149,9 @@ describe("listInstitutionsForPlatformOps — personal institutions excluded", ()
 
 // ─── verifyInstitution ────────────────────────────────────────────────────────
 
-describe("verifyInstitution — personal institutions are not reviewable", () => {
+describe("verifyInstitution treats a personal institution like any other kind", () => {
   const makeVerifyDb = (currentRows: unknown[]) => {
-    const writes = { updates: 0, inserts: 0 };
+    const writes = { updates: 0, inserts: 0, updateSets: [] as unknown[] };
 
     const selectNode = (result: unknown[]): Record<string, unknown> => {
       const n: Record<string, unknown> = {};
@@ -180,20 +182,23 @@ describe("verifyInstitution — personal institutions are not reviewable", () =>
       update: () => {
         writes.updates += 1;
         return {
-          set: () => ({
-            where: () => ({
-              returning: () =>
-                Promise.resolve([
-                  {
-                    id: "inst_1",
-                    verificationStatus: "verified",
-                    verifiedAt: new Date(),
-                    rejectedAt: null,
-                    rejectionReason: null,
-                  },
-                ]),
-            }),
-          }),
+          set: (values: unknown) => {
+            writes.updateSets.push(values);
+            return {
+              where: () => ({
+                returning: () =>
+                  Promise.resolve([
+                    {
+                      id: "inst_1",
+                      verificationStatus: "verified",
+                      verifiedAt: new Date(),
+                      rejectedAt: null,
+                      rejectionReason: null,
+                    },
+                  ]),
+              }),
+            };
+          },
         };
       },
       insert: () => {
@@ -220,7 +225,7 @@ describe("verifyInstitution — personal institutions are not reviewable", () =>
     return { db: db as never, writes };
   };
 
-  it("refuses a personal institution with 409 institution_verification_not_applicable", async () => {
+  it("moves a personal institution to under_review like any other kind", async () => {
     const { db, writes } = makeVerifyDb([
       {
         id: "inst_personal",
@@ -231,27 +236,20 @@ describe("verifyInstitution — personal institutions are not reviewable", () =>
       },
     ]);
 
-    const error = await verifyInstitution({
-      institutionId: "inst_personal",
-      targetStatus: "under_review",
-      actorUserId: "ops_1",
-      db,
-    }).catch((e: unknown) => e);
+    await expect(
+      verifyInstitution({
+        institutionId: "inst_personal",
+        targetStatus: "under_review",
+        actorUserId: "ops_1",
+        db,
+      }),
+    ).resolves.toBeDefined();
 
-    expect(error).toBeInstanceOf(VerificationError);
-    expect(error).toMatchObject({
-      code: "institution_verification_not_applicable",
-      status: 409,
-    });
-    // The refusal must land before any write: a hidden row that still accepted a transition
-    // would leave a status change and an audit entry describing a review that cannot exist.
-    expect(writes.updates).toBe(0);
-    expect(writes.inserts).toBe(0);
+    expect(writes.updates).toBe(1);
+    expect(writes.inserts).toBe(1);
   });
 
-  it("refuses a personal institution even on an otherwise-valid transition pair", async () => {
-    // under_review → verified is a legal edge. The type guard runs first, so the pair never
-    // gets a chance to make a personal institution reviewable.
+  it("gives a personal institution the staff tick", async () => {
     const { db, writes } = makeVerifyDb([
       {
         id: "inst_personal",
@@ -262,15 +260,15 @@ describe("verifyInstitution — personal institutions are not reviewable", () =>
       },
     ]);
 
-    await expect(
-      verifyInstitution({
-        institutionId: "inst_personal",
-        targetStatus: "verified",
-        actorUserId: "ops_1",
-        db,
-      }),
-    ).rejects.toMatchObject({ code: "institution_verification_not_applicable" });
-    expect(writes.updates).toBe(0);
+    const result = await verifyInstitution({
+      institutionId: "inst_personal",
+      targetStatus: "verified",
+      actorUserId: "ops_1",
+      db,
+    });
+
+    expect(result.institution.verificationStatus).toBe("verified");
+    expect(writes.updateSets[0]).toMatchObject({ tickPath: "staff" });
   });
 
   it("still verifies a full institution — the guard is type-scoped, not a blanket block", async () => {
@@ -314,8 +312,7 @@ describe("verifyInstitution — revocation and concurrent-decision safety", () =
       return n;
     };
 
-    // Same queue as makeVerifyDb: actor, institution, the conflict rule's four reads, then the
-    // owner-notification lookup.
+    // Same queue as makeVerifyDb: actor, institution, the conflict rule's four reads.
     const selects = [
       [{ id: "ops_1", role: "platform_ops", suspendedAt: null }],
       [currentRow],
@@ -323,7 +320,6 @@ describe("verifyInstitution — revocation and concurrent-decision safety", () =
       [],
       [{ email: "ops_1@lombakita.test" }],
       [],
-      [{ email: "owner@contoh.co.id" }],
     ];
     let call = 0;
 
@@ -446,8 +442,7 @@ describe("verifyInstitution — revocation and concurrent-decision safety", () =
   });
 
   it("notifies the owner that a verification was revoked, not that an application was rejected", async () => {
-    vi.mocked(sendInstitutionVerificationRevokedEmail).mockClear();
-    vi.mocked(sendInstitutionRejectedEmail).mockClear();
+    noticeSpy.mockClear();
 
     const { db } = makeTransitionDb(verifiedInstitution, [
       {
@@ -467,13 +462,18 @@ describe("verifyInstitution — revocation and concurrent-decision safety", () =
       db,
     });
 
-    // The owner never filed anything here — a "permohonan ditolak" email would describe an event
-    // that did not happen.
-    expect(sendInstitutionRejectedEmail).not.toHaveBeenCalled();
-    expect(sendInstitutionVerificationRevokedEmail).toHaveBeenCalledWith({
-      toEmail: "owner@contoh.co.id",
-      institutionDisplayName: "PT Contoh",
-      revocationReason: "Dokumen tidak lagi valid",
+    // The owner never filed anything here — a turn-down notice would describe an event that did not
+    // happen.
+    expect(noticeSpy).toHaveBeenCalledTimes(1);
+    expect(noticeSpy).toHaveBeenCalledWith({
+      payload: expect.objectContaining({
+        institutionId: "inst_1",
+        kind: "tick_revoked",
+        reason: "Dokumen tidak lagi valid",
+      }),
+    });
+    expect(noticeSpy).not.toHaveBeenCalledWith({
+      payload: expect.objectContaining({ kind: "tick_request_turned_down" }),
     });
   });
 

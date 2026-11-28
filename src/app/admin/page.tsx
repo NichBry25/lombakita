@@ -16,15 +16,9 @@ const ADMIN_LINKS = [
     icon: "users" as const,
   },
   {
-    href: "/admin/verification",
-    label: "Dokumen verifikasi",
-    description: "Tinjau berkas identitas dalam antrean keputusan.",
-    icon: "check" as const,
-  },
-  {
     href: "/admin/host-checks",
-    label: "Pemeriksaan penyelenggara",
-    description: "Periksa kompetisi pertama penyelenggara yang belum tepercaya.",
+    label: "Antrean pemeriksaan",
+    description: "Periksa penyelenggara baru, centang ruang kerja, dan laporan kompetisi.",
     icon: "check-circle" as const,
   },
   {

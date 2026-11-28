@@ -332,6 +332,11 @@ export const assertCompetitionHasAudience = async (
 // creation as the fail-closed backstop. A second, lighter check written elsewhere would be a
 // second answer to the same question, and the two would drift.
 //
+// The tick check gates charging and nothing else. The name check, assertInstitutionNameChecked,
+// gates one more thing: the paid publish of a workspace whose tick was won by its organization
+// email domain, until staff have checked its name. Free competitions, setting a fee and creating a
+// payment are never held for the name.
+//
 // Throws CompetitionError 422 competition_institution_not_verified.
 /**
  * This institution's verification status, or null when no such institution exists.
@@ -371,6 +376,28 @@ export const assertInstitutionVerified = async (
     );
   }
   return row;
+};
+
+export const assertInstitutionNameChecked = async (
+  institutionId: string,
+  db: Database = getDb(),
+): Promise<void> => {
+  const [row] = await db
+    .select({ tickPath: institutions.tickPath, nameCheckedAt: institutions.nameCheckedAt })
+    .from(institutions)
+    .where(eq(institutions.id, institutionId))
+    .limit(1);
+
+  if (!row) {
+    throw new CompetitionError("competition_not_found", 404, "Institution not found");
+  }
+  if (row.tickPath === "domain" && row.nameCheckedAt === null) {
+    throw new CompetitionError(
+      "competition_institution_name_check_pending",
+      422,
+      "The institution name must be checked by staff before a paid competition can be published.",
+    );
+  }
 };
 
 // Operational suspension gate, parallel to assertInstitutionVerified. Throws

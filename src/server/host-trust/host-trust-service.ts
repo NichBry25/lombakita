@@ -24,7 +24,7 @@ export const automaticTrustEligibility: SQL = and(
   inArray(users.role, [...SELF_SERVICE_ROLES]),
 )!;
 
-const holdsOrganizationEmailNotUsedAsSignInEmail = async (
+export const holdsOrganizationEmailNotUsedAsSignInEmail = async (
   tx: Database,
   userId: string,
 ): Promise<boolean> => {
@@ -143,12 +143,44 @@ export const trustHostInTransaction = async (
     if (recordedRows.length === 0) return null;
   }
 
+  const raised = await raiseEligibleHostInTransaction(tx, userId);
+  if (!raised) return null;
+
+  return candidate.source;
+};
+
+// Raises the account to the elevated tier when automaticTrustEligibility holds. Reads no trust
+// source, so it is the one statement that every automatic trust path shares.
+export const raiseEligibleHostInTransaction = async (
+  tx: Database,
+  userId: string,
+): Promise<boolean> => {
   const trustedRows = await tx
     .update(users)
     .set({ recruiterVerificationTier: "elevated", updatedAt: sql`now()` })
     .where(and(eq(users.id, userId), automaticTrustEligibility))
     .returning({ id: users.id });
-  if (trustedRows.length === 0) return null;
+  return trustedRows.length > 0;
+};
 
-  return candidate.source;
+// The trust a tick gives its submitter. The tick itself is the evidence, so no organization email
+// is read or recorded. An account that shares a proven email or a given phone with another account
+// whose trust staff removed in the last 2 years is not trusted. Writes no audit row and sends no
+// notice.
+export const trustHostByTickInTransaction = async (
+  tx: Database,
+  userId: string,
+): Promise<boolean> => {
+  const [eligibleAccount] = await tx
+    .select({ id: users.id })
+    .from(users)
+    .where(and(eq(users.id, userId), automaticTrustEligibility))
+    .limit(1);
+  if (!eligibleAccount) return false;
+
+  // Read after eligibility, so an account the raise would refuse never needs the hash key.
+  const removedHostMatch = await findRemovedHostMatch(tx, userId);
+  if (removedHostMatch !== null) return false;
+
+  return raiseEligibleHostInTransaction(tx, userId);
 };

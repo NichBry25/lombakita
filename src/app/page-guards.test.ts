@@ -9,7 +9,6 @@ const isPageFile = (path: string): boolean => /\/page\.[jt]sx?$/.test(path);
 const isLayoutFile = (path: string): boolean => /\/layout\.[jt]sx?$/.test(path);
 const CLIENT_PAGES: Record<string, string> = {
   "src/app/admin/institutions/page.tsx": "Client queue reads through role-guarded APIs.",
-  "src/app/admin/verification/page.tsx": "Client document review reads through role-guarded APIs.",
 };
 
 const enumerateFiles = (directory: string): string[] =>

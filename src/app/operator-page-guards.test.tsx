@@ -23,6 +23,7 @@ vi.mock("@/components/ui", () => ({
   EmptyState: () => null,
   Icon: () => null,
   Card: () => null,
+  Tabs: () => null,
 }));
 vi.mock("@/server/db/client", () => ({ getDb: mocks.getDb }));
 vi.mock("@/server/finance/fee-rule-service", () => ({ listFeeRules: mocks.feeRules }));
@@ -41,6 +42,7 @@ vi.mock("./admin/payments/ops-payment-actions", () => ({ OpsPaymentActions: () =
 vi.mock("./admin/moderation/moderation-console", () => ({ ModerationConsole: () => null }));
 vi.mock("@/components/admin/host-check-queue", () => ({ HostCheckQueue: () => null }));
 vi.mock("@/components/admin/host-trust-watch-list", () => ({ HostTrustWatchList: () => null }));
+vi.mock("@/components/admin/tick-queue", () => ({ TickQueue: () => null }));
 vi.mock("./finance/payments/[paymentId]/dispute-proof-file-button", () => ({
   DisputeProofFileButton: () => null,
 }));
@@ -85,7 +87,14 @@ const CASES = [
     path: "/admin/host-checks",
     role: "platform_ops",
     readers: [],
-    run: async () => (await import("./admin/host-checks/page")).default(),
+    run: async () =>
+      (await import("./admin/host-checks/page")).default({ searchParams: Promise.resolve({}) }),
+  },
+  {
+    path: "/admin/verification",
+    role: "platform_ops",
+    readers: [],
+    run: async () => (await import("./admin/verification/page")).default(),
   },
   {
     path: "/admin/payments",
@@ -177,4 +186,13 @@ describe.each(CASES)("operator page $path", (entry) => {
       );
     }
   });
+});
+
+it("sends the old document queue address to the Centang tab once the guard resolves", async () => {
+  await (await import("./admin/verification/page")).default();
+
+  expect(mocks.guard).toHaveBeenCalledExactlyOnceWith("platform_ops", {
+    callbackPath: "/admin/verification",
+  });
+  expect(mocks.redirect).toHaveBeenCalledExactlyOnceWith("/admin/host-checks?tab=centang");
 });

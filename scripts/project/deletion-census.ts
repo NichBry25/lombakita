@@ -263,6 +263,7 @@ export const PERSONAL_COLUMNS: readonly string[] = Object.freeze([
   // institution_verification_submissions
   "institution_verification_submissions.proposed_display_name",
   "institution_verification_submissions.reviewer_notes",
+  "institution_verification_submissions.instagram_url",
   // institutions
   "institutions.display_name",
   "institutions.slug",

@@ -8,6 +8,7 @@ import {
   assertCompetitionAccess,
   assertCompetitionHasAudience,
   assertCompetitionHasOrganizerContact,
+  assertInstitutionNameChecked,
   assertInstitutionNotSuspended,
   assertInstitutionVerified,
   type CompetitionAccessResult,
@@ -49,6 +50,7 @@ export const COMPETITION_PUBLISH_BLOCKER_CODES = [
   "competition_organizer_contact_missing",
   "competition_audience_missing",
   "competition_institution_not_verified",
+  "competition_institution_name_check_pending",
 ] as const;
 
 export type CompetitionPublishBlockerCode = (typeof COMPETITION_PUBLISH_BLOCKER_CODES)[number];
@@ -155,6 +157,7 @@ export const resolveCompetitionPublishReadiness = async (
   const pricing = await loadCompetitionPricing(competitionId, db);
   if (isPaidCompetition(pricing.feeAmount)) {
     await collectGate(() => assertInstitutionVerified(competition.institutionId, db), blockers);
+    await collectGate(() => assertInstitutionNameChecked(competition.institutionId, db), blockers);
   }
 
   const hostCheck = await readHostCheckStateForActor(actorUserId, competition, db);

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { profileSocialPlatformEnum } from "@/server/db/schema";
+import { parseAcknowledgeTickRemoval } from "@/server/institution-verification/verification-core";
 
 // Public organizer profile — validation for the owner-authored "Penyelenggara" surface.
 // A save is a FULL replacement of the profile: every scalar is set (null when blank) and the
@@ -22,6 +23,7 @@ const ALLOWED_FIELDS = [
   "contactPhone",
   "websiteUrl",
   "socialLinks",
+  "acknowledgeTickRemoval",
 ] as const;
 const allowedFieldSet = new Set<string>(ALLOWED_FIELDS);
 
@@ -37,6 +39,8 @@ export type InstitutionProfileInput = {
   contactPhone: string | null;
   websiteUrl: string | null;
   socialLinks: InstitutionSocialLinkInput[];
+  // True only when the owner confirmed that a website change removes the workspace tick.
+  acknowledgeTickRemoval: boolean;
 };
 
 type InstitutionProfileErrorCode =
@@ -149,6 +153,7 @@ export const parseInstitutionProfileInput = (payload: unknown): InstitutionProfi
     contactPhone: parseOptionalText("contactPhone", record.contactPhone, MAX_PHONE_LENGTH),
     websiteUrl: parseOptionalUrl("websiteUrl", record.websiteUrl),
     socialLinks: parseSocialLinks(record.socialLinks),
+    acknowledgeTickRemoval: parseAcknowledgeTickRemoval(record.acknowledgeTickRemoval),
   };
 };
 

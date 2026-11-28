@@ -10,11 +10,13 @@ vi.mock("@/server/storage/r2.client", () => ({
     async (key: string) => `https://r2.example.com/${key}?presigned=1`,
   ),
 }));
-vi.mock("@/server/institution-verification/verification-email", () => ({
-  sendInstitutionVerifiedEmail: vi.fn(async () => {}),
-}));
+vi.mock("@/server/async/enqueue", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/server/async/enqueue")>();
+  return { ...actual, enqueueInstitutionTickNotice: vi.fn(async () => ({})) };
+});
 
 import {
+  createInstagramTickRequest,
   createVerificationSubmission,
   reviewVerificationSubmission,
   SubmissionError,
@@ -80,6 +82,7 @@ function createDbMock(opts: DbMockOpts) {
 
   const db: Record<string, unknown> = {
     select: () => selectChain(selects.shift() ?? []),
+    selectDistinct: () => selectChain(selects.shift() ?? []),
     update: () => updateChain(updates.shift() ?? [], opts.onSet),
     insert: () => insertChain(inserts.shift() ?? [], opts.onInsertValues),
     execute: (statement: unknown) => {
@@ -266,6 +269,7 @@ describe("reviewVerificationSubmission", () => {
     proposedDisplayName: null,
     status: "pending_review",
     submittedByUserId: "user_1",
+    requestedPath: "documents",
   };
 
   const companyInst = {
@@ -273,10 +277,10 @@ describe("reviewVerificationSubmission", () => {
     displayName: "PT Alice Corp",
     institutionType: "company",
     verificationStatus: "pending_verification",
+    tickPath: null,
+    nameProofDueAt: null,
     slug: "pt-alice-corp",
   };
-
-  const ownerMembership = { email: "alice@company.co.id" };
 
   // The acted-on account row `resolvePlatformOpsActor` reads. It is the FIRST select inside the
   // transaction, so every fixture below leads with it.
@@ -329,7 +333,7 @@ describe("reviewVerificationSubmission", () => {
         [], // conflict rule: this actor filed nothing here
         [opsAccountRow], // conflict rule: the acting account's own address
         [], // conflict rule: no invitation names them
-        [ownerMembership], // post-commit email lookup
+        [], // the submitter is no longer an active owner, so nobody is trusted
       ],
       updates: [
         [{ id: "inst_1", verificationStatus: "verified" }], // institution update
@@ -397,7 +401,7 @@ describe("reviewVerificationSubmission", () => {
         [],
         [opsAccountRow],
         [],
-        [ownerMembership],
+        [], // the submitter is no longer an active owner, so nobody is trusted
       ],
       updates: [
         [{ id: "inst_1", verificationStatus: "verified" }],
@@ -478,5 +482,347 @@ describe("createVerificationSubmission — institution-owner gate", () => {
     expect((err as SubmissionError).code).toBe("institution_not_found");
     // non-leaking: returns 404, not 403, so the route does not confirm slug existence
     expect((err as SubmissionError).status).toBe(404);
+  });
+});
+
+// ─── Path B (Instagram) and the tick path of an approval ──────────────────────
+
+describe("createInstagramTickRequest", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  const ownerRow = {
+    institutionId: "inst_1",
+    institutionType: "company",
+    verificationStatus: "pending_verification",
+    tickPath: null,
+    membershipId: "mem_1",
+  };
+  const unticked = { verificationStatus: "pending_verification", nameProofDueAt: null };
+  const LINK = "https://www.instagram.com/acme.org/";
+
+  it("stores the link with requested_path instagram, no documents and no upload", async () => {
+    const insertValues: Record<string, unknown>[] = [];
+    const db = createDbMock({
+      selects: [
+        [ownerRow], // resolveOwnerInstitution
+        [unticked], // the workspace read under the lock
+        [], // closure: no staff closing row
+        [], // closure: no removal row
+        [], // no published paid competition
+        [], // nothing awaiting review
+      ],
+      inserts: [[{ id: "sub_1" }]],
+      onInsertValues: (payload) => insertValues.push(payload),
+    });
+
+    const result = await createInstagramTickRequest("alice", LINK, "user_1", db);
+
+    expect(result).toEqual({ submissionId: "sub_1", documents: [] });
+    expect(insertValues).toEqual([
+      expect.objectContaining({
+        institutionId: "inst_1",
+        submittedByUserId: "user_1",
+        targetInstitutionType: "company",
+        emailDomainFlag: null,
+        requestedPath: "instagram",
+        instagramUrl: LINK,
+      }),
+    ]);
+  });
+
+  it("takes the per-institution advisory lock before it reads the workspace", async () => {
+    const statements: unknown[] = [];
+    const db = createDbMock({
+      selects: [[ownerRow], [unticked], [], [], [], []],
+      inserts: [[{ id: "sub_1" }]],
+      onExecute: (statement) => statements.push(statement),
+    });
+
+    await createInstagramTickRequest("alice", LINK, "user_1", db);
+
+    expect(statements).toHaveLength(1);
+    expect(JSON.stringify(statements[0])).toContain("pg_advisory_xact_lock");
+  });
+
+  it("refuses a closed workspace with its cause, before anything is written", async () => {
+    const inserts: Record<string, unknown>[] = [];
+    const db = createDbMock({
+      selects: [[ownerRow], [unticked], [{ id: "audit_9" }]],
+      onInsertValues: (payload) => inserts.push(payload),
+    });
+
+    const err = await catchAsync(() => createInstagramTickRequest("alice", LINK, "user_1", db));
+
+    expect(err).toBeInstanceOf(SubmissionError);
+    expect(err).toMatchObject({
+      code: "institution_tick_closed_needs_documents",
+      status: 409,
+      details: { cause: "staff", closedInstitutionId: "inst_1" },
+    });
+    expect(inserts).toEqual([]);
+  });
+
+  it("refuses a workspace that is not ticked while a paid competition is live", async () => {
+    const db = createDbMock({
+      selects: [[ownerRow], [unticked], [], [], [{ id: "comp_1" }]],
+    });
+
+    const err = await catchAsync(() => createInstagramTickRequest("alice", LINK, "user_1", db));
+
+    expect(err).toMatchObject({ code: "institution_tick_live_paid_competition", status: 409 });
+  });
+
+  it("refuses a Path A tick while its name proof runs, and lets a Path A tick without one through", async () => {
+    const domainOwner = { ...ownerRow, verificationStatus: "verified", tickPath: "domain" };
+    const proofRunning = createDbMock({
+      selects: [
+        [domainOwner],
+        [{ verificationStatus: "verified", nameProofDueAt: new Date("2026-12-01T00:00:00Z") }],
+        [],
+        [],
+      ],
+    });
+
+    const err = await catchAsync(() =>
+      createInstagramTickRequest("alice", LINK, "user_1", proofRunning),
+    );
+
+    expect(err).toMatchObject({ code: "institution_name_proof_needs_documents", status: 409 });
+
+    const noProof = createDbMock({
+      selects: [
+        [domainOwner],
+        [{ verificationStatus: "verified", nameProofDueAt: null }],
+        [],
+        [],
+        [],
+      ],
+      inserts: [[{ id: "sub_2" }]],
+    });
+
+    await expect(createInstagramTickRequest("alice", LINK, "user_1", noProof)).resolves.toEqual({
+      submissionId: "sub_2",
+      documents: [],
+    });
+  });
+
+  it("refuses a workspace that another path already ticked", async () => {
+    const db = createDbMock({
+      selects: [[{ ...ownerRow, verificationStatus: "verified", tickPath: "documents" }]],
+    });
+
+    const err = await catchAsync(() => createInstagramTickRequest("alice", LINK, "user_1", db));
+
+    expect(err).toMatchObject({ code: "institution_already_verified", status: 409 });
+  });
+
+  it("refuses while another request awaits review", async () => {
+    const db = createDbMock({
+      selects: [[ownerRow], [unticked], [], [], [], [{ id: "sub_open" }]],
+    });
+
+    const err = await catchAsync(() => createInstagramTickRequest("alice", LINK, "user_1", db));
+
+    expect(err).toMatchObject({ code: "verification_submission_already_pending", status: 409 });
+  });
+});
+
+describe("reviewVerificationSubmission — the tick path of an approval", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  const baseSub = {
+    id: "sub_1",
+    institutionId: "inst_1",
+    targetInstitutionType: "company",
+    proposedDisplayName: null,
+    status: "pending_review",
+    submittedByUserId: "user_1",
+  };
+  const baseInst = {
+    id: "inst_1",
+    displayName: "PT Alice Corp",
+    institutionType: "company",
+    verificationStatus: "pending_verification",
+    tickPath: null,
+    nameProofDueAt: null,
+    slug: "pt-alice-corp",
+  };
+  const opsActorRow = { id: "ops_1", role: "platform_ops", suspendedAt: null };
+  const opsAccountRow = { email: "ops_1@lombakita.test" };
+  const conflictReads = [[], [], [opsAccountRow], []];
+  const verifiedRow = { id: "inst_1", verificationStatus: "verified", tickPath: "instagram" };
+
+  it("writes the requested path as the tick path of a Path B approval", async () => {
+    const sets: Record<string, unknown>[] = [];
+    const db = createDbMock({
+      onSet: (payload) => sets.push(payload),
+      selects: [
+        [opsActorRow],
+        [{ ...baseSub, requestedPath: "instagram" }],
+        [baseInst],
+        ...conflictReads,
+        [], // closure: no staff closing row
+        [], // closure: no removal row
+        [], // no published paid competition
+        [], // the submitter is no longer an owner
+      ],
+      updates: [[verifiedRow], [{ id: "sub_1" }]],
+      inserts: [[{ id: "audit_1" }]],
+    });
+
+    const result = await reviewVerificationSubmission("sub_1", "approved", null, "ops_1", db);
+
+    expect(result.status).toBe("approved");
+    expect(result.trustedSubmitter).toBe(false);
+    expect(sets[0]).toMatchObject({ verificationStatus: "verified", tickPath: "instagram" });
+  });
+
+  it("writes the documents path for a Path C approval and trusts a submitter who is still an owner", async () => {
+    const sets: Record<string, unknown>[] = [];
+    const inserts: Record<string, unknown>[] = [];
+    const db = createDbMock({
+      onSet: (payload) => sets.push(payload),
+      onInsertValues: (payload) => inserts.push(payload),
+      selects: [
+        [opsActorRow],
+        [{ ...baseSub, requestedPath: "documents" }],
+        [baseInst],
+        ...conflictReads,
+        [{ id: "mem_1" }], // the submitter is still an active owner
+        [{ id: "user_1" }], // the submitter meets the automatic trust condition
+        [], // no other account's trust removal record, so no match and no key
+      ],
+      updates: [[{ ...verifiedRow, tickPath: "documents" }], [{ id: "sub_1" }], [{ id: "user_1" }]],
+      inserts: [[{ id: "audit_1" }], []],
+    });
+
+    const result = await reviewVerificationSubmission("sub_1", "approved", null, "ops_1", db);
+
+    expect(result.trustedSubmitter).toBe(true);
+    expect(sets[0]).toMatchObject({ tickPath: "documents", tickDomain: null });
+    expect(inserts.at(-1)).toMatchObject({
+      targetUserId: "user_1",
+      eventType: "host_trust.raised_by_tick",
+      metadata: { institutionId: "inst_1", submissionId: "sub_1", requestedPath: "documents" },
+    });
+  });
+
+  it("refuses a Path B approval on a closed workspace and writes nothing", async () => {
+    const sets: Record<string, unknown>[] = [];
+    const db = createDbMock({
+      onSet: (payload) => sets.push(payload),
+      selects: [
+        [opsActorRow],
+        [{ ...baseSub, requestedPath: "instagram" }],
+        [baseInst],
+        ...conflictReads,
+        [{ id: "audit_9" }],
+      ],
+    });
+
+    const err = await catchAsync(() =>
+      reviewVerificationSubmission("sub_1", "approved", null, "ops_1", db),
+    );
+
+    expect(err).toMatchObject({
+      code: "institution_tick_closed_needs_documents",
+      status: 409,
+      details: { cause: "staff", closedInstitutionId: "inst_1" },
+    });
+    expect(sets).toEqual([]);
+  });
+
+  it("refuses a Path B approval on a Path A tick while its name proof runs", async () => {
+    const db = createDbMock({
+      selects: [
+        [opsActorRow],
+        [{ ...baseSub, requestedPath: "instagram" }],
+        [
+          {
+            ...baseInst,
+            verificationStatus: "verified",
+            tickPath: "domain",
+            nameProofDueAt: new Date("2026-12-01T00:00:00Z"),
+          },
+        ],
+        ...conflictReads,
+        [],
+        [],
+      ],
+    });
+
+    const err = await catchAsync(() =>
+      reviewVerificationSubmission("sub_1", "approved", null, "ops_1", db),
+    );
+
+    expect(err).toMatchObject({ code: "institution_name_proof_needs_documents", status: 409 });
+  });
+
+  it("names the cause when a Path B approval misses its write: a closure, a proof or a plain conflict", async () => {
+    const instagramSub = { ...baseSub, requestedPath: "instagram" };
+    const guardReads = [[], [], []];
+    const missedWrite = (rereads: unknown[][]) =>
+      createDbMock({
+        selects: [
+          [opsActorRow],
+          [instagramSub],
+          [baseInst],
+          ...conflictReads,
+          ...guardReads,
+          ...rereads,
+        ],
+        updates: [[]],
+      });
+
+    const closed = await catchAsync(() =>
+      reviewVerificationSubmission(
+        "sub_1",
+        "approved",
+        null,
+        "ops_1",
+        missedWrite([[{ id: "a" }]]),
+      ),
+    );
+    const proof = await catchAsync(() =>
+      reviewVerificationSubmission(
+        "sub_1",
+        "approved",
+        null,
+        "ops_1",
+        missedWrite([[], [], [{ nameProofDueAt: new Date("2026-12-01T00:00:00Z") }]]),
+      ),
+    );
+    const plain = await catchAsync(() =>
+      reviewVerificationSubmission(
+        "sub_1",
+        "approved",
+        null,
+        "ops_1",
+        missedWrite([[], [], [{ nameProofDueAt: null }]]),
+      ),
+    );
+
+    expect(closed).toMatchObject({ code: "institution_tick_closed_needs_documents" });
+    expect(proof).toMatchObject({ code: "institution_name_proof_needs_documents" });
+    expect(plain).toMatchObject({ code: "verification_transition_conflict" });
+  });
+
+  it("answers a Path C approval that misses its write with the plain conflict", async () => {
+    const db = createDbMock({
+      selects: [
+        [opsActorRow],
+        [{ ...baseSub, requestedPath: "documents" }],
+        [baseInst],
+        ...conflictReads,
+      ],
+      updates: [[]],
+    });
+
+    const err = await catchAsync(() =>
+      reviewVerificationSubmission("sub_1", "approved", null, "ops_1", db),
+    );
+
+    expect(err).toBeInstanceOf(SubmissionError);
+    expect(err).toMatchObject({ code: "verification_transition_conflict", status: 409 });
   });
 });

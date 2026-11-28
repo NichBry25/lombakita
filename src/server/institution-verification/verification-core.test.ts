@@ -1,7 +1,13 @@
 // @vitest-environment node
 
 import { describe, expect, it } from "vitest";
-import { assertValidTransition, parseVerifyInput, VerificationError } from "./verification-core";
+import {
+  assertValidTransition,
+  normalizeInstagramProfileUrl,
+  parseVerificationSubmitBody,
+  parseVerifyInput,
+  VerificationError,
+} from "./verification-core";
 import type { InstitutionVerificationStatus } from "@/server/db/schema";
 
 describe("assertValidTransition", () => {
@@ -29,7 +35,9 @@ describe("assertValidTransition", () => {
     // Un-verifying is only ever an explicit, reasoned revocation — never a quiet drop back into
     // the review queue.
     ["verified", "under_review"],
-    // pending_verification is the state an institution is created in. Nothing returns to it.
+    // pending_verification is the state an institution is created in. The one move back to it,
+    // verified->pending_verification, is written only by removeTickAutomatically and no request
+    // may ask for it.
     ["verified", "pending_verification"],
     ["rejected", "pending_verification"],
     ["under_review", "pending_verification"],
@@ -114,5 +122,70 @@ describe("parseVerifyInput", () => {
   it("trims whitespace from reason", () => {
     const result = parseVerifyInput({ targetStatus: "rejected", reason: "  alasan   " });
     expect(result.reason).toBe("alasan");
+  });
+});
+
+describe("normalizeInstagramProfileUrl", () => {
+  it.each([
+    ["https://instagram.com/Acme.Org", "https://www.instagram.com/acme.org/"],
+    ["https://www.instagram.com/acme_org/", "https://www.instagram.com/acme_org/"],
+    ["  https://instagram.com/acme?utm=1#bio  ", "https://www.instagram.com/acme/"],
+  ])("stores %s as %s", (input, stored) => {
+    expect(normalizeInstagramProfileUrl(input)).toBe(stored);
+  });
+
+  it.each([
+    "https://example.com/acme",
+    "https://instagram.com/",
+    "https://www.instagram.com/a-b",
+    "http://instagram.com/acme",
+    "https://instagram.com/acme/reels",
+    `https://instagram.com/${"a".repeat(31)}`,
+    "https://user@instagram.com/acme",
+    "not a url",
+    42,
+    undefined,
+  ])("refuses %j", (input) => {
+    expect(() => normalizeInstagramProfileUrl(input)).toThrow(
+      expect.objectContaining({ code: "institution_tick_instagram_invalid", status: 400 }),
+    );
+  });
+});
+
+describe("parseVerificationSubmitBody", () => {
+  it("reads an absent path as documents and passes the documents on", () => {
+    expect(parseVerificationSubmitBody({ documents: [1] })).toEqual({
+      path: "documents",
+      documents: [1],
+    });
+    expect(parseVerificationSubmitBody({ path: "documents", documents: [] })).toEqual({
+      path: "documents",
+      documents: [],
+    });
+  });
+
+  it("normalizes the link of an instagram body", () => {
+    expect(
+      parseVerificationSubmitBody({
+        path: "instagram",
+        instagramUrl: "https://instagram.com/Acme",
+      }),
+    ).toEqual({ path: "instagram", instagramUrl: "https://www.instagram.com/acme/" });
+  });
+
+  it.each([
+    [{ path: "other" }],
+    [{ path: "domain", instagramUrl: "https://instagram.com/acme" }],
+    [{ path: "staff", instagramUrl: "https://instagram.com/acme" }],
+    [{ path: null }],
+    [{ documents: [], instagramUrl: "https://instagram.com/acme" }],
+    [{ path: "documents", documents: [], instagramUrl: "https://instagram.com/acme" }],
+    ["text"],
+    [null],
+    [[]],
+  ])("refuses %j with verification_invalid_payload", (body) => {
+    expect(() => parseVerificationSubmitBody(body)).toThrow(
+      expect.objectContaining({ code: "verification_invalid_payload", status: 400 }),
+    );
   });
 });

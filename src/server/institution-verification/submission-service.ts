@@ -1,10 +1,6 @@
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql, type SQL } from "drizzle-orm";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 import { AccessError } from "@/server/auth/access-core";
-import {
-  awaitDeliveryAndReportFailure,
-  type EmailDeliveryOutcome,
-} from "@/server/email/delivery-outcome";
 import { getDb, type Database } from "@/server/db/client";
 import {
   institutionMemberships,
@@ -18,13 +14,26 @@ import {
   type VerificationSubmissionStatus,
 } from "@/server/db/schema";
 import { isPersonalInstitutionType } from "@/server/institution-workspace/institution-type";
-import { assertValidTransition } from "@/server/institution-verification/verification-core";
+import {
+  assertValidTransition,
+  VerificationError,
+} from "@/server/institution-verification/verification-core";
+import {
+  hasPublishedPaidCompetition,
+  readTickClosure,
+  trustTickSubmitterInTransaction,
+  type TickClosure,
+} from "@/server/institution-verification/tick-service";
+import {
+  writeTickTransition,
+  type TickPath,
+} from "@/server/institution-verification/tick-transition";
 import { resolvePlatformOpsActor } from "@/server/platform-ops/operator-actor";
 import { assertOperatorHasNoInstitutionRelationship } from "@/server/institution-verification/operator-institution-conflict";
 import { isR2Available, generatePresignedPutUrl } from "@/server/storage/r2.client";
 import { logger } from "@/lib/logger";
 import { deriveEmailDomainFlag, getMissingDocuments } from "./verification-requirements";
-import { sendInstitutionVerifiedEmail } from "./verification-email";
+import { enqueueTickNoticeAfterCommit } from "./name-check-service";
 
 assertServerOnly("server/institution-verification/submission-service");
 
@@ -132,6 +141,30 @@ const acquireInstitutionSubmissionLock = async (
   );
 };
 
+const assertNoSubmissionAwaitingReview = async (
+  tx: Parameters<Parameters<Database["transaction"]>[0]>[0],
+  institutionId: string,
+): Promise<void> => {
+  const [openSubmission] = await tx
+    .select({ id: institutionVerificationSubmissions.id })
+    .from(institutionVerificationSubmissions)
+    .where(
+      and(
+        eq(institutionVerificationSubmissions.institutionId, institutionId),
+        eq(institutionVerificationSubmissions.status, "pending_review"),
+      ),
+    )
+    .limit(1);
+
+  if (openSubmission) {
+    throw new SubmissionError(
+      "verification_submission_already_pending",
+      409,
+      "A verification submission for this institution is already awaiting review",
+    );
+  }
+};
+
 // Resolves the institution_id and verifies the actor holds an active institution_owner membership.
 const resolveOwnerInstitution = async (
   institutionSlug: string,
@@ -141,12 +174,14 @@ const resolveOwnerInstitution = async (
   institutionId: string;
   institutionType: InstitutionType;
   verificationStatus: InstitutionVerificationStatus;
+  tickPath: TickPath | null;
 }> => {
   const [row] = await db
     .select({
       institutionId: institutions.id,
       institutionType: institutions.institutionType,
       verificationStatus: institutions.verificationStatus,
+      tickPath: institutions.tickPath,
       membershipId: institutionMemberships.id,
     })
     .from(institutions)
@@ -174,7 +209,156 @@ const resolveOwnerInstitution = async (
     institutionId: row.institutionId,
     institutionType: row.institutionType,
     verificationStatus: row.verificationStatus,
+    tickPath: row.tickPath,
   };
+};
+
+// A verified workspace has its answer, except one ticked by Path A: its name is the owner's own
+// claim, so it may still send a request that proves the name.
+const assertCanSubmitTickRequest = (
+  verificationStatus: InstitutionVerificationStatus,
+  tickPath: TickPath | null,
+): void => {
+  if (verificationStatus === "verified" && tickPath !== "domain") {
+    throw new SubmissionError(
+      "institution_already_verified",
+      409,
+      "This institution is already verified and cannot submit further documents",
+    );
+  }
+};
+
+// For university and campus_organization submissions only: whether the submitter's email is on an
+// institutional domain. Null for every other kind.
+const deriveSubmitterEmailDomainFlag = async (
+  institutionType: InstitutionType,
+  actorUserId: string,
+  db: Database,
+): Promise<boolean | null> => {
+  if (institutionType !== "university" && institutionType !== "campus_organization") return null;
+
+  const [userRow] = await db
+    .select({ email: users.email })
+    .from(users)
+    .where(eq(users.id, actorUserId))
+    .limit(1);
+  if (!userRow) return null;
+  return deriveEmailDomainFlag(institutionType, userRow.email);
+};
+
+const buildTickClosedNeedsDocumentsError = (
+  closure: Extract<TickClosure, { closed: true }>,
+): SubmissionError =>
+  new SubmissionError(
+    "institution_tick_closed_needs_documents",
+    409,
+    "This workspace's tick was removed by staff or by a name proof rule, so it can only return through documents",
+    { cause: closure.cause, closedInstitutionId: closure.closedInstitutionId },
+  );
+
+const buildNameProofNeedsDocumentsError = (): SubmissionError =>
+  new SubmissionError(
+    "institution_name_proof_needs_documents",
+    409,
+    "A name proof is running, so the name can only be proven through documents",
+  );
+
+const buildStatusChangedWhileReviewingError = (): SubmissionError =>
+  new SubmissionError(
+    "verification_transition_conflict",
+    409,
+    "This institution's verification status changed while you were reviewing. Reload and try again",
+  );
+
+// The refusals of a Path B request, in the order a submit and an approval both apply them: a closed
+// workspace, a live paid competition on a workspace that is not ticked, a name proof that is
+// running. Instagram proves neither a name nor a restart of payments, so each of them needs
+// documents.
+const assertInstagramRequestAllowed = async (
+  tx: Parameters<Parameters<Database["transaction"]>[0]>[0],
+  institution: {
+    institutionId: string;
+    verificationStatus: InstitutionVerificationStatus;
+    nameProofDueAt: Date | null;
+  },
+): Promise<void> => {
+  const closure = await readTickClosure(tx, institution.institutionId);
+  if (closure.closed) throw buildTickClosedNeedsDocumentsError(closure);
+
+  if (
+    institution.verificationStatus !== "verified" &&
+    (await hasPublishedPaidCompetition(tx, institution.institutionId))
+  ) {
+    throw new SubmissionError(
+      "institution_tick_live_paid_competition",
+      409,
+      "This workspace has a published paid competition, so its tick can only return through documents",
+    );
+  }
+
+  if (institution.nameProofDueAt !== null) throw buildNameProofNeedsDocumentsError();
+};
+
+// After a Path B approval misses its compare-and-set, the workspace is read again to say why: a
+// closure or a name proof that landed since the first read, or else the usual conflict.
+const explainInstagramApprovalMiss = async (
+  tx: Parameters<Parameters<Database["transaction"]>[0]>[0],
+  institutionId: string,
+): Promise<SubmissionError> => {
+  const closure = await readTickClosure(tx, institutionId);
+  if (closure.closed) return buildTickClosedNeedsDocumentsError(closure);
+
+  const [institution] = await tx
+    .select({ nameProofDueAt: institutions.nameProofDueAt })
+    .from(institutions)
+    .where(eq(institutions.id, institutionId))
+    .limit(1);
+  if (institution?.nameProofDueAt) return buildNameProofNeedsDocumentsError();
+
+  return buildStatusChangedWhileReviewingError();
+};
+
+// A path move on a Path A tick is pinned to that tick. A Path B move is also pinned to no running
+// name proof, so a proof that commits after the approval's read survives it.
+const buildPathMovePin = (requestedPath: TickPath): SQL => {
+  const onDomainTick = eq(institutions.tickPath, "domain");
+  if (requestedPath !== "instagram") return onDomainTick;
+  return and(onDomainTick, isNull(institutions.nameProofDueAt))!;
+};
+
+const writeApprovedTick = async (
+  tx: Parameters<Parameters<Database["transaction"]>[0]>[0],
+  input: {
+    institutionId: string;
+    fromStatus: InstitutionVerificationStatus;
+    isPathMoveOnDomainTick: boolean;
+    requestedPath: TickPath;
+    actorUserId: string;
+    reviewerNotes: string | null;
+  },
+): Promise<void> => {
+  try {
+    await writeTickTransition(tx, {
+      institutionId: input.institutionId,
+      from: input.fromStatus,
+      to: "verified",
+      tickPath: input.requestedPath,
+      tickDomain: null,
+      nameState: "cleared",
+      actorUserId: input.actorUserId,
+      reason: input.reviewerNotes ?? null,
+      extraWhere: input.isPathMoveOnDomainTick ? buildPathMovePin(input.requestedPath) : undefined,
+    });
+  } catch (error) {
+    const isConflict =
+      error instanceof VerificationError && error.code === "verification_transition_conflict";
+    if (!isConflict) throw error;
+
+    if (input.requestedPath === "instagram") {
+      throw await explainInstagramApprovalMiss(tx, input.institutionId);
+    }
+    throw buildStatusChangedWhileReviewingError();
+  }
 };
 
 // Submits a document verification request for a full institution. Verification is credibility-only:
@@ -187,7 +371,7 @@ const resolveOwnerInstitution = async (
 // carrying verification_status = 'verified' has its answer, and one with a submission still awaiting
 // review has a reviewer holding its evidence — in both cases another request adds a queue row nobody
 // can act on. Both refusals are server-side because the page hiding the form is a courtesy, not a
-// guard.
+// guard. A workspace ticked by Path A is the one verified workspace that may still submit.
 export const createVerificationSubmission = async (
   institutionSlug: string,
   documents: DocumentInput[],
@@ -202,11 +386,8 @@ export const createVerificationSubmission = async (
     );
   }
 
-  const { institutionId, institutionType, verificationStatus } = await resolveOwnerInstitution(
-    institutionSlug,
-    actorUserId,
-    db,
-  );
+  const { institutionId, institutionType, verificationStatus, tickPath } =
+    await resolveOwnerInstitution(institutionSlug, actorUserId, db);
 
   // A personal institution is the person, and the person is judged through host trust, so there is
   // nothing separate to document here.
@@ -221,13 +402,7 @@ export const createVerificationSubmission = async (
   // Checked against the institution's own column rather than against an approved submission row,
   // because platform_ops can also verify an institution directly from the admin table
   // (`verifyInstitution`), which writes this column and creates no submission at all.
-  if (verificationStatus === "verified") {
-    throw new SubmissionError(
-      "institution_already_verified",
-      409,
-      "This institution is already verified and cannot submit further documents",
-    );
-  }
+  assertCanSubmitTickRequest(verificationStatus, tickPath);
 
   // Validate all required documents are present.
   const submittedTypes = documents.map((d) => d.documentType);
@@ -241,18 +416,7 @@ export const createVerificationSubmission = async (
     );
   }
 
-  // Derive email domain flag for university/campus_organization submissions.
-  let emailDomainFlag: boolean | null = null;
-  if (institutionType === "university" || institutionType === "campus_organization") {
-    const [userRow] = await db
-      .select({ email: users.email })
-      .from(users)
-      .where(eq(users.id, actorUserId))
-      .limit(1);
-    if (userRow) {
-      emailDomainFlag = deriveEmailDomainFlag(institutionType, userRow.email);
-    }
-  }
+  const emailDomainFlag = await deriveSubmitterEmailDomainFlag(institutionType, actorUserId, db);
 
   // The open-submission guard and the insert it protects share one transaction under the
   // per-institution lock, so two simultaneous submissions cannot both find the queue empty. The
@@ -260,25 +424,7 @@ export const createVerificationSubmission = async (
   // leaving a queue row whose evidence is incomplete.
   const { submissionId, documentResults } = await db.transaction(async (tx) => {
     await acquireInstitutionSubmissionLock(tx, institutionId);
-
-    const [openSubmission] = await tx
-      .select({ id: institutionVerificationSubmissions.id })
-      .from(institutionVerificationSubmissions)
-      .where(
-        and(
-          eq(institutionVerificationSubmissions.institutionId, institutionId),
-          eq(institutionVerificationSubmissions.status, "pending_review"),
-        ),
-      )
-      .limit(1);
-
-    if (openSubmission) {
-      throw new SubmissionError(
-        "verification_submission_already_pending",
-        409,
-        "A verification submission for this institution is already awaiting review",
-      );
-    }
+    await assertNoSubmissionAwaitingReview(tx, institutionId);
 
     // Insert submission row first so we have the submissionId for R2 keys.
     const [submissionRow] = await tx
@@ -331,6 +477,67 @@ export const createVerificationSubmission = async (
   });
 
   return { submissionId, documents: documentResults };
+};
+
+// Path B: the owner sends the official Instagram profile link of the workspace for staff to check.
+// It stores no documents, needs no storage and draws no upload budget, and every kind of workspace
+// may use it.
+export const createInstagramTickRequest = async (
+  institutionSlug: string,
+  instagramUrl: string,
+  actorUserId: string,
+  db: Database = getDb(),
+): Promise<SubmissionWithUploadUrls> => {
+  const { institutionId, institutionType, verificationStatus, tickPath } =
+    await resolveOwnerInstitution(institutionSlug, actorUserId, db);
+
+  assertCanSubmitTickRequest(verificationStatus, tickPath);
+
+  const emailDomainFlag = await deriveSubmitterEmailDomainFlag(institutionType, actorUserId, db);
+
+  const submissionId = await db.transaction(async (tx) => {
+    await acquireInstitutionSubmissionLock(tx, institutionId);
+
+    const [institution] = await tx
+      .select({
+        verificationStatus: institutions.verificationStatus,
+        nameProofDueAt: institutions.nameProofDueAt,
+      })
+      .from(institutions)
+      .where(eq(institutions.id, institutionId))
+      .limit(1);
+    if (!institution) {
+      throw new SubmissionError("institution_not_found", 404, "Institution not found");
+    }
+
+    await assertInstagramRequestAllowed(tx, { institutionId, ...institution });
+    await assertNoSubmissionAwaitingReview(tx, institutionId);
+
+    const [submissionRow] = await tx
+      .insert(institutionVerificationSubmissions)
+      .values({
+        institutionId,
+        submittedByUserId: actorUserId,
+        targetInstitutionType: institutionType,
+        emailDomainFlag,
+        requestedPath: "instagram",
+        instagramUrl,
+      })
+      .returning({ id: institutionVerificationSubmissions.id });
+    if (!submissionRow) {
+      throw new Error("Failed to create verification submission");
+    }
+    return submissionRow.id;
+  });
+
+  logger.info("institution.verification.instagram_request.created", {
+    submissionId,
+    institutionId,
+    institutionType,
+    actorUserId,
+  });
+
+  return { submissionId, documents: [] };
 };
 
 // Returns the submission history for an institution (owner-scoped).
@@ -494,7 +701,8 @@ export const reviewVerificationSubmission = async (
 ): Promise<{
   submissionId: string;
   status: VerificationSubmissionStatus;
-  emailDelivery: EmailDeliveryOutcome | null;
+  // Only an approval carries it: whether the submitter became a trusted host through the tick.
+  trustedSubmitter?: boolean;
 }> => {
   const reviewed = await db.transaction(async (tx) => {
     // THE ACTOR IS READ FIRST, FROM THE DATABASE, AND THE `actorRole` PARAMETER IS GONE
@@ -515,6 +723,7 @@ export const reviewVerificationSubmission = async (
         proposedDisplayName: institutionVerificationSubmissions.proposedDisplayName,
         status: institutionVerificationSubmissions.status,
         submittedByUserId: institutionVerificationSubmissions.submittedByUserId,
+        requestedPath: institutionVerificationSubmissions.requestedPath,
       })
       .from(institutionVerificationSubmissions)
       .where(eq(institutionVerificationSubmissions.id, submissionId))
@@ -535,8 +744,9 @@ export const reviewVerificationSubmission = async (
     const [inst] = await tx
       .select({
         id: institutions.id,
-        displayName: institutions.displayName,
         verificationStatus: institutions.verificationStatus,
+        tickPath: institutions.tickPath,
+        nameProofDueAt: institutions.nameProofDueAt,
       })
       .from(institutions)
       .where(eq(institutions.id, sub.institutionId))
@@ -608,38 +818,26 @@ export const reviewVerificationSubmission = async (
     // Held to the same rulebook as the admin table's own transitions, so the two paths cannot
     // disagree about what is legal. This matters now that no status is terminal: an approval racing
     // a revocation must be refused by whichever loses, not silently applied on top.
-    assertValidTransition(inst.verificationStatus, "verified");
-
-    const [verified] = await tx
-      .update(institutions)
-      .set({
-        verificationStatus: "verified",
-        verifiedAt: now,
-        updatedAt: sql`now()`,
-      })
-      .where(
-        and(
-          eq(institutions.id, sub.institutionId),
-          eq(institutions.verificationStatus, inst.verificationStatus),
-        ),
-      )
-      .returning({ id: institutions.id });
-
-    if (!verified) {
-      throw new SubmissionError(
-        "verification_transition_conflict",
-        409,
-        "This institution's verification status changed while you were reviewing. Reload and try again",
-      );
+    const isInstagramRequest = sub.requestedPath === "instagram";
+    if (isInstagramRequest) {
+      await assertInstagramRequestAllowed(tx, {
+        institutionId: sub.institutionId,
+        verificationStatus: inst.verificationStatus,
+        nameProofDueAt: inst.nameProofDueAt,
+      });
     }
 
-    // Write audit entry (mirrors verifyInstitution from verification-service.ts).
-    await tx.insert(institutionVerificationAudit).values({
+    const isPathMoveOnDomainTick =
+      inst.verificationStatus === "verified" && inst.tickPath === "domain";
+    if (!isPathMoveOnDomainTick) assertValidTransition(inst.verificationStatus, "verified");
+
+    await writeApprovedTick(tx, {
       institutionId: sub.institutionId,
-      actorUserId: actor.userId,
       fromStatus: inst.verificationStatus,
-      toStatus: "verified",
-      reason: reviewerNotes ?? null,
+      isPathMoveOnDomainTick,
+      requestedPath: sub.requestedPath,
+      actorUserId: actor.userId,
+      reviewerNotes,
     });
 
     // Mark submission approved.
@@ -648,72 +846,44 @@ export const reviewVerificationSubmission = async (
       .set({ status: "approved", reviewerUserId: actor.userId, reviewerNotes, reviewedAt: now })
       .where(eq(institutionVerificationSubmissions.id, submissionId));
 
+    const trustedSubmitter = await trustTickSubmitterInTransaction(tx, actor, {
+      institutionId: sub.institutionId,
+      submissionId,
+      submitterUserId: sub.submittedByUserId,
+      requestedPath: sub.requestedPath,
+    });
+
     logger.info("institution.verification.submission.approved", {
       submissionId,
       institutionId: sub.institutionId,
       reviewerUserId: actor.userId,
     });
 
-    // Verification never renames an institution, so the name read above is still the current one
-    // after the commit, and the owner notice can be composed from it without a second read.
     return {
       submissionId,
       status: "approved" as const,
       institutionId: sub.institutionId,
-      institutionDisplayName: inst.displayName,
+      trustedSubmitter,
     };
   });
 
   if (reviewed.status !== "approved") {
-    return { submissionId: reviewed.submissionId, status: reviewed.status, emailDelivery: null };
-  }
-
-  // Post-commit email dispatch — non-fatal, and awaited so the caller can be told the truth about
-  // it. Composed and awaited in one block after the transaction has committed: the send must not
-  // run inside the callback, which would hold a pooled Postgres connection open across a call to
-  // the email provider, and a promise created inside the callback would be left unhandled if the
-  // COMMIT itself failed.
-  //
-  // The owner lookup is wrapped with the send so a database error here cannot produce a 500 that
-  // makes the caller think the approval failed. Stays null when there is no owner to notify, which
-  // keeps "not attempted" distinguishable from "attempted and succeeded".
-  let emailDelivery: EmailDeliveryOutcome | null = null;
-
-  try {
-    const [ownerRow] = await db
-      .select({ email: users.email })
-      .from(institutionMemberships)
-      .innerJoin(users, eq(users.id, institutionMemberships.userId))
-      .where(
-        and(
-          eq(institutionMemberships.institutionId, reviewed.institutionId),
-          eq(institutionMemberships.membershipRole, OWNER_ROLE),
-          eq(institutionMemberships.status, ACTIVE_MEMBERSHIP),
-        ),
-      )
-      .orderBy(asc(institutionMemberships.createdAt))
-      .limit(1);
-
-    if (ownerRow) {
-      const resolvedName = reviewed.institutionDisplayName;
-
-      const emailTask = sendInstitutionVerifiedEmail({
-        toEmail: ownerRow.email,
-        institutionDisplayName: resolvedName,
-      });
-
-      emailDelivery = await awaitDeliveryAndReportFailure(emailTask, {
-        event: "institution.verification.submission.approved",
-        institutionId: reviewed.institutionId,
-      });
-    }
-  } catch (err: unknown) {
-    logger.error("institution.verification.submission.post_commit_lookup_failed", {
-      submissionId: reviewed.submissionId,
+    await enqueueTickNoticeAfterCommit({
       institutionId: reviewed.institutionId,
-      error: err instanceof Error ? err.message : String(err),
+      kind: "tick_request_turned_down",
+      ...(reviewerNotes === null ? {} : { reason: reviewerNotes }),
     });
+    return { submissionId: reviewed.submissionId, status: reviewed.status };
   }
 
-  return { submissionId: reviewed.submissionId, status: reviewed.status, emailDelivery };
+  await enqueueTickNoticeAfterCommit({
+    institutionId: reviewed.institutionId,
+    kind: "tick_granted",
+  });
+
+  return {
+    submissionId: reviewed.submissionId,
+    status: reviewed.status,
+    trustedSubmitter: reviewed.trustedSubmitter,
+  };
 };

@@ -12,6 +12,10 @@ import {
   getInstitutionWorkspaceForOwnerBySlug,
   updateInstitutionWorkspaceForOwnerBySlug,
 } from "@/server/institution-workspace/institution-service";
+import {
+  toVerificationErrorResponse,
+  VerificationError,
+} from "@/server/institution-verification/verification-core";
 
 export async function GET(
   _request: Request,
@@ -58,6 +62,10 @@ export async function PATCH(
   } catch (error) {
     if (error instanceof InstitutionWorkspaceInputError) {
       return toInstitutionWorkspaceInputErrorResponse(error);
+    }
+
+    if (error instanceof VerificationError) {
+      return toVerificationErrorResponse(error);
     }
 
     if (error instanceof SyntaxError) {

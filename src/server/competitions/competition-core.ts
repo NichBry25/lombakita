@@ -68,6 +68,7 @@ type CompetitionErrorCode =
   | "competition_organizer_contact_invalid"
   | "competition_organizer_contact_not_indonesian"
   | "competition_institution_not_verified"
+  | "competition_institution_name_check_pending"
   | "competition_recruiter_not_trusted"
   // The account already has an open host check on another draft.
   | "host_check_pending_other_draft"

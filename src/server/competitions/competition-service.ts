@@ -52,6 +52,7 @@ import {
   assertCompetitionHasAudience,
   assertCompetitionHasOrganizerContact,
   assertCompetitionRead,
+  assertInstitutionNameChecked,
   assertInstitutionNotSuspended,
   assertInstitutionVerified,
   assertPublicFieldsUnchangedByRemovedHost,
@@ -1077,6 +1078,7 @@ export const transitionCompetitionStatus = async (
 
     if (isPaidCompetition(pricing.feeAmount)) {
       await assertInstitutionVerified(competition.institutionId, db);
+      await assertInstitutionNameChecked(competition.institutionId, db);
     }
 
     // Last, so an untrusted host's press opens a host check only for a draft that passes every

@@ -64,6 +64,11 @@ const REASONS: Record<CompetitionPublishBlockerCode, PublishBlockerReason> = {
     text: "Kompetisi berbayar hanya dapat diterbitkan oleh institusi yang sudah terverifikasi.",
     link: { kind: "verification", label: "Ajukan verifikasi" },
   },
+  competition_institution_name_check_pending: {
+    code: "competition_institution_name_check_pending",
+    text: "Nama ruang kerja sedang diperiksa staf sebelum kompetisi berbayar pertama tayang. Perkiraan 1x24 jam pada hari kerja.",
+    link: null,
+  },
 };
 
 export const getPublishBlockerReason = (

@@ -1,0 +1,10 @@
+ALTER TABLE "institution_verification_submissions" ADD COLUMN "requested_path" "institution_tick_path" DEFAULT 'documents' NOT NULL;--> statement-breakpoint
+ALTER TABLE "institution_verification_submissions" ADD COLUMN "instagram_url" text;--> statement-breakpoint
+ALTER TABLE "institutions" ADD COLUMN "name_checked_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "institution_verification_submissions" ADD CONSTRAINT "institution_verification_submissions_requested_path_chk" CHECK ("institution_verification_submissions"."requested_path" IN ('instagram', 'documents'));--> statement-breakpoint
+ALTER TABLE "institution_verification_submissions" ADD CONSTRAINT "institution_verification_submissions_instagram_chk" CHECK (("institution_verification_submissions"."requested_path" = 'instagram') = ("institution_verification_submissions"."instagram_url" IS NOT NULL));--> statement-breakpoint
+ALTER TABLE "institutions" ADD CONSTRAINT "institutions_tick_path_verified_chk" CHECK ("institutions"."tick_path" IS NULL OR "institutions"."verification_status" = 'verified');--> statement-breakpoint
+ALTER TABLE "institutions" ADD CONSTRAINT "institutions_tick_domain_path_chk" CHECK ("institutions"."tick_domain" IS NULL OR "institutions"."tick_path" IS NOT DISTINCT FROM 'domain');--> statement-breakpoint
+ALTER TABLE "institutions" ADD CONSTRAINT "institutions_name_proof_path_chk" CHECK (("institutions"."name_proof_due_at" IS NULL AND "institutions"."name_checked_at" IS NULL) OR "institutions"."tick_path" IS NOT DISTINCT FROM 'domain');--> statement-breakpoint
+ALTER TABLE "institutions" ADD CONSTRAINT "institutions_name_proof_reminder_chk" CHECK ("institutions"."name_proof_reminded_at" IS NULL OR "institutions"."name_proof_due_at" IS NOT NULL);--> statement-breakpoint
+ALTER TABLE "institutions" ADD CONSTRAINT "institutions_name_check_or_proof_chk" CHECK ("institutions"."name_checked_at" IS NULL OR "institutions"."name_proof_due_at" IS NULL);

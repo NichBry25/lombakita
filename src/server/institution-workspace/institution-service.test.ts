@@ -21,6 +21,13 @@ vi.mock("@/server/host-trust/publish-trust", () => ({
   isHostTrustRemoved: vi.fn(async () => false),
 }));
 
+// The settings tests queue their select results in call order, so the competition ids read of a name
+// or slug change must not take one of them.
+vi.mock("@/server/search/institution-search-resync", () => ({
+  readCompetitionIdsOf: vi.fn(async () => []),
+  enqueueSearchSyncForCompetitions: vi.fn(),
+}));
+
 // Every create-path insert transaction now (1) acquires a per-owner advisory lock via tx.execute and
 // (2) re-counts the owner's institutions under that lock via tx.select before inserting (the true cap
 // guard). These helpers let each tx mock satisfy both without duplicating the thenable boilerplate.
@@ -564,6 +571,18 @@ describe("updateInstitutionWorkspaceForOwnerBySlug — slug editability by type"
     ...overrides,
   });
 
+  // The row the settings update reads under its lock, before it compares and writes anything.
+  const lockedRow = (overrides: Record<string, unknown>) => ({
+    displayName: null,
+    slug: "alice",
+    description: null,
+    verificationStatus: "pending_verification",
+    tickPath: null,
+    tickDomain: null,
+    nameProofDueAt: null,
+    ...overrides,
+  });
+
   const makeSettingsDb = (selectResults: unknown[][]) => {
     let idx = 0;
     const captured: { updatedSlug: string | null; updateCalls: number } = {
@@ -572,7 +591,7 @@ describe("updateInstitutionWorkspaceForOwnerBySlug — slug editability by type"
     };
     const node = (): Record<string, unknown> => {
       const n: Record<string, unknown> = {};
-      for (const m of ["from", "innerJoin", "leftJoin", "where", "limit"]) {
+      for (const m of ["from", "innerJoin", "leftJoin", "where", "limit", "for"]) {
         n[m] = () => node();
       }
       n.then = (resolve: (v: unknown) => void) => resolve(selectResults[idx++] ?? []);
@@ -587,6 +606,7 @@ describe("updateInstitutionWorkspaceForOwnerBySlug — slug editability by type"
           return { where: () => node() };
         },
       }),
+      transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(db),
     } as unknown as Database;
     return { db, captured };
   };
@@ -600,6 +620,7 @@ describe("updateInstitutionWorkspaceForOwnerBySlug — slug editability by type"
           institutionDisplayName: "Ruang Lama",
         }),
       ],
+      [lockedRow({ displayName: "Ruang Lama", slug: "ruang-lama" })],
       [], // institutionSlugCollidesWithUsername("ruang-baru") → no colliding username
       [], // UPDATE resolve
       [
@@ -632,6 +653,7 @@ describe("updateInstitutionWorkspaceForOwnerBySlug — slug editability by type"
           institutionDisplayName: "Kampus Lama",
         }),
       ],
+      [lockedRow({ displayName: "Kampus Lama", slug: "kampus-lama" })],
       [], // Fix D: institutionSlugCollidesWithUsername("kampus-baru") → no colliding username
       [], // UPDATE resolve
       [
@@ -667,6 +689,7 @@ describe("updateInstitutionWorkspaceForOwnerBySlug — slug editability by type"
           institutionDisplayName: "Kampus Lama",
         }),
       ],
+      [lockedRow({ displayName: "Kampus Lama", slug: "kampus-lama" })],
       [{ id: "user_alice" }], // Fix D probe: username "alice" already occupies this slot
     ]);
 
@@ -691,6 +714,7 @@ describe("updateInstitutionWorkspaceForOwnerBySlug — slug editability by type"
           institutionDisplayName: "Kampus Lama",
         }),
       ],
+      [lockedRow({ displayName: "Kampus Lama", slug: "kampus-lama" })],
       [{ id: "user_alice_bob" }], // username "alice_bob" occupies the slot slug "alice-bob" maps to
     ]);
 
@@ -728,10 +752,15 @@ describe("updateInstitutionWorkspaceForOwnerBySlug — slug editability by type"
       membershipStatus: "active",
       membershipJoinedAt: new Date("2026-06-08T00:00:00.000Z"),
     };
-    const selectResults: unknown[][] = [[ownerSeed], []]; // owner lookup; Fix D probe → no username collision
+    // owner lookup; the row read under the lock; Fix D probe → no username collision
+    const selectResults: unknown[][] = [
+      [ownerSeed],
+      [lockedRow({ displayName: "Kampus Lama", slug: "kampus-lama" })],
+      [],
+    ];
     const node = (): Record<string, unknown> => {
       const n: Record<string, unknown> = {};
-      for (const m of ["from", "innerJoin", "leftJoin", "where", "limit"]) {
+      for (const m of ["from", "innerJoin", "leftJoin", "where", "limit", "for"]) {
         n[m] = () => node();
       }
       n.then = (resolve: (v: unknown) => void) => resolve(selectResults[idx++] ?? []);
@@ -746,6 +775,7 @@ describe("updateInstitutionWorkspaceForOwnerBySlug — slug editability by type"
           },
         }),
       }),
+      transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(db),
     } as unknown as Database;
 
     await expect(
